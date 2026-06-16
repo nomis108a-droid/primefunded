@@ -12,17 +12,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Checkbox } from '@/components/ui/checkbox';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash
 } from 'lucide-react';
-import { Textarea } from '@/components/ui/textarea';
+import { fetchAdminTerminalData, registerMt5AccountAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
-import { doc, setDoc, collection, onSnapshot, query, orderBy, limit, updateDoc, serverTimestamp, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useBrandSettings } from '@/hooks/use-brand-settings';
-import { useAuth } from '@/context/AuthContext';
-import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -46,7 +42,6 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
 });
 
 export default function AdminPage() {
-  const { user } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
@@ -58,29 +53,20 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
-  const branding = useBrandSettings();
 
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-  const [isProofModalOpen, setIsProofModalOpen] = useState(false);
-  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
-  const [verifyForm, setVerifyVerifyForm] = useState({ login: '', password: '', server: 'MetaQuotes-Demo' });
-
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [isKycReviewOpen, setIsKycReviewOpen] = useState(false);
-  const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
-  const [isBreachModalOpen, setIsBreachModalOpen] = useState(false);
-  const [isPhaseModalOpen, setIsPhaseModalOpen] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState('');
-  
-  const [giftForm, setGiftForm] = useState({ plan: '1-Step Pro', size: '$100,000', login: '', password: '', server: 'MetaQuotes-Demo', note: '' });
-  const [breachForm, setBreachForm] = useState({ reason: 'Daily Drawdown Exceeded', note: '' });
-  const [phaseForm, setPhaseForm] = useState({ 
-    newPhase: 'evaluation', 
-    assignNewAccount: true,
+  // Provisioning Form State
+  const [provisionForm, setProvisionForm] = useState({
     login: '',
     password: '',
-    server: 'MetaQuotes-Demo'
+    displayLogin: '',
+    plan: '1-Step',
+    size: '100000',
+    userId: '',
+    phase: 'evaluation'
   });
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [provisionResult, setProvisionResult] = useState<{ docId: string, login: string } | null>(null);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -89,6 +75,21 @@ export default function AdminPage() {
     const savedTab = localStorage.getItem('admin_active_tab');
     if (savedTab) setActiveTab(savedTab);
   }, []);
+
+  const refreshData = async () => {
+    setIsLoading(true);
+    const res = await fetchAdminTerminalData();
+    if (res.success) {
+      setAdminData(res);
+    } else {
+      toast({ variant: "destructive", title: "Sync Error", description: res.error });
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) refreshData();
+  }, [isAuthenticated]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,268 +105,53 @@ export default function AdminPage() {
     }
   };
 
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    const unsubscribers: (() => void)[] = [];
-    const setupListener = (collName: string, setterKey: string, orderByField?: string) => {
-      const collRef = collection(db, collName);
-      const q = orderByField ? query(collRef, orderBy(orderByField, 'desc'), limit(500)) : query(collRef, limit(500));
-      const unsub = onSnapshot(q, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setAdminData((prev: any) => ({ ...prev, [setterKey]: data }));
-        setIsLoading(false);
-      });
-      unsubscribers.push(unsub);
-    };
-    setupListener('users', 'users', 'createdAt');
-    setupListener('orders', 'orders', 'submittedAt');
-    setupListener('payouts', 'payouts', 'date');
-    setupListener('referrals', 'referrals', 'createdAt');
-    setupListener('broadcasts', 'broadcasts', 'sentAt');
-    setupListener('breaches', 'breaches', 'breachedAt');
-    return () => unsubscribers.forEach(unsub => unsub());
-  }, [isAuthenticated]);
+  const filteredUsersForSearch = useMemo(() => {
+    if (!userSearchTerm) return [];
+    return adminData.users.filter((u: any) => 
+      u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()) || 
+      u.name?.toLowerCase().includes(userSearchTerm.toLowerCase())
+    ).slice(0, 5);
+  }, [adminData.users, userSearchTerm]);
+
+  const handleProvisionSubmit = async () => {
+    if (!/^\d+$/.test(provisionForm.login)) {
+      toast({ variant: "destructive", title: "Invalid Login", description: "MT5 Login must be digits only." });
+      return;
+    }
+    if (!provisionForm.userId) {
+      toast({ variant: "destructive", title: "User Required", description: "Please select a trader for this account." });
+      return;
+    }
+
+    setActionLoading(true);
+    const res = await registerMt5AccountAction({
+      ...provisionForm,
+      size: Number(provisionForm.size)
+    });
+
+    if (res.success) {
+      toast({ title: "Account Registered Successfully" });
+      setProvisionResult({ docId: res.docId!, login: provisionForm.login });
+      setProvisionForm({ login: '', password: '', displayLogin: '', plan: '1-Step', size: '100000', userId: '', phase: 'evaluation' });
+      setUserSearchTerm('');
+      setIsConfirmOpen(false);
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Provisioning Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
 
   const stats = useMemo(() => {
-    if (!adminData) return null;
     const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified');
     const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
-    const totalTraders = adminData.users.length;
-    
-    const giftedCount = adminData.users.filter((u: any) => u.isGifted === true).length;
-    const verifiedCount = verifiedOrders.length + giftedCount;
-    
-    const pendingOrders = adminData.orders.filter((o: any) => o.status === 'pending').length;
-    return { totalRevenue, totalTraders, verifiedCount, pendingOrders };
+    return { 
+      totalRevenue, 
+      totalTraders: adminData.users.length, 
+      verifiedCount: verifiedOrders.length,
+      pendingOrders: adminData.orders.filter((o: any) => o.status === 'pending').length 
+    };
   }, [adminData]);
-
-  const filteredUsers = useMemo(() => {
-    const queryStr = searchTerm.toLowerCase();
-    return adminData.users.filter((u: any) => u.name?.toLowerCase().includes(queryStr) || u.email?.toLowerCase().includes(queryStr) || u.uid?.toString().includes(searchTerm));
-  }, [adminData.users, searchTerm]);
-
-  const handleVerifyOrder = async () => {
-    if (!selectedOrder || !verifyForm.login || !verifyForm.password) return;
-    setActionLoading(true);
-    try {
-      const balanceValue = parseFloat(selectedOrder.accountSize?.replace(/[$,]/g, '') || '100000');
-      
-      await updateDoc(doc(db, 'orders', selectedOrder.id), { status: 'verified', verifiedAt: serverTimestamp() });
-      await updateDoc(doc(db, 'users', selectedOrder.userId), {
-        mt5Login: verifyForm.login,
-        mt5Password: verifyForm.password,
-        mt5Server: verifyForm.server,
-        accountPlan: selectedOrder.plan,
-        accountSize: selectedOrder.accountSize,
-        accountBalance: balanceValue,
-        accountActive: true,
-        accountStatus: "active",
-        currentPhase: "evaluation",
-        activatedAt: serverTimestamp()
-      });
-
-      await setDoc(doc(db, 'mt5_accounts', verifyForm.login), {
-        userId: selectedOrder.userId,
-        login: verifyForm.login,
-        balance: balanceValue,
-        equity: balanceValue,
-        status: 'active',
-        planType: selectedOrder.plan,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      // Add to phase history
-      await addDoc(collection(db, 'users', selectedOrder.userId, 'phaseHistory'), {
-        phase: "evaluation",
-        accountSize: selectedOrder.accountSize,
-        plan: selectedOrder.plan,
-        mt5Login: verifyForm.login,
-        advancedAt: serverTimestamp(),
-        advancedBy: "admin",
-        note: "Initial account provisioned via order verification"
-      });
-
-      await addDoc(collection(db, 'users', selectedOrder.userId, 'notifications'), {
-        title: "✅ Account Activated",
-        message: `Your ${selectedOrder.accountSize} account is ready! Check Credentials tab.`,
-        type: 'challenge_passed',
-        isRead: false,
-        createdAt: serverTimestamp()
-      });
-      toast({ title: "Order Verified", description: "Credentials provisioned." });
-      setIsVerifyModalOpen(false);
-    } catch (err) {
-      toast({ variant: "destructive", title: "Verification Failed" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleGiftAccount = async () => {
-    if (!selectedUser || !giftForm.login || !giftForm.password) return;
-    setActionLoading(true);
-    try {
-      const balanceValue = parseFloat(giftForm.size.replace(/[$,]/g, '') || '100000');
-
-      await updateDoc(doc(db, 'users', selectedUser.id), {
-        accountPlan: giftForm.plan,
-        accountSize: giftForm.size,
-        accountBalance: balanceValue,
-        accountActive: true,
-        accountStatus: "active",
-        currentPhase: "evaluation",
-        mt5Login: giftForm.login,
-        mt5Password: giftForm.password,
-        mt5Server: giftForm.server,
-        isGifted: true,
-        activatedAt: serverTimestamp()
-      });
-
-      await setDoc(doc(db, 'mt5_accounts', giftForm.login), {
-        userId: selectedUser.id,
-        login: giftForm.login,
-        balance: balanceValue,
-        equity: balanceValue,
-        status: 'active',
-        planType: giftForm.plan,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      // Add initial phase history
-      await addDoc(collection(db, 'users', selectedUser.id, 'phaseHistory'), {
-        phase: "evaluation",
-        accountSize: giftForm.size,
-        plan: giftForm.plan,
-        mt5Login: giftForm.login,
-        advancedAt: serverTimestamp(),
-        advancedBy: "admin",
-        note: "Institutional account gifted by administrator"
-      });
-
-      await addDoc(collection(db, 'users', selectedUser.id, 'notifications'), {
-        title: "🎁 Account Gifted",
-        message: `An institutional ${giftForm.size} account has been provisioned to your profile.`,
-        type: 'challenge_passed',
-        isRead: false,
-        createdAt: serverTimestamp()
-      });
-      toast({ title: "🎁 Account gifted successfully!" });
-      setIsGiftModalOpen(false);
-    } catch (err) {
-      toast({ variant: "destructive", title: "Gift Failed" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleManualBreach = async () => {
-    if (!selectedUser) return;
-    setActionLoading(true);
-    try {
-      const userRef = doc(db, 'users', selectedUser.id);
-      await updateDoc(userRef, {
-        accountStatus: 'breached',
-        accountActive: false,
-        breachType: 'hard',
-        breachReason: breachForm.reason,
-        breachedAt: serverTimestamp()
-      });
-
-      await addDoc(collection(db, 'breaches'), {
-        userId: selectedUser.id,
-        userEmail: selectedUser.email,
-        userName: selectedUser.name,
-        plan: selectedUser.accountPlan || 'Unknown',
-        breachType: 'hard',
-        breachReason: `${breachForm.reason}: ${breachForm.note}`,
-        breachedAt: serverTimestamp()
-      });
-
-      await addDoc(collection(db, 'users', selectedUser.id, 'notifications'), {
-        title: "🚨 Account Terminated",
-        message: `Your account has been breached: ${breachForm.reason}. ${breachForm.note}`,
-        type: 'hard_breach',
-        isRead: false,
-        createdAt: serverTimestamp()
-      });
-
-      toast({ title: "Account Terminated", description: "Breach logged successfully." });
-      setIsBreachModalOpen(false);
-    } catch (err) {
-      toast({ variant: "destructive", title: "Breach Failed" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleAdvancePhase = async () => {
-    if (!selectedUser) return;
-    setActionLoading(true);
-    try {
-      const updates: any = {
-        currentPhase: phaseForm.newPhase,
-        updatedAt: serverTimestamp()
-      };
-
-      if (phaseForm.assignNewAccount) {
-        // Archive current credentials if they exist
-        if (selectedUser.mt5Login) {
-          await addDoc(collection(db, 'users', selectedUser.id, 'previousAccounts'), {
-            login: selectedUser.mt5Login,
-            password: selectedUser.mt5Password,
-            server: selectedUser.mt5Server,
-            phase: selectedUser.currentPhase || 'evaluation',
-            retiredAt: serverTimestamp(),
-            status: 'retired'
-          });
-        }
-
-        updates.mt5Login = phaseForm.login;
-        updates.mt5Password = phaseForm.password;
-        updates.mt5Server = phaseForm.server;
-      }
-
-      const userRef = doc(db, 'users', selectedUser.id);
-      await updateDoc(userRef, updates);
-
-      await addDoc(collection(db, 'users', selectedUser.id, 'phaseHistory'), {
-        phase: phaseForm.newPhase,
-        accountSize: selectedUser.accountSize,
-        plan: selectedUser.accountPlan || 'Standard',
-        mt5Login: phaseForm.assignNewAccount ? phaseForm.login : (selectedUser.mt5Login || 'N/A'),
-        advancedAt: serverTimestamp(),
-        advancedBy: "admin",
-        note: `Advanced to ${phaseForm.newPhase} stage`
-      });
-
-      const message = phaseForm.assignNewAccount 
-        ? `🎉 You advanced to the ${phaseForm.newPhase} stage! New MT5 credentials have been issued. Your previous account is now inactive.`
-        : `🎉 Congratulations! You have been moved to the ${phaseForm.newPhase} phase. Check your dashboard for updates.`;
-
-      await addDoc(collection(db, 'users', selectedUser.id, 'notifications'), {
-        title: "🎉 Stage Advanced!",
-        message,
-        type: 'challenge_passed',
-        isRead: false,
-        createdAt: serverTimestamp()
-      });
-
-      toast({ title: "Phase Advanced", description: `${selectedUser.name} is now in ${phaseForm.newPhase}.` });
-      setIsPhaseModalOpen(false);
-    } catch (err) {
-      toast({ variant: "destructive", title: "Action Failed" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const getAvailablePhases = (plan?: string) => {
-    const p = plan?.toLowerCase() || '';
-    if (p.includes('1-step')) return ['evaluation', 'funded'];
-    if (p.includes('2-step')) return ['phase1', 'phase2', 'funded'];
-    if (p.includes('3-step')) return ['phase1', 'phase2', 'phase3', 'funded'];
-    return ['funded'];
-  };
 
   if (previewUserId) {
     return (
@@ -387,113 +173,228 @@ export default function AdminPage() {
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
             <div>
               <h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1>
-              <p className="text-muted-foreground text-sm">Monitor performance and manage institutional capital deployment.</p>
+              <p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p>
             </div>
-            <div className="relative md:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search trader..." className="pl-10 bg-secondary/50" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-            </div>
+            <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}
+              Refresh Data
+            </Button>
           </div>
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="font-bold">Overview</TabsTrigger>
+              <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
-              <TabsTrigger value="order_journal" className="font-bold">Order Journal</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
               <TabsTrigger value="breaches" className="font-bold">Breaches</TabsTrigger>
-              <TabsTrigger value="referrals" className="font-bold">Referrals</TabsTrigger>
-              <TabsTrigger value="payouts" className="font-bold">Payouts</TabsTrigger>
-              <TabsTrigger value="broadcast" className="font-bold">Broadcast</TabsTrigger>
-              <TabsTrigger value="branding" className="font-bold">Branding</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 pt-0 custom-scrollbar">
-          {activeTab === 'overview' && stats && (
+          {activeTab === 'overview' && (
             <div className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard title="Total Revenue" value={`$${stats.totalRevenue.toLocaleString()}`} icon={<DollarSign />} color="blue" />
                 <StatCard title="Total Traders" value={stats.totalTraders} icon={<Users />} color="purple" />
-                <StatCard title="Verified Challenges" value={stats.verifiedCount} icon={<Landmark />} color="green" />
-                <StatCard title="Pending Payments" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
+                <StatCard title="Verified Orders" value={stats.verifiedCount} icon={<Landmark />} color="green" />
+                <StatCard title="Pending Review" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
               </div>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                 <Card className="bg-card/30 border-border/50">
-                    <CardHeader><CardTitle className="text-lg font-bold text-white flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> Newest Traders</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                       <div className="divide-y divide-border/30">
-                          {adminData.users.slice(0, 4).map((u: any) => (
-                             <div key={u.id} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors">
-                                <div className="flex items-center gap-3">
-                                   <Avatar className="h-10 w-10 border border-white/10"><AvatarFallback>{u.name?.slice(0, 2).toUpperCase()}</AvatarFallback></Avatar>
-                                   <div><p className="font-bold text-white text-sm">{u.name}</p><p className="text-[10px] text-muted-foreground uppercase">{u.country || 'International'}</p></div>
-                                </div>
-                                <div className="text-right">
-                                   <p className="text-[10px] font-black text-primary uppercase tracking-widest">{u.tier || 'BRONZE'} TIER</p>
-                                   <p className="text-[10px] text-muted-foreground">{u.createdAt?.seconds ? new Date(u.createdAt.seconds * 1000).toLocaleDateString() : 'Today'}</p>
-                                </div>
-                             </div>
-                          ))}
-                       </div>
-                    </CardContent>
-                 </Card>
+            </div>
+          )}
 
-                 <Card className="bg-card/30 border-border/50">
-                    <CardHeader><CardTitle className="text-lg font-bold text-white flex items-center gap-2"><ShoppingCart className="w-5 h-5 text-primary" /> Latest Orders</CardTitle></CardHeader>
-                    <CardContent className="p-0">
-                       <div className="divide-y divide-border/30">
-                          {adminData.orders.slice(0, 4).map((o: any) => (
-                             <div key={o.id} className="p-4 flex items-center justify-between hover:bg-white/5 transition-colors">
-                                <div><p className="font-bold text-white text-sm">{o.accountSize} {o.plan}</p><p className="text-[10px] text-muted-foreground">{o.userName || o.email}</p></div>
-                                <div className="text-right">
-                                   <Badge variant={o.status === 'verified' ? 'default' : 'secondary'} className="text-[9px] font-black uppercase mb-1">{o.status}</Badge>
-                                   <p className="text-[10px] font-mono text-muted-foreground">${o.amountPaid || '0.00'}</p>
-                                </div>
-                             </div>
-                          ))}
-                       </div>
-                    </CardContent>
-                 </Card>
+          {activeTab === 'provisioning' && (
+            <div className="grid lg:grid-cols-2 gap-8">
+              <Card className="bg-card/40 border-primary/20">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Terminal className="w-5 h-5 text-primary" /> Register Manual MT5 Account
+                  </CardTitle>
+                  <CardDescription>Use this to link a manually created broker account to a user.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-2">
+                    <Label className="text-xs uppercase font-bold text-muted-foreground">1. Find Trader</Label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search by email or name..." 
+                        className="pl-10 bg-background/50" 
+                        value={userSearchTerm}
+                        onChange={e => setUserSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    {filteredUsersForSearch.length > 0 && (
+                      <div className="p-2 border border-border bg-secondary/30 rounded-lg space-y-1">
+                        {filteredUsersForSearch.map((u: any) => (
+                          <div 
+                            key={u.id} 
+                            onClick={() => {
+                              setProvisionForm({...provisionForm, userId: u.id});
+                              setUserSearchTerm(u.email);
+                            }}
+                            className={cn(
+                              "p-2 rounded cursor-pointer text-sm flex justify-between items-center transition-colors",
+                              provisionForm.userId === u.id ? "bg-primary text-black" : "hover:bg-white/5 text-white"
+                            )}
+                          >
+                            <span>{u.name} ({u.email})</span>
+                            <span className="text-[10px] font-mono opacity-50">{u.id.slice(0, 8)}...</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-white flex items-center gap-2"><Hash className="w-3 h-3 text-primary" /> MT5 Login</Label>
+                      <Input 
+                        placeholder="e.g. 756872410" 
+                        value={provisionForm.login}
+                        onChange={e => setProvisionForm({...provisionForm, login: e.target.value})}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-white flex items-center gap-2"><Key className="w-3 h-3 text-primary" /> MT5 Password</Label>
+                      <Input 
+                        type="password"
+                        placeholder="Trader password" 
+                        value={provisionForm.password}
+                        onChange={e => setProvisionForm({...provisionForm, password: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold text-muted-foreground">Display Login (Optional cosmetic ID)</Label>
+                    <Input 
+                      placeholder="Defaults to MT5 Login if blank"
+                      value={provisionForm.displayLogin}
+                      onChange={e => setProvisionForm({...provisionForm, displayLogin: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-white">Plan Type</Label>
+                      <Select 
+                        value={provisionForm.plan} 
+                        onValueChange={v => {
+                          const phase = v === 'Instant Funded' ? 'funded' : 'evaluation';
+                          setProvisionForm({...provisionForm, plan: v, phase});
+                        }}
+                      >
+                        <SelectTrigger className="bg-background/50"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {['1-Step', '2-Step', '3-Step', 'Instant Funded'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-white">Account Size</Label>
+                      <Select value={provisionForm.size} onValueChange={v => setProvisionForm({...provisionForm, size: v})}>
+                        <SelectTrigger className="bg-background/50"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {[5000, 10000, 25000, 50000, 100000, 200000, 300000].map(s => <SelectItem key={s} value={String(s)}>${s.toLocaleString()}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold text-white">Initial Phase</Label>
+                    <Select value={provisionForm.phase} onValueChange={v => setProvisionForm({...provisionForm, phase: v})}>
+                      <SelectTrigger className="bg-background/50"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="evaluation">Evaluation</SelectItem>
+                        <SelectItem value="funded">Funded (Live)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Button 
+                    className="w-full h-12 font-bold cyan-box-glow" 
+                    disabled={!provisionForm.login || !provisionForm.userId}
+                    onClick={() => setIsConfirmOpen(true)}
+                  >
+                    Register Account Link
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <div className="space-y-6">
+                {provisionResult && (
+                  <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
+                    <Card className="bg-emerald-500/10 border-emerald-500/30">
+                      <CardHeader>
+                        <CardTitle className="text-emerald-500 flex items-center gap-2"><CheckCircle2 /> Successfully Created</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        <div className="flex justify-between"><span>Doc ID:</span> <span className="font-mono text-white">{provisionResult.docId}</span></div>
+                        <div className="flex justify-between"><span>Login:</span> <span className="font-mono text-white">{provisionResult.login}</span></div>
+                        <p className="text-[10px] text-muted-foreground italic mt-4">Verified sync point created in mt5_accounts.</p>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
+                
+                <Card className="bg-secondary/20 border-border">
+                  <CardHeader><CardTitle className="text-sm">Provisioning Logs</CardTitle></CardHeader>
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-white/5 max-h-[300px] overflow-y-auto">
+                      {adminData.users.filter((u:any) => u.mt5Login).slice(0, 10).map((u:any) => (
+                        <div key={u.id} className="p-4 text-xs flex justify-between items-center">
+                          <div>
+                            <p className="font-bold text-white">{u.mt5Login}</p>
+                            <p className="text-muted-foreground opacity-50">{u.email}</p>
+                          </div>
+                          <Badge variant="outline" className="text-[9px]">{u.accountPlan}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
             </div>
           )}
 
           {activeTab === 'user_directory' && (
-            <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
-                        <tr><th className="py-4 px-6">Trader Name</th><th className="py-4 px-6">Email / Phone</th><th className="py-4 px-6">Referral Code</th><th className="py-4 px-6 text-right">Actions</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/30">
-                        {filteredUsers.map((u: any) => (
-                          <tr key={u.id} className="hover:bg-primary/5">
-                            <td className="py-4 px-6">
-                              <div className="flex items-center gap-3">
-                                <Avatar className="h-10 w-10"><AvatarFallback>{u.name?.slice(0, 2).toUpperCase()}</AvatarFallback></Avatar>
-                                <div><div className="font-bold text-white">{u.name}</div><div className="text-[10px] text-muted-foreground font-mono">UID: {u.uid || '--------'}</div></div>
-                              </div>
-                            </td>
-                            <td className="py-4 px-6"><div className="text-white">{u.email}</div><div className="text-xs text-muted-foreground">{u.phone || 'N/A'}</div></td>
-                            <td className="py-4 px-6"><Badge variant="outline" className="border-primary/30 text-primary uppercase font-mono">{u.referralCode || 'NONE'}</Badge></td>
-                            <td className="py-4 px-6 text-right space-x-2">
-                              <Button variant="ghost" size="sm" className="hover:bg-blue-500/10" onClick={() => { setSelectedUser(u); setPhaseForm({ ...phaseForm, newPhase: u.currentPhase || 'evaluation' }); setIsPhaseModalOpen(true); }} title="Manage Phase"><ShieldEllipsis className="w-4 h-4 text-blue-500" /></Button>
-                              <Button variant="ghost" size="sm" className="hover:bg-amber-500/10" onClick={() => { setSelectedUser(u); setIsGiftModalOpen(true); }} title="Gift Account"><Gift className="w-4 h-4 text-amber-500" /></Button>
-                              <Button variant="ghost" size="sm" className="hover:bg-destructive/10" onClick={() => { setSelectedUser(u); setIsBreachModalOpen(true); }} title="Breach Account"><Skull className="w-4 h-4 text-destructive" /></Button>
-                              <Button variant="ghost" size="sm" onClick={() => setPreviewUserId(u.id)}><Eye className="w-4 h-4" /></Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <Card className="bg-card/30 border-border/50">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                      <tr><th className="py-4 px-6">Trader Name</th><th className="py-4 px-6">Email / UID</th><th className="py-4 px-6">Linked Login</th><th className="py-4 px-6 text-right">Actions</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {adminData.users.filter((u: any) => u.name?.toLowerCase().includes(searchTerm.toLowerCase())).map((u: any) => (
+                        <tr key={u.id} className="hover:bg-primary/5">
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-10 w-10"><AvatarFallback>{u.name?.slice(0, 2).toUpperCase()}</AvatarFallback></Avatar>
+                              <div><div className="font-bold text-white">{u.name}</div><div className="text-[10px] text-muted-foreground uppercase">{u.tier || 'BRONZE'}</div></div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6"><div className="text-white">{u.email}</div><div className="text-xs text-muted-foreground font-mono">{u.id}</div></td>
+                          <td className="py-4 px-6">
+                            {u.mt5Login ? <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30">{u.mt5Login}</Badge> : <span className="text-muted-foreground italic text-xs">Unprovisioned</span>}
+                          </td>
+                          <td className="py-4 px-6 text-right space-x-2">
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              setProvisionForm({...provisionForm, userId: u.id});
+                              setUserSearchTerm(u.email);
+                              setActiveTab('provisioning');
+                            }}><Gift className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="sm" onClick={() => setPreviewUserId(u.id)}><Eye className="w-4 h-4" /></Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'breaches' && (
@@ -509,7 +410,7 @@ export default function AdminPage() {
                                  <tr key={b.id} className="hover:bg-destructive/5">
                                     <td className="py-3 px-4 font-bold text-white">{b.userName || b.userEmail}</td>
                                     <td className="py-3 px-4 text-xs text-muted-foreground">{b.breachReason}</td>
-                                    <td className="py-3 px-4 text-right text-[10px] text-muted-foreground">{b.breachedAt?.seconds ? new Date(b.breachedAt.seconds * 1000).toLocaleDateString() : 'N/A'}</td>
+                                    <td className="py-3 px-4 text-right text-[10px] text-muted-foreground">{b.breachedAt ? new Date(b.breachedAt).toLocaleDateString() : 'N/A'}</td>
                                  </tr>
                               ))}
                            </tbody>
@@ -518,142 +419,36 @@ export default function AdminPage() {
                      </div>
                   </CardContent>
                </Card>
-
-               <Card className="bg-amber-500/5 border-amber-500/20 h-fit">
-                  <CardHeader><CardTitle className="text-amber-500 flex items-center gap-2">🟡 SOFT BREACH - Performance Warning</CardTitle></CardHeader>
-                  <CardContent className="p-0">
-                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                           <thead className="bg-amber-500/10 text-amber-500 uppercase text-[10px] font-black"><tr><th className="py-3 px-4">Trader</th><th className="py-3 px-4">Reason</th><th className="py-3 px-4 text-right">Date</th></tr></thead>
-                           <tbody className="divide-y divide-white/5">
-                              {adminData.breaches.filter((b: any) => b.breachType === 'soft').map((b: any) => (
-                                 <tr key={b.id} className="hover:bg-amber-500/5">
-                                    <td className="py-3 px-4 font-bold text-white">{b.userName || b.userEmail}</td>
-                                    <td className="py-3 px-4 text-xs text-muted-foreground">{b.breachReason}</td>
-                                    <td className="py-3 px-4 text-right text-[10px] text-muted-foreground">{b.breachedAt?.seconds ? new Date(b.breachedAt.seconds * 1000).toLocaleDateString() : 'N/A'}</td>
-                                 </tr>
-                              ))}
-                           </tbody>
-                        </table>
-                        {adminData.breaches.filter((b: any) => b.breachType === 'soft').length === 0 && <div className="p-10 text-center text-muted-foreground italic text-xs">No soft warnings issued.</div>}
-                     </div>
-                  </CardContent>
-               </Card>
             </div>
           )}
         </div>
       </main>
 
-      {/* Phase Advancement Modal */}
-      <Dialog open={isPhaseModalOpen} onOpenChange={setIsPhaseModalOpen}>
-        <DialogContent className="bg-card border-blue-500/20">
+      {/* Provision Confirmation Modal */}
+      <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
+        <DialogContent className="bg-card border-primary/50">
           <DialogHeader>
-            <DialogTitle className="text-blue-500 flex items-center gap-2">
-              <Trophy className="w-5 h-5" /> Manage {selectedUser?.name}'s Phase
-            </DialogTitle>
-            <DialogDescription>Advance or regression of evaluation stages.</DialogDescription>
+            <DialogTitle className="text-primary">Confirm Provisioning</DialogTitle>
+            <DialogDescription>Please verify these institutional details carefully.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 pt-4">
-            <div className="grid grid-cols-2 gap-4 p-4 bg-secondary/20 rounded-xl border border-border">
-              <div><Label className="text-[10px] uppercase text-muted-foreground">Current Plan</Label><p className="text-sm font-bold text-white">{selectedUser?.accountPlan || 'N/A'}</p></div>
-              <div><Label className="text-[10px] uppercase text-muted-foreground">Current Phase</Label><p className="text-sm font-bold text-white uppercase">{selectedUser?.currentPhase || 'evaluation'}</p></div>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4 text-sm p-4 bg-secondary/30 rounded-xl">
+              <div className="space-y-1"><p className="text-[10px] uppercase text-muted-foreground font-bold">MT5 Login</p><p className="text-lg font-mono font-bold text-white">{provisionForm.login}</p></div>
+              <div className="space-y-1"><p className="text-[10px] uppercase text-muted-foreground font-bold">Trader Email</p><p className="text-white truncate">{userSearchTerm}</p></div>
+              <div className="space-y-1"><p className="text-[10px] uppercase text-muted-foreground font-bold">Plan</p><p className="text-white">{provisionForm.plan}</p></div>
+              <div className="space-y-1"><p className="text-[10px] uppercase text-muted-foreground font-bold">Balance</p><p className="text-white">${Number(provisionForm.size).toLocaleString()}</p></div>
             </div>
-
-            <div className="space-y-2">
-              <Label>Move to Phase</Label>
-              <Select value={phaseForm.newPhase} onValueChange={v => setPhaseForm({...phaseForm, newPhase: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {getAvailablePhases(selectedUser?.accountPlan).map(p => (
-                    <SelectItem key={p} value={p} className="uppercase">{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg flex gap-3 items-center">
+              <AlertTriangle className="text-destructive w-5 h-5 shrink-0" />
+              <p className="text-[10px] text-destructive-foreground font-bold leading-tight uppercase">This will immediately update the user's profile and enable the broker sync API for this Login ID.</p>
             </div>
-
-            <div className="flex items-center space-x-2 py-2">
-              <Checkbox 
-                id="assignNew" 
-                checked={phaseForm.assignNewAccount} 
-                onCheckedChange={(checked) => setPhaseForm({...phaseForm, assignNewAccount: !!checked})} 
-              />
-              <Label htmlFor="assignNew" className="text-xs">Assign new MT5 account for this phase</Label>
-            </div>
-
-            {phaseForm.assignNewAccount && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-2">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>New Login</Label><Input value={phaseForm.login} onChange={e => setPhaseForm({...phaseForm, login: e.target.value})} /></div>
-                  <div className="space-y-2"><Label>New Password</Label><Input value={phaseForm.password} onChange={e => setPhaseForm({...phaseForm, password: e.target.value})} /></div>
-                </div>
-                <div className="space-y-2"><Label>Server</Label><Input value={phaseForm.server} onChange={e => setPhaseForm({...phaseForm, server: e.target.value})} /></div>
-              </motion.div>
-            )}
           </div>
-          <DialogFooter className="mt-6">
-            <Button variant="ghost" onClick={() => setIsPhaseModalOpen(false)}>Cancel</Button>
-            <Button className="bg-blue-600 hover:bg-blue-700 font-bold" onClick={handleAdvancePhase} disabled={actionLoading}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Cancel</Button>
+            <Button className="bg-primary text-black font-bold px-8" onClick={handleProvisionSubmit} disabled={actionLoading}>
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Update Account Phase
+              Finalize Provisioning
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Gift Modal */}
-      <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
-        <DialogContent className="bg-card border-amber-500/20">
-          <DialogHeader><DialogTitle className="text-amber-500">🎁 Gift Account: {selectedUser?.name}</DialogTitle></DialogHeader>
-          <div className="space-y-4 pt-4">
-             <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>Plan</Label><Select value={giftForm.plan} onValueChange={v => setGiftForm({...giftForm, plan: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1-Step Pro">1-Step Pro</SelectItem><SelectItem value="2-Step Classic">2-Step Classic</SelectItem><SelectItem value="3-Step Classic">3-Step Classic</SelectItem><SelectItem value="Instant Funding">Instant Funding</SelectItem></SelectContent></Select></div>
-                <div className="space-y-2"><Label>Size</Label><Select value={giftForm.size} onValueChange={v => setGiftForm({...giftForm, size: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['$5,000', '$10,000', '$25,000', '$50,000', '$100,000', '$200,000', '$300,000'].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent></Select></div>
-             </div>
-             <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>MT5 Login</Label><Input value={giftForm.login} onChange={e => setGiftForm({...giftForm, login: e.target.value})} /></div>
-                <div className="space-y-2"><Label>Password</Label><Input value={giftForm.password} onChange={e => setGiftForm({...giftForm, password: e.target.value})} /></div>
-             </div>
-             <div className="space-y-2"><Label>MT5 Server</Label><Input value={giftForm.server} onChange={e => setGiftForm({...giftForm, server: e.target.value})} /></div>
-          </div>
-          <DialogFooter className="mt-6"><Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button><Button className="bg-amber-500 text-black font-bold" onClick={handleGiftAccount} disabled={actionLoading}>Gift Account</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Manual Breach Modal */}
-      <Dialog open={isBreachModalOpen} onOpenChange={setIsBreachModalOpen}>
-        <DialogContent className="bg-card border-destructive/20">
-          <DialogHeader>
-            <DialogTitle className="text-destructive flex items-center gap-2">
-              <Skull className="w-5 h-5" /> Manually breach {selectedUser?.name}'s account?
-            </DialogTitle>
-            <DialogDescription>This will immediately terminate the account and revoke MT5 credentials.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 pt-4">
-            <div className="space-y-2">
-              <Label>Primary Reason</Label>
-              <Select value={breachForm.reason} onValueChange={v => setBreachForm({...breachForm, reason: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Daily Drawdown Exceeded">Daily Drawdown Exceeded</SelectItem>
-                  <SelectItem value="Max Drawdown Exceeded">Max Drawdown Exceeded</SelectItem>
-                  <SelectItem value="Martingale Detected">Martingale Detected</SelectItem>
-                  <SelectItem value="Rule Violation">Rule Violation</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Custom Note / Evidence</Label>
-              <Textarea 
-                placeholder="Details of the violation..." 
-                value={breachForm.note} 
-                onChange={e => setBreachForm({...breachForm, note: e.target.value})}
-              />
-            </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <Button variant="ghost" onClick={() => setIsBreachModalOpen(false)}>Cancel</Button>
-            <Button variant="destructive" className="font-bold" onClick={handleManualBreach} disabled={actionLoading}>Confirm Hard Breach</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -670,8 +465,4 @@ export default function AdminPage() {
       </Dialog>
     </div>
   );
-}
-
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(' ');
 }
