@@ -9,7 +9,7 @@ import { Wallet, ArrowDownRight, History, Clock, AlertTriangle, ShieldCheck, XCi
 import { useAuth } from '@/context/AuthContext';
 import { useCollection, useFirestore } from '@/firebase';
 import { where, addDoc, collection, serverTimestamp, limit, orderBy } from 'firebase/firestore';
-import Link from 'link';
+import Link from 'next/link';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { sendPayoutRequestedEmail } from '@/lib/email';
