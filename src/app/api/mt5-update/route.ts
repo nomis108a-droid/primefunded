@@ -60,10 +60,8 @@ export async function POST(request: Request) {
     const accountData = accountDoc.data();
     const userId = accountData.userId;
 
-    // Check existing status
-    if (accountData.status === 'breached') {
-      return new Response(JSON.stringify({ status: "OK", note: "Account already breached" }), { status: 200 });
-    }
+    // Check existing status - still process updates but log if already breached
+    const isAlreadyBreached = accountData.status === 'breached';
 
     const currBalance = parseFloat(String(payload.balance)) || 0;
     const currEquity = parseFloat(String(payload.equity)) || 0;
@@ -75,46 +73,54 @@ export async function POST(request: Request) {
     const existingDateKey = accountData.lastDailyResetDate;
 
     if (!existingDateKey || existingDateKey !== todayKey) {
-      console.log(`[MT5-Sync] SESSION RESET for ${loginStr}. Boundary: ${todayKey}. New Baseline: ${currBalance}`);
+      // Baseline is current equity BEFORE this update (stored in DB)
+      dailyStartBalance = parseFloat(String(accountData.equity)) || initialBalance;
+      console.log(`[MT5-Sync] SESSION RESET for ${loginStr}. Boundary: ${todayKey}. New Baseline: ${dailyStartBalance}`);
+      
       await accountDoc.ref.update({
-        dailyStartBalance: currBalance,
+        dailyStartBalance: dailyStartBalance,
         lastDailyResetDate: todayKey
       });
-      dailyStartBalance = currBalance;
     }
 
     // --- 2. RULES EVALUATION ---
-    const planName = accountData.accountPlan || '1-Step Pro';
-    const phase = accountData.phase || 'evaluation';
-    const planKey = getPlanKey(planName);
-    
-    // Get plan-specific rules
-    const rules: PlanPhaseRules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
-
     let breachDetected = false;
     let breachReason = "";
 
-    // A. Daily Drawdown Check
-    const dailyLossLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
-    if (currEquity < dailyStartBalance - dailyLossLimit) {
-      breachDetected = true;
-      breachReason = `Daily drawdown: equity $${currEquity.toLocaleString()} fell below limit of $${(dailyStartBalance - dailyLossLimit).toLocaleString()} (allowed ${rules.dailyDrawdown}% of day-start $${dailyStartBalance.toLocaleString()})`;
-    }
+    if (!isAlreadyBreached) {
+      const planName = accountData.accountPlan || '1-Step Pro';
+      const phase = accountData.phase || 'evaluation';
+      const planKey = getPlanKey(planName);
+      
+      // Get plan-specific rules
+      const rules: PlanPhaseRules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-    // B. Max Drawdown Check
-    const maxLossLimit = initialBalance * (rules.maxDrawdown / 100);
-    if (!breachDetected && currEquity < initialBalance - maxLossLimit) {
-      breachDetected = true;
-      breachReason = `Maximum drawdown: equity $${currEquity.toLocaleString()} fell below plan limit of $${(initialBalance - maxLossLimit).toLocaleString()} (allowed ${rules.maxDrawdown}% of initial balance $${initialBalance.toLocaleString()})`;
-    }
-
-    // C. Max Floating Loss Check (Funded Accounts)
-    if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
-      const unrealizedLoss = currBalance > currEquity ? currBalance - currEquity : 0;
-      const floatingLimit = initialBalance * (rules.maxFloatingLoss / 100);
-      if (unrealizedLoss > floatingLimit) {
+      // A. Daily Drawdown Check
+      const dailyDrawdownLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
+      const dailyThreshold = dailyStartBalance - dailyDrawdownLimit;
+      if (currEquity < dailyThreshold) {
         breachDetected = true;
-        breachReason = `Max floating loss: unrealized loss $${unrealizedLoss.toLocaleString()} exceeded 1% threshold ($${floatingLimit.toLocaleString()}) of initial balance.`;
+        breachReason = `Daily drawdown: equity $${currEquity.toLocaleString()} fell below day-start threshold of $${dailyThreshold.toLocaleString()} (${rules.dailyDrawdown}% of $${dailyStartBalance.toLocaleString()})`;
+      }
+
+      // B. Max Drawdown Check
+      if (!breachDetected) {
+        const maxDrawdownLimit = initialBalance * (rules.maxDrawdown / 100);
+        const maxThreshold = initialBalance - maxDrawdownLimit;
+        if (currEquity < maxThreshold) {
+          breachDetected = true;
+          breachReason = `Maximum drawdown: equity $${currEquity.toLocaleString()} fell below plan limit of $${maxThreshold.toLocaleString()} (${rules.maxDrawdown}% of $${initialBalance.toLocaleString()})`;
+        }
+      }
+
+      // C. Max Floating Loss Check (Funded Accounts only)
+      if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
+        const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
+        const floatingLimit = initialBalance * (rules.maxFloatingLoss / 100);
+        if (floatingLoss > floatingLimit) {
+          breachDetected = true;
+          breachReason = `Max floating loss: unrealized loss $${floatingLoss.toLocaleString()} exceeded 1% threshold ($${floatingLimit.toLocaleString()}) of initial balance.`;
+        }
       }
     }
 
@@ -126,22 +132,24 @@ export async function POST(request: Request) {
     };
 
     if (breachDetected) {
-      console.error(`[RISK-ENGINE] Account ${loginStr} TERMINATED: ${breachReason}`);
+      console.error(`[RISK-ENGINE] Account ${loginStr} BREACHED: ${breachReason}`);
       updates.status = 'breached';
       updates.breachReason = breachReason;
       updates.breachedAt = FieldValue.serverTimestamp();
 
+      // Record breach in ledger
       await db.collection('breaches').add({
         userId,
         login: loginStr,
         userEmail: accountData.email || 'N/A',
         userName: accountData.name || 'N/A',
-        plan: planName,
-        phase,
+        plan: accountData.accountPlan || 'N/A',
+        phase: accountData.phase || 'N/A',
         breachReason,
         breachedAt: FieldValue.serverTimestamp()
       });
 
+      // Update main user profile status
       if (userId) {
         await db.collection('users').doc(userId).update({
           accountStatus: 'breached',
@@ -153,7 +161,7 @@ export async function POST(request: Request) {
 
     await accountDoc.ref.update(updates);
 
-    // Sync live metrics to User document for UI
+    // Sync live metrics to User document for UI visibility
     if (userId) {
       await db.collection('users').doc(userId).update({
         liveBalance: currBalance,
