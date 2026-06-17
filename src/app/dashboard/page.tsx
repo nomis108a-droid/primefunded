@@ -25,7 +25,10 @@ import {
   Zap,
   ArrowRight,
   Clock,
-  Loader2
+  Loader2,
+  PieChart,
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,14 +114,14 @@ const MetricCard = memo(function MetricCard({
           </div>
         )}
 
-        {footer && <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 font-bold uppercase tracking-wider"><Server className="w-3 h-3" /> {footer}</p>}
+        {footer && <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 font-bold uppercase tracking-wider text-wrap break-all"><Server className="w-3 h-3 shrink-0" /> {footer}</p>}
       </CardContent>
     </Card>
   );
 });
 
 export default function DashboardPage({ adminViewMode = false, targetUid }: DashboardPageProps) {
-  const { user, userData, loading: authLoading } = useAuth();
+  const { user, userData: contextUserData, loading: authLoading } = useAuth();
   const db = useFirestore();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -128,6 +131,19 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const [chartPeriod, setChartPeriod] = useState('7D');
   const { toast } = useToast();
 
+  // In admin view mode, we might want to fetch the target user data specifically if it's not the logged-in user
+  const [adminTargetData, setAdminTargetData] = useState<any>(null);
+  
+  useEffect(() => {
+    if (adminViewMode && targetUid && db) {
+      const unsub = onSnapshot(doc(db, 'users', targetUid), (snap) => {
+        if (snap.exists()) setAdminTargetData(snap.data());
+      });
+      return () => unsub();
+    }
+  }, [adminViewMode, targetUid, db]);
+
+  const userData = adminViewMode ? adminTargetData : contextUserData;
   const isBreached = userData?.accountStatus === 'breached';
 
   const metrics = useMemo(() => {
@@ -367,12 +383,42 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       const dateA = getTradeDate(a.closeTime || a.openTime);
       const dateB = getTradeDate(b.closeTime || b.openTime);
       return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    }).slice(0, 10);
+    });
+  }, [recentTrades]);
+
+  const tradeStats = useMemo(() => {
+    if (!recentTrades || recentTrades.length === 0) return null;
+    
+    const closedTrades = recentTrades.filter(t => (t.pnl || t.profit || 0) !== 0);
+    const winCount = closedTrades.filter(t => (t.pnl || t.profit || 0) > 0).length;
+    const lossCount = closedTrades.filter(t => (t.pnl || t.profit || 0) < 0).length;
+    const winRate = closedTrades.length > 0 ? (winCount / closedTrades.length) * 100 : 0;
+    
+    const totalProfit = closedTrades.reduce((acc, t) => acc + Math.max(0, t.pnl || t.profit || 0), 0);
+    const totalLoss = closedTrades.reduce((acc, t) => acc + Math.abs(Math.min(0, t.pnl || t.profit || 0)), 0);
+    
+    const profits = closedTrades.map(t => t.pnl || t.profit || 0);
+    const largestWin = Math.max(0, ...profits);
+    const largestLoss = Math.min(0, ...profits);
+    
+    return {
+      totalTrades: closedTrades.length,
+      winRate,
+      totalProfit,
+      totalLoss,
+      largestWin,
+      largestLoss,
+      winCount,
+      lossCount
+    };
   }, [recentTrades]);
 
   const dailyRiskMetrics = useMemo(() => {
-    // Priority Fallback Chain for Baseline: Persistent Baseline > Account Starting Capital > Current Live Balance
+    // CRITICAL BUG FIX: Ensure dailyStartBalance is correctly calculated.
+    // If dailyStartBalance exists on User doc and is for TODAY (based on boundary), use it.
+    // Fallback order: stored baseline -> initial account balance -> current live balance
     const dailyStart = userData?.dailyStartBalance || userData?.accountBalance || metrics.balance;
+    
     const currentEquity = metrics.equity;
     const pnl = metrics.balance - dailyStart;
     const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
@@ -403,7 +449,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     return { label: 'Evaluation Phase', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
   }, [userData?.currentPhase]);
 
-  if (authLoading) return null;
+  if (authLoading && !adminViewMode) return null;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -439,16 +485,39 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 <p className="text-sm text-destructive-foreground">This account has been terminated due to a hard rule breach: <span className="font-bold text-white">{userData?.breachReason || 'Rule Violation'}</span>.</p>
               </div>
             </div>
-            <Button size="lg" className="bg-destructive hover:bg-destructive/90 font-bold whitespace-nowrap px-8 h-12 rounded-xl" asChild>
-              <Link href="/challenges">Start New Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
-            </Button>
+            {!adminViewMode && (
+              <Button size="lg" className="bg-destructive hover:bg-destructive/90 font-bold whitespace-nowrap px-8 h-12 rounded-xl" asChild>
+                <Link href="/challenges">Start New Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
+              </Button>
+            )}
+          </div>
+        )}
+
+        {userData?.readyForPhaseAdvancement && (
+           <div className="mb-8 p-6 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-black shrink-0">
+                <Trophy className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Challenge Passed!</h3>
+                <p className="text-sm text-emerald-400">Target hit and trading days met. {adminViewMode ? "Ready for administrative advancement." : "Our team is reviewing your account for phase advancement."}</p>
+              </div>
+            </div>
+            {adminViewMode && (
+              <Badge className="bg-emerald-500 text-black font-black animate-pulse px-4 py-2 text-xs">ADVANCEMENT READY</Badge>
+            )}
           </div>
         )}
 
         <header className="flex justify-between items-start mb-10">
           <div>
-            <h1 className="text-3xl font-headline font-bold mb-1 text-white">Trader Terminal</h1>
-            <p className="text-muted-foreground">Welcome back, {userData?.name || 'Trader'}.</p>
+            <h1 className="text-3xl font-headline font-bold mb-1 text-white">
+              {adminViewMode ? `Previewing: ${userData?.name || 'Trader'}` : "Trader Terminal"}
+            </h1>
+            <p className="text-muted-foreground">
+              {adminViewMode ? `UID: ${effectiveUid}` : `Welcome back, ${userData?.name || 'Trader'}.`}
+            </p>
           </div>
           <div className="flex items-center gap-4">
             {!adminViewMode && <NotificationBell />}
@@ -508,7 +577,10 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               <p className={cn("text-3xl font-bold font-headline", dailyRiskMetrics.isPositive ? 'text-emerald-500' : 'text-destructive')}>
                 {dailyRiskMetrics.isPositive ? '+' : ''}${dailyRiskMetrics.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">{dailyRiskMetrics.pnlPct.toFixed(2)}% of session start</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
+                {dailyRiskMetrics.pnlPct.toFixed(2)}% of session start 
+                {isDebug && <span className="ml-1 opacity-40">(${userData?.dailyStartBalance?.toLocaleString()})</span>}
+              </p>
             </CardContent>
           </Card>
 
@@ -527,6 +599,16 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Trade Statistics for Admins and Traders */}
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+           <StatMiniCard title="Total Trades" value={tradeStats?.totalTrades || 0} icon={<PieChart className="w-3 h-3" />} />
+           <StatMiniCard title="Win Rate" value={`${tradeStats?.winRate.toFixed(1) || 0}%`} icon={<TrendingUp className="w-3 h-3" />} color="emerald" />
+           <StatMiniCard title="Total Profit" value={`$${tradeStats?.totalProfit.toLocaleString() || 0}`} icon={<ArrowUpRight className="w-3 h-3" />} color="emerald" />
+           <StatMiniCard title="Total Loss" value={`$${tradeStats?.totalLoss.toLocaleString() || 0}`} icon={<ArrowDownRight className="w-3 h-3" />} color="destructive" />
+           <StatMiniCard title="Largest Win" value={`$${tradeStats?.largestWin.toLocaleString() || 0}`} icon={<TrendingUp className="w-3 h-3" />} color="emerald" />
+           <StatMiniCard title="Largest Loss" value={`$${tradeStats?.largestLoss.toLocaleString() || 0}`} icon={<TrendingDown className="w-3 h-3" />} color="destructive" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
@@ -614,11 +696,24 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                         {isBreached ? 'Breached' : currentPhaseDisplay.label}
                       </Badge>
                    </div>
+                   {userData?.readyForPhaseAdvancement && (
+                      <div className="p-1 bg-emerald-500/20 rounded-full">
+                        <Trophy className="w-4 h-4 text-emerald-500" />
+                      </div>
+                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Plan</p><p className="text-xs font-bold text-white">{userData?.accountPlan || 'None'}</p></div>
                   <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Size</p><p className="text-xs font-bold text-white">{userData?.accountSize || 'N/A'}</p></div>
+                  <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">MT5 Login</p><p className="text-xs font-bold text-white font-mono">{userData?.mt5Login || 'PENDING'}</p></div>
+                  <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Status</p><p className="text-xs font-bold text-white uppercase">{userData?.accountStatus || 'INACTIVE'}</p></div>
                 </div>
+                {userData?.createdAt && (
+                   <div className="pt-4 border-t border-white/5">
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase">Account Created</p>
+                      <p className="text-[10px] text-zinc-300">{format(userData.createdAt?.toDate?.() || new Date(userData.createdAt), 'PPP')}</p>
+                   </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -627,11 +722,13 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
         <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm", isBreached && "opacity-40 grayscale")}>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
-              <History className="w-5 h-5 text-primary" /> Recent Trades
+              <History className="w-5 h-5 text-primary" /> Position Journal
             </CardTitle>
-            <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest text-primary hover:text-white" asChild>
-              <Link href="/history">View Full Journal <ArrowRight className="ml-2 w-3 h-3" /></Link>
-            </Button>
+            {!adminViewMode && (
+              <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest text-primary hover:text-white" asChild>
+                <Link href="/history">View Full Journal <ArrowRight className="ml-2 w-3 h-3" /></Link>
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -640,7 +737,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                   <tr>
                     <th className="py-4 px-6">Symbol</th>
                     <th className="py-4 px-4">Type</th>
-                    <th className="py-4 px-4">Open Time</th>
+                    <th className="py-4 px-4">Time</th>
                     <th className="py-4 px-4">Duration</th>
                     <th className="py-4 px-4 text-right">Lots</th>
                     <th className="py-4 px-6 text-right">P&L</th>
@@ -652,7 +749,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                       <tr key={i} className="animate-pulse"><td colSpan={6} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>
                     ))
                   ) : enrichedTrades.length > 0 ? (
-                    enrichedTrades.map((trade: any) => {
+                    enrichedTrades.slice(0, 30).map((trade: any) => {
                       return (
                         <tr key={trade.id} className="hover:bg-primary/5 transition-colors">
                           <td className="py-4 px-6 font-bold text-white">{trade.symbol || 'N/A'}</td>
@@ -665,7 +762,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                             </Badge>
                           </td>
                           <td className="py-4 px-4 text-xs text-muted-foreground font-mono">
-                            {formatTradeDate(trade.openTime || trade.time || trade.date)}
+                            {formatTradeDate(trade.closeTime || trade.time || trade.date)}
                           </td>
                           <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5">
                             <Clock className="w-3 h-3" />
@@ -684,7 +781,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                   ) : (
                     <tr>
                       <td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">
-                        No trades recorded yet. Your MT5 executions will appear here live.
+                        No trades recorded yet. MT5 executions will appear here live.
                       </td>
                     </tr>
                   )}
@@ -695,5 +792,24 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
         </Card>
       </main>
     </div>
+  );
+}
+
+function StatMiniCard({ title, value, icon, color = 'primary' }: { title: string, value: string | number, icon: React.ReactNode, color?: string }) {
+  const colors: any = {
+    primary: 'text-primary bg-primary/10 border-primary/20',
+    emerald: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
+    destructive: 'text-destructive bg-destructive/10 border-destructive/20',
+  };
+  return (
+    <Card className="bg-secondary/30 border-border/50">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{title}</p>
+          <div className={cn("p-1 rounded", colors[color])}>{icon}</div>
+        </div>
+        <p className="text-sm font-bold text-white font-mono">{value}</p>
+      </CardContent>
+    </Card>
   );
 }

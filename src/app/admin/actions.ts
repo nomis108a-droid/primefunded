@@ -227,6 +227,7 @@ export async function registerMt5AccountAction(data: {
       equity: data.size,
       phase: data.phase,
       status: "active",
+      dailyStartBalance: data.size, // FIX: Initialize baseline for risk engine
       dailyDrawdownPct: 0,
       maxDrawdownPct: 0,
       createdAt: FieldValue.serverTimestamp(),
@@ -246,6 +247,7 @@ export async function registerMt5AccountAction(data: {
       currentPhase: data.phase,
       liveBalance: data.size,
       liveEquity: data.size,
+      dailyStartBalance: data.size, // FIX: Initialize baseline for dashboard P&L
       mt5Login: data.login,
       mt5Password: data.password,
       mt5Server: "MetaQuotes-Demo",

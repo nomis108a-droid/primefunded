@@ -1,4 +1,3 @@
-
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey, type PlanPhaseRules } from '@/lib/rulesConfig';
@@ -72,6 +71,7 @@ export async function POST(request: Request) {
     let dailyStartBalance = parseFloat(String(accountData.dailyStartBalance)) || initialBalance;
     const existingDateKey = accountData.lastDailyResetDate;
 
+    let sessionWasReset = false;
     if (!existingDateKey || existingDateKey !== todayKey) {
       // Baseline is current equity BEFORE this update (stored in DB)
       dailyStartBalance = parseFloat(String(accountData.equity)) || initialBalance;
@@ -81,6 +81,7 @@ export async function POST(request: Request) {
         dailyStartBalance: dailyStartBalance,
         lastDailyResetDate: todayKey
       });
+      sessionWasReset = true;
     }
 
     // --- 2. RULES EVALUATION ---
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
       }
 
       // C. Max Floating Loss Check (Funded Accounts only)
-      if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
+      if (!breachDetected && (phase === 'funded' || phase === 'live') && rules.maxFloatingLoss) {
         const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
         const floatingLimit = initialBalance * (rules.maxFloatingLoss / 100);
         if (floatingLoss > floatingLimit) {
@@ -163,11 +164,19 @@ export async function POST(request: Request) {
 
     // Sync live metrics to User document for UI visibility
     if (userId) {
-      await db.collection('users').doc(userId).update({
+      const userUpdates: any = {
         liveBalance: currBalance,
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp(),
-      });
+      };
+      
+      // CRITICAL FIX: Always keep User record's dailyStartBalance in sync for Dashboard P&L
+      if (sessionWasReset || !accountData.dailyStartBalance) {
+        userUpdates.dailyStartBalance = dailyStartBalance;
+        userUpdates.dailyStartBalanceDate = todayKey;
+      }
+
+      await db.collection('users').doc(userId).update(userUpdates);
     }
 
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
