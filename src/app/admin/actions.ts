@@ -7,7 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getPlanKey, RULES_CONFIG } from '@/lib/rulesConfig';
 import { enrichTrades, getTradeDate } from '@/lib/tradeUtils';
 
-const AUDIT_VERSION = "2024-06-18-AUDIT-VERIFY-100";
+const AUDIT_VERSION = "2024-06-18-AUDIT-VERIFY-101";
 
 /**
  * Initializes the Firebase Admin SDK for administrative operations.
@@ -68,7 +68,7 @@ export async function probeInstitutionalConnectionAction() {
 
 /**
  * Institutional Retroactive Risk Auditor
- * Optimized to catch historical violations across any session.
+ * Optimized to catch historical violations across any session and persist to ledger.
  */
 export async function runRetroactiveRiskAuditAction() {
   console.log(`>>> [AUDIT-ENTRY] Invoked at ${new Date().toISOString()}`);
@@ -92,30 +92,25 @@ export async function runRetroactiveRiskAuditAction() {
       const data = doc.data();
       const login = String(data.login || doc.id);
       
-      // Support multiple field name variations for user linkage
+      // Field-agnostic user and balance resolution
       const userId = data.userId || data.uid || data.user_id;
-      
-      // Support multiple field name variations for initial balance
       const initialBalance = parseFloat(String(data.accountBalance || data.startingBalance || data.balance || 0));
       
-      // LOG RAW DATA FOR DEBUGGING
-      console.log(`>>> [AUDIT-LOOP] Checking: ${login} | ID: ${doc.id} | User: ${userId} | Balance: ${initialBalance}`);
+      console.log(`>>> [AUDIT-LOOP] Checking: ${login} | User: ${userId} | Balance: ${initialBalance}`);
 
       if (!userId || initialBalance <= 0) {
-        const skipReason = !userId ? "Missing userId field on account document" : "Balance field is zero or missing";
-        console.warn(`>>> [AUDIT-SKIP] Skipping ${login}: ${skipReason}`);
+        const skipReason = !userId ? "Missing userId field" : "Invalid balance value";
         auditData.push({ 
           login, 
           skipped: true, 
           reason: skipReason,
-          debug_fields: Object.keys(data),
           raw_data_snapshot: data 
         });
         continue;
       }
 
       // FETCH TRADES
-      console.log(`>>> [AUDIT-TRADES] Fetching positions for User ${userId}...`);
+      console.log(`>>> [AUDIT-TRADES] Fetching trades for User ${userId}...`);
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       console.log(`>>> [AUDIT-TRADES-RESULT] Found ${rawTrades.length} trades for ${login}`);
@@ -123,7 +118,7 @@ export async function runRetroactiveRiskAuditAction() {
       // CALCULATION: Rule Thresholds
       const threshold3Pct = initialBalance * 0.03;
       
-      // ENFORCEMENT: Reconstruct positions using shared logic
+      // ENFORCEMENT
       const enriched = enrichTrades(rawTrades, login);
       let breached = false;
       let reason = "";
@@ -151,7 +146,6 @@ export async function runRetroactiveRiskAuditAction() {
         login, 
         initialBalanceUsed: initialBalance, 
         totalTrades: rawTrades.length,
-        thresholdCalculated: threshold3Pct,
         breachDetected: breached,
         reason: breached ? reason : "Compliant"
       });
@@ -162,19 +156,32 @@ export async function runRetroactiveRiskAuditAction() {
         console.log(`>>> [AUDIT-ENFORCE] VIOLATION DETECTED for ${login}: ${reason}`);
         
         try {
+          // 1. Update MT5 Account Status
           await doc.ref.update({ 
             status: 'breached', 
             breachReason: reason, 
             breachedAt: FieldValue.serverTimestamp() 
           });
           
+          // 2. Update User Profile Status
           await db.collection('users').doc(userId).update({ 
             accountStatus: 'breached', 
             breachReason: reason, 
             breachedAt: FieldValue.serverTimestamp() 
           });
 
-          console.log(`>>> [AUDIT-WRITE-SUCCESS] Firestore updated for ${login}`);
+          // 3. Create Entry in Breaches Ledger (CRITICAL: For Admin UI)
+          await db.collection('breaches').add({
+            userId,
+            userName: data.name || 'Trader',
+            userEmail: data.email || 'N/A',
+            login: login,
+            breachType: 'hard',
+            breachReason: reason,
+            breachedAt: FieldValue.serverTimestamp()
+          });
+
+          console.log(`>>> [AUDIT-WRITE-SUCCESS] Firestore records updated for ${login}`);
         } catch (writeErr: any) {
           console.error(`>>> [AUDIT-WRITE-FAIL] Failed to update ${login}: ${writeErr.message}`);
         }
