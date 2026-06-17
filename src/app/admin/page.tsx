@@ -454,7 +454,7 @@ export default function AdminPage() {
                         <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div>
                       ) : (
                         recentActivity.map((act) => (
-                          <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
+                          <div className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
                             <div className={cn(
                               "p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110",
                               act.color === 'purple' && "bg-purple-500/10 border-purple-500/20",
@@ -791,7 +791,9 @@ export default function AdminPage() {
                       <Select 
                         value={provisionForm.plan} 
                         onValueChange={v => {
-                          const phase = v === 'Instant Funded' ? 'funded' : 'evaluation';
+                          let phase = 'evaluation';
+                          if (v === 'Instant Funded') phase = 'funded';
+                          else if (v === '2-Step' || v === '3-Step') phase = 'phase1';
                           setProvisionForm({...provisionForm, plan: v, phase});
                         }}
                       >
@@ -812,16 +814,32 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label className="text-xs font-bold text-white">Initial Phase</Label>
-                    <Select value={provisionForm.phase} onValueChange={v => setProvisionForm({...provisionForm, phase: v})}>
-                      <SelectTrigger className="bg-background/50"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="evaluation">Evaluation</SelectItem>
-                        <SelectItem value="funded">Funded (Live)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {provisionForm.plan !== 'Instant Funded' && (
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-white">Initial Phase</Label>
+                      <Select value={provisionForm.phase} onValueChange={v => setProvisionForm({...provisionForm, phase: v})}>
+                        <SelectTrigger className="bg-background/50"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {provisionForm.plan === '1-Step' && (
+                            <SelectItem value="evaluation">Evaluation</SelectItem>
+                          )}
+                          {provisionForm.plan === '2-Step' && (
+                            <>
+                              <SelectItem value="phase1">Evaluation - Phase 1</SelectItem>
+                              <SelectItem value="phase2">Evaluation - Phase 2</SelectItem>
+                            </>
+                          )}
+                          {provisionForm.plan === '3-Step' && (
+                            <>
+                              <SelectItem value="phase1">Evaluation - Phase 1</SelectItem>
+                              <SelectItem value="phase2">Evaluation - Phase 2</SelectItem>
+                              <SelectItem value="phase3">Evaluation - Phase 3</SelectItem>
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
                   <Button 
                     className="w-full h-12 font-bold cyan-box-glow" 
