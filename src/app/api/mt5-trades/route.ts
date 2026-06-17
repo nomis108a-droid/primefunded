@@ -1,5 +1,7 @@
+
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -22,47 +24,67 @@ function getAdminDb() {
   return getFirestore();
 }
 
-async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trades: any[]) {
+async function evaluateTradeRules(db: any, userId: string, accountDoc: any, tradesFromPayload: any[]) {
   const accountData = accountDoc.data();
-  const initialBalance = parseFloat(String(accountData.accountBalance || 100000));
+  const initialBalance = parseFloat(String(accountData.accountBalance));
+  
+  // FIX: Explicit field validation, NO silent fallback.
+  if (!initialBalance || isNaN(initialBalance)) {
+    console.error(`[RiskEngine] CRITICAL: Cannot evaluate risk for account ${accountData.login}. Missing/Invalid 'accountBalance' field.`);
+    return { breached: false };
+  }
+
   const tradesRef = db.collection('users').doc(userId).collection('trades');
   
-  const sortedNewTrades = [...trades].sort((a, b) => (a.openTime || 0) - (b.openTime || 0));
+  // Fetch full trade history for matching entry/exit pairs
+  const allTradesSnap = await tradesRef.get();
+  const allTradesRaw = allTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  
+  // Use SHARED logic to match deals and calculate duration
+  const enriched = enrichTrades(allTradesRaw, accountData.login);
+  
+  // We evaluate the rules specifically for the trades that just came in
+  const incomingTickets = new Set(tradesFromPayload.map(t => String(t.ticket)));
+  const relevantTrades = enriched.filter(t => incomingTickets.has(String(t.id)));
 
-  for (const trade of sortedNewTrades) {
-    const profit = trade.profit || 0;
-    const duration = trade.duration || (trade.time && trade.openTime ? trade.time - trade.openTime : null);
-    const openTime = trade.openTime || 0;
-    const ticket = trade.ticket;
+  // Collect all trade opens for frequency check
+  const sortedOpens = enriched
+    .filter(t => t.openTime)
+    .sort((a, b) => getTradeDate(a.openTime)!.getTime() - getTradeDate(b.openTime)!.getTime());
+
+  for (const trade of relevantTrades) {
+    const profit = trade.pnl || 0;
+    const durationSec = trade.durationSeconds;
+    const openTimeSec = getTradeDate(trade.openTime)?.getTime() / 1000 || 0;
+    const ticket = trade.id;
     const symbol = trade.symbol;
-    const volume = trade.volume || 0;
+    const volume = trade.lots || 0;
 
-    // 1. Max Single Trade Loss (3%)
-    if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
+    // 1. Max Single Trade Loss (3% of INITIAL)
+    const limit3Pct = initialBalance * 0.03;
+    if (profit < 0 && Math.abs(profit) > limit3Pct) {
       return {
         breached: true,
-        reason: `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${(initialBalance * 0.03).toFixed(2)} (Ticket: ${ticket})`
+        reason: `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${limit3Pct.toFixed(2)} on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`
       };
     }
 
     // 2. Min Trade Duration (120s)
-    if (duration !== null && duration < 120 && profit !== 0) {
-      return {
-        breached: true,
-        reason: `Trade duration violation: position closed in ${duration} seconds, minimum hold time is 120 seconds (Ticket: ${ticket})`
-      };
+    if (trade.closeTime && trade.matched) {
+      if (durationSec < 120 && profit !== 0) {
+        return {
+          breached: true,
+          reason: `Trade duration violation: position closed in ${durationSec} seconds, minimum hold time is 120 seconds (Ticket: ${ticket})`
+        };
+      }
     }
 
-    // 3. Max Execution Frequency (180s)
-    const prevTradeQuery = await tradesRef
-      .where('openTime', '<', openTime)
-      .orderBy('openTime', 'desc')
-      .limit(1)
-      .get();
-
-    if (!prevTradeQuery.empty) {
-      const prevData = prevTradeQuery.docs[0].data();
-      const diff = openTime - prevData.openTime;
+    // 3. Max Execution Frequency (180s between OPENS)
+    const currentIndex = sortedOpens.findIndex(t => String(t.id) === String(ticket));
+    if (currentIndex > 0) {
+      const prevTrade = sortedOpens[currentIndex - 1];
+      const prevOpenTimeSec = getTradeDate(prevTrade.openTime)!.getTime() / 1000;
+      const diff = openTimeSec - prevOpenTimeSec;
       if (diff > 0 && diff < 180) {
         return {
           breached: true,
@@ -71,22 +93,21 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       }
     }
 
-    // 4. Martingale Detection (HARD Breach)
-    const fifteenMinsAgo = openTime - 900;
-    const sameSymbolQuery = await tradesRef
-      .where('symbol', '==', symbol)
-      .where('openTime', '>=', fifteenMinsAgo)
-      .where('openTime', '<', openTime)
-      .orderBy('openTime', 'desc')
-      .limit(1)
-      .get();
+    // 4. Martingale Detection (HARD)
+    if (trade.matched && profit < 0) {
+      const fifteenMinsLater = openTimeSec + 900;
+      const martingaleTrigger = sortedOpens.find(t => 
+        t.symbol === symbol && 
+        String(t.id) !== String(ticket) &&
+        (getTradeDate(t.openTime)!.getTime() / 1000) > openTimeSec &&
+        (getTradeDate(t.openTime)!.getTime() / 1000) <= fifteenMinsLater &&
+        t.lots > volume
+      );
 
-    if (!sameSymbolQuery.empty) {
-      const prevSymbolData = sameSymbolQuery.docs[0].data();
-      if ((prevSymbolData.pnl || prevSymbolData.profit || 0) < 0 && volume > prevSymbolData.volume) {
+      if (martingaleTrigger) {
         return {
           breached: true,
-          reason: `Martingale lot scaling detected: lot size increased after a loss on ${symbol} within 15 minutes`
+          reason: `Martingale lot scaling detected: lot size increased from ${volume} to ${martingaleTrigger.lots} after a loss on ${symbol} within 15 minutes (Ticket: ${ticket} -> ${martingaleTrigger.id})`
         };
       }
     }
@@ -137,7 +158,7 @@ export async function POST(request: Request) {
     }
     await batch.commit();
 
-    // 2. Recalculate dailyClosedLosses for the session
+    // 2. Recalculate dailyClosedLosses
     const todayKey = getTradingDayKey(new Date());
     const sessionStartTime = Math.floor(new Date(todayKey + 'T02:00:00Z').getTime() / 1000);
     
@@ -153,15 +174,13 @@ export async function POST(request: Request) {
     });
 
     await accountDoc.ref.update({ dailyClosedLosses: dailyLossTotal });
-    
-    // Synchronize to User document for real-time dashboard display
     if (userId) {
       await db.collection('users').doc(userId).update({ 
         dailyClosedLosses: dailyLossTotal 
       });
     }
 
-    // 3. Evaluate Risk Rules
+    // 3. Evaluate Risk Rules (Using SHARED matching logic)
     if (accountData.status !== 'breached') {
       const riskCheck = await evaluateTradeRules(db, userId, accountDoc, trades);
       if (riskCheck.breached) {

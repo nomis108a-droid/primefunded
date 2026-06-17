@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
@@ -26,8 +27,9 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 import { useCollection, useFirestore } from '@/firebase';
 import { orderBy, where, limit, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { format, isWithinInterval, startOfDay, endOfDay, differenceInSeconds } from 'date-fns';
+import { format, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 
 export default function HistoryPage() {
   const { user, userData } = useAuth();
@@ -51,139 +53,13 @@ export default function HistoryPage() {
     [orderBy('advancedAt', 'desc')]
   );
 
-  // Auto-repair missing initial phase history for active accounts
-  useEffect(() => {
-    if (user && userData?.accountStatus === 'active' && !phasesLoading && phaseHistory.length === 0) {
-      const historyRef = collection(db, 'users', user.uid, 'phaseHistory');
-      addDoc(historyRef, {
-        phase: userData.currentPhase || 'evaluation',
-        accountSize: userData.accountSize || 'Standard',
-        plan: userData.accountPlan || 'Standard',
-        mt5Login: userData.mt5Login || 'N/A',
-        advancedAt: userData.activatedAt || serverTimestamp(),
-        advancedBy: "system",
-        note: "Initial stage recorded (auto-repair)"
-      });
-    }
-  }, [user, userData, phasesLoading, phaseHistory.length, db]);
-
-  const getTradeDate = (time: any) => {
-    if (!time) return null;
-    let date;
-    if (typeof time === 'number') date = new Date(time * 1000);
-    else if (time.toDate && typeof time.toDate === 'function') date = time.toDate();
-    else date = new Date(time);
-    
-    if (!date || isNaN(date.getTime())) return null;
-    return date;
-  };
-
-  const formatTradeDate = (time: any) => {
-    try {
-      const date = getTradeDate(time);
-      if (!date) return 'N/A';
-      return format(date, 'yyyy-MM-dd HH:mm:ss');
-    } catch (e) {
-      return 'N/A';
-    }
-  };
-
-  const calculateHoldingTime = (open: any, close: any) => {
-    const openDate = getTradeDate(open);
-    const closeDate = getTradeDate(close);
-    
-    if (!openDate || !closeDate) return 'N/A';
-    try {
-      const seconds = Math.abs(differenceInSeconds(closeDate, openDate));
-      if (isNaN(seconds)) return 'N/A';
-      
-      if (seconds < 60) return `${seconds}s`;
-      const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
-      const hours = Math.floor(minutes / 60);
-      const remainingMinutes = minutes % 60;
-      return `${hours}h ${remainingMinutes}m`;
-    } catch (e) {
-      return 'N/A';
-    }
-  };
-
-  const enrichedTrades = useMemo(() => {
-    if (!trades) return [];
-    
-    const sorted = [...trades].sort((a, b) => {
-      const dateA = getTradeDate(a.time || a.date);
-      const dateB = getTradeDate(b.time || b.date);
-      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    });
-
-    const merged = [];
-    const processedTickets = new Set();
-
-    for (const trade of sorted) {
-      if (processedTickets.has(trade.id)) continue;
-      
-      const profit = trade.pnl || trade.profit || 0;
-      if (profit !== 0) {
-        const closeDate = getTradeDate(trade.time || trade.date);
-        const partner = sorted.find(t => 
-          !processedTickets.has(t.id) &&
-          t.symbol === trade.symbol &&
-          (parseFloat(String(t.lots || t.volume)).toFixed(2) === parseFloat(String(trade.lots || trade.volume)).toFixed(2)) &&
-          (t.pnl || t.profit || 0) === 0 &&
-          (getTradeDate(t.time || t.date)?.getTime() || 0) < (closeDate?.getTime() || 0)
-        );
-
-        if (partner) {
-          merged.push({
-            ...trade,
-            openTime: partner.time || partner.date,
-            closeTime: trade.time || trade.date,
-            type: partner.type, // Use entry direction
-            lots: trade.lots || trade.volume,
-            pnl: profit,
-            duration: calculateHoldingTime(partner.time || partner.date, trade.time || trade.date)
-          });
-          processedTickets.add(trade.id);
-          processedTickets.add(partner.id);
-        } else {
-          merged.push({
-            ...trade,
-            openTime: null,
-            closeTime: trade.time || trade.date,
-            lots: trade.lots || trade.volume,
-            pnl: profit,
-            duration: '—'
-          });
-          processedTickets.add(trade.id);
-        }
-      }
-    }
-
-    for (const trade of sorted) {
-      if (!processedTickets.has(trade.id)) {
-        merged.push({
-          ...trade,
-          openTime: trade.time || trade.date,
-          closeTime: null,
-          lots: trade.lots || trade.volume,
-          pnl: trade.pnl || trade.profit || 0,
-          duration: '—'
-        });
-        processedTickets.add(trade.id);
-      }
-    }
-    
-    return merged.sort((a, b) => {
-      const dateA = getTradeDate(a.closeTime || a.openTime);
-      const dateB = getTradeDate(b.closeTime || b.openTime);
-      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    });
-  }, [trades]);
+  // Use SHARED logic for positioning matching
+  const enrichedPositions = useMemo(() => {
+    return enrichTrades(trades, userData?.mt5Login || 'N/A');
+  }, [trades, userData?.mt5Login]);
 
   const filteredTrades = useMemo(() => {
-    return enrichedTrades.filter(trade => {
+    return enrichedPositions.filter(trade => {
       const matchesSymbol = trade.symbol?.toLowerCase().includes(searchTerm.toLowerCase());
       
       let matchesDate = true;
@@ -201,7 +77,7 @@ export default function HistoryPage() {
 
       return matchesSymbol && matchesDate;
     });
-  }, [enrichedTrades, searchTerm, dateRange]);
+  }, [enrichedPositions, searchTerm, dateRange]);
 
   const paginatedTrades = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -218,8 +94,8 @@ export default function HistoryPage() {
       return [
         t.symbol || 'N/A', 
         t.type || 'N/A', 
-        formatTradeDate(t.openTime),
-        formatTradeDate(t.closeTime),
+        t.openTime ? format(getTradeDate(t.openTime)!, 'yyyy-MM-dd HH:mm:ss') : 'N/A',
+        t.closeTime ? format(getTradeDate(t.closeTime)!, 'yyyy-MM-dd HH:mm:ss') : 'N/A',
         t.lots || '0', 
         t.pnl || '0',
         t.duration
@@ -278,7 +154,7 @@ export default function HistoryPage() {
                         <div className="flex justify-between items-start">
                            <Badge className="bg-primary/20 text-primary uppercase text-[9px] font-black border-none px-2">{phase.phase}</Badge>
                            <span className="text-[10px] text-muted-foreground font-medium">
-                            {formatTradeDate(phase.advancedAt)}
+                            {phase.advancedAt ? format(getTradeDate(phase.advancedAt)!, 'yyyy-MM-dd') : 'N/A'}
                            </span>
                         </div>
                         <div>
@@ -380,10 +256,10 @@ export default function HistoryPage() {
                              </Badge>
                           </td>
                           <td className="py-4 px-4 text-muted-foreground font-mono text-xs">
-                            {formatTradeDate(trade.openTime || trade.time)}
+                            {trade.openTime ? format(getTradeDate(trade.openTime)!, 'yyyy-MM-dd HH:mm') : 'N/A'}
                           </td>
                           <td className="py-4 px-4 text-muted-foreground font-mono text-xs">
-                            {formatTradeDate(trade.closeTime)}
+                            {trade.closeTime ? format(getTradeDate(trade.closeTime)!, 'yyyy-MM-dd HH:mm') : 'N/A'}
                           </td>
                           <td className="py-4 px-4 text-muted-foreground text-xs flex items-center gap-1.5 pt-5">
                             <Clock className="w-3 h-3" />

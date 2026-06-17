@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -55,6 +56,7 @@ import {
   ReferenceLine
 } from 'recharts';
 import { format, subDays, subMonths, differenceInSeconds, isValid, startOfDay, differenceInDays } from 'date-fns';
+import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 
 /**
  * Institutional temporal helper: Boundary at 7:30 AM IST (2:00 AM UTC)
@@ -198,11 +200,9 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (chartPeriod === '14D') daysToKeep = 14;
     if (chartPeriod === '1M') daysToKeep = 30;
 
-    // Create a lookup map for existing performance records
     const dataMap = new Map();
     performanceData.forEach(d => dataMap.set(d.date, d));
 
-    // Sort performanceData to find the baseline before the visible range
     const sortedData = [...performanceData].sort((a, b) => a.date.localeCompare(b.date));
 
     const result = [];
@@ -213,7 +213,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       
       let dailyPnl = 0;
       if (todayDoc) {
-        // Daily P&L = Current day's cumulative - Most recent recorded cumulative value before this date
         const prevDoc = sortedData.filter(d => d.date < key).pop();
         const todayCum = todayDoc.cumulativePnL || 0;
         const prevCum = prevDoc ? (prevDoc.cumulativePnL || 0) : 0;
@@ -238,27 +237,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     effectiveUid ? `users/${effectiveUid}/trades` : null,
     tradeConstraints
   );
-
-  const getTradeDate = (time: any) => {
-    if (!time) return null;
-    let date;
-    if (typeof time === 'number') date = new Date(time * 1000);
-    else if (time.toDate && typeof time.toDate === 'function') date = time.toDate();
-    else date = new Date(time);
-    
-    if (!date || isNaN(date.getTime())) return null;
-    return date;
-  };
-
-  const formatTradeDate = (time: any) => {
-    try {
-      const date = getTradeDate(time);
-      if (!date) return 'N/A';
-      return format(date, 'MMM d, HH:mm');
-    } catch (e) {
-      return 'N/A';
-    }
-  };
 
   const tradingDaysData = useMemo(() => {
     if (!recentTrades) return { count: 0, required: 5, progress: 0 };
@@ -309,103 +287,10 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     };
   }, [userData]);
 
-  const calculateHoldingTime = (open: any, close: any) => {
-    const openDate = getTradeDate(open);
-    const closeDate = getTradeDate(close);
-    
-    if (!openDate || !closeDate) return 'N/A';
-    try {
-      const seconds = Math.abs(differenceInSeconds(closeDate, openDate));
-      if (isNaN(seconds)) return 'N/A';
-      
-      if (seconds < 60) return `${seconds}s`;
-      const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
-      const hours = Math.floor(minutes / 60);
-      const remainingMinutes = minutes % 60;
-      return `${hours}h ${remainingMinutes}m`;
-    } catch (e) {
-      return 'N/A';
-    }
-  };
-
+  // Use SHARED logic for positioning matching
   const enrichedTrades = useMemo(() => {
-    if (!recentTrades) return [];
-    
-    const sorted = [...recentTrades].sort((a, b) => {
-      const dateA = getTradeDate(a.time || a.date);
-      const dateB = getTradeDate(b.time || b.date);
-      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    });
-
-    const merged = [];
-    const processedTickets = new Set();
-
-    for (const trade of sorted) {
-      if (processedTickets.has(trade.id)) continue;
-      
-      const profit = trade.pnl || trade.profit || 0;
-      if (profit !== 0) {
-        const closeDate = getTradeDate(trade.time || trade.date);
-        
-        const partner = sorted.find(t => 
-          !processedTickets.has(t.id) &&
-          t.symbol === trade.symbol &&
-          (parseFloat(String(t.lots || t.volume)).toFixed(2) === parseFloat(String(trade.lots || trade.volume)).toFixed(2)) &&
-          (t.pnl || t.profit || 0) === 0 &&
-          (getTradeDate(t.time || t.date)?.getTime() || 0) < (closeDate?.getTime() || 0)
-        );
-
-        if (partner) {
-          merged.push({
-            ...trade,
-            openTime: partner.time || partner.date,
-            closeTime: trade.time || trade.date,
-            type: partner.type,
-            lots: trade.lots || trade.volume,
-            pnl: profit,
-            login: trade.login || userData?.mt5Login || 'N/A',
-            duration: calculateHoldingTime(partner.time || partner.date, trade.time || trade.date)
-          });
-          processedTickets.add(trade.id);
-          processedTickets.add(partner.id);
-        } else {
-          merged.push({
-            ...trade,
-            openTime: null,
-            closeTime: trade.time || trade.date,
-            lots: trade.lots || trade.volume,
-            pnl: profit,
-            login: trade.login || userData?.mt5Login || 'N/A',
-            duration: '—'
-          });
-          processedTickets.add(trade.id);
-        }
-      }
-    }
-
-    for (const trade of sorted) {
-      if (!processedTickets.has(trade.id)) {
-        merged.push({
-          ...trade,
-          openTime: trade.time || trade.date,
-          closeTime: null,
-          pnl: trade.pnl || trade.profit || 0,
-          lots: trade.lots || trade.volume,
-          login: trade.login || userData?.mt5Login || 'N/A',
-          duration: '—'
-        });
-        processedTickets.add(trade.id);
-      }
-    }
-    
-    return merged.sort((a, b) => {
-      const dateA = getTradeDate(a.closeTime || a.openTime);
-      const dateB = getTradeDate(b.closeTime || b.openTime);
-      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
-    });
-  }, [recentTrades, userData]);
+    return enrichTrades(recentTrades, userData?.mt5Login || 'N/A');
+  }, [recentTrades, userData?.mt5Login]);
 
   const tradeStats = useMemo(() => {
     if (!recentTrades || recentTrades.length === 0) return null;
@@ -438,7 +323,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     const initialBalance = userData?.accountBalance || 100000;
     const dailyClosedLosses = userData?.dailyClosedLosses || 0;
     
-    // Calculate current floating loss: balance vs equity
     const currentFloatingPnL = metrics.equity - metrics.balance;
     const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
     
@@ -459,7 +343,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     const drawdownPct = initialBalance > 0 ? (totalDailyLoss / initialBalance) * 100 : 0;
     const usage = Math.min((totalDailyLoss / limitAmount) * 100, 100);
 
-    // P&L logic for display relative to session start
     const dailyStart = userData?.dailyStartBalance || metrics.balance;
     const pnl = metrics.balance - dailyStart;
     const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
@@ -725,7 +608,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                             trade.type?.toLowerCase() === 'buy' ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5' : 'border-destructive/30 text-destructive bg-destructive/5'
                           )}>{trade.type || 'N/A'}</Badge>
                         </td>
-                        <td className="py-4 px-4 text-xs text-muted-foreground font-mono">{formatTradeDate(trade.closeTime || trade.time || trade.date)}</td>
+                        <td className="py-4 px-4 text-xs text-muted-foreground font-mono">{trade.closeTime ? format(getTradeDate(trade.closeTime)!, 'MMM d, HH:mm') : 'N/A'}</td>
                         <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5 pt-5"><Clock className="w-3 h-3" />{trade.duration}</td>
                         <td className="py-4 px-4 text-right text-white font-mono">{trade.lots || '0.00'}</td>
                         <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (trade.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
