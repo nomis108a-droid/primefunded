@@ -141,21 +141,22 @@ export async function runRetroactiveRiskAuditAction() {
 
     for (const acc of accounts.docs) {
       const data = acc.data();
-      const initialBalance = parseFloat(String(data.accountBalance || 100000));
+      const initialBalance = parseFloat(String(data.accountBalance));
       const userId = data.userId;
       
-      if (!userId) continue;
+      if (!userId || isNaN(initialBalance)) continue;
 
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      // Use shared pairing logic to calculate true duration
+      // Reconstruct positions using shared utility
       const enriched = enrichTrades(rawTrades, data.login);
       
       let breached = false;
       let reason = "";
 
       for (const t of enriched) {
+        // We only evaluate closed trades for duration and single loss
         if (!t.closeTime || !t.matched) continue;
 
         const profit = t.pnl || 0;
@@ -243,6 +244,53 @@ export async function registerMt5AccountAction(data: any) {
     await batch.commit();
     await generateAndSendCertificate(data.userId, userSnap.data()!.name || 'Trader', userSnap.data()!.email, data.phase, data.plan, Number(data.size));
     return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function advanceTraderPhaseAction(userId: string) {
+  try {
+    const db = getAdminDb();
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("User not found.");
+
+    const userData = userSnap.data()!;
+    const currentPhase = userData.currentPhase || 'evaluation';
+    const plan = userData.accountPlan || '1-Step Pro';
+    const planKey = plan.toLowerCase();
+
+    let nextPhase = 'funded';
+    if (planKey.includes('2-step')) {
+      if (currentPhase === 'phase1') nextPhase = 'phase2';
+      else nextPhase = 'funded';
+    } else if (planKey.includes('3-step')) {
+      if (currentPhase === 'phase1') nextPhase = 'phase2';
+      else if (currentPhase === 'phase2') nextPhase = 'phase3';
+      else nextPhase = 'funded';
+    }
+
+    const batch = db.batch();
+    const sizeNum = userData.accountBalance || 100000;
+
+    // Transition previous account docs
+    const accountsRef = db.collection('mt5_accounts');
+    const activeAccs = await accountsRef.where('userId', '==', userId).where('status', '==', 'active').get();
+    activeAccs.docs.forEach(doc => batch.update(doc.ref, { status: 'passed', updatedAt: FieldValue.serverTimestamp() }));
+
+    batch.update(userRef, {
+      currentPhase: nextPhase,
+      readyForNextPhase: false,
+      liveBalance: sizeNum,
+      liveEquity: sizeNum,
+      dailyStartBalance: sizeNum,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+    await generateAndSendCertificate(userId, userData.name || 'Trader', userData.email, nextPhase, plan, sizeNum);
+    return { success: true, nextPhase };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -340,6 +388,19 @@ export async function deleteBroadcastAction(id: string) {
 
 export async function updateUserProfileAction(id: string, data: any) {
   const db = getAdminDb();
-  await db.collection('users').doc(id).update({ ...data, updatedAt: FieldValue.serverTimestamp() });
+  const userRef = db.collection('users').doc(id);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) throw new Error("User not found");
+
+  const oldData = userSnap.data()!;
+  const newPhase = data.currentPhase;
+  
+  await userRef.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
+
+  // If phase is changed manually to a milestone, trigger certificate/email
+  if (newPhase !== oldData.currentPhase && ['phase1', 'phase2', 'phase3', 'funded'].includes(newPhase)) {
+    await generateAndSendCertificate(id, oldData.name || 'Trader', oldData.email, newPhase, oldData.accountPlan || 'Challenge', Number(oldData.accountBalance || 100000));
+  }
+
   return { success: true };
 }

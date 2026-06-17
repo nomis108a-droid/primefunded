@@ -287,7 +287,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     };
   }, [userData]);
 
-  // Use SHARED logic for positioning matching
   const enrichedTrades = useMemo(() => {
     return enrichTrades(recentTrades, userData?.mt5Login || 'N/A');
   }, [recentTrades, userData?.mt5Login]);
@@ -347,7 +346,16 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     const pnl = metrics.balance - dailyStart;
     const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
 
-    return { pnl, pnlPct, usage, limit: limitPct, drawdownPct, isPositive: pnl >= 0 };
+    return { 
+      pnl, 
+      pnlPct, 
+      usage, 
+      limit: limitPct, 
+      limitAmount, 
+      totalDailyLoss, 
+      drawdownPct, 
+      isPositive: pnl >= 0 
+    };
   }, [userData, metrics]);
 
   const currentPhaseDisplay = useMemo(() => {
@@ -474,14 +482,14 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           <Card className={cn("border-border/50 bg-card/40 transition-opacity", isBreached && "opacity-40 grayscale")}>
             <CardContent className="p-6">
               <div className="flex justify-between mb-4">
-                <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Drawdown</span>
-                <span className="text-[10px] font-bold text-muted-foreground">Limit: {dailyRiskMetrics.limit}%</span>
+                <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Drawdown (Gross Loss)</span>
+                <span className="text-[10px] font-bold text-muted-foreground">Threshold: ${dailyRiskMetrics.limitAmount.toLocaleString()}</span>
               </div>
-              <p className="text-3xl font-bold font-headline text-white">{dailyRiskMetrics.drawdownPct.toFixed(2)}%</p>
+              <p className="text-3xl font-bold font-headline text-white">${dailyRiskMetrics.totalDailyLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
               <div className="mt-4 space-y-1.5">
                 <Progress value={dailyRiskMetrics.usage} className="h-1.5" />
                 <p className={cn("text-[9px] font-black uppercase", dailyRiskMetrics.usage > 80 ? 'text-destructive' : 'text-primary')}>
-                  {dailyRiskMetrics.usage.toFixed(1)}% of limit utilized
+                  ${dailyRiskMetrics.totalDailyLoss.toFixed(2)} of ${dailyRiskMetrics.limitAmount.toFixed(2)} limit used
                 </p>
               </div>
             </CardContent>
