@@ -163,43 +163,46 @@ export async function fetchAdminTerminalData() {
 
 /**
  * Institutional Retroactive Risk Auditor
- * RELAXED QUERY: Fetches all accounts to find the status mismatch.
+ * RESTRUCTURED: Identical fetch path to Probe test.
  */
 export async function runRetroactiveRiskAuditAction() {
-  console.log(">>> [AUDIT] Institutional Audit Triggered via Server Action");
+  console.log(">>> [AUDIT] Starting Retroactive Audit Action...");
   const auditData: any[] = [];
   try {
     const db = getAdminDb();
-    // Fetch all accounts to ensure we aren't missing anyone due to status filters
-    const accounts = await db.collection('mt5_accounts').get();
-    console.log(`>>> [AUDIT] Query returned ${accounts.docs.length} root accounts from mt5_accounts collection`);
+    
+    // STEP 1: Fetch logic exactly same as probe
+    const snap = await db.collection('mt5_accounts').get();
+    
+    // STEP 2: Log processing count
+    console.log('[AUDIT] Processing', snap.size, 'accounts:', snap.docs.map(d => d.id));
     
     let breachCount = 0;
 
-    for (const acc of accounts.docs) {
-      const data = acc.data();
-      const login = String(data.login || 'UNKNOWN');
-      const status = String(data.status || 'MISSING');
+    // STEP 3: Loop through docs one by one
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      const login = String(data.login || doc.id);
+      
+      // LOG RAW DATA for verification
+      console.log('[AUDIT] Now checking account:', doc.id, 'raw data:', JSON.stringify(data));
+
       const userId = data.userId;
       const initialBalance = parseFloat(String(data.accountBalance || 0));
 
-      console.log(`>>> [AUDIT] Evaluating Account ${login}: Status=${status}, User=${userId}, Balance=${initialBalance}`);
-
-      if (status.toLowerCase() !== 'active') {
-        console.log(`>>> [AUDIT] Skipping account ${login} because status is ${status}`);
-        continue;
-      }
-
       if (!userId || initialBalance <= 0) {
-        console.log(`>>> [AUDIT] Skipping account ${login}: Incomplete data (Balance: ${initialBalance})`);
+        console.log(`>>> [AUDIT] Skipping account ${login}: Incomplete data (Balance: ${initialBalance}, User: ${userId})`);
         continue;
       }
 
+      // EVALUATION LOGIC
+      console.log(`>>> [AUDIT] Evaluating Breach Rules for Account ${login}...`);
+      
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      console.log(`>>> [AUDIT] Found ${rawTrades.length} trades for user ${userId}`);
       
       const threshold = initialBalance * 0.03;
-      // Extract absolute loss amounts for the debug log
       const allLosses = rawTrades.filter(t => (t.pnl || t.profit || 0) < 0).map(t => Math.abs(t.pnl || t.profit));
       const biggestLoss = allLosses.length > 0 ? Math.max(...allLosses) : 0;
       const isMaxLossBreached = biggestLoss > threshold;
@@ -214,6 +217,8 @@ export async function runRetroactiveRiskAuditAction() {
         isMaxLossBreached
       };
       
+      // STEP 4: Push to auditData and log
+      console.log('[AUDIT] Evaluation result for', login, ':', JSON.stringify(debugObj));
       auditData.push(debugObj);
 
       const enriched = enrichTrades(rawTrades, login);
@@ -226,14 +231,12 @@ export async function runRetroactiveRiskAuditAction() {
         const duration = t.durationSeconds || 0;
         const ticket = t.id;
 
-        // Rule 1: Max Single Loss (3% of initial balance)
         if (profit < 0 && Math.abs(profit) > threshold) {
           breached = true;
           reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${threshold.toFixed(2)}) on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`;
           break;
         }
 
-        // Rule 2: Min Duration (120s)
         if (t.matched && duration > 0 && duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
@@ -271,10 +274,11 @@ export async function runRetroactiveRiskAuditAction() {
 
       if (breached) {
         breachCount++;
-        console.log(`>>> [AUDIT] WRITING status=breached for account ${login}: ${reason}`);
+        console.log(`>>> [AUDIT] VIOLATION DETECTED for ${login}: ${reason}`);
+        console.log(`>>> [AUDIT] WRITING status=breached for account ${login}`);
         
         try {
-          await acc.ref.update({ 
+          await doc.ref.update({ 
             status: 'breached', 
             breachReason: reason, 
             breachedAt: FieldValue.serverTimestamp() 
@@ -297,13 +301,13 @@ export async function runRetroactiveRiskAuditAction() {
           });
           console.log(`>>> [AUDIT] SUCCESS: Firestore write confirmed for ${login}`);
         } catch (writeError: any) {
-          console.log(`>>> [AUDIT] PERSISTENCE FAILURE for account ${login}: ${writeError.message}`);
+          console.error(`>>> [AUDIT] PERSISTENCE FAILURE for account ${login}: ${writeError.message}`);
         }
       }
     }
     return { success: true, breachCount, auditData, version: AUDIT_VERSION };
   } catch (error: any) {
-    console.log(`>>> [AUDIT] CRITICAL SYSTEM ERROR: ${error.message}`);
+    console.error(`>>> [AUDIT] CRITICAL SYSTEM ERROR: ${error.message}`);
     return { success: false, error: error.message };
   }
 }
