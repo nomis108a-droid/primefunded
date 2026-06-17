@@ -230,9 +230,12 @@ export default function AdminPage() {
 
   const filteredUsersForDirectory = useMemo(() => {
     if (!searchTerm) return adminData.users;
+    const lowerSearch = searchTerm.toLowerCase();
     return adminData.users.filter((u: any) => 
-      u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      u.email?.toLowerCase().includes(searchTerm.toLowerCase())
+      u.name?.toLowerCase().includes(lowerSearch) || 
+      u.email?.toLowerCase().includes(lowerSearch) ||
+      u.id?.toLowerCase().includes(lowerSearch) || // Search by Auth UID
+      (u.uid && u.uid.toString().toLowerCase().includes(lowerSearch)) // Search by 8-digit numeric ID
     );
   }, [adminData.users, searchTerm]);
 
@@ -894,7 +897,7 @@ export default function AdminPage() {
                 <div className="relative w-full max-w-lg">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input 
-                    placeholder="Search directory by name or email..." 
+                    placeholder="Search directory by name, email, or ID..." 
                     className="pl-10 bg-secondary/30 border-white/10" 
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
@@ -912,7 +915,7 @@ export default function AdminPage() {
                       <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
                         <tr>
                           <th className="py-4 px-6">Trader Identity</th>
-                          <th className="py-4 px-6">Identity UID</th>
+                          <th className="py-4 px-6">Institutional ID</th>
                           <th className="py-4 px-6">Contact Details</th>
                           <th className="py-4 px-6 text-center">Plan Status</th>
                           <th className="py-4 px-6">Joined Date</th>
@@ -937,11 +940,14 @@ export default function AdminPage() {
                             </td>
                             <td className="py-4 px-6">
                               <div className="flex items-center gap-2">
-                                <code className="text-[10px] bg-background/50 px-2 py-1 rounded border border-white/5 font-mono text-white">{u.id}</code>
-                                <button onClick={() => copyToClipboard(u.id, "UID")} className="text-muted-foreground hover:text-primary transition-colors">
+                                <code className="text-[10px] bg-background/50 px-2 py-1 rounded border border-white/5 font-mono text-white">
+                                  {u.uid || 'NO-ID'}
+                                </code>
+                                <button onClick={() => copyToClipboard(u.uid || '', "Trader ID")} className="text-muted-foreground hover:text-primary transition-colors">
                                   <Copy className="w-3 h-3" />
                                 </button>
                               </div>
+                              <div className="text-[8px] text-muted-foreground mt-1 uppercase opacity-40">AUTH: {u.id.slice(0, 8)}...</div>
                             </td>
                             <td className="py-4 px-6">
                               <div className="flex flex-col gap-1">
