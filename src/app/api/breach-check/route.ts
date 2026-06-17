@@ -93,11 +93,9 @@ export async function POST(request: Request) {
         isRead: false,
         createdAt: FieldValue.serverTimestamp()
       });
-      // Continue to check breaches for this cycle to ensure equity is maintained
     }
 
     // 2. UNIFIED TIMING RULES (Duration and Frequency)
-    // Applies to all plans as per Rules page
     if (lastTradeDuration !== undefined && lastTradeDuration > 0 && lastTradeDuration < 120) {
       breachType = 'hard';
       breachReason = 'Duration violation: Trades must be held for at least 2 minutes';
@@ -106,25 +104,27 @@ export async function POST(request: Request) {
       breachReason = 'Frequency violation: 1 trade per 3 mins maximum execution speed';
     }
 
-    // 3. PLAN-SPECIFIC HARD BREACH LOGIC
+    // 3. PLAN-SPECIFIC LOGIC
     if (!breachType) {
       if (planKey.includes('1-step')) {
         if (dailyDrawdown > 3) { breachType = 'hard'; breachReason = '1-Step: Daily drawdown exceeded 3%'; }
         else if (maxDrawdown > 6) { breachType = 'hard'; breachReason = '1-Step: Maximum drawdown exceeded 6%'; }
         else if (phase === 'funded' && floatingLoss > 1) { breachType = 'hard'; breachReason = 'Funded Stage: Floating loss exceeded 1% threshold'; }
-        else if (lastLotSize > prevLotSize * 1.5) { breachType = 'soft'; breachReason = 'Martingale lot scaling detected'; }
+        else if (lastLotSize > prevLotSize * 1.5) { breachType = 'hard'; breachReason = 'Martingale lot scaling detected'; }
       } 
       else if (planKey.includes('2-step')) {
         if (dailyDrawdown > 5) { breachType = 'hard'; breachReason = '2-Step: Daily drawdown exceeded 5%'; }
         else if (maxDrawdown > 10) { breachType = 'hard'; breachReason = '2-Step: Max drawdown exceeded 10%'; }
         else if (lastTradeLossPct > 3) { breachType = 'hard'; breachReason = 'Single trade loss exceeded 3% limit'; }
         else if (phase === 'funded' && floatingLoss > 1) { breachType = 'hard'; breachReason = 'Funded Stage: Floating loss exceeded 1% threshold'; }
+        else if (lastLotSize > prevLotSize * 1.5) { breachType = 'hard'; breachReason = 'Martingale lot scaling detected'; }
       }
       else if (planKey.includes('3-step')) {
         if (dailyDrawdown > 4) { breachType = 'hard'; breachReason = '3-Step: Daily drawdown exceeded 4%'; }
         else if (maxDrawdown > 8) { breachType = 'hard'; breachReason = '3-Step: Max drawdown exceeded 8%'; }
         else if (lastTradeLossPct > 3) { breachType = 'hard'; breachReason = 'Single trade loss exceeded 3% limit'; }
         else if (phase === 'funded' && floatingLoss > 1) { breachType = 'hard'; breachReason = 'Funded Stage: Floating loss exceeded 1% threshold'; }
+        else if (lastLotSize > prevLotSize * 1.5) { breachType = 'hard'; breachReason = 'Martingale lot scaling detected'; }
       }
       else if (planKey.includes('instant')) {
         const now = new Date();
@@ -134,12 +134,11 @@ export async function POST(request: Request) {
         else if (maxDrawdown > 4) { breachType = 'hard'; breachReason = 'Instant: Max drawdown hit 4% limit'; }
         else if (lastTradeLossPct > 3) { breachType = 'hard'; breachReason = 'Instant: Single trade loss exceeded 3%'; }
         else if (floatingLoss > 1) { breachType = 'hard'; breachReason = 'Instant: Floating loss exceeded 1% threshold'; }
-        else if (isFridayEvening && mt5Data.hasOpenTrades) { breachType = 'hard'; breachReason = 'Instant: No Friday overnight holding allowed'; }
+        else if (isFridayEvening && mt5Data.hasOpenTrades) { breachType = 'soft'; breachReason = 'Holding over the weekend: position closed automatically (Soft Breach)'; }
       }
     }
 
     if (breachType === 'hard') {
-      // EXECUTE TERMINATION
       await userRef.update({
         accountStatus: 'breached',
         accountActive: false,
@@ -161,14 +160,19 @@ export async function POST(request: Request) {
 
       await userRef.collection('notifications').add({
         title: "🚫 Account Liquidated",
-        message: `Your account has been terminated due to an institutional risk breach: ${breachReason}. Please contact our compliance desk if you believe this is an error.`,
+        message: `Your account has been terminated due to an institutional risk breach: ${breachReason}.`,
         type: 'challenge_failed',
         isRead: false,
         createdAt: FieldValue.serverTimestamp()
       });
     } 
     else if (breachType === 'soft') {
-      // ISSUE WARNING
+      await userRef.update({
+        readyForPhaseReset: true,
+        breachType: 'soft',
+        breachReason
+      });
+
       await db.collection('breaches').add({
         userId,
         userEmail: userData.email,
@@ -182,7 +186,7 @@ export async function POST(request: Request) {
 
       await userRef.collection('notifications').add({
         title: "⚠️ Performance Warning",
-        message: `Strategic violation detected: ${breachReason}. Please adjust your execution pattern to remain compliant with institutional standards.`,
+        message: `Soft breach detected: ${breachReason}. Your phase progress requires a reset to continue.`,
         type: 'soft_breach_warning',
         isRead: false,
         createdAt: FieldValue.serverTimestamp()

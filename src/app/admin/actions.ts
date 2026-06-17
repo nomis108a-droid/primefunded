@@ -1,3 +1,4 @@
+
 'use server';
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
@@ -44,22 +45,15 @@ function getAdminDb(): Firestore {
 
 /**
  * Helper to recursively convert Firestore Timestamps to ISO Strings for Next.js serialization.
- * This prevents the "Classes or null prototypes are not supported" runtime error.
  */
 function serializeFirestoreData(data: any): any {
   if (data === null || data === undefined) return data;
-
-  // Handle Firestore Admin Timestamps
   if (data && typeof data.toDate === 'function') {
     return data.toDate().toISOString();
   }
-
-  // Handle Arrays
   if (Array.isArray(data)) {
     return data.map(item => serializeFirestoreData(item));
   }
-
-  // Handle Objects
   if (typeof data === 'object' && data.constructor.name === 'Object') {
     const serialized: any = {};
     for (const [key, value] of Object.entries(data)) {
@@ -67,7 +61,6 @@ function serializeFirestoreData(data: any): any {
     }
     return serialized;
   }
-
   return data;
 }
 
@@ -120,21 +113,12 @@ export async function fetchAdminTerminalData() {
   }
 }
 
-/**
- * Update the status of an order record.
- */
 export async function updateOrderStatusAction(orderId: string, status: 'verified' | 'rejected', reason?: string) {
   try {
     const db = getAdminDb();
     const orderRef = db.collection('orders').doc(orderId);
-    
-    const updates: any = {
-      status,
-      updatedAt: FieldValue.serverTimestamp()
-    };
-
+    const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.rejectionReason = reason;
-
     await orderRef.update(updates);
     return { success: true };
   } catch (error: any) {
@@ -142,21 +126,12 @@ export async function updateOrderStatusAction(orderId: string, status: 'verified
   }
 }
 
-/**
- * Update the status of a payout request.
- */
 export async function updatePayoutStatusAction(payoutId: string, status: 'approved' | 'rejected' | 'done', reason?: string) {
   try {
     const db = getAdminDb();
     const payoutRef = db.collection('payouts').doc(payoutId);
-    
-    const updates: any = {
-      status,
-      updatedAt: FieldValue.serverTimestamp()
-    };
-
+    const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.adminNote = reason;
-
     await payoutRef.update(updates);
     return { success: true };
   } catch (error: any) {
@@ -164,14 +139,10 @@ export async function updatePayoutStatusAction(payoutId: string, status: 'approv
   }
 }
 
-/**
- * Create a new global broadcast announcement.
- */
 export async function createBroadcastAction(title: string, message: string) {
   try {
     const db = getAdminDb();
     const broadcastRef = db.collection('broadcasts').doc();
-    
     await broadcastRef.set({
       title,
       message,
@@ -179,16 +150,12 @@ export async function createBroadcastAction(title: string, message: string) {
       sentAt: FieldValue.serverTimestamp(),
       createdAt: FieldValue.serverTimestamp()
     });
-    
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
 }
 
-/**
- * Delete a broadcast.
- */
 export async function deleteBroadcastAction(id: string) {
   try {
     const db = getAdminDb();
@@ -199,9 +166,6 @@ export async function deleteBroadcastAction(id: string) {
   }
 }
 
-/**
- * Register a manually created MT5 account into Firestore.
- */
 export async function registerMt5AccountAction(data: {
   login: string;
   password: string;
@@ -213,8 +177,6 @@ export async function registerMt5AccountAction(data: {
 }) {
   try {
     const db = getAdminDb();
-    
-    // 1. Create MT5 sync document with String login
     const accountRef = db.collection('mt5_accounts').doc();
     const accountData = {
       login: String(data.login),
@@ -227,7 +189,7 @@ export async function registerMt5AccountAction(data: {
       equity: data.size,
       phase: data.phase,
       status: "active",
-      dailyStartBalance: data.size, // FIX: Initialize baseline for risk engine
+      dailyStartBalance: data.size,
       dailyDrawdownPct: 0,
       maxDrawdownPct: 0,
       createdAt: FieldValue.serverTimestamp(),
@@ -236,18 +198,17 @@ export async function registerMt5AccountAction(data: {
 
     await accountRef.set(accountData);
 
-    // 2. Update the user's primary profile
     const userRef = db.collection('users').doc(data.userId);
     await userRef.update({
       accountBalance: data.size,
-      accountSize: `$${(data.size / 1000)}k`.replace('.0k', 'k'), // Cosmetic for UI
+      accountSize: `$${(data.size / 1000)}k`.replace('.0k', 'k'),
       accountPlan: data.plan,
       accountStatus: "active",
       accountActive: true,
       currentPhase: data.phase,
       liveBalance: data.size,
       liveEquity: data.size,
-      dailyStartBalance: data.size, // FIX: Initialize baseline for dashboard P&L
+      dailyStartBalance: data.size,
       mt5Login: data.login,
       mt5Password: data.password,
       mt5Server: "MetaQuotes-Demo",
@@ -255,10 +216,9 @@ export async function registerMt5AccountAction(data: {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // 3. Post notification to trader
     await userRef.collection('notifications').add({
       title: "✅ Institutional Account Ready",
-      message: `Your ${data.plan} account with $${data.size.toLocaleString()} is now active. Access credentials in your terminal.`,
+      message: `Your ${data.plan} account with $${data.size.toLocaleString()} is now active.`,
       type: 'challenge_passed',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
@@ -274,17 +234,8 @@ export async function processKycAction(userId: string, action: 'verified' | 'rej
   try {
     const db = getAdminDb();
     const userRef = db.collection('users').doc(userId);
-    
-    const updates: any = {
-      kycStatus: action,
-      kycVerified: action === 'verified',
-      updatedAt: FieldValue.serverTimestamp()
-    };
-
-    if (action === 'rejected' && reason) {
-      updates.kycRejectionReason = reason;
-    }
-
+    const updates: any = { kycStatus: action, kycVerified: action === 'verified', updatedAt: FieldValue.serverTimestamp() };
+    if (action === 'rejected' && reason) updates.kycRejectionReason = reason;
     await userRef.update(updates);
     return { success: true };
   } catch (error: any) {
@@ -292,28 +243,101 @@ export async function processKycAction(userId: string, action: 'verified' | 'rej
   }
 }
 
-/**
- * Directly update a user's account-level profile fields.
- * Excludes live trading metrics to prevent synchronization conflicts.
- */
 export async function updateUserProfileAction(userId: string, data: any) {
   try {
     const db = getAdminDb();
     const userRef = db.collection('users').doc(userId);
-    
-    // Explicitly whitelist allowed fields
     const allowedFields = ['name', 'phone', 'country', 'tier', 'status', 'referralCode'];
     const updates: any = {};
-    
-    allowedFields.forEach(field => {
-      if (data[field] !== undefined) {
-        updates[field] = data[field];
-      }
+    allowedFields.forEach(field => { if (data[field] !== undefined) updates[field] = data[field]; });
+    updates.updatedAt = FieldValue.serverTimestamp();
+    await userRef.update(updates);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function logSoftBreachAction(userId: string, reason: string, note?: string) {
+  try {
+    const db = getAdminDb();
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader not found.");
+    const userData = userSnap.data()!;
+
+    const breachRef = db.collection('breaches').doc();
+    await breachRef.set({
+      userId,
+      userEmail: userData.email,
+      userName: userData.name,
+      plan: userData.accountPlan || 'N/A',
+      phase: userData.currentPhase || 'N/A',
+      breachType: 'soft',
+      breachReason: reason,
+      adminNote: note || '',
+      breachedAt: FieldValue.serverTimestamp()
     });
 
-    updates.updatedAt = FieldValue.serverTimestamp();
+    await userRef.update({
+      readyForPhaseReset: true,
+      updatedAt: FieldValue.serverTimestamp()
+    });
 
-    await userRef.update(updates);
+    await userRef.collection('notifications').add({
+      title: "⚠️ Compliance Warning",
+      message: `A soft rule violation was recorded: ${reason}. Please contact support or request a phase reset.`,
+      type: 'soft_breach_warning',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function resetPhaseProgressAction(userId: string) {
+  try {
+    const db = getAdminDb();
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader not found.");
+    const userData = userSnap.data()!;
+
+    const initialBalance = parseFloat(String(userData.accountBalance || 100000));
+
+    await userRef.update({
+      readyForPhaseReset: false,
+      readyForPhaseAdvancement: false,
+      liveBalance: initialBalance,
+      liveEquity: initialBalance,
+      dailyStartBalance: initialBalance,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    // Also update mt5_accounts link if it exists
+    const accountsRef = db.collection('mt5_accounts');
+    const accSnap = await accountsRef.where('userId', '==', userId).limit(1).get();
+    if (!accSnap.empty) {
+      await accSnap.docs[0].ref.update({
+        status: 'active',
+        balance: initialBalance,
+        equity: initialBalance,
+        dailyStartBalance: initialBalance,
+        readyForPhaseAdvancement: false
+      });
+    }
+
+    await userRef.collection('notifications').add({
+      title: "🔄 Phase Progress Reset",
+      message: "Your evaluation progress has been reset as requested. You may now resume trading from your starting balance.",
+      type: 'payout_processed',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
