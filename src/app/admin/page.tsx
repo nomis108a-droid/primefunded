@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -743,39 +742,32 @@ export default function AdminPage() {
                             </div>
                           </td>
                           <td className="py-4 px-6 text-right space-x-2">
-                            {user.kycStatus === 'pending' && (
-                              <>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="text-emerald-500 hover:bg-emerald-500/10"
-                                  onClick={() => handleUpdateKycStatus(user.id, 'verified')}
-                                  disabled={actionLoading}
-                                >
-                                  <CheckCircle2 className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="text-destructive hover:bg-destructive/10"
-                                  onClick={() => handleUpdateKycStatus(user.id, 'rejected')}
-                                  disabled={actionLoading}
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </Button>
-                              </>
-                            )}
-                            {(user.kycStatus === 'verified' || user.kycStatus === 'rejected') && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="text-muted-foreground opacity-50"
-                                onClick={() => handleUpdateKycStatus(user.id, user.kycStatus === 'verified' ? 'rejected' : 'verified')}
-                                disabled={actionLoading}
-                              >
-                                <RefreshCw className="w-4 h-4" />
-                              </Button>
-                            )}
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className={cn(
+                                "text-emerald-500 hover:bg-emerald-500/10",
+                                user.kycStatus === 'verified' && "bg-emerald-500/20"
+                              )}
+                              onClick={() => handleUpdateKycStatus(user.id, 'verified')}
+                              disabled={actionLoading || user.kycStatus === 'verified'}
+                              title="Approve KYC"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className={cn(
+                                "text-destructive hover:bg-destructive/10",
+                                user.kycStatus === 'rejected' && "bg-destructive/20"
+                              )}
+                              onClick={() => handleUpdateKycStatus(user.id, 'rejected')}
+                              disabled={actionLoading || user.kycStatus === 'rejected'}
+                              title="Reject KYC"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </Button>
                           </td>
                         </tr>
                       ))}
