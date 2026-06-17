@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
+import { getTradeDate } from '@/lib/tradeUtils';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -116,11 +117,9 @@ export default function AdminPage() {
   };
 
   const handleProbeConnection = async () => {
-    console.log(">>> [CLIENT] Probe Button Clicked");
     setActionLoading(true);
     try {
       const res = await probeInstitutionalConnectionAction();
-      console.log(">>> [CLIENT] PROBE RESULT:", res);
       if (res.success) {
         toast({ title: "System Probe Complete", description: `Connected to ${res.projectId}. Found ${res.count} accounts.` });
         alert(`PROBE SUCCESS\nProject: ${res.projectId}\nCount: ${res.count}\nIDs: ${res.docIds?.join(', ') || 'none'}\nLogins: ${res.logins?.join(', ') || 'none'}`);
@@ -128,7 +127,6 @@ export default function AdminPage() {
         toast({ variant: "destructive", title: "Probe Failed", description: res.error });
       }
     } catch (err: any) {
-      console.error(">>> [CLIENT] PROBE FATAL ERROR:", err);
       toast({ variant: "destructive", title: "Probe Fatal Error", description: err.message });
     } finally {
       setActionLoading(false);
@@ -138,15 +136,12 @@ export default function AdminPage() {
   const handleRetroactiveAudit = async () => {
     console.log(">>> [CLIENT] Risk Audit Button Clicked");
     if (!confirm("Run retroactive risk audit on ALL active accounts? This will liquidate any accounts with historical violations (Duration, Frequency, Martingale).")) {
-      console.log(">>> [CLIENT] Audit Cancelled by user via confirm dialog");
       return;
     }
     
-    console.log(">>> [CLIENT] Invoking Server Action: runRetroactiveRiskAuditAction...");
     setActionLoading(true);
     try {
       const res = await runRetroactiveRiskAuditAction();
-      console.log(">>> [CLIENT] Server Action Response Received:", res);
       if (res.success) {
         toast({ title: "Audit Complete", description: `Detected and processed ${res.breachCount} retroactive breaches.` });
         refreshData();
@@ -154,7 +149,6 @@ export default function AdminPage() {
         toast({ variant: "destructive", title: "Audit Failed", description: res.error });
       }
     } catch (error: any) {
-      console.error(">>> [CLIENT] CRITICAL ERROR during server action call:", error);
       toast({ variant: "destructive", title: "Connection Error", description: "The server action failed to execute. Check your network console." });
     } finally {
       setActionLoading(false);
@@ -300,7 +294,11 @@ export default function AdminPage() {
     adminData.orders.forEach((o: any) => activities.push({ id: `order-${o.id}`, type: 'order', description: `Order submitted: ${o.accountSize} ${o.plan} by ${o.userName || o.email}`, timestamp: o.submittedAt || o.date, icon: <ShoppingBag className="w-4 h-4 text-primary" />, color: 'blue' }));
     adminData.payouts.forEach((p: any) => activities.push({ id: `payout-${p.id}`, type: 'payout', description: `Payout requested: $${p.amount} by ${p.email}`, timestamp: p.createdAt || p.date, icon: <Banknote className="w-4 h-4 text-emerald-500" />, color: 'green' }));
     adminData.breaches.forEach((b: any) => activities.push({ id: `breach-${b.id}`, type: 'breach', description: `Breach detected: ${b.breachReason} on account ${b.login || b.userId}`, timestamp: b.breachedAt, icon: <AlertOctagon className="w-4 h-4 text-destructive" />, color: 'destructive' }));
-    return activities.filter(a => a.timestamp).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 20);
+    return activities.filter(a => a.timestamp).sort((a, b) => {
+      const dateA = getTradeDate(a.timestamp);
+      const dateB = getTradeDate(b.timestamp);
+      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+    }).slice(0, 20);
   }, [adminData]);
 
   const referrerAggregates = useMemo(() => {
@@ -442,7 +440,7 @@ export default function AdminPage() {
                     {recentActivity.length === 0 ? <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div> : recentActivity.map((act) => (
                       <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
                         <div className={cn("p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110", act.color === 'purple' && "bg-purple-500/10 border-purple-500/20", act.color === 'blue' && "bg-primary/10 border-primary/20", act.color === 'green' && "bg-emerald-500/10 border-emerald-500/20", act.color === 'destructive' && "bg-destructive/10 border-destructive/20")}>{act.icon}</div>
-                        <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(act.timestamp), { addSuffix: true })}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
+                        <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {(() => { const d = getTradeDate(act.timestamp); return d ? formatDistanceToNow(d, { addSuffix: true }) : 'Recently'; })()}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
                       </div>
                     ))}
                   </div>
