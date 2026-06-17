@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -59,17 +58,12 @@ import { format, subDays, subMonths, differenceInSeconds, isValid, startOfDay, d
 import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 
 /**
- * Institutional temporal helper: Boundary at 7:30 AM IST (2:00 AM UTC)
+ * Institutional temporal helper: Boundary at 2:00 AM UTC (7:30 AM IST)
+ * Standardized across frontend and backend.
  */
 const getTradingDayKey = (date: Date) => {
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istTime = new Date(date.getTime() + istOffset);
-  const hours = istTime.getUTCHours();
-  const minutes = istTime.getUTCMinutes();
-  if (hours < 7 || (hours === 7 && minutes < 30)) {
-    istTime.setUTCDate(istTime.getUTCDate() - 1);
-  }
-  return istTime.toISOString().split('T')[0];
+  const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
+  return adjusted.toISOString().split('T')[0];
 };
 
 interface DashboardPageProps {
@@ -384,6 +378,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p>Live Equity: {metrics.equity}</p>
             <p>Realized Session Loss: {userData?.dailyClosedLosses || 0}</p>
             <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
+            <p>Session Key: {getTradingDayKey(new Date())}</p>
           </div>
         )}
 
@@ -489,7 +484,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               <div className="mt-4 space-y-1.5">
                 <Progress value={dailyRiskMetrics.usage} className="h-1.5" />
                 <p className={cn("text-[9px] font-black uppercase", dailyRiskMetrics.usage > 80 ? 'text-destructive' : 'text-primary')}>
-                  ${dailyRiskMetrics.totalDailyLoss.toFixed(2)} of ${dailyRiskMetrics.limitAmount.toFixed(2)} limit used
+                  ${dailyRiskMetrics.totalDailyLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of ${dailyRiskMetrics.limitAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} limit used
                 </p>
               </div>
             </CardContent>

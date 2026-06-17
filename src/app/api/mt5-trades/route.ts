@@ -27,26 +27,19 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
   const accountData = accountDoc.data();
   const initialBalance = parseFloat(String(accountData.accountBalance));
   
-  // FIX: Explicit field validation, NO silent fallback.
   if (!initialBalance || isNaN(initialBalance)) {
     console.error(`[RiskEngine] CRITICAL: Cannot evaluate risk for account ${accountData.login}. Missing/Invalid 'accountBalance' field.`);
     return { breached: false };
   }
 
   const tradesRef = db.collection('users').doc(userId).collection('trades');
-  
-  // Fetch full trade history for matching entry/exit pairs
   const allTradesSnap = await tradesRef.get();
   const allTradesRaw = allTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   
-  // Use SHARED logic to match deals and calculate duration
   const enriched = enrichTrades(allTradesRaw, accountData.login);
-  
-  // We evaluate the rules specifically for the trades that just came in
   const incomingTickets = new Set(tradesFromPayload.map(t => String(t.ticket)));
   const relevantTrades = enriched.filter(t => incomingTickets.has(String(t.id)));
 
-  // Collect all trade opens for frequency check
   const sortedOpens = enriched
     .filter(t => t.openTime)
     .sort((a, b) => getTradeDate(a.openTime)!.getTime() - getTradeDate(b.openTime)!.getTime());
@@ -59,7 +52,6 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
     const symbol = trade.symbol;
     const volume = trade.lots || 0;
 
-    // 1. Max Single Trade Loss (3% of INITIAL)
     const limit3Pct = initialBalance * 0.03;
     if (profit < 0 && Math.abs(profit) > limit3Pct) {
       return {
@@ -68,7 +60,6 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       };
     }
 
-    // 2. Min Trade Duration (120s)
     if (trade.closeTime && trade.matched) {
       if (durationSec < 120 && profit !== 0) {
         return {
@@ -78,7 +69,6 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       }
     }
 
-    // 3. Max Execution Frequency (180s between OPENS)
     const currentIndex = sortedOpens.findIndex(t => String(t.id) === String(ticket));
     if (currentIndex > 0) {
       const prevTrade = sortedOpens[currentIndex - 1];
@@ -92,7 +82,6 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       }
     }
 
-    // 4. Martingale Detection (HARD)
     if (trade.matched && profit < 0) {
       const fifteenMinsLater = openTimeSec + 900;
       const martingaleTrigger = sortedOpens.find(t => 
@@ -130,7 +119,7 @@ export async function POST(request: Request) {
       snapshot = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
     }
 
-    if (snapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+    if (querySnapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
 
     const accountDoc = snapshot.docs[0];
     const accountData = accountDoc.data();
@@ -172,14 +161,21 @@ export async function POST(request: Request) {
       if (pnl < 0) dailyLossTotal += Math.abs(pnl);
     });
 
-    await accountDoc.ref.update({ dailyClosedLosses: dailyLossTotal });
+    // CRITICAL: Synchronize session state so mt5-update doesn't reset it
+    const accountUpdates = { 
+      dailyClosedLosses: dailyLossTotal,
+      lastDailyResetDate: todayKey 
+    };
+    await accountDoc.ref.update(accountUpdates);
+    
     if (userId) {
       await db.collection('users').doc(userId).update({ 
-        dailyClosedLosses: dailyLossTotal 
+        dailyClosedLosses: dailyLossTotal,
+        dailyStartBalanceDate: todayKey
       });
     }
 
-    // 3. Evaluate Risk Rules (Using SHARED matching logic)
+    // 3. Evaluate Risk Rules
     if (accountData.status !== 'breached') {
       const riskCheck = await evaluateTradeRules(db, userId, accountDoc, trades);
       if (riskCheck.breached) {
@@ -197,7 +193,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return new Response(JSON.stringify({ status: "OK", saved: trades.length }), { status: 200 });
+    return new Response(JSON.stringify({ status: "OK", saved: trades.length, dailyLoss: dailyLossTotal }), { status: 200 });
   } catch (error: any) {
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }

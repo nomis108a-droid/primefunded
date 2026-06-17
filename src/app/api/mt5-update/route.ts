@@ -23,10 +23,6 @@ function getAdminDb() {
   return getFirestore();
 }
 
-/**
- * Internal logic for phase passing (Profit Target + Trading Days)
- * Target is checked against BALANCE (Realized only)
- */
 async function checkPhasePassing(db: any, userId: string, accountData: any, currentBalance: number) {
   const planName = accountData.accountPlan || '1-Step Pro';
   const phase = accountData.phase || 'evaluation';
@@ -127,15 +123,14 @@ export async function POST(request: Request) {
     const isAlreadyBreached = accountData.status === 'breached';
     const currBalance = parseFloat(String(payload.balance)) || 0;
     const currEquity = parseFloat(String(payload.equity)) || 0;
-    
-    // Fixed initial balance for risk calculations
     const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
 
-    // 1. Session Reset & dailyClosedLosses tracking
+    // 1. Session Reset Logic
     const todayKey = getTradingDayKey(new Date());
     let dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
     const existingDateKey = accountData.lastDailyResetDate;
 
+    // Only reset if the session date actually changes
     if (!existingDateKey || existingDateKey !== todayKey) {
       dailyClosedLosses = 0;
       await accountDoc.ref.update({
@@ -143,7 +138,6 @@ export async function POST(request: Request) {
         lastDailyResetDate: todayKey
       });
 
-      // Synchronize session reset to User document
       if (userId) {
         await db.collection('users').doc(userId).update({
           dailyClosedLosses: 0,
@@ -153,7 +147,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 2. Rules Evaluation (Mid-Trade / Real-Time)
+    // 2. Rules Evaluation
     let breachDetected = false;
     let breachReason = "";
 
@@ -162,8 +156,6 @@ export async function POST(request: Request) {
       const phase = accountData.phase || 'evaluation';
       const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-      // A. Corrected Daily Drawdown (Gross Loss Counter)
-      // dailyGrossLoss = Sum of closed losses today + current floating loss (if negative)
       const currentFloatingPnL = currEquity - currBalance;
       const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
       
@@ -175,7 +167,6 @@ export async function POST(request: Request) {
         breachReason = `Daily Drawdown (Gross Loss): Total loss of $${totalDailyGrossLoss.toFixed(2)} ($${dailyClosedLosses.toFixed(2)} closed + $${currentFloatingLoss.toFixed(2)} floating) exceeded fixed limit of $${dailyLimit.toFixed(2)} (3% of $${initialBalance.toLocaleString()})`;
       }
 
-      // B. Max Drawdown (Real-Time Equity Floor)
       if (!breachDetected) {
         const maxLimitPct = rules.maxDrawdown;
         const maxLossAllowed = initialBalance * (maxLimitPct / 100);
@@ -187,7 +178,6 @@ export async function POST(request: Request) {
         }
       }
 
-      // C. Max Floating Loss (Funded)
       if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
         const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
         const threshold = initialBalance * (rules.maxFloatingLoss / 100);
@@ -197,7 +187,6 @@ export async function POST(request: Request) {
         }
       }
 
-      // D. Phase Passing (Realized Balance only)
       if (!breachDetected && userId) {
         await checkPhasePassing(db, userId, accountData, currBalance);
       }
@@ -243,7 +232,6 @@ export async function POST(request: Request) {
         liveBalance: currBalance,
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp(),
-        // Also sync realized losses for dashboard display
         dailyClosedLosses: dailyClosedLosses
       });
 
