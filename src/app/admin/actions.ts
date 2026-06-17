@@ -1,3 +1,4 @@
+
 'use server';
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
@@ -135,43 +136,57 @@ export async function fetchAdminTerminalData() {
  * Includes Daily Drawdown session analysis.
  */
 export async function runRetroactiveRiskAuditAction() {
+  console.log(">>> [AUDIT] Institutional Audit Triggered");
   try {
     const db = getAdminDb();
     const accounts = await db.collection('mt5_accounts').where('status', '==', 'active').get();
+    console.log(`>>> [AUDIT] Found ${accounts.size} active accounts to process`);
     let breachCount = 0;
 
     for (const acc of accounts.docs) {
       const data = acc.data();
+      const login = data.login;
       const initialBalance = parseFloat(String(data.accountBalance));
       const userId = data.userId;
       
-      if (!userId || isNaN(initialBalance)) continue;
+      console.log(`>>> [AUDIT] STARTED for account: ${login} (Size: $${initialBalance}, User: ${userId})`);
+
+      if (!userId || isNaN(initialBalance)) {
+        console.log(`>>> [AUDIT] SKIPPING account ${login}: Missing critical data (userId or balance)`);
+        continue;
+      }
 
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
-      const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      console.log(`>>> [AUDIT] Analyzing ${tradesSnap.size} historical trades for ${login}`);
       
-      const enriched = enrichTrades(rawTrades, data.login);
+      const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const enriched = enrichTrades(rawTrades, String(login));
       
       let breached = false;
       let reason = "";
 
       // 1. Transaction-Level Violation Check
       for (const t of enriched) {
-        if (!t.closeTime || !t.matched) continue;
+        if (!t.closeTime) continue;
 
         const profit = t.pnl || 0;
         const duration = t.durationSeconds || 0;
         const ticket = t.id;
 
+        // Rule 1: Max Single Loss (3% of initial balance)
         if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
           breached = true;
           reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${(initialBalance * 0.03).toFixed(2)}) on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`;
+          console.log(`>>> [AUDIT] RULE VIOLATION (MAX LOSS) on account ${login}: ${reason}`);
           break;
         }
 
-        if (duration < 120 && profit !== 0) {
+        // Rule 2: Min Duration (120s)
+        // Note: matched ensures we have paired an entry/exit to correctly compute duration
+        if (t.matched && duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
+          console.log(`>>> [AUDIT] RULE VIOLATION (DURATION) on account ${login}: ${reason}`);
           break;
         }
       }
@@ -199,6 +214,7 @@ export async function runRetroactiveRiskAuditAction() {
           if (loss > dailyLimit) {
             breached = true;
             reason = `Retroactive breach: Daily Gross Loss of $${loss.toFixed(2)} on ${date} exceeded session limit of $${dailyLimit.toFixed(2)}`;
+            console.log(`>>> [AUDIT] RULE VIOLATION (DAILY DRAWDOWN) on account ${login}: ${reason}`);
             break;
           }
         }
@@ -206,21 +222,42 @@ export async function runRetroactiveRiskAuditAction() {
 
       if (breached) {
         breachCount++;
-        await acc.ref.update({ status: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
-        await db.collection('users').doc(userId).update({ accountStatus: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
-        await db.collection('breaches').add({
-          userId,
-          login: data.login,
-          userEmail: data.email || 'N/A',
-          userName: data.name || 'N/A',
-          breachReason: reason,
-          breachType: 'hard',
-          breachedAt: FieldValue.serverTimestamp()
-        });
+        console.log(`>>> [AUDIT] WRITING status=breached for account ${login}. Reason: ${reason}`);
+        
+        try {
+          await acc.ref.update({ 
+            status: 'breached', 
+            breachReason: reason, 
+            breachedAt: FieldValue.serverTimestamp() 
+          });
+          
+          await db.collection('users').doc(userId).update({ 
+            accountStatus: 'breached', 
+            breachReason: reason, 
+            breachedAt: FieldValue.serverTimestamp() 
+          });
+
+          await db.collection('breaches').add({
+            userId,
+            login: String(login),
+            userEmail: data.email || 'N/A',
+            userName: data.name || 'N/A',
+            breachReason: reason,
+            breachType: 'hard',
+            breachedAt: FieldValue.serverTimestamp()
+          });
+          console.log(`>>> [AUDIT] PERSISTENCE SUCCESS for account ${login}`);
+        } catch (writeError: any) {
+          console.log(`>>> [AUDIT] PERSISTENCE FAILURE for account ${login}: ${writeError.message}`);
+        }
+      } else {
+        console.log(`>>> [AUDIT] ACCOUNT CLEAN: ${login}`);
       }
     }
+    console.log(`>>> [AUDIT] Process Complete. Breached ${breachCount} accounts.`);
     return { success: true, breachCount };
   } catch (error: any) {
+    console.log(`>>> [AUDIT] CRITICAL SYSTEM ERROR: ${error.message}`);
     return { success: false, error: error.message };
   }
 }
