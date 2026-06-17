@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -13,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2
 } from 'lucide-react';
 import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
@@ -200,6 +201,45 @@ export default function AdminPage() {
     };
   }, [adminData]);
 
+  const referrerAggregates = useMemo(() => {
+    const referrersMap = new Map();
+    
+    // Initialize with all users who have a referral code
+    adminData.users.forEach((u: any) => {
+      if (u.referralCode) {
+        referrersMap.set(u.id, {
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          code: u.referralCode,
+          signups: 0,
+          earnings: 0,
+          conversions: 0,
+          referrals: []
+        });
+      }
+    });
+
+    // Process referral events ledger
+    adminData.referrals.forEach((ref: any) => {
+      const agg = referrersMap.get(ref.referrerId);
+      if (agg) {
+        agg.signups += 1;
+        if ((ref.amount || 0) > 0) {
+          agg.earnings += (ref.amount || 0);
+          agg.conversions += 1;
+        } else if (ref.status === 'converted') {
+          // Fallback if amount is 0 but status is converted
+          agg.earnings += 30;
+          agg.conversions += 1;
+        }
+        agg.referrals.push(ref);
+      }
+    });
+
+    return Array.from(referrersMap.values()).filter((agg: any) => agg.signups > 0 || agg.earnings > 0);
+  }, [adminData.users, adminData.referrals]);
+
   if (previewUserId) {
     return (
       <div className="min-h-screen bg-background relative">
@@ -237,6 +277,7 @@ export default function AdminPage() {
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
+              <TabsTrigger value="referrals" className="font-bold">Referral Audit</TabsTrigger>
               <TabsTrigger value="breaches" className="font-bold">Breaches</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -696,7 +737,7 @@ export default function AdminPage() {
                               )}
                               {user.addressProofUrl && (
                                 <Button variant="outline" size="sm" className="h-8 text-[10px] font-black uppercase tracking-tight gap-1.5" onClick={() => setViewProofProofUrl(user.addressProofUrl)}>
-                                  <landmark className="w-3 h-3" /> Address
+                                  <Landmark className="w-3 h-3" /> Address
                                 </Button>
                               )}
                             </div>
@@ -735,6 +776,56 @@ export default function AdminPage() {
                                 <RefreshCw className="w-4 h-4" />
                               </Button>
                             )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'referrals' && (
+            <Card className="bg-card/30 border-border/50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-white">
+                  <Share2 className="w-5 h-5 text-primary" /> Affiliate Reporting
+                </CardTitle>
+                <CardDescription>Aggregate performance of all referrers and unique codes.</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                      <tr>
+                        <th className="py-4 px-6">Referrer Name / Email</th>
+                        <th className="py-4 px-6">Active Code</th>
+                        <th className="py-4 px-6 text-center">Total Signups</th>
+                        <th className="py-4 px-6 text-center">Conversions</th>
+                        <th className="py-4 px-6 text-right">Commission Earned</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {referrerAggregates.length === 0 ? (
+                        <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No referral data found in the ledger.</td></tr>
+                      ) : referrerAggregates.map((agg: any) => (
+                        <tr key={agg.id} className="hover:bg-primary/5 transition-colors">
+                          <td className="py-4 px-6">
+                            <div className="font-bold text-white">{agg.name || 'Unknown'}</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-tight">{agg.email}</div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <Badge variant="outline" className="font-mono text-[10px] uppercase border-primary/20 text-primary">{agg.code}</Badge>
+                          </td>
+                          <td className="py-4 px-6 text-center">
+                            <div className="text-white font-medium">{agg.signups}</div>
+                          </td>
+                          <td className="py-4 px-6 text-center">
+                            <div className="text-emerald-500 font-bold">{agg.conversions}</div>
+                          </td>
+                          <td className="py-4 px-6 text-right">
+                            <div className="text-accent font-bold text-lg">${agg.earnings.toFixed(2)}</div>
                           </td>
                         </tr>
                       ))}
