@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar
 } from 'lucide-react';
@@ -126,7 +127,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleUpdateOrderStatus = async (orderId: string, status: 'verified' | 'rejected') => {
+  const handleUpdateOrderStatus = async (orderId: string, status: 'verified' | 'rejected', reason?: string) => {
     setActionLoading(true);
     const res = await updateOrderStatusAction(orderId, status);
     if (res.success) {
@@ -138,7 +139,7 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
-  const handleUpdatePayoutStatus = async (payoutId: string, status: 'approved' | 'rejected' | 'done') => {
+  const handleUpdatePayoutStatus = async (payoutId: string, status: 'approved' | 'rejected' | 'done', reason?: string) => {
     setActionLoading(true);
     const res = await updatePayoutStatusAction(payoutId, status);
     if (res.success) {
