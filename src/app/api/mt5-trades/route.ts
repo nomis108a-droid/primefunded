@@ -1,6 +1,7 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
       snapshot = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
     }
 
-    if (querySnapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+    if (snapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
 
     const accountDoc = snapshot.docs[0];
     const accountData = accountDoc.data();
@@ -161,22 +162,62 @@ export async function POST(request: Request) {
       if (pnl < 0) dailyLossTotal += Math.abs(pnl);
     });
 
-    // CRITICAL: Synchronize session state so mt5-update doesn't reset it
-    const accountUpdates = { 
+    // Synchronize session state
+    const accountUpdates: any = { 
       dailyClosedLosses: dailyLossTotal,
       lastDailyResetDate: todayKey 
     };
+
+    // 3. CUMULATIVE DAILY DRAWDOWN CHECK (IMMEDIATE)
+    let dailyBreach = false;
+    let dailyReason = "";
+    
+    const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
+    const planKey = getPlanKey(accountData.accountPlan || '1-Step Pro');
+    const phase = accountData.phase || 'evaluation';
+    const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
+
+    if (dailyLossTotal > dailyLimit && accountData.status !== 'breached') {
+      dailyBreach = true;
+      dailyReason = `Daily Drawdown (Gross Loss): Total realized loss of $${dailyLossTotal.toFixed(2)} exceeded fixed limit of $${dailyLimit.toFixed(2)} (3% of $${initialBalance.toLocaleString()})`;
+    }
+
+    if (dailyBreach) {
+      accountUpdates.status = 'breached';
+      accountUpdates.breachReason = dailyReason;
+      accountUpdates.breachedAt = FieldValue.serverTimestamp();
+    }
+
     await accountDoc.ref.update(accountUpdates);
     
     if (userId) {
-      await db.collection('users').doc(userId).update({ 
+      const userUpdates: any = { 
         dailyClosedLosses: dailyLossTotal,
         dailyStartBalanceDate: todayKey
-      });
+      };
+      if (dailyBreach) {
+        userUpdates.accountStatus = 'breached';
+        userUpdates.breachReason = dailyReason;
+        userUpdates.breachedAt = FieldValue.serverTimestamp();
+      }
+      await db.collection('users').doc(userId).update(userUpdates);
+
+      if (dailyBreach) {
+        await db.collection('breaches').add({
+          userId,
+          login: loginStr,
+          userEmail: accountData.email || 'N/A',
+          userName: accountData.name || 'N/A',
+          breachReason: dailyReason,
+          breachType: 'hard',
+          breachedAt: FieldValue.serverTimestamp()
+        });
+      }
     }
 
-    // 3. Evaluate Risk Rules
-    if (accountData.status !== 'breached') {
+    // 4. Evaluate Risk Rules (Transaction-Level)
+    if (!dailyBreach && accountData.status !== 'breached') {
       const riskCheck = await evaluateTradeRules(db, userId, accountDoc, trades);
       if (riskCheck.breached) {
         await accountDoc.ref.update({ status: 'breached', breachReason: riskCheck.reason, breachedAt: FieldValue.serverTimestamp() });
@@ -193,7 +234,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return new Response(JSON.stringify({ status: "OK", saved: trades.length, dailyLoss: dailyLossTotal }), { status: 200 });
+    return new Response(JSON.stringify({ status: "OK", saved: trades.length, dailyLoss: dailyLossTotal, breached: dailyBreach }), { status: 200 });
   } catch (error: any) {
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }

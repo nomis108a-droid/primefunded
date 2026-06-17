@@ -4,8 +4,8 @@ import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { getPlanKey } from '@/lib/rulesConfig';
-import { enrichTrades } from '@/lib/tradeUtils';
+import { getPlanKey, RULES_CONFIG } from '@/lib/rulesConfig';
+import { enrichTrades, getTradeDate } from '@/lib/tradeUtils';
 
 function getAdminApp(): App {
   const existingApps = getApps();
@@ -132,6 +132,7 @@ export async function fetchAdminTerminalData() {
 /**
  * Institutional Retroactive Risk Auditor
  * Scans all active accounts for historical violations.
+ * Includes Daily Drawdown session analysis.
  */
 export async function runRetroactiveRiskAuditAction() {
   try {
@@ -149,32 +150,57 @@ export async function runRetroactiveRiskAuditAction() {
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      // Reconstruct positions using shared utility
       const enriched = enrichTrades(rawTrades, data.login);
       
       let breached = false;
       let reason = "";
 
+      // 1. Transaction-Level Violation Check
       for (const t of enriched) {
-        // We only evaluate closed trades for duration and single loss
         if (!t.closeTime || !t.matched) continue;
 
         const profit = t.pnl || 0;
         const duration = t.durationSeconds || 0;
         const ticket = t.id;
 
-        // 1. Max Single Loss (3% of INITIAL)
         if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
           breached = true;
           reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${(initialBalance * 0.03).toFixed(2)}) on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`;
           break;
         }
 
-        // 2. Min Duration (120s)
         if (duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
           break;
+        }
+      }
+
+      // 2. Daily Drawdown Session Analysis (Catch resets that hid breaches)
+      if (!breached) {
+        const sessionMap = new Map<string, number>();
+        enriched.forEach(t => {
+          if (t.closeTime && (t.pnl || 0) < 0) {
+            const date = getTradeDate(t.closeTime);
+            if (date) {
+              const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
+              const key = adjusted.toISOString().split('T')[0];
+              sessionMap.set(key, (sessionMap.get(key) || 0) + Math.abs(t.pnl || 0));
+            }
+          }
+        });
+
+        const planKey = getPlanKey(data.accountPlan || '1-Step Pro');
+        const phase = data.phase || 'evaluation';
+        const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+        const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
+
+        for (const [date, loss] of sessionMap.entries()) {
+          if (loss > dailyLimit) {
+            breached = true;
+            reason = `Retroactive breach: Daily Gross Loss of $${loss.toFixed(2)} on ${date} exceeded session limit of $${dailyLimit.toFixed(2)}`;
+            break;
+          }
         }
       }
 
