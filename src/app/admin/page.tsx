@@ -15,9 +15,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction, runRetroactiveRiskAuditAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction, runRetroactiveRiskAuditAction, probeInstitutionalConnectionAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -112,6 +112,26 @@ export default function AdminPage() {
     } else {
       setAdminError("❌ Access Denied");
       setAdminPasswordInput('');
+    }
+  };
+
+  const handleProbeConnection = async () => {
+    console.log(">>> [CLIENT] Probe Button Clicked");
+    setActionLoading(true);
+    try {
+      const res = await probeInstitutionalConnectionAction();
+      console.log(">>> [CLIENT] PROBE RESULT:", res);
+      if (res.success) {
+        toast({ title: "System Probe Complete", description: `Connected to ${res.projectId}. Found ${res.count} accounts.` });
+        alert(`PROBE SUCCESS\nProject: ${res.projectId}\nCount: ${res.count}\nIDs: ${res.docIds?.join(', ') || 'none'}\nLogins: ${res.logins?.join(', ') || 'none'}`);
+      } else {
+        toast({ variant: "destructive", title: "Probe Failed", description: res.error });
+      }
+    } catch (err: any) {
+      console.error(">>> [CLIENT] PROBE FATAL ERROR:", err);
+      toast({ variant: "destructive", title: "Probe Fatal Error", description: err.message });
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -370,6 +390,10 @@ export default function AdminPage() {
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
             <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p></div>
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="border-accent/30 text-accent hover:bg-accent/10" onClick={handleProbeConnection} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wifi className="w-4 h-4 mr-2" />}
+                Probe Connection
+              </Button>
               <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleRetroactiveAudit} disabled={actionLoading}>
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldAlert className="w-4 h-4 mr-2" />}
                 Risk Audit All Accounts

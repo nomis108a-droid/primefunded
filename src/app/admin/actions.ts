@@ -1,15 +1,19 @@
 'use server';
 
-import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
+import { getApps, initializeApp, cert, type App, getApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getPlanKey, RULES_CONFIG } from '@/lib/rulesConfig';
 import { enrichTrades, getTradeDate } from '@/lib/tradeUtils';
 
+const AUDIT_VERSION = "2024-06-18-PROBE-01";
+
 function getAdminApp(): App {
   const existingApps = getApps();
-  if (existingApps.length) return existingApps[0];
+  // Look for our specific admin app first
+  const adminApp = existingApps.find(app => app.name === 'pf-admin');
+  if (adminApp) return adminApp;
 
   let serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
@@ -19,10 +23,12 @@ function getAdminApp(): App {
       serviceAccountKey = serviceAccountKey.slice(1, -1);
     }
     const serviceAccount = JSON.parse(serviceAccountKey);
+    console.log(`>>> [SYSTEM] Initializing Admin SDK for Project: ${serviceAccount.project_id}`);
+    
     return initializeApp({
       credential: cert(serviceAccount),
       storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`
-    });
+    }, 'pf-admin');
   } catch (e: any) {
     throw new Error(`Admin SDK Config Error: ${e.message}`);
   }
@@ -30,6 +36,32 @@ function getAdminApp(): App {
 
 function getAdminDb(): Firestore {
   return getFirestore(getAdminApp());
+}
+
+/**
+ * Isolated Connection Test
+ * Returns the raw count and IDs from the mt5_accounts collection.
+ */
+export async function probeInstitutionalConnectionAction() {
+  console.log(">>> [PROBE] Starting connection test...");
+  try {
+    const db = getAdminDb();
+    const snap = await db.collection('mt5_accounts').get();
+    const docIds = snap.docs.map(d => d.id);
+    const logins = snap.docs.map(d => d.data().login);
+    
+    console.log(`>>> [PROBE] Found ${snap.size} documents in mt5_accounts`);
+    return { 
+      success: true, 
+      count: snap.size, 
+      docIds, 
+      logins,
+      projectId: getAdminApp().options.projectId // Verify which project we are hitting
+    };
+  } catch (error: any) {
+    console.error(">>> [PROBE] FAILED:", error.message);
+    return { success: false, error: error.message };
+  }
 }
 
 function serializeFirestoreData(data: any): any {
@@ -138,9 +170,9 @@ export async function runRetroactiveRiskAuditAction() {
   const auditData: any[] = [];
   try {
     const db = getAdminDb();
-    // Relax query to find any mismatching status values
+    // Fetch all accounts to ensure we aren't missing anyone due to status filters
     const accounts = await db.collection('mt5_accounts').get();
-    console.log(`[AUDIT] Query returned ${accounts.docs.length} root accounts from mt5_accounts collection`);
+    console.log(`>>> [AUDIT] Query returned ${accounts.docs.length} root accounts from mt5_accounts collection`);
     
     let breachCount = 0;
 
@@ -151,16 +183,15 @@ export async function runRetroactiveRiskAuditAction() {
       const userId = data.userId;
       const initialBalance = parseFloat(String(data.accountBalance || 0));
 
-      console.log(`[AUDIT] Evaluating Account ${login}: Status=${status}, User=${userId}, Balance=${initialBalance}`);
+      console.log(`>>> [AUDIT] Evaluating Account ${login}: Status=${status}, User=${userId}, Balance=${initialBalance}`);
 
-      // We only process if it's 'active' or if the user is targeting it specifically
       if (status.toLowerCase() !== 'active') {
-        console.log(`[AUDIT] Skipping account ${login} because status is ${status}`);
+        console.log(`>>> [AUDIT] Skipping account ${login} because status is ${status}`);
         continue;
       }
 
       if (!userId || initialBalance <= 0) {
-        console.log(`[AUDIT] Skipping account ${login}: Incomplete data`);
+        console.log(`>>> [AUDIT] Skipping account ${login}: Incomplete data (Balance: ${initialBalance})`);
         continue;
       }
 
@@ -168,6 +199,7 @@ export async function runRetroactiveRiskAuditAction() {
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       
       const threshold = initialBalance * 0.03;
+      // Extract absolute loss amounts for the debug log
       const allLosses = rawTrades.filter(t => (t.pnl || t.profit || 0) < 0).map(t => Math.abs(t.pnl || t.profit));
       const biggestLoss = allLosses.length > 0 ? Math.max(...allLosses) : 0;
       const isMaxLossBreached = biggestLoss > threshold;
@@ -269,7 +301,7 @@ export async function runRetroactiveRiskAuditAction() {
         }
       }
     }
-    return { success: true, breachCount, auditData };
+    return { success: true, breachCount, auditData, version: AUDIT_VERSION };
   } catch (error: any) {
     console.log(`>>> [AUDIT] CRITICAL SYSTEM ERROR: ${error.message}`);
     return { success: false, error: error.message };
