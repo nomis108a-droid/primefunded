@@ -2,6 +2,8 @@
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 /**
  * @fileOverview Administrative Server Actions
@@ -9,37 +11,31 @@ import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firesto
  * Requires FIREBASE_SERVICE_ACCOUNT_KEY environment variable.
  */
 
-function getAdminDb(): Firestore {
+function getAdminApp(): App {
   const existingApps = getApps();
-  let app: App;
+  if (existingApps.length) return existingApps[0];
 
-  if (!existingApps.length) {
-    let serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    
-    if (!serviceAccountKey) {
-      console.error('[Admin-SDK] FIREBASE_SERVICE_ACCOUNT_KEY is missing.');
-      throw new Error('Administrative terminal requires FIREBASE_SERVICE_ACCOUNT_KEY to be configured in .env');
-    }
-
-    try {
-      if (serviceAccountKey.startsWith("'") && serviceAccountKey.endsWith("'")) {
-        serviceAccountKey = serviceAccountKey.slice(1, -1);
-      } else if (serviceAccountKey.startsWith('"') && serviceAccountKey.endsWith('"')) {
-        serviceAccountKey = serviceAccountKey.slice(1, -1);
-      }
-
-      const serviceAccount = JSON.parse(serviceAccountKey);
-      app = initializeApp({
-        credential: cert(serviceAccount),
-      });
-    } catch (e: any) {
-      console.error('[Admin-SDK] Initialization failed:', e.message);
-      throw new Error(`Admin SDK Config Error: ${e.message}`);
-    }
-  } else {
-    app = existingApps[0];
+  let serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  if (!serviceAccountKey) {
+    throw new Error('Administrative terminal requires FIREBASE_SERVICE_ACCOUNT_KEY');
   }
-  return getFirestore(app);
+
+  try {
+    if (serviceAccountKey.startsWith("'") || serviceAccountKey.startsWith('"')) {
+      serviceAccountKey = serviceAccountKey.slice(1, -1);
+    }
+    const serviceAccount = JSON.parse(serviceAccountKey);
+    return initializeApp({
+      credential: cert(serviceAccount),
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || `${serviceAccount.project_id}.firebasestorage.app`
+    });
+  } catch (e: any) {
+    throw new Error(`Admin SDK Config Error: ${e.message}`);
+  }
+}
+
+function getAdminDb(): Firestore {
+  return getFirestore(getAdminApp());
 }
 
 /**
@@ -61,6 +57,109 @@ function serializeFirestoreData(data: any): any {
     return serialized;
   }
   return data;
+}
+
+/**
+ * Generates a PDF certificate, uploads it to storage, and queues a congratulatory email.
+ */
+async function generateAndSendCertificate(
+  userId: string,
+  userName: string,
+  userEmail: string,
+  phase: string,
+  plan: string,
+  size: number
+) {
+  try {
+    const db = getAdminDb();
+    const app = getAdminApp();
+    const storage = getStorage(app);
+    const bucket = storage.bucket();
+
+    // 1. Generate PDF Certificate
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([600, 400]);
+    const { width, height } = page.getSize();
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+    const isFunded = phase === 'funded';
+    const title = isFunded ? 'CERTIFICATE OF FUNDING' : 'CERTIFICATE OF ACHIEVEMENT';
+    const subTitle = isFunded ? 'Live Institutional Funding Granted' : `Evaluation Passed: ${phase.toUpperCase()}`;
+    const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    // Decorative border (Prime Cyan)
+    page.drawRectangle({
+      x: 20, y: 20, width: width - 40, height: height - 40,
+      borderColor: rgb(0.06, 0.7, 0.96),
+      borderWidth: 2,
+    });
+
+    page.drawText(title, { x: 50, y: 320, size: 28, font: fontBold, color: rgb(0, 0, 0) });
+    page.drawText('This certificate is proudly presented to', { x: 50, y: 280, size: 12, font: fontRegular });
+    page.drawText(userName, { x: 50, y: 245, size: 24, font: fontBold, color: rgb(0.06, 0.7, 0.96) });
+    page.drawText(`For successfully completing institutional requirements for the ${plan} challenge.`, { x: 50, y: 215, size: 12, font: fontRegular });
+    page.drawText(`Account Size: $${size.toLocaleString()}`, { x: 50, y: 190, size: 14, font: fontRegular });
+    page.drawText(`Achievement: ${subTitle}`, { x: 50, y: 165, size: 14, font: fontBold });
+    page.drawText(`Date issued: ${dateStr}`, { x: 50, y: 100, size: 11, font: fontRegular });
+    page.drawText('PRIME FUNDED GLOBAL COMPLIANCE', { x: 380, y: 50, size: 9, font: fontBold });
+
+    const pdfBytes = await pdfDoc.save();
+
+    // 2. Upload to Storage
+    const fileName = `certificates/${userId}/${phase}-${Date.now()}.pdf`;
+    const file = bucket.file(fileName);
+    await file.save(Buffer.from(pdfBytes), {
+      contentType: 'application/pdf',
+      metadata: { cacheControl: 'public, max-age=31536000' }
+    });
+    
+    // Construct public-access URL (Firebase Storage format)
+    const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
+
+    const certData = {
+      url: publicUrl,
+      label: isFunded ? 'Institutional Funding Certificate' : `Phase Achievement: ${phase.toUpperCase()}`,
+      date: new Date().toISOString(),
+      phase,
+      plan
+    };
+
+    // 3. Update User Document Portfolio
+    const userRef = db.collection('users').doc(userId);
+    await userRef.update({
+      certificates: FieldValue.arrayUnion(certData)
+    });
+
+    // 4. Queue Congratulatory Email (Trigger Email Extension)
+    await db.collection('mail').add({
+      to: userEmail,
+      message: {
+        subject: isFunded ? "🎉 Congratulations - You're Now a Funded Trader!" : `🏆 Congratulations - Stage Passed: ${phase.toUpperCase()}`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff; color: #0f172a;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <h1 style="color: #11b3f5; font-size: 28px; margin: 0;">Institutional Milestone Reached</h1>
+            </div>
+            <p style="font-size: 16px; line-height: 1.6;">Hello <strong>${userName}</strong>,</p>
+            <p style="font-size: 16px; line-height: 1.6;">Our compliance desk has verified your trading performance. We are pleased to confirm that you have met all targets for the <strong>${plan} ${size.toLocaleString()}</strong> challenge.</p>
+            <p style="font-size: 16px; line-height: 1.6;">Attached to your dashboard is your official achievement certificate.</p>
+            <div style="margin: 40px 0; text-align: center;">
+              <a href="${publicUrl}" style="background-color: #11b3f5; color: #ffffff; padding: 16px 32px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">Download My Certificate</a>
+            </div>
+            <p style="font-size: 14px; color: #64748b; font-style: italic;">Note: Your new credentials have been provisioned and are ready for use in the Trader Terminal.</p>
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;">
+            <p style="font-size: 12px; color: #94a3b8; text-align: center;">PrimeFunded Global | Institutional Prop Trading Platform</p>
+          </div>
+        `
+      }
+    });
+
+    return { success: true, url: publicUrl };
+  } catch (error: any) {
+    console.error('[Certificate-Service] Critical Failure:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 export async function fetchAdminTerminalData() {
@@ -176,6 +275,11 @@ export async function registerMt5AccountAction(data: {
 }) {
   try {
     const db = getAdminDb();
+    const userRef = db.collection('users').doc(data.userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader document not found.");
+    const userData = userSnap.data()!;
+
     const accountRef = db.collection('mt5_accounts').doc();
     const accountData = {
       login: String(data.login),
@@ -197,7 +301,6 @@ export async function registerMt5AccountAction(data: {
 
     await accountRef.set(accountData);
 
-    const userRef = db.collection('users').doc(data.userId);
     await userRef.update({
       accountBalance: data.size,
       accountSize: `$${(data.size / 1000)}k`.replace('.0k', 'k'),
@@ -211,17 +314,35 @@ export async function registerMt5AccountAction(data: {
       mt5Login: data.login,
       mt5Password: data.password,
       mt5Server: "MetaQuotes-Demo",
+      readyForPhaseAdvancement: false,
+      readyForPhaseReset: false,
       activatedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
     await userRef.collection('notifications').add({
       title: "✅ Institutional Account Ready",
-      message: `Your ${data.plan} account with $${data.size.toLocaleString()} is now active.`,
+      message: `Your ${data.plan} account with $${data.size.toLocaleString()} is now active at stage: ${data.phase.toUpperCase()}.`,
       type: 'challenge_passed',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });
+
+    // Handle Certificate Delivery for Passing/Funding
+    if (data.phase && data.phase !== 'evaluation' && data.phase !== 'phase1') {
+      try {
+        await generateAndSendCertificate(
+          data.userId,
+          userData.name || 'Trader',
+          userData.email,
+          data.phase,
+          data.plan,
+          data.size
+        );
+      } catch (certErr) {
+        console.error('[Certificate-Trigger] Failed to generate:', certErr);
+      }
+    }
 
     return { success: true, docId: accountRef.id };
   } catch (error: any) {
