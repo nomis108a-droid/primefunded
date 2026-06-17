@@ -15,13 +15,14 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight
 } from 'lucide-react';
 import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
+import { formatDistanceToNow } from 'date-fns';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -286,6 +287,63 @@ export default function AdminPage() {
     };
   }, [adminData]);
 
+  const recentActivity = useMemo(() => {
+    const activities: any[] = [];
+
+    // 1. Signups
+    adminData.users.forEach((u: any) => {
+      activities.push({
+        id: `signup-${u.id}`,
+        type: 'signup',
+        description: `New trader: ${u.name || u.email}`,
+        timestamp: u.createdAt || u.joinDate,
+        icon: <UserPlus className="w-4 h-4 text-purple-500" />,
+        color: 'purple'
+      });
+    });
+
+    // 2. Orders
+    adminData.orders.forEach((o: any) => {
+      activities.push({
+        id: `order-${o.id}`,
+        type: 'order',
+        description: `Order submitted: ${o.accountSize} ${o.plan} by ${o.userName || o.email}`,
+        timestamp: o.submittedAt || o.date,
+        icon: <ShoppingBag className="w-4 h-4 text-primary" />,
+        color: 'blue'
+      });
+    });
+
+    // 3. Payouts
+    adminData.payouts.forEach((p: any) => {
+      activities.push({
+        id: `payout-${p.id}`,
+        type: 'payout',
+        description: `Payout requested: $${p.amount} by ${p.email}`,
+        timestamp: p.createdAt || p.date,
+        icon: <Banknote className="w-4 h-4 text-emerald-500" />,
+        color: 'green'
+      });
+    });
+
+    // 4. Breaches
+    adminData.breaches.forEach((b: any) => {
+      activities.push({
+        id: `breach-${b.id}`,
+        type: 'breach',
+        description: `Breach detected: ${b.breachReason} on account ${b.login || b.userId}`,
+        timestamp: b.breachedAt,
+        icon: <AlertOctagon className="w-4 h-4 text-destructive" />,
+        color: 'destructive'
+      });
+    });
+
+    return activities
+      .filter(a => a.timestamp)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 20);
+  }, [adminData]);
+
   const referrerAggregates = useMemo(() => {
     const referrersMap = new Map();
     
@@ -375,6 +433,81 @@ export default function AdminPage() {
                 <StatCard title="Total Traders" value={stats.totalTraders} icon={<Users />} color="purple" />
                 <StatCard title="Pending Review" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
                 <StatCard title="Pending Payouts" value={stats.pendingPayouts} icon={<Wallet />} color="green" />
+              </div>
+
+              <div className="grid lg:grid-cols-3 gap-8">
+                <Card className="lg:col-span-2 bg-card/30 border-border/50 overflow-hidden">
+                  <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+                    <div>
+                      <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
+                        <Activity className="w-5 h-5 text-primary" /> Platform Activity Feed
+                      </CardTitle>
+                      <CardDescription>Real-time log of events across the network.</CardDescription>
+                    </div>
+                    <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest px-3 py-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live
+                    </Badge>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-white/5">
+                      {recentActivity.length === 0 ? (
+                        <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div>
+                      ) : (
+                        recentActivity.map((act) => (
+                          <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
+                            <div className={cn(
+                              "p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110",
+                              act.color === 'purple' && "bg-purple-500/10 border-purple-500/20",
+                              act.color === 'blue' && "bg-primary/10 border-primary/20",
+                              act.color === 'green' && "bg-emerald-500/10 border-emerald-500/20",
+                              act.color === 'destructive' && "bg-destructive/10 border-destructive/20",
+                            )}>
+                              {act.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5">
+                                  <Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(act.timestamp), { addSuffix: true })}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/30">•</span>
+                                <span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span>
+                              </div>
+                            </div>
+                            <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 transition-opacity h-8 w-8">
+                              <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                            </Button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-6">
+                  <Card className="bg-primary/5 border-primary/20">
+                    <CardHeader>
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Trophy className="w-4 h-4 text-primary" /> Institutional Pulse
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">Active Sessions</span>
+                        <span className="text-white font-bold">{stats.totalTraders}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-muted-foreground">Verified Accounts</span>
+                        <span className="text-white font-bold">{stats.verifiedCount}</span>
+                      </div>
+                      <div className="pt-4 border-t border-white/5">
+                        <p className="text-[10px] text-muted-foreground leading-relaxed italic">
+                          Market operations are synchronized with the 2:00 AM UTC institutional boundary.
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             </div>
           )}
@@ -897,7 +1030,7 @@ export default function AdminPage() {
                 <div className="relative w-full max-w-lg">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input 
-                    placeholder="Search directory by name, email, or ID..." 
+                    placeholder="Search directory by name, email, or UID..." 
                     className="pl-10 bg-secondary/30 border-white/10" 
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
