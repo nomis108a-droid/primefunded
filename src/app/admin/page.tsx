@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { 
@@ -59,7 +59,7 @@ export default function AdminPage() {
   const { toast } = useToast();
 
   // Provisioning Form State
-  const [provisionForm, setProvisionForm] = useState({ login: '', password: '', displayLogin: '', plan: '1-Step', size: '100000', userId: '', phase: 'evaluation' });
+  const [provisionForm, setProvisionForm] = useState({ login: '', password: '', displayLogin: '', plan: '1-Step Pro', size: '100000', userId: '', phase: 'evaluation' });
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{ docId: string, login: string } | null>(null);
@@ -209,7 +209,12 @@ export default function AdminPage() {
   const filteredUsersForDirectory = useMemo(() => {
     if (!searchTerm) return adminData.users;
     const lowerSearch = searchTerm.toLowerCase();
-    return adminData.users.filter((u: any) => u.name?.toLowerCase().includes(lowerSearch) || u.email?.toLowerCase().includes(lowerSearch) || u.id?.toLowerCase().includes(lowerSearch) || (u.uid && u.uid.toString().toLowerCase().includes(lowerSearch)));
+    return adminData.users.filter((u: any) => 
+      u.name?.toLowerCase().includes(lowerSearch) || 
+      u.email?.toLowerCase().includes(lowerSearch) || 
+      u.id?.toLowerCase().includes(lowerSearch) || 
+      (u.uid && u.uid.toString().toLowerCase().includes(lowerSearch))
+    );
   }, [adminData.users, searchTerm]);
 
   const stats = useMemo(() => {
@@ -242,6 +247,23 @@ export default function AdminPage() {
     });
     return Array.from(referrersMap.values()).filter((agg: any) => agg.signups > 0 || agg.earnings > 0);
   }, [adminData.users, adminData.referrals]);
+
+  // Dynamic Phase Logic for MT5 Provisioning
+  const availablePhases = useMemo(() => {
+    const p = provisionForm.plan.toLowerCase();
+    if (p.includes('1-step')) return [{ label: "Evaluation Phase", value: "evaluation" }, { label: "Funded", value: "funded" }];
+    if (p.includes('2-step')) return [{ label: "Phase 1: Evaluation", value: "phase1" }, { label: "Phase 2: Verification", value: "phase2" }, { label: "Funded", value: "funded" }];
+    if (p.includes('3-step')) return [{ label: "Phase 1", value: "phase1" }, { label: "Phase 2", value: "phase2" }, { label: "Phase 3", value: "phase3" }, { label: "Funded", value: "funded" }];
+    return [{ label: "Funded", value: "funded" }];
+  }, [provisionForm.plan]);
+
+  useEffect(() => {
+    if (provisionForm.plan.toLowerCase().includes('instant')) {
+      setProvisionForm(prev => ({ ...prev, phase: 'funded' }));
+    } else {
+      setProvisionForm(prev => ({ ...prev, phase: availablePhases[0]?.value || 'evaluation' }));
+    }
+  }, [provisionForm.plan, availablePhases]);
 
   if (previewUserId) {
     return (
@@ -317,24 +339,23 @@ export default function AdminPage() {
                 <StatCard title="Pending Review" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
                 <StatCard title="Pending Payouts" value={stats.pendingPayouts} icon={<Wallet />} color="green" />
               </div>
-              <div className="grid lg:grid-cols-3 gap-8">
-                <Card className="lg:col-span-2 bg-card/30 border-border/50 overflow-hidden">
-                  <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
-                    <div><CardTitle className="text-xl font-headline text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary" /> Platform Activity Feed</CardTitle><CardDescription>Real-time log of events across the network.</CardDescription></div>
-                    <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest px-3 py-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live</Badge>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="divide-y divide-white/5">
-                      {recentActivity.length === 0 ? <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div> : recentActivity.map((act) => (
-                        <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
-                          <div className={cn("p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110", act.color === 'purple' && "bg-purple-500/10 border-purple-500/20", act.color === 'blue' && "bg-primary/10 border-primary/20", act.color === 'green' && "bg-emerald-500/10 border-emerald-500/20", act.color === 'destructive' && "bg-destructive/10 border-destructive/20")}>{act.icon}</div>
-                          <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(act.timestamp), { addSuffix: true })}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+              
+              <Card className="bg-card/30 border-border/50 overflow-hidden">
+                <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+                  <div><CardTitle className="text-xl font-headline text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary" /> Platform Activity Feed</CardTitle><CardDescription>Real-time log of events across the network.</CardDescription></div>
+                  <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest px-3 py-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live</Badge>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y divide-white/5">
+                    {recentActivity.length === 0 ? <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div> : recentActivity.map((act) => (
+                      <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
+                        <div className={cn("p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110", act.color === 'purple' && "bg-purple-500/10 border-purple-500/20", act.color === 'blue' && "bg-primary/10 border-primary/20", act.color === 'green' && "bg-emerald-500/10 border-emerald-500/20", act.color === 'destructive' && "bg-destructive/10 border-destructive/20")}>{act.icon}</div>
+                        <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(act.timestamp), { addSuffix: true })}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
@@ -481,7 +502,19 @@ export default function AdminPage() {
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Plan Type</Label><Select value={provisionForm.plan} onValueChange={val => setProvisionForm({...provisionForm, plan: val})}><SelectTrigger className="h-11 bg-background border-border"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1-Step Pro">1-Step Pro</SelectItem><SelectItem value="2-Step Classic">2-Step Classic</SelectItem><SelectItem value="3-Step Classic">3-Step Classic</SelectItem><SelectItem value="Instant Funding">Instant Funding</SelectItem></SelectContent></Select></div>
                     <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Initial Balance ($)</Label><Select value={provisionForm.size} onValueChange={val => setProvisionForm({...provisionForm, size: val})}><SelectTrigger className="h-11 bg-background border-border"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="5000">5,000</SelectItem><SelectItem value="10000">10,000</SelectItem><SelectItem value="25000">25,000</SelectItem><SelectItem value="50000">50,000</SelectItem><SelectItem value="100000">10,0000</SelectItem><SelectItem value="200000">200,000</SelectItem><SelectItem value="300000">300,000</SelectItem></SelectContent></Select></div>
-                    <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Initial Phase</Label><Select value={provisionForm.phase} onValueChange={val => setProvisionForm({...provisionForm, phase: val})}><SelectTrigger className="h-11 bg-background border-border"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="evaluation">Evaluation Phase</SelectItem><SelectItem value="phase1">Phase 1: Evaluation</SelectItem><SelectItem value="phase2">Phase 2: Verification</SelectItem><SelectItem value="phase3">Phase 3: Final Stage</SelectItem><SelectItem value="funded">Live Funded</SelectItem></SelectContent></Select></div>
+                    {!provisionForm.plan.toLowerCase().includes('instant') && (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Initial Phase</Label>
+                        <Select value={provisionForm.phase} onValueChange={val => setProvisionForm({...provisionForm, phase: val})}>
+                          <SelectTrigger className="h-11 bg-background border-border"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {availablePhases.map(p => (
+                              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">MT5 Login ID</Label><Input value={provisionForm.login} onChange={e => setProvisionForm({...provisionForm, login: e.target.value})} placeholder="e.g. 505183..." className="h-11 bg-background border-border" /></div>
                     <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">MT5 Master Password</Label><Input value={provisionForm.password} onChange={e => setProvisionForm({...provisionForm, password: e.target.value})} placeholder="Master key..." className="h-11 bg-background border-border" /></div>
                     <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Display Login (Optional)</Label><Input value={provisionForm.displayLogin} onChange={e => setProvisionForm({...provisionForm, displayLogin: e.target.value})} placeholder="PF-Login-ID..." className="h-11 bg-background border-border" /></div>
@@ -490,7 +523,7 @@ export default function AdminPage() {
                 <CardFooter className="bg-secondary/20 p-6 flex justify-end"><Button className="h-12 px-10 font-bold text-lg cyan-box-glow" disabled={actionLoading || !provisionForm.userId || !provisionForm.login} onClick={() => setIsConfirmOpen(true)}>{actionLoading ? <Loader2 className="animate-spin mr-2" /> : <ShieldCheck className="mr-2 w-5 h-5" />}Authorize Node Provisioning</Button></CardFooter>
               </Card>
 
-              <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}><DialogContent className="bg-black border-primary/20 text-white"><DialogHeader><DialogTitle>Verify Provisioning Details</DialogTitle><DialogDescription className="text-muted-foreground">This action will grant institutional capital access and notify the trader via secure channel.</DialogDescription></DialogHeader><div className="p-6 bg-secondary/30 rounded-2xl border border-white/5 space-y-3"><div className="flex justify-between"><span className="text-muted-foreground">Recipient</span><span className="font-bold">{userSearchTerm}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Plan Configuration</span><span className="font-bold text-primary">{provisionForm.size} {provisionForm.plan}</span></div><div className="flex justify-between"><span className="text-muted-foreground">MT5 ID</span><span className="font-bold font-mono">{provisionForm.login}</span></div></div><DialogFooter><Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Abort</Button><Button className="bg-primary text-black font-bold" onClick={async () => { setActionLoading(true); const res = await registerMt5AccountAction({...provisionForm, size: Number(provisionForm.size)}); if (res.success) { setProvisionResult({ docId: res.docId!, login: provisionForm.login }); toast({ title: "Node Provisioned", description: "MT5 credentials linked successfully." }); setProvisionForm({ login: '', password: '', displayLogin: '', plan: '1-Step', size: '100000', userId: '', phase: 'evaluation' }); setUserSearchTerm(''); } else { toast({ variant: "destructive", title: "Provisioning Error", description: res.error }); } setActionLoading(false); setIsConfirmOpen(false); }}>Confirm Activation</Button></DialogFooter></DialogContent></Dialog>
+              <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}><DialogContent className="bg-black border-primary/20 text-white"><DialogHeader><DialogTitle>Verify Provisioning Details</DialogTitle><DialogDescription className="text-muted-foreground">This action will grant institutional capital access and notify the trader via secure channel.</DialogDescription></DialogHeader><div className="p-6 bg-secondary/30 rounded-2xl border border-white/5 space-y-3"><div className="flex justify-between"><span className="text-muted-foreground">Recipient</span><span className="font-bold">{userSearchTerm}</span></div><div className="flex justify-between"><span className="text-muted-foreground">Plan Configuration</span><span className="font-bold text-primary">{provisionForm.size} {provisionForm.plan}</span></div><div className="flex justify-between"><span className="text-muted-foreground">MT5 ID</span><span className="font-bold font-mono">{provisionForm.login}</span></div></div><DialogFooter><Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Abort</Button><Button className="bg-primary text-black font-bold" onClick={async () => { setActionLoading(true); const res = await registerMt5AccountAction({...provisionForm, size: Number(provisionForm.size)}); if (res.success) { setProvisionResult({ docId: res.docId!, login: provisionForm.login }); toast({ title: "Node Provisioned", description: "MT5 credentials linked successfully." }); setProvisionForm({ login: '', password: '', displayLogin: '', plan: '1-Step Pro', size: '100000', userId: '', phase: 'evaluation' }); setUserSearchTerm(''); } else { toast({ variant: "destructive", title: "Provisioning Error", description: res.error }); } setActionLoading(false); setIsConfirmOpen(false); }}>Confirm Activation</Button></DialogFooter></DialogContent></Dialog>
             </div>
           )}
 
@@ -563,7 +596,7 @@ export default function AdminPage() {
                                   <TooltipProvider>
                                      <Tooltip>
                                         <TooltipTrigger asChild>
-                                           <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => { navigator.clipboard.writeText(u.uid || u.id); toast({ title: "Copied ID" }); }}><Copy className="w-3 h-3" /></Button>
+                                           <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => { navigator.clipboard.writeText(u.uid || u.id); toast({ title: "Copied ID" }); }}><Copy className="w-3" /></Button>
                                         </TooltipTrigger>
                                         <TooltipContent>Copy Trader ID</TooltipContent>
                                      </Tooltip>
