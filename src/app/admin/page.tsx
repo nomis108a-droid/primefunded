@@ -14,9 +14,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -69,6 +69,19 @@ export default function AdminPage() {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{ docId: string, login: string } | null>(null);
+
+  // User Editor State
+  const [editorSearchTerm, setEditorSearchTerm] = useState('');
+  const [selectedEditorUser, setSelectedEditorUser] = useState<any>(null);
+  const [userEditForm, setUserEditForm] = useState({
+    name: '',
+    phone: '',
+    country: '',
+    referralCode: '',
+    tier: 'Bronze',
+    status: 'active'
+  });
+  const [isEditorConfirmOpen, setIsEditorConfirmOpen] = useState(false);
 
   // Broadcast Form State
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '' });
@@ -184,6 +197,20 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
+  const handleUserEditSubmit = async () => {
+    if (!selectedEditorUser) return;
+    setActionLoading(true);
+    const res = await updateUserProfileAction(selectedEditorUser.id, userEditForm);
+    if (res.success) {
+      toast({ title: "Profile Synchronized" });
+      setIsEditorConfirmOpen(false);
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Update Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
   const filteredUsersForSearch = useMemo(() => {
     if (!userSearchTerm) return [];
     return adminData.users.filter((u: any) => 
@@ -191,6 +218,14 @@ export default function AdminPage() {
       u.name?.toLowerCase().includes(userSearchTerm.toLowerCase())
     ).slice(0, 5);
   }, [adminData.users, userSearchTerm]);
+
+  const filteredUsersForEditor = useMemo(() => {
+    if (!editorSearchTerm) return [];
+    return adminData.users.filter((u: any) => 
+      u.email?.toLowerCase().includes(editorSearchTerm.toLowerCase()) || 
+      u.name?.toLowerCase().includes(editorSearchTerm.toLowerCase())
+    ).slice(0, 5);
+  }, [adminData.users, editorSearchTerm]);
 
   const handleProvisionSubmit = async () => {
     if (!/^\d+$/.test(provisionForm.login)) {
@@ -308,6 +343,7 @@ export default function AdminPage() {
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
+              <TabsTrigger value="user_editor" className="font-bold">Profile Editor</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
               <TabsTrigger value="referrals" className="font-bold">Referral Audit</TabsTrigger>
@@ -686,6 +722,161 @@ export default function AdminPage() {
             </div>
           )}
 
+          {activeTab === 'user_editor' && (
+            <div className="grid lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 space-y-6">
+                <Card className="bg-card/40 border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-white flex items-center gap-2"><Search className="w-4 h-4" /> Locate Trader</CardTitle>
+                    <CardDescription>Search by email or name to begin editing.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="trader@example.com" 
+                        className="pl-10 bg-background/50" 
+                        value={editorSearchTerm}
+                        onChange={e => setEditorSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      {filteredUsersForEditor.map((u: any) => (
+                        <div 
+                          key={u.id} 
+                          onClick={() => {
+                            setSelectedEditorUser(u);
+                            setUserEditForm({
+                              name: u.name || '',
+                              phone: u.phone || '',
+                              country: u.country || '',
+                              referralCode: u.referralCode || '',
+                              tier: u.tier || 'Bronze',
+                              status: u.status || 'active'
+                            });
+                            setEditorSearchTerm(u.email);
+                          }}
+                          className={cn(
+                            "p-3 rounded-xl cursor-pointer text-sm flex justify-between items-center transition-all border",
+                            selectedEditorUser?.id === u.id ? "bg-primary border-primary text-black" : "bg-secondary/30 border-border/50 hover:border-primary/50 text-white"
+                          )}
+                        >
+                          <div>
+                            <p className="font-bold">{u.name}</p>
+                            <p className="text-[10px] opacity-70">{u.email}</p>
+                          </div>
+                          <Badge variant="outline" className={cn("text-[9px]", selectedEditorUser?.id === u.id ? "border-black/20" : "")}>{u.status}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {selectedEditorUser && (
+                  <Card className="bg-primary/5 border-primary/20">
+                    <CardHeader><CardTitle className="text-sm flex items-center gap-2 text-primary"><Activity className="w-4 h-4" /> Live Sync Metrics</CardTitle></CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black text-muted-foreground uppercase">Live Balance</p>
+                          <p className="font-bold text-white text-lg">${selectedEditorUser.liveBalance?.toLocaleString() || '0.00'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black text-muted-foreground uppercase">Live Equity</p>
+                          <p className="font-bold text-white text-lg">${selectedEditorUser.liveEquity?.toLocaleString() || '0.00'}</p>
+                        </div>
+                      </div>
+                      <div className="p-3 bg-background/50 rounded-lg border border-border">
+                        <p className="text-[9px] font-black text-muted-foreground uppercase mb-1">Last Update</p>
+                        <p className="text-xs text-white font-mono">{selectedEditorUser.lastMT5Update ? new Date(selectedEditorUser.lastMT5Update).toLocaleString() : 'Never Sync'}</p>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground italic leading-tight">Sync metrics are read-only and managed by the MT5 integration engine.</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              <div className="lg:col-span-2">
+                {selectedEditorUser ? (
+                  <Card className="bg-card/30 border-border/50">
+                    <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-6">
+                      <div>
+                        <CardTitle className="text-white">Edit Profile: {selectedEditorUser.name}</CardTitle>
+                        <CardDescription>Modifying UID: {selectedEditorUser.id}</CardDescription>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setSelectedEditorUser(null)}><ChevronLeft className="w-3 h-3 mr-1" /> Close</Button>
+                    </CardHeader>
+                    <CardContent className="pt-8 space-y-8">
+                      <div className="grid md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase text-muted-foreground">Full Name</Label>
+                          <Input value={userEditForm.name} onChange={e => setUserEditForm({...userEditForm, name: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase text-muted-foreground">Account Identity (Email)</Label>
+                          <Input value={selectedEditorUser.email} disabled className="bg-secondary/20 opacity-50 cursor-not-allowed" />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase text-muted-foreground">Phone Number</Label>
+                          <Input value={userEditForm.phone} onChange={e => setUserEditForm({...userEditForm, phone: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase text-muted-foreground">Country</Label>
+                          <Input value={userEditForm.country} onChange={e => setUserEditForm({...userEditForm, country: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase text-muted-foreground">Referral Code</Label>
+                          <div className="relative">
+                            <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-primary" />
+                            <Input className="pl-8 font-mono uppercase" value={userEditForm.referralCode} onChange={e => setUserEditForm({...userEditForm, referralCode: e.target.value.toUpperCase()})} />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold uppercase text-muted-foreground">Loyalty Tier</Label>
+                          <Select value={userEditForm.tier} onValueChange={v => setUserEditForm({...userEditForm, tier: v})}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Bronze">Bronze Tier</SelectItem>
+                              <SelectItem value="Silver">Silver Tier</SelectItem>
+                              <SelectItem value="Gold">Gold Tier</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-secondary/20 rounded-2xl border border-border space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-bold text-white">Administrative Status</p>
+                            <p className="text-xs text-muted-foreground">Override account access manually.</p>
+                          </div>
+                          <Select value={userEditForm.status} onValueChange={v => setUserEditForm({...userEditForm, status: v})}>
+                            <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="active">🟢 Active</SelectItem>
+                              <SelectItem value="suspended">🔴 Suspended</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="pt-6 border-t border-white/5">
+                        <Button className="w-full h-12 font-bold cyan-box-glow" onClick={() => setIsEditorConfirmOpen(true)}>
+                          <Save className="w-4 h-4 mr-2" /> Commit Profile Changes
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center border-2 border-dashed border-border rounded-3xl opacity-20 py-40">
+                    <UserCircle className="w-20 h-20 mb-4" />
+                    <p className="font-bold text-xl uppercase tracking-widest">No User Selected</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'user_directory' && (
             <Card className="bg-card/30 border-border/50">
               <CardContent className="p-0">
@@ -709,10 +900,17 @@ export default function AdminPage() {
                           </td>
                           <td className="py-4 px-6 text-right space-x-2">
                             <Button variant="ghost" size="sm" onClick={() => {
-                              setProvisionForm({...provisionForm, userId: u.id});
-                              setUserSearchTerm(u.email);
-                              setActiveTab('provisioning');
-                            }}><Gift className="w-4 h-4" /></Button>
+                              setSelectedEditorUser(u);
+                              setUserEditForm({
+                                name: u.name || '',
+                                phone: u.phone || '',
+                                country: u.country || '',
+                                referralCode: u.referralCode || '',
+                                tier: u.tier || 'Bronze',
+                                status: u.status || 'active'
+                              });
+                              setActiveTab('user_editor');
+                            }}><Edit2 className="w-4 h-4" /></Button>
                             <Button variant="ghost" size="sm" onClick={() => setPreviewUserId(u.id)}><Eye className="w-4 h-4" /></Button>
                           </td>
                         </tr>
@@ -1026,6 +1224,40 @@ export default function AdminPage() {
             <Button className="bg-primary text-black font-bold px-8" onClick={handleProvisionSubmit} disabled={actionLoading}>
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Finalize Provisioning
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Editor Confirmation Modal */}
+      <Dialog open={isEditorConfirmOpen} onOpenChange={setIsEditorConfirmOpen}>
+        <DialogContent className="bg-card border-accent/50">
+          <DialogHeader>
+            <DialogTitle className="text-accent flex items-center gap-2"><AlertTriangle className="w-5 h-5" /> Confirm Profile Update</DialogTitle>
+            <DialogDescription>You are about to modify core profile data for <span className="text-white font-bold">{selectedEditorUser?.email}</span>.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-secondary/30 rounded-xl space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">New Tier:</span>
+                <span className="text-white font-bold">{userEditForm.tier}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">New Status:</span>
+                <span className="text-white font-bold uppercase">{userEditForm.status}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Referral Code:</span>
+                <span className="text-white font-mono">{userEditForm.referralCode}</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground italic">Live sync trading metrics will remain untouched by this operation.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsEditorConfirmOpen(false)}>Cancel</Button>
+            <Button className="bg-accent text-black font-bold px-8" onClick={handleUserEditSubmit} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Commit Changes
             </Button>
           </DialogFooter>
         </DialogContent>

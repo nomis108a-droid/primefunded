@@ -289,3 +289,31 @@ export async function processKycAction(userId: string, action: 'verified' | 'rej
     return { success: false, error: error.message };
   }
 }
+
+/**
+ * Directly update a user's account-level profile fields.
+ * Excludes live trading metrics to prevent synchronization conflicts.
+ */
+export async function updateUserProfileAction(userId: string, data: any) {
+  try {
+    const db = getAdminDb();
+    const userRef = db.collection('users').doc(userId);
+    
+    // Explicitly whitelist allowed fields
+    const allowedFields = ['name', 'phone', 'country', 'tier', 'status', 'referralCode'];
+    const updates: any = {};
+    
+    allowedFields.forEach(field => {
+      if (data[field] !== undefined) {
+        updates[field] = data[field];
+      }
+    });
+
+    updates.updatedAt = FieldValue.serverTimestamp();
+
+    await userRef.update(updates);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
