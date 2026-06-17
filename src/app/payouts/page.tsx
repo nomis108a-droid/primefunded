@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useMemo, useState, memo } from 'react';
@@ -6,7 +5,7 @@ import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Wallet, ArrowDownRight, History, Clock, AlertTriangle, ShieldCheck, XCircle, Info, Loader2 } from 'lucide-react';
+import { Wallet, ArrowDownRight, History, Clock, AlertTriangle, ShieldCheck, XCircle, Info, Loader2, CreditCard, Send } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useCollection, useFirestore } from '@/firebase';
 import { where, addDoc, collection, serverTimestamp, limit, orderBy } from 'firebase/firestore';
@@ -15,6 +14,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { useToast } from '@/hooks/use-toast';
 import { sendPayoutRequestedEmail } from '@/lib/email';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 const StatBox = memo(function StatSmall({ title, value, icon, color = 'primary' }: { title: string, value: string, icon: any, color?: string }) {
   return (
@@ -34,8 +37,24 @@ export default function PayoutsPage() {
   const { user, userData } = useAuth();
   const db = useFirestore();
   const { toast } = useToast();
-  const [requesting, setLoading] = useState(false);
+  const [requesting, setRequesting] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   
+  // Payout Form State
+  const [payoutForm, setPayoutForm] = useState({
+    amount: '',
+    method: 'USDT (TRC20)',
+    address: ''
+  });
+
+  const withdrawableProfit = useMemo(() => {
+    if (!userData) return 0;
+    const balance = userData.liveBalance || userData.balance || 0;
+    const initial = userData.accountBalance || 100000;
+    const profit = balance - initial;
+    return profit > 0 ? profit : 0;
+  }, [userData]);
+
   const payoutConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where('userId', '==', user.uid), limit(20)];
@@ -51,39 +70,57 @@ export default function PayoutsPage() {
 
   const kycStatus = userData?.kycStatus || 'none';
   const isKycVerified = userData?.kycVerified === true;
+  const isThresholdMet = withdrawableProfit >= 25;
 
   const handleRequestPayout = async () => {
-    if (!user || !isKycVerified) return;
-    setLoading(true);
+    if (!user || !isKycVerified || !isThresholdMet) return;
+    
+    const amountNum = parseFloat(payoutForm.amount);
+    if (isNaN(amountNum) || amountNum < 25) {
+      toast({ variant: "destructive", title: "Invalid Amount", description: "Minimum payout is $25.00" });
+      return;
+    }
+
+    if (amountNum > withdrawableProfit) {
+      toast({ variant: "destructive", title: "Insufficient Profit", description: "You cannot request more than your current withdrawable profit." });
+      return;
+    }
+
+    if (!payoutForm.address || payoutForm.address.length < 10) {
+      toast({ variant: "destructive", title: "Invalid Address", description: "Please enter a valid wallet destination address." });
+      return;
+    }
+
+    setRequesting(true);
     const payoutData = {
       userId: user.uid,
       email: user.email,
-      amount: "0.00",
-      method: "USDT",
-      address: "Pending input...",
+      amount: amountNum.toFixed(2),
+      method: payoutForm.method,
+      address: payoutForm.address,
       status: "pending",
       date: new Date().toISOString(),
       createdAt: serverTimestamp()
     };
     
-    addDoc(collection(db, 'payouts'), payoutData)
-      .then(() => {
-        addDoc(collection(db, 'users', user.uid, 'notifications'), {
-          title: "💸 Payout Requested",
-          message: "Your payout request has been submitted and is being processed by our finance team.",
-          type: 'payout_requested',
-          isRead: false,
-          createdAt: serverTimestamp()
-        });
-        sendPayoutRequestedEmail(user.email!, "0.00");
-        toast({ title: "Request Submitted", description: "Your payout is now under review." });
-      })
-      .catch(() => {
-        toast({ variant: "destructive", title: "Request Failed" });
-      })
-      .finally(() => {
-        setLoading(false);
+    try {
+      await addDoc(collection(db, 'payouts'), payoutData);
+      await addDoc(collection(db, 'users', user.uid, 'notifications'), {
+        title: "💸 Payout Requested",
+        message: `Your payout request for $${payoutData.amount} via ${payoutData.method} has been submitted successfully.`,
+        type: 'payout_requested',
+        isRead: false,
+        createdAt: serverTimestamp()
       });
+      sendPayoutRequestedEmail(user.email!, payoutData.amount);
+      toast({ title: "Request Submitted", description: "Your payout is now under review by our finance desk." });
+      setIsFormOpen(false);
+      setPayoutForm({ ...payoutForm, amount: '', address: '' });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Request Failed", description: err.message });
+    } finally {
+      setRequesting(false);
+    }
   };
 
   const renderKycWarning = () => {
@@ -141,40 +178,55 @@ export default function PayoutsPage() {
         {renderKycWarning()}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className={isKycVerified ? "bg-primary/10 border-primary/20" : "bg-secondary/20 border-border opacity-60"}>
+          <Card className={cn(
+            "transition-all duration-300",
+            isKycVerified ? "bg-primary/10 border-primary/20" : "bg-secondary/20 border-border opacity-60"
+          )}>
             <CardContent className="pt-6">
               <div className="flex justify-between items-start mb-4">
                 <p className="text-xs font-bold uppercase tracking-widest text-primary">Withdrawable Profit</p>
                 <Wallet className="text-primary w-5 h-5" />
               </div>
-              <h3 className="text-4xl font-headline font-bold mb-2">$0.00</h3>
+              <h3 className="text-4xl font-headline font-bold mb-2">${withdrawableProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
               
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="w-full">
                       <Button 
-                        className="w-full mt-6 font-bold cursor-pointer" 
-                        disabled={!isKycVerified || requesting}
-                        onClick={handleRequestPayout}
+                        className="w-full mt-6 font-bold cursor-pointer cyan-box-glow" 
+                        disabled={!isKycVerified || !isThresholdMet}
+                        onClick={() => {
+                          setPayoutForm({ ...payoutForm, amount: withdrawableProfit.toFixed(2) });
+                          setIsFormOpen(true);
+                        }}
                       >
-                        {requesting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                         Request Payout
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  {!isKycVerified && (
+                  {!isKycVerified ? (
                     <TooltipContent className="bg-destructive text-white border-none">
                       <p className="text-xs font-bold">Complete KYC to unlock payouts</p>
                     </TooltipContent>
-                  )}
+                  ) : !isThresholdMet ? (
+                    <TooltipContent className="bg-amber-500 text-black border-none">
+                      <p className="text-xs font-bold">Minimum payout amount is $25.00</p>
+                    </TooltipContent>
+                  ) : null}
                 </Tooltip>
               </TooltipProvider>
+
+              {!isThresholdMet && isKycVerified && (
+                <p className="mt-4 text-[10px] text-amber-500 font-bold uppercase tracking-widest text-center">
+                  Minimum withdrawal threshold: $25.00
+                </p>
+              )}
             </CardContent>
           </Card>
           
-          <StatBox title="Total Paid Out" value={`$${stats.totalPaid.toLocaleString('en-US')}`} icon={<ArrowDownRight className="w-5 h-5" />} color="accent" />
-          <StatBox title="Pending Payouts" value={`$${stats.pending.toLocaleString('en-US')}`} icon={<Clock className="w-5 h-5" />} />
+          <StatBox title="Total Paid Out" value={`$${stats.totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} icon={<ArrowDownRight className="w-5 h-5" />} color="accent" />
+          <StatBox title="Pending Payouts" value={`$${stats.pending.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} icon={<Clock className="w-5 h-5" />} />
         </div>
 
         <Card className="border-border/50 bg-card/40 backdrop-blur-sm">
@@ -203,9 +255,14 @@ export default function PayoutsPage() {
                     <tr key={p.id} className="hover:bg-secondary/20 transition-colors">
                       <td className="py-4 px-2 font-medium text-white">{new Date(p.date).toLocaleDateString()}</td>
                       <td className="py-4 px-2 text-muted-foreground">{p.method}</td>
-                      <td className="py-4 px-2 font-bold text-accent text-right">${p.amount}</td>
+                      <td className="py-4 px-2 font-bold text-accent text-right">${parseFloat(p.amount).toLocaleString()}</td>
                       <td className="py-4 px-2 text-right">
-                        <Badge variant="outline" className="text-[10px] uppercase font-bold text-white border-white/10">{p.status}</Badge>
+                        <Badge variant="outline" className={cn(
+                          "text-[10px] uppercase font-black px-3",
+                          p.status === 'done' ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : 
+                          p.status === 'rejected' ? "bg-destructive/10 text-destructive border-destructive/20" :
+                          "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                        )}>{p.status}</Badge>
                       </td>
                     </tr>
                   )) : (
@@ -219,6 +276,75 @@ export default function PayoutsPage() {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+        <DialogContent className="bg-card border-primary/20 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-headline font-bold">Request Withdrawal</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Provide your crypto destination details. All payouts are verified within 1-4 hours.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase text-primary tracking-widest">Withdrawal Amount ($)</Label>
+              <div className="relative">
+                <Input 
+                  type="number" 
+                  value={payoutForm.amount} 
+                  onChange={(e) => setPayoutForm({ ...payoutForm, amount: e.target.value })}
+                  placeholder="25.00"
+                  className="h-12 bg-background border-border text-lg font-bold pl-10"
+                />
+                <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              </div>
+              <p className="text-[10px] text-muted-foreground">Max available: ${withdrawableProfit.toFixed(2)}</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase text-primary tracking-widest">Payout Network</Label>
+              <Select value={payoutForm.method} onValueChange={(v) => setPayoutForm({ ...payoutForm, method: v })}>
+                <SelectTrigger className="h-12 bg-background border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="USDT (TRC20)">USDT (TRC20) - Fast / Low Fee</SelectItem>
+                  <SelectItem value="USDT (ERC20)">USDT (ERC20)</SelectItem>
+                  <SelectItem value="BTC">Bitcoin (BTC)</SelectItem>
+                  <SelectItem value="ETH">Ethereum (ETH)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-black uppercase text-primary tracking-widest">Destination Address</Label>
+              <div className="relative">
+                <Input 
+                  value={payoutForm.address} 
+                  onChange={(e) => setPayoutForm({ ...payoutForm, address: e.target.value })}
+                  placeholder="Paste your wallet address here..."
+                  className="h-12 bg-background border-border font-mono text-xs pr-10"
+                />
+                <CreditCard className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              </div>
+              <p className="text-[9px] text-destructive font-bold uppercase">⚠️ Warning: Ensure the address is correct for the selected network.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setIsFormOpen(false)} className="font-bold">Cancel</Button>
+            <Button 
+              className="font-black bg-primary text-black h-12 px-8 flex-1 sm:flex-none" 
+              onClick={handleRequestPayout}
+              disabled={requesting}
+            >
+              {requesting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+              Submit Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -448,11 +448,36 @@ export async function updateUserProfileAction(userId: string, data: any) {
   try {
     const db = getAdminDb();
     const userRef = db.collection('users').doc(userId);
-    const allowedFields = ['name', 'phone', 'country', 'tier', 'status', 'referralCode'];
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader not found.");
+    const currentData = userSnap.data()!;
+
+    const allowedFields = ['name', 'phone', 'country', 'tier', 'status', 'referralCode', 'currentPhase'];
     const updates: any = {};
     allowedFields.forEach(field => { if (data[field] !== undefined) updates[field] = data[field]; });
     updates.updatedAt = FieldValue.serverTimestamp();
+    
     await userRef.update(updates);
+
+    // FIX: If admin manually updates phase to a milestone, trigger certificate logic
+    const newPhase = data.currentPhase;
+    const oldPhase = currentData.currentPhase;
+
+    if (newPhase && newPhase !== oldPhase && (newPhase === 'funded' || newPhase.includes('phase'))) {
+      try {
+        await generateAndSendCertificate(
+          userId,
+          data.name || currentData.name || 'Trader',
+          currentData.email,
+          newPhase,
+          currentData.accountPlan || 'Challenge',
+          parseFloat(String(currentData.accountBalance || 100000))
+        );
+      } catch (certErr) {
+        console.error('[Manual-Update-Cert] Error:', certErr);
+      }
+    }
+
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
