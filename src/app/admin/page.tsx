@@ -454,7 +454,7 @@ export default function AdminPage() {
                         <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div>
                       ) : (
                         recentActivity.map((act) => (
-                          <div className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
+                          <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
                             <div className={cn(
                               "p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110",
                               act.color === 'purple' && "bg-purple-500/10 border-purple-500/20",
@@ -821,19 +821,24 @@ export default function AdminPage() {
                         <SelectTrigger className="bg-background/50"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {provisionForm.plan === '1-Step' && (
-                            <SelectItem value="evaluation">Evaluation</SelectItem>
+                            <>
+                              <SelectItem value="evaluation">Evaluation Phase</SelectItem>
+                              <SelectItem value="funded">Funded</SelectItem>
+                            </>
                           )}
                           {provisionForm.plan === '2-Step' && (
                             <>
-                              <SelectItem value="phase1">Evaluation - Phase 1</SelectItem>
-                              <SelectItem value="phase2">Evaluation - Phase 2</SelectItem>
+                              <SelectItem value="phase1">Phase 1: Evaluation</SelectItem>
+                              <SelectItem value="phase2">Phase 2: Verification</SelectItem>
+                              <SelectItem value="funded">Funded</SelectItem>
                             </>
                           )}
                           {provisionForm.plan === '3-Step' && (
                             <>
-                              <SelectItem value="phase1">Evaluation - Phase 1</SelectItem>
-                              <SelectItem value="phase2">Evaluation - Phase 2</SelectItem>
-                              <SelectItem value="phase3">Evaluation - Phase 3</SelectItem>
+                              <SelectItem value="phase1">Phase 1</SelectItem>
+                              <SelectItem value="phase2">Phase 2</SelectItem>
+                              <SelectItem value="phase3">Phase 3</SelectItem>
+                              <SelectItem value="funded">Funded</SelectItem>
                             </>
                           )}
                         </SelectContent>
