@@ -13,12 +13,13 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -68,6 +69,9 @@ export default function AdminPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{ docId: string, login: string } | null>(null);
 
+  // Proof Preview State
+  const [viewProofUrl, setViewProofProofUrl] = useState<string | null>(null);
+
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
@@ -103,6 +107,18 @@ export default function AdminPage() {
       setAdminError("❌ Access Denied");
       setAdminPasswordInput('');
     }
+  };
+
+  const handleUpdateOrderStatus = async (orderId: string, status: 'verified' | 'rejected') => {
+    setActionLoading(true);
+    const res = await updateOrderStatusAction(orderId, status);
+    if (res.success) {
+      toast({ title: `Order ${status.toUpperCase()}` });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Action Failed", description: res.error });
+    }
+    setActionLoading(false);
   };
 
   const filteredUsersForSearch = useMemo(() => {
@@ -183,6 +199,7 @@ export default function AdminPage() {
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="font-bold">Overview</TabsTrigger>
+              <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
@@ -201,6 +218,110 @@ export default function AdminPage() {
                 <StatCard title="Pending Review" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
               </div>
             </div>
+          )}
+
+          {activeTab === 'orders' && (
+            <Card className="bg-card/30 border-border/50">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                      <tr>
+                        <th className="py-4 px-6">Trader / Date</th>
+                        <th className="py-4 px-6">Plan Selection</th>
+                        <th className="py-4 px-6">Tx Hash / Network</th>
+                        <th className="py-4 px-6">Amount Paid</th>
+                        <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {adminData.orders.length === 0 ? (
+                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">No purchase records found.</td></tr>
+                      ) : adminData.orders.map((order: any) => (
+                        <tr key={order.id} className={cn("hover:bg-primary/5 transition-colors", order.status === 'pending' ? 'bg-amber-500/5' : '')}>
+                          <td className="py-4 px-6">
+                            <div className="font-bold text-white">{order.email}</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-tight">
+                              {order.submittedAt ? new Date(order.submittedAt).toLocaleString() : 'N/A'}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="text-white font-medium">{order.accountSize} {order.plan}</div>
+                            <div className="text-[10px] text-muted-foreground">Original Price: {order.price}</div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="text-[10px] font-mono text-white truncate max-w-[120px] mb-1">{order.txHash}</div>
+                            <Badge variant="outline" className="text-[9px] uppercase font-bold border-primary/20 text-primary">{order.network}</Badge>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="text-emerald-500 font-bold font-mono text-lg">${parseFloat(order.amountPaid).toFixed(2)}</div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <Badge className={cn(
+                              "uppercase text-[10px] font-black",
+                              order.status === 'verified' ? "bg-emerald-500 text-black" : 
+                              order.status === 'rejected' ? "bg-destructive text-white" : 
+                              "bg-amber-500 text-black"
+                            )}>
+                              {order.status || 'Pending'}
+                            </Badge>
+                          </td>
+                          <td className="py-4 px-6 text-right space-x-2">
+                            {order.paymentScreenshot && (
+                              <Button variant="ghost" size="sm" onClick={() => setViewProofProofUrl(order.paymentScreenshot)}>
+                                <FileImage className="w-4 h-4" />
+                              </Button>
+                            )}
+                            {order.status === 'pending' && (
+                              <>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-emerald-500 hover:bg-emerald-500/10"
+                                  onClick={() => handleUpdateOrderStatus(order.id, 'verified')}
+                                  disabled={actionLoading}
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleUpdateOrderStatus(order.id, 'rejected')}
+                                  disabled={actionLoading}
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                            {order.status === 'verified' && (
+                               <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="text-[9px] uppercase font-black tracking-widest border-primary/20 text-primary hover:bg-primary hover:text-black"
+                                onClick={() => {
+                                  setProvisionForm({
+                                    ...provisionForm,
+                                    userId: order.userId,
+                                    plan: order.plan.includes('1-Step') ? '1-Step' : order.plan.includes('2-Step') ? '2-Step' : order.plan.includes('3-Step') ? '3-Step' : 'Instant Funded',
+                                    size: order.accountSize.replace(/[$,]/g, '').replace('k', '000'),
+                                  });
+                                  setUserSearchTerm(order.email);
+                                  setActiveTab('provisioning');
+                                }}
+                              >
+                                <Terminal className="w-3 h-3 mr-1" /> Provision
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'provisioning' && (
@@ -423,6 +544,29 @@ export default function AdminPage() {
           )}
         </div>
       </main>
+
+      {/* Proof Preview Modal */}
+      <Dialog open={!!viewProofUrl} onOpenChange={() => setViewProofProofUrl(null)}>
+        <DialogContent className="max-w-4xl bg-card border-border p-0 overflow-hidden">
+          <DialogHeader className="p-4 border-b border-white/5">
+            <DialogTitle className="text-white">Payment Proof Inspection</DialogTitle>
+          </DialogHeader>
+          <div className="relative w-full aspect-video bg-black/50">
+            {viewProofUrl && (
+              <Image 
+                src={viewProofUrl} 
+                alt="Payment Proof" 
+                fill 
+                className="object-contain"
+                unoptimized
+              />
+            )}
+          </div>
+          <DialogFooter className="p-4 bg-secondary/20">
+            <Button onClick={() => setViewProofProofUrl(null)}>Close Terminal</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Provision Confirmation Modal */}
       <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>

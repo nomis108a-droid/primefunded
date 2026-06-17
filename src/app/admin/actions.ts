@@ -93,7 +93,7 @@ export async function fetchAdminTerminalData() {
 
     const [usersDocs, ordersDocs, payoutsDocs, referralsDocs, broadcastsDocs, breachesDocs] = await Promise.all([
       db.collection('users').get().then(s => s.docs).catch(() => []),
-      fetchCollection('orders', 200, 'date'),
+      fetchCollection('orders', 200, 'submittedAt'),
       fetchCollection('payouts', 200, 'date'),
       fetchCollection('referrals', 100, 'createdAt'),
       fetchCollection('broadcasts', 20, 'sentAt'),
@@ -117,6 +117,28 @@ export async function fetchAdminTerminalData() {
   } catch (error: any) {
     console.error('[Admin-SDK] fetchAdminTerminalData Critical Failure:', error);
     return { success: false, error: `Sync Failure: ${error.message}` };
+  }
+}
+
+/**
+ * Update the status of an order record.
+ */
+export async function updateOrderStatusAction(orderId: string, status: 'verified' | 'rejected', reason?: string) {
+  try {
+    const db = getAdminDb();
+    const orderRef = db.collection('orders').doc(orderId);
+    
+    const updates: any = {
+      status,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    if (reason) updates.rejectionReason = reason;
+
+    await orderRef.update(updates);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
   }
 }
 
