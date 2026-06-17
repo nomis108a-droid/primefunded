@@ -44,15 +44,14 @@ import Link from 'next/link';
 import { NotificationBell } from '@/components/NotificationBell';
 import { cn } from '@/lib/utils';
 import { 
-  LineChart, 
-  Line, 
+  BarChart, 
+  Bar, 
+  Cell,
   XAxis, 
   YAxis, 
   CartesianGrid, 
   Tooltip as ChartTooltip, 
   ResponsiveContainer,
-  Area,
-  AreaChart,
   ReferenceLine
 } from 'recharts';
 import { format, subDays, subMonths, differenceInSeconds, isValid, startOfDay, differenceInDays } from 'date-fns';
@@ -192,18 +191,42 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   );
 
   const filteredPerfData = useMemo(() => {
-    if (!performanceData || performanceData.length === 0) return [];
+    if (!performanceData) return [];
+    
     const now = new Date();
     let daysToKeep = 7;
     if (chartPeriod === '14D') daysToKeep = 14;
     if (chartPeriod === '1M') daysToKeep = 30;
 
-    const cutoffKey = getTradingDayKey(subDays(now, daysToKeep));
-    return performanceData.filter(d => d.date >= cutoffKey).map(d => ({
-      ...d,
-      displayDate: format(new Date(d.date), 'MMM d'),
-      amount: d.cumulativePnL || d.pnl || 0
-    }));
+    // Create a lookup map for existing performance records
+    const dataMap = new Map();
+    performanceData.forEach(d => dataMap.set(d.date, d));
+
+    // Sort performanceData to find the baseline before the visible range
+    const sortedData = [...performanceData].sort((a, b) => a.date.localeCompare(b.date));
+
+    const result = [];
+    for (let i = daysToKeep - 1; i >= 0; i--) {
+      const date = subDays(now, i);
+      const key = getTradingDayKey(date);
+      const todayDoc = dataMap.get(key);
+      
+      let dailyPnl = 0;
+      if (todayDoc) {
+        // Daily P&L = Current day's cumulative - Most recent recorded cumulative value before this date
+        const prevDoc = sortedData.filter(d => d.date < key).pop();
+        const todayCum = todayDoc.cumulativePnL || 0;
+        const prevCum = prevDoc ? (prevDoc.cumulativePnL || 0) : 0;
+        dailyPnl = todayCum - prevCum;
+      }
+
+      result.push({
+        date: key,
+        displayDate: format(date, daysToKeep <= 7 ? 'EEE' : 'MMM d'),
+        amount: parseFloat(dailyPnl.toFixed(2))
+      });
+    }
+    return result;
   }, [performanceData, chartPeriod]);
 
   const tradeConstraints = useMemo(() => [
@@ -601,20 +624,24 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                   <div className="h-full flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
                 ) : filteredPerfData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={filteredPerfData}>
-                      <defs>
-                        <linearGradient id="colorPnL" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#11b3f5" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#11b3f5" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
+                    <BarChart data={filteredPerfData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
                       <XAxis dataKey="displayDate" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
                       <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
-                      <ChartTooltip contentStyle={{ backgroundColor: '#0a0f1e', border: '1px solid #11b3f520', borderRadius: '12px' }} itemStyle={{ color: '#11b3f5', fontSize: '12px', fontWeight: 'bold' }} labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px' }} />
+                      <ChartTooltip 
+                        cursor={{ fill: '#ffffff05' }}
+                        contentStyle={{ backgroundColor: '#0a0f1e', border: '1px solid #11b3f520', borderRadius: '12px' }} 
+                        itemStyle={{ fontSize: '12px', fontWeight: 'bold' }} 
+                        labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px' }} 
+                        formatter={(value: number) => [`$${value.toLocaleString()}`, 'Daily P&L']}
+                      />
                       <ReferenceLine y={0} stroke="#ffffff10" />
-                      <Area type="monotone" dataKey="amount" stroke="#11b3f5" strokeWidth={3} fillOpacity={1} fill="url(#colorPnL)" animationDuration={1500} />
-                    </AreaChart>
+                      <Bar dataKey="amount" radius={[4, 4, 0, 0]} animationDuration={1000}>
+                        {filteredPerfData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.amount >= 0 ? '#10b981' : '#ef4444'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">Waiting for institutional performance data...</div>
