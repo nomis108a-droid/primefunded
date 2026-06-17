@@ -13,9 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -121,6 +121,18 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
+  const handleUpdatePayoutStatus = async (payoutId: string, status: 'approved' | 'rejected' | 'done') => {
+    setActionLoading(true);
+    const res = await updatePayoutStatusAction(payoutId, status);
+    if (res.success) {
+      toast({ title: `Payout ${status.toUpperCase()}` });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Action Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
   const filteredUsersForSearch = useMemo(() => {
     if (!userSearchTerm) return [];
     return adminData.users.filter((u: any) => 
@@ -161,11 +173,13 @@ export default function AdminPage() {
   const stats = useMemo(() => {
     const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified');
     const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
+    const pendingPayouts = adminData.payouts.filter((p: any) => p.status === 'pending').length;
     return { 
       totalRevenue, 
       totalTraders: adminData.users.length, 
       verifiedCount: verifiedOrders.length,
-      pendingOrders: adminData.orders.filter((o: any) => o.status === 'pending').length 
+      pendingOrders: adminData.orders.filter((o: any) => o.status === 'pending').length,
+      pendingPayouts
     };
   }, [adminData]);
 
@@ -200,6 +214,7 @@ export default function AdminPage() {
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="font-bold">Overview</TabsTrigger>
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
+              <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
@@ -214,8 +229,8 @@ export default function AdminPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard title="Total Revenue" value={`$${stats.totalRevenue.toLocaleString()}`} icon={<DollarSign />} color="blue" />
                 <StatCard title="Total Traders" value={stats.totalTraders} icon={<Users />} color="purple" />
-                <StatCard title="Verified Orders" value={stats.verifiedCount} icon={<Landmark />} color="green" />
                 <StatCard title="Pending Review" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
+                <StatCard title="Pending Payouts" value={stats.pendingPayouts} icon={<Wallet />} color="green" />
               </div>
             </div>
           )}
@@ -317,6 +332,103 @@ export default function AdminPage() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'payouts' && (
+            <Card className="bg-card/30 border-border/50">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                      <tr>
+                        <th className="py-4 px-6">Trader Email</th>
+                        <th className="py-4 px-6">Requested Amount</th>
+                        <th className="py-4 px-6">Live Balance</th>
+                        <th className="py-4 px-6">Method / Address</th>
+                        <th className="py-4 px-6">Date</th>
+                        <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {adminData.payouts.length === 0 ? (
+                        <tr><td colSpan={7} className="py-20 text-center text-muted-foreground italic">No payout requests found.</td></tr>
+                      ) : adminData.payouts.map((payout: any) => {
+                        const user = adminData.users.find((u: any) => u.id === payout.userId);
+                        return (
+                          <tr key={payout.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="py-4 px-6">
+                              <div className="font-bold text-white">{payout.email}</div>
+                              <div className="text-[10px] text-muted-foreground uppercase font-mono">{payout.userId?.slice(0, 8)}...</div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="text-emerald-500 font-bold text-lg">${parseFloat(payout.amount).toFixed(2)}</div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="text-white font-medium">${user?.liveBalance?.toLocaleString() || 'N/A'}</div>
+                              <div className="text-[10px] text-muted-foreground">Equity: ${user?.liveEquity?.toLocaleString() || 'N/A'}</div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <Badge variant="outline" className="text-[9px] uppercase font-bold mb-1">{payout.method}</Badge>
+                              <div className="text-[10px] font-mono text-muted-foreground truncate max-w-[150px]">{payout.address}</div>
+                            </td>
+                            <td className="py-4 px-6 text-xs text-muted-foreground">
+                              {payout.date ? new Date(payout.date).toLocaleDateString() : 'N/A'}
+                            </td>
+                            <td className="py-4 px-6">
+                              <Badge className={cn(
+                                "uppercase text-[10px] font-black",
+                                payout.status === 'done' ? "bg-emerald-500 text-black" : 
+                                payout.status === 'approved' ? "bg-primary text-black" : 
+                                payout.status === 'rejected' ? "bg-destructive text-white" : 
+                                "bg-amber-500 text-black"
+                              )}>
+                                {payout.status || 'Pending'}
+                              </Badge>
+                            </td>
+                            <td className="py-4 px-6 text-right space-x-2">
+                              {payout.status === 'pending' && (
+                                <>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="text-primary hover:bg-primary/10"
+                                    onClick={() => handleUpdatePayoutStatus(payout.id, 'approved')}
+                                    disabled={actionLoading}
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </Button>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="text-destructive hover:bg-destructive/10"
+                                    onClick={() => handleUpdatePayoutStatus(payout.id, 'rejected')}
+                                    disabled={actionLoading}
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </Button>
+                                </>
+                              )}
+                              {payout.status === 'approved' && (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="text-[9px] uppercase font-black tracking-widest border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-black"
+                                  onClick={() => handleUpdatePayoutStatus(payout.id, 'done')}
+                                  disabled={actionLoading}
+                                >
+                                  <CreditCard className="w-3 h-3 mr-1" /> Mark Paid
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

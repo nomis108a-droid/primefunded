@@ -143,6 +143,28 @@ export async function updateOrderStatusAction(orderId: string, status: 'verified
 }
 
 /**
+ * Update the status of a payout request.
+ */
+export async function updatePayoutStatusAction(payoutId: string, status: 'approved' | 'rejected' | 'done', reason?: string) {
+  try {
+    const db = getAdminDb();
+    const payoutRef = db.collection('payouts').doc(payoutId);
+    
+    const updates: any = {
+      status,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    if (reason) updates.adminNote = reason;
+
+    await payoutRef.update(updates);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Register a manually created MT5 account into Firestore.
  */
 export async function registerMt5AccountAction(data: {
