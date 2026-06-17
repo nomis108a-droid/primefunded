@@ -12,10 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Textarea } from '@/components/ui/textarea';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -68,6 +69,9 @@ export default function AdminPage() {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [provisionResult, setProvisionResult] = useState<{ docId: string, login: string } | null>(null);
+
+  // Broadcast Form State
+  const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '' });
 
   // Proof Preview State
   const [viewProofUrl, setViewProofProofUrl] = useState<string | null>(null);
@@ -146,6 +150,36 @@ export default function AdminPage() {
       refreshData();
     } else {
       toast({ variant: "destructive", title: "KYC Update Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastForm.title || !broadcastForm.message) return;
+    
+    setActionLoading(true);
+    const res = await createBroadcastAction(broadcastForm.title, broadcastForm.message);
+    if (res.success) {
+      toast({ title: "Broadcast Published" });
+      setBroadcastForm({ title: '', message: '' });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Publish Error", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
+  const handleDeleteBroadcast = async (id: string) => {
+    if (!confirm("Permanently delete this broadcast?")) return;
+    
+    setActionLoading(true);
+    const res = await deleteBroadcastAction(id);
+    if (res.success) {
+      toast({ title: "Broadcast Deleted" });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Delete Error", description: res.error });
     }
     setActionLoading(false);
   };
@@ -277,6 +311,7 @@ export default function AdminPage() {
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
               <TabsTrigger value="referrals" className="font-bold">Referral Audit</TabsTrigger>
+              <TabsTrigger value="broadcasts" className="font-bold">Broadcasts</TabsTrigger>
               <TabsTrigger value="breaches" className="font-bold">Breaches</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -826,6 +861,95 @@ export default function AdminPage() {
                 </div>
               </CardContent>
             </Card>
+          )}
+
+          {activeTab === 'broadcasts' && (
+            <div className="grid lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 space-y-6">
+                <Card className="bg-card/40 border-primary/20">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-white">
+                      <Megaphone className="w-5 h-5 text-primary" /> Send Global Broadcast
+                    </CardTitle>
+                    <CardDescription>Dispatch a message to all active trader terminals.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleSendBroadcast} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase text-muted-foreground">Subject Header</Label>
+                        <Input 
+                          placeholder="e.g. Scheduled Maintenance" 
+                          value={broadcastForm.title}
+                          onChange={e => setBroadcastForm({ ...broadcastForm, title: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-bold uppercase text-muted-foreground">Announcement Message</Label>
+                        <Textarea 
+                          placeholder="Enter broadcast content..." 
+                          className="min-h-[150px] resize-none"
+                          value={broadcastForm.message}
+                          onChange={e => setBroadcastForm({ ...broadcastForm, message: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <Button type="submit" className="w-full h-12 font-bold cyan-box-glow" disabled={actionLoading}>
+                        {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+                        Distribute Broadcast
+                      </Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
+              
+              <div className="lg:col-span-2">
+                <Card className="bg-card/30 border-border/50">
+                  <CardHeader>
+                    <CardTitle className="text-white">Active Announcements</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                          <tr>
+                            <th className="py-4 px-6">Header / Content</th>
+                            <th className="py-4 px-6">Sent At</th>
+                            <th className="py-4 px-6 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/30">
+                          {adminData.broadcasts.length === 0 ? (
+                            <tr><td colSpan={3} className="py-20 text-center text-muted-foreground italic">No broadcasts sent yet.</td></tr>
+                          ) : adminData.broadcasts.map((b: any) => (
+                            <tr key={b.id} className="hover:bg-primary/5">
+                              <td className="py-4 px-6">
+                                <div className="font-bold text-white mb-1">{b.title}</div>
+                                <div className="text-xs text-muted-foreground line-clamp-2">{b.message}</div>
+                              </td>
+                              <td className="py-4 px-6 text-xs text-muted-foreground whitespace-nowrap">
+                                {b.sentAt ? new Date(b.sentAt).toLocaleString() : 'N/A'}
+                              </td>
+                              <td className="py-4 px-6 text-right">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeleteBroadcast(b.id)}
+                                  disabled={actionLoading}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
           )}
 
           {activeTab === 'breaches' && (

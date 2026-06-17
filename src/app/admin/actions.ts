@@ -165,6 +165,41 @@ export async function updatePayoutStatusAction(payoutId: string, status: 'approv
 }
 
 /**
+ * Create a new global broadcast announcement.
+ */
+export async function createBroadcastAction(title: string, message: string) {
+  try {
+    const db = getAdminDb();
+    const broadcastRef = db.collection('broadcasts').doc();
+    
+    await broadcastRef.set({
+      title,
+      message,
+      status: 'active',
+      sentAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp()
+    });
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Delete a broadcast.
+ */
+export async function deleteBroadcastAction(id: string) {
+  try {
+    const db = getAdminDb();
+    await db.collection('broadcasts').doc(id).delete();
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Register a manually created MT5 account into Firestore.
  */
 export async function registerMt5AccountAction(data: {
