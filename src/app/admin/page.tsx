@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar
 } from 'lucide-react';
 import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
@@ -227,6 +227,19 @@ export default function AdminPage() {
     ).slice(0, 5);
   }, [adminData.users, editorSearchTerm]);
 
+  const filteredUsersForDirectory = useMemo(() => {
+    if (!searchTerm) return adminData.users;
+    return adminData.users.filter((u: any) => 
+      u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      u.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [adminData.users, searchTerm]);
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Copied!", description: `${label} copied to clipboard.` });
+  };
+
   const handleProvisionSubmit = async () => {
     if (!/^\d+$/.test(provisionForm.login)) {
       toast({ variant: "destructive", title: "Invalid Login", description: "MT5 Login must be digits only." });
@@ -272,7 +285,6 @@ export default function AdminPage() {
   const referrerAggregates = useMemo(() => {
     const referrersMap = new Map();
     
-    // Initialize with all users who have a referral code
     adminData.users.forEach((u: any) => {
       if (u.referralCode) {
         referrersMap.set(u.id, {
@@ -288,7 +300,6 @@ export default function AdminPage() {
       }
     });
 
-    // Process referral events ledger
     adminData.referrals.forEach((ref: any) => {
       const agg = referrersMap.get(ref.referrerId);
       if (agg) {
@@ -297,7 +308,6 @@ export default function AdminPage() {
           agg.earnings += (ref.amount || 0);
           agg.conversions += 1;
         } else if (ref.status === 'converted') {
-          // Fallback if amount is 0 but status is converted
           agg.earnings += 30;
           agg.conversions += 1;
         }
@@ -878,48 +888,112 @@ export default function AdminPage() {
           )}
 
           {activeTab === 'user_directory' && (
-            <Card className="bg-card/30 border-border/50">
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
-                      <tr><th className="py-4 px-6">Trader Name</th><th className="py-4 px-6">Email / UID</th><th className="py-4 px-6">Linked Login</th><th className="py-4 px-6 text-right">Actions</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/30">
-                      {adminData.users.filter((u: any) => u.name?.toLowerCase().includes(searchTerm.toLowerCase())).map((u: any) => (
-                        <tr key={u.id} className="hover:bg-primary/5">
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-3">
-                              <Avatar className="h-10 w-10"><AvatarFallback>{u.name?.slice(0, 2).toUpperCase()}</AvatarFallback></Avatar>
-                              <div><div className="font-bold text-white">{u.name}</div><div className="text-[10px] text-muted-foreground uppercase">{u.tier || 'BRONZE'}</div></div>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6"><div className="text-white">{u.email}</div><div className="text-xs text-muted-foreground font-mono">{u.id}</div></td>
-                          <td className="py-4 px-6">
-                            {u.mt5Login ? <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30">{u.mt5Login}</Badge> : <span className="text-muted-foreground italic text-xs">Unprovisioned</span>}
-                          </td>
-                          <td className="py-4 px-6 text-right space-x-2">
-                            <Button variant="ghost" size="sm" onClick={() => {
-                              setSelectedEditorUser(u);
-                              setUserEditForm({
-                                name: u.name || '',
-                                phone: u.phone || '',
-                                country: u.country || '',
-                                referralCode: u.referralCode || '',
-                                tier: u.tier || 'Bronze',
-                                status: u.status || 'active'
-                              });
-                              setActiveTab('user_editor');
-                            }}><Edit2 className="w-4 h-4" /></Button>
-                            <Button variant="ghost" size="sm" onClick={() => setPreviewUserId(u.id)}><Eye className="w-4 h-4" /></Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full max-w-lg">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input 
+                    placeholder="Search directory by name or email..." 
+                    className="pl-10 bg-secondary/30 border-white/10" 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                  />
                 </div>
-              </CardContent>
-            </Card>
+                <Badge variant="outline" className="h-10 px-6 border-white/5 text-muted-foreground font-mono">
+                  {filteredUsersForDirectory.length} TRADERS MATCHED
+                </Badge>
+              </div>
+
+              <Card className="bg-card/30 border-border/50">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                        <tr>
+                          <th className="py-4 px-6">Trader Identity</th>
+                          <th className="py-4 px-6">Identity UID</th>
+                          <th className="py-4 px-6">Contact Details</th>
+                          <th className="py-4 px-6 text-center">Plan Status</th>
+                          <th className="py-4 px-6">Joined Date</th>
+                          <th className="py-4 px-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/30">
+                        {filteredUsersForDirectory.length === 0 ? (
+                          <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">No traders matching your criteria.</td></tr>
+                        ) : filteredUsersForDirectory.map((u: any) => (
+                          <tr key={u.id} className="hover:bg-primary/5 transition-colors group">
+                            <td className="py-4 px-6">
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-10 w-10 border border-white/10">
+                                  <AvatarFallback className="bg-secondary text-xs">{u.name?.slice(0, 2).toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <div className="font-bold text-white group-hover:text-primary transition-colors">{u.name}</div>
+                                  <div className="text-[10px] text-muted-foreground truncate max-w-[150px]">{u.email}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="flex items-center gap-2">
+                                <code className="text-[10px] bg-background/50 px-2 py-1 rounded border border-white/5 font-mono text-white">{u.id}</code>
+                                <button onClick={() => copyToClipboard(u.id, "UID")} className="text-muted-foreground hover:text-primary transition-colors">
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1.5 text-xs text-zinc-300">
+                                  <Phone className="w-3 h-3 text-muted-foreground" /> {u.phone || 'No phone'}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground uppercase">{u.country || 'Global'}</div>
+                              </div>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              {u.mt5Login ? (
+                                <div className="space-y-1">
+                                  <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 font-mono text-[10px]">{u.mt5Login}</Badge>
+                                  <p className="text-[9px] text-muted-foreground uppercase font-black">{u.accountPlan}</p>
+                                </div>
+                              ) : (
+                                <Badge variant="outline" className="text-[9px] text-muted-foreground opacity-50">UNPROVISIONED</Badge>
+                              )}
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-mono">
+                                <Calendar className="w-3 h-3" /> {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
+                              </div>
+                            </td>
+                            <td className="py-4 px-6 text-right space-x-2">
+                              <TooltipProvider>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-primary/20 text-primary" onClick={() => {
+                                  setSelectedEditorUser(u);
+                                  setUserEditForm({
+                                    name: u.name || '',
+                                    phone: u.phone || '',
+                                    country: u.country || '',
+                                    referralCode: u.referralCode || '',
+                                    tier: u.tier || 'Bronze',
+                                    status: u.status || 'active'
+                                  });
+                                  setActiveTab('user_editor');
+                                }}>
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-secondary text-white" onClick={() => setPreviewUserId(u.id)}>
+                                  <Eye className="w-4 h-4" />
+                                </Button>
+                              </TooltipProvider>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeTab === 'kyc' && (
