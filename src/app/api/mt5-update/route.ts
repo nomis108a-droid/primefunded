@@ -7,7 +7,6 @@ export const runtime = 'nodejs';
 
 /**
  * Institutional temporal helper: Boundary at 2:00 AM UTC (7:30 AM IST)
- * Subtracting 2 hours from UTC time effectively moves the "date break" to 02:00 UTC.
  */
 const getTradingDayKey = (date: Date) => {
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
@@ -79,7 +78,6 @@ async function checkPhasePassing(db: any, userId: string, accountData: any, curr
       passedAt: FieldValue.serverTimestamp()
     });
 
-    // Also update account link
     const accountsRef = db.collection('mt5_accounts');
     const accSnap = await accountsRef.where('userId', '==', userId).where('status', '==', 'active').limit(1).get();
     if (!accSnap.empty) {
@@ -113,13 +111,11 @@ export async function POST(request: Request) {
     if (!loginStr || loginStr === 'undefined') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
-    const loginNum = Number(loginStr);
 
     const accountsRef = db.collection('mt5_accounts');
     let querySnapshot = await accountsRef.where('login', '==', loginStr).limit(1).get();
-    
-    if (querySnapshot.empty && !isNaN(loginNum)) {
-      querySnapshot = await accountsRef.where('login', '==', loginNum).limit(1).get();
+    if (querySnapshot.empty && !isNaN(Number(loginStr))) {
+      querySnapshot = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
     }
 
     if (querySnapshot.empty) {
@@ -131,19 +127,18 @@ export async function POST(request: Request) {
     const userId = accountData.userId;
 
     const isAlreadyBreached = accountData.status === 'breached';
-
     const currBalance = parseFloat(String(payload.balance)) || 0;
     const currEquity = parseFloat(String(payload.equity)) || 0;
     const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
 
-    // --- 1. SESSION RESET LOGIC (2:00 AM UTC Boundary) ---
+    // 1. Session Reset (2:00 AM UTC Boundary)
     const todayKey = getTradingDayKey(new Date());
     let dailyStartBalance = parseFloat(String(accountData.dailyStartBalance)) || initialBalance;
     const existingDateKey = accountData.lastDailyResetDate;
 
     let sessionWasReset = false;
     if (!existingDateKey || existingDateKey !== todayKey) {
-      dailyStartBalance = parseFloat(String(accountData.equity)) || initialBalance;
+      dailyStartBalance = currEquity; // New session starts at current equity
       await accountDoc.ref.update({
         dailyStartBalance: dailyStartBalance,
         lastDailyResetDate: todayKey
@@ -151,43 +146,41 @@ export async function POST(request: Request) {
       sessionWasReset = true;
     }
 
-    // --- 2. RULES EVALUATION ---
+    // 2. Rules Evaluation
     let breachDetected = false;
     let breachReason = "";
 
     if (!isAlreadyBreached) {
-      const planName = accountData.accountPlan || '1-Step Pro';
+      const planKey = getPlanKey(accountData.accountPlan || '1-Step Pro');
       const phase = accountData.phase || 'evaluation';
-      const planKey = getPlanKey(planName);
-      const rules: PlanPhaseRules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+      const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-      // Drawdown checks
-      const dailyDrawdownLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
-      const dailyThreshold = dailyStartBalance - dailyDrawdownLimit;
-      if (currEquity < dailyThreshold) {
+      // Daily Drawdown
+      const dailyLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
+      if (currEquity < (dailyStartBalance - dailyLimit)) {
         breachDetected = true;
-        breachReason = `Daily drawdown: equity $${currEquity.toLocaleString()} fell below day-start threshold of $${dailyThreshold.toLocaleString()} (${rules.dailyDrawdown}% of $${dailyStartBalance.toLocaleString()})`;
+        breachReason = `Daily drawdown: equity $${currEquity.toLocaleString()} fell below threshold (${rules.dailyDrawdown}% of $${dailyStartBalance.toLocaleString()})`;
       }
 
+      // Max Drawdown
       if (!breachDetected) {
-        const maxDrawdownLimit = initialBalance * (rules.maxDrawdown / 100);
-        const maxThreshold = initialBalance - maxThreshold;
-        if (currEquity < (initialBalance - maxDrawdownLimit)) {
+        const maxLimit = initialBalance * (rules.maxDrawdown / 100);
+        if (currEquity < (initialBalance - maxLimit)) {
           breachDetected = true;
-          breachReason = `Maximum drawdown: equity $${currEquity.toLocaleString()} fell below plan limit (${rules.maxDrawdown}% of initial balance)`;
+          breachReason = `Max drawdown: equity $${currEquity.toLocaleString()} fell below plan limit (${rules.maxDrawdown}% of initial balance)`;
         }
       }
 
-      if (!breachDetected && (phase === 'funded' || phase === 'live') && rules.maxFloatingLoss) {
+      // Max Floating Loss (Funded)
+      if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
         const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
-        const floatingLimit = initialBalance * (rules.maxFloatingLoss / 100);
-        if (floatingLoss > floatingLimit) {
+        if (floatingLoss > (initialBalance * (rules.maxFloatingLoss / 100))) {
           breachDetected = true;
-          breachReason = `Max floating loss: unrealized loss $${floatingLoss.toLocaleString()} exceeded 1% threshold.`;
+          breachReason = `Max floating loss: unrealized loss exceeded 1% threshold.`;
         }
       }
 
-      // --- 3. PHASE PASSING AUTOMATION ---
+      // Phase Passing
       if (!breachDetected && userId) {
         await checkPhasePassing(db, userId, accountData, currBalance);
       }
@@ -213,6 +206,7 @@ export async function POST(request: Request) {
         plan: accountData.accountPlan || 'N/A',
         phase: accountData.phase || 'N/A',
         breachReason,
+        breachType: 'hard',
         breachedAt: FieldValue.serverTimestamp()
       });
 
@@ -233,12 +227,10 @@ export async function POST(request: Request) {
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp(),
       };
-      
-      if (sessionWasReset || !accountData.dailyStartBalance) {
+      if (sessionWasReset) {
         userUpdates.dailyStartBalance = dailyStartBalance;
         userUpdates.dailyStartBalanceDate = todayKey;
       }
-
       await db.collection('users').doc(userId).update(userUpdates);
 
       const perfRef = db.collection('users').doc(userId).collection('performance').doc(todayKey);
@@ -252,9 +244,7 @@ export async function POST(request: Request) {
     }
 
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
-
   } catch (error: any) {
-    console.error('[MT5-API] Global Error:', error.message);
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }
 }

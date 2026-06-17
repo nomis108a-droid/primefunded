@@ -14,14 +14,10 @@ function getAdminDb() {
   return getFirestore();
 }
 
-/**
- * Algorithmic evaluation of trade-level risk rules.
- */
 async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trades: any[]) {
   const accountData = accountDoc.data();
   const initialBalance = parseFloat(String(accountData.accountBalance || 100000));
   
-  // Sort incoming trades by open time to check frequency
   const sortedNewTrades = [...trades].sort((a, b) => (a.openTime || 0) - (b.openTime || 0));
 
   for (const trade of sortedNewTrades) {
@@ -32,16 +28,15 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
     const symbol = trade.symbol;
     const volume = trade.volume || 0;
 
-    // 1. Max Single Trade Loss (3% of initial balance)
+    // 1. Max Single Trade Loss (3%)
     if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
-      const limit = initialBalance * 0.03;
       return {
         breached: true,
-        reason: `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${limit.toFixed(2)} on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`
+        reason: `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${(initialBalance * 0.03).toFixed(2)} (Ticket: ${ticket})`
       };
     }
 
-    // 2. Min Trade Duration (120 seconds)
+    // 2. Min Trade Duration (120s)
     if (duration !== null && duration < 120 && profit !== 0) {
       return {
         breached: true,
@@ -49,7 +44,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       };
     }
 
-    // 3. Max Execution Frequency (180 seconds between opens)
+    // 3. Max Execution Frequency (180s)
     const tradesRef = db.collection('users').doc(userId).collection('trades');
     const prevTradeQuery = await tradesRef
       .where('openTime', '<', openTime)
@@ -68,7 +63,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       }
     }
 
-    // 4. Martingale Detection (Lot increase after loss on same symbol within 15 mins)
+    // 4. Martingale Detection (HARD Breach)
     const fifteenMinsAgo = openTime - 900;
     const sameSymbolQuery = await tradesRef
       .where('symbol', '==', symbol)
@@ -83,7 +78,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       if ((prevSymbolData.pnl || prevSymbolData.profit || 0) < 0 && volume > prevSymbolData.volume) {
         return {
           breached: true,
-          reason: `Martingale lot scaling detected: lot size increased to ${volume} after a loss on ${symbol} within 15 minutes`
+          reason: `Martingale lot scaling detected: lot size increased after a loss on ${symbol} within 15 minutes`
         };
       }
     }
@@ -100,26 +95,21 @@ export async function POST(request: Request) {
     const trades = payload.trades || [];
 
     if (!loginStr) return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
-    const loginNum = Number(loginStr);
 
     const accountsRef = db.collection('mt5_accounts');
     let snapshot = await accountsRef.where('login', '==', loginStr).limit(1).get();
-
-    if (snapshot.empty && !isNaN(loginNum)) {
-      snapshot = await accountsRef.where('login', '==', loginNum).limit(1).get();
+    if (snapshot.empty && !isNaN(Number(loginStr))) {
+      snapshot = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
     }
 
-    if (snapshot.empty) {
-      return new Response(JSON.stringify({ status: "OK", note: "User not found" }), { status: 200 });
-    }
+    if (snapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
 
     const accountDoc = snapshot.docs[0];
     const accountData = accountDoc.data();
     const userId = accountData.userId;
 
-    if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No userId linked" }), { status: 200 });
+    if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
 
-    // 1. Save trades to database
     const batch = db.batch();
     for (const trade of trades) {
       const tradeRef = db.collection('users').doc(userId).collection('trades').doc(String(trade.ticket));
@@ -132,55 +122,31 @@ export async function POST(request: Request) {
         pnl: trade.profit,
         openTime: trade.openTime || null,
         closeTime: trade.time || null,
-        duration: trade.duration || (trade.time && trade.openTime ? trade.time - trade.openTime : null),
         date: new Date(trade.time * 1000),
         createdAt: FieldValue.serverTimestamp(),
       }, { merge: true });
     }
     await batch.commit();
 
-    // 2. Evaluate Risk Rules (Skip if already breached)
     if (accountData.status !== 'breached') {
       const riskCheck = await evaluateTradeRules(db, userId, accountDoc, trades);
-      
       if (riskCheck.breached) {
-        const breachReason = riskCheck.reason;
-        
-        await accountDoc.ref.update({
-          status: 'breached',
-          breachReason: breachReason,
-          breachedAt: FieldValue.serverTimestamp()
-        });
-
-        await db.collection('users').doc(userId).update({
-          accountStatus: 'breached',
-          breachReason: breachReason,
-          breachedAt: FieldValue.serverTimestamp()
-        });
-
+        await accountDoc.ref.update({ status: 'breached', breachReason: riskCheck.reason, breachedAt: FieldValue.serverTimestamp() });
+        await db.collection('users').doc(userId).update({ accountStatus: 'breached', breachReason: riskCheck.reason, breachedAt: FieldValue.serverTimestamp() });
         await db.collection('breaches').add({
           userId,
+          login: loginStr,
           userEmail: accountData.email || 'N/A',
           userName: accountData.name || 'N/A',
-          login: loginStr,
+          breachReason: riskCheck.reason,
           breachType: 'hard',
-          breachReason: breachReason,
           breachedAt: FieldValue.serverTimestamp()
-        });
-
-        await db.collection('users').doc(userId).collection('notifications').add({
-          title: "🚫 Account Liquidated",
-          message: `Risk Engine detected a violation: ${breachReason}`,
-          type: 'challenge_failed',
-          isRead: false,
-          createdAt: FieldValue.serverTimestamp()
         });
       }
     }
 
     return new Response(JSON.stringify({ status: "OK", saved: trades.length }), { status: 200 });
   } catch (error: any) {
-    console.error('[MT5-Trades] Error:', error.message);
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }
 }
