@@ -148,26 +148,52 @@ export default function HistoryPage() {
             {phasesLoading ? (
                [1, 2].map(i => <div key={i} className="h-32 bg-secondary/20 rounded-2xl animate-pulse border border-border/30" />)
             ) : phaseHistory.length > 0 ? (
-               phaseHistory.map((phase: any) => (
-                  <Card key={phase.id} className="bg-card/40 border-border/50 hover:border-primary/20 transition-all">
-                     <CardContent className="p-5 space-y-3">
-                        <div className="flex justify-between items-start">
-                           <Badge className="bg-primary/20 text-primary uppercase text-[9px] font-black border-none px-2">{phase.phase}</Badge>
-                           <span className="text-[10px] text-muted-foreground font-medium">
-                            {phase.advancedAt ? format(getTradeDate(phase.advancedAt)!, 'yyyy-MM-dd') : 'N/A'}
-                           </span>
-                        </div>
-                        <div>
-                           <p className="text-xs font-bold text-white">{phase.accountSize || 'Standard'} Account</p>
-                           <p className="text-[10px] text-muted-foreground font-mono">MT5: {maskLogin(phase.mt5Login)}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 pt-1">
-                           <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                           <span className="text-[9px] font-black uppercase text-emerald-500 tracking-widest">Active Status</span>
-                        </div>
-                     </CardContent>
-                  </Card>
-               ))
+               phaseHistory.map((phase: any) => {
+                  const isCurrent = userData && String(userData.mt5Login) === String(phase.mt5Login);
+                  const status = isCurrent ? (userData.accountStatus || 'active') : 'passed';
+                  const isBreached = status === 'breached' || status === 'terminated';
+
+                  return (
+                    <Card key={phase.id} className={cn(
+                      "bg-card/40 border-border/50 hover:border-primary/20 transition-all",
+                      isBreached && "border-destructive/40 bg-destructive/5"
+                    )}>
+                       <CardContent className="p-5 space-y-3">
+                          <div className="flex justify-between items-start">
+                             <Badge className="bg-primary/20 text-primary uppercase text-[9px] font-black border-none px-2">{phase.phase}</Badge>
+                             <span className="text-[10px] text-muted-foreground font-medium">
+                              {phase.advancedAt ? format(getTradeDate(phase.advancedAt)!, 'yyyy-MM-dd') : 'N/A'}
+                             </span>
+                          </div>
+                          <div>
+                             <p className="text-xs font-bold text-white">{phase.accountSize || 'Standard'} Account</p>
+                             <p className="text-[10px] text-muted-foreground font-mono">MT5: {maskLogin(phase.mt5Login)}</p>
+                          </div>
+                          
+                          <div className="space-y-2 pt-1">
+                            <div className="flex items-center gap-1.5">
+                               {isBreached ? (
+                                  <XCircle className="w-3 h-3 text-destructive" />
+                               ) : (
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                               )}
+                               <span className={cn(
+                                 "text-[9px] font-black uppercase tracking-widest",
+                                 isBreached ? "text-destructive" : "text-emerald-500"
+                               )}>
+                                 {isBreached ? 'TERMINATED' : isCurrent ? 'ACTIVE STATUS' : 'PHASE PASSED'}
+                               </span>
+                            </div>
+                            {isBreached && isCurrent && userData?.breachReason && (
+                              <p className="text-[8px] text-destructive/70 leading-tight italic line-clamp-2">
+                                Reason: {userData.breachReason}
+                              </p>
+                            )}
+                          </div>
+                       </CardContent>
+                    </Card>
+                  );
+               })
             ) : (
                <Card className="col-span-full bg-secondary/5 border-dashed border-border/50 py-10">
                   <CardContent className="flex flex-col items-center justify-center text-center opacity-50">
