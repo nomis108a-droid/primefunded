@@ -1,4 +1,3 @@
-
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';

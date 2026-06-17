@@ -5,6 +5,7 @@ import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firesto
 import { getStorage } from 'firebase-admin/storage';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getPlanKey } from '@/lib/rulesConfig';
+import { enrichTrades } from '@/lib/tradeUtils';
 
 function getAdminApp(): App {
   const existingApps = getApps();
@@ -128,6 +129,10 @@ export async function fetchAdminTerminalData() {
   }
 }
 
+/**
+ * Institutional Retroactive Risk Auditor
+ * Scans all active accounts for historical violations.
+ */
 export async function runRetroactiveRiskAuditAction() {
   try {
     const db = getAdminDb();
@@ -137,24 +142,37 @@ export async function runRetroactiveRiskAuditAction() {
     for (const acc of accounts.docs) {
       const data = acc.data();
       const initialBalance = parseFloat(String(data.accountBalance || 100000));
-      const trades = await db.collection('users').doc(data.userId).collection('trades').get();
+      const userId = data.userId;
+      
+      if (!userId) continue;
+
+      const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
+      const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // Use shared pairing logic to calculate true duration
+      const enriched = enrichTrades(rawTrades, data.login);
       
       let breached = false;
       let reason = "";
 
-      for (const tDoc of trades.docs) {
-        const t = tDoc.data();
-        const profit = t.pnl || 0;
-        const duration = t.duration || (t.closeTime && t.openTime ? t.closeTime - t.openTime : null);
+      for (const t of enriched) {
+        if (!t.closeTime || !t.matched) continue;
 
+        const profit = t.pnl || 0;
+        const duration = t.durationSeconds || 0;
+        const ticket = t.id;
+
+        // 1. Max Single Loss (3% of INITIAL)
         if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
           breached = true;
-          reason = `Retroactive breach: Single trade loss > 3% (Ticket: ${t.ticket})`;
+          reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${(initialBalance * 0.03).toFixed(2)}) on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`;
           break;
         }
-        if (duration !== null && duration < 120 && profit !== 0) {
+
+        // 2. Min Duration (120s)
+        if (duration < 120 && profit !== 0) {
           breached = true;
-          reason = `Retroactive breach: Hold time < 120s (Ticket: ${t.ticket})`;
+          reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
           break;
         }
       }
@@ -162,8 +180,16 @@ export async function runRetroactiveRiskAuditAction() {
       if (breached) {
         breachCount++;
         await acc.ref.update({ status: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
-        await db.collection('users').doc(data.userId).update({ accountStatus: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
-        await db.collection('breaches').add({ userId: data.userId, login: data.login, breachReason: reason, breachType: 'hard', breachedAt: FieldValue.serverTimestamp() });
+        await db.collection('users').doc(userId).update({ accountStatus: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
+        await db.collection('breaches').add({
+          userId,
+          login: data.login,
+          userEmail: data.email || 'N/A',
+          userName: data.name || 'N/A',
+          breachReason: reason,
+          breachType: 'hard',
+          breachedAt: FieldValue.serverTimestamp()
+        });
       }
     }
     return { success: true, breachCount };

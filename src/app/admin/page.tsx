@@ -357,7 +357,7 @@ export default function AdminPage() {
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
             <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p></div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleRetroactiveRiskAudit} disabled={actionLoading}>
+              <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleRetroactiveAudit} disabled={actionLoading}>
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldAlert className="w-4 h-4 mr-2" />}
                 Risk Audit All Accounts
               </Button>
