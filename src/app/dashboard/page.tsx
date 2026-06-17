@@ -28,7 +28,9 @@ import {
   Loader2,
   PieChart,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Award,
+  Download
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -716,6 +718,34 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 )}
               </CardContent>
             </Card>
+
+            {userData?.certificates?.length > 0 && (
+              <Card className="border-border/50 bg-card/40">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2 text-white">
+                    <Award className="w-5 h-5 text-primary" /> Recent Achievement
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {userData.certificates.slice(-2).map((cert: any, i: number) => (
+                    <div key={i} className="p-3 rounded-xl bg-background/50 border border-white/5 flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <p className="text-[10px] font-black uppercase text-white truncate max-w-[120px]">{cert.label}</p>
+                        <p className="text-[8px] text-muted-foreground">{cert.date ? format(new Date(cert.date), 'MMM d, yyyy') : 'Recently Issued'}</p>
+                      </div>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 text-primary hover:bg-primary/20" asChild>
+                        <a href={cert.url} target="_blank" rel="noopener noreferrer">
+                          <Download className="w-4 h-4" />
+                        </a>
+                      </Button>
+                    </div>
+                  ))}
+                  <Button variant="link" className="w-full text-[10px] font-black uppercase tracking-widest text-primary p-0 h-auto" asChild>
+                    <Link href="/certificates">View All Achievements <ArrowRight className="ml-1 w-3 h-3" /></Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
 

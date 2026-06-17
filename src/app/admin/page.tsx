@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +138,19 @@ export default function AdminPage() {
       refreshData();
     } else {
       toast({ variant: "destructive", title: "Reset Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
+  const handleAdvancePhase = async (userId: string) => {
+    if (!confirm("Confirm administrative advancement to the next phase? This will issue a new certificate and email.")) return;
+    setActionLoading(true);
+    const res = await advanceTraderPhaseAction(userId);
+    if (res.success) {
+      toast({ title: "Phase Advanced Successfully", description: `Trader moved to: ${res.nextPhase?.toUpperCase()}` });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Advancement Failed", description: res.error });
     }
     setActionLoading(false);
   };
@@ -266,11 +279,18 @@ export default function AdminPage() {
   }, [provisionForm.plan, availablePhases]);
 
   if (previewUserId) {
+    const targetUser = adminData.users.find((u: any) => u.id === previewUserId);
     return (
       <div className="min-h-screen bg-background relative">
         <div className="fixed top-0 left-0 w-full z-[100] bg-primary h-14 flex items-center justify-between px-6 shadow-xl">
           <div className="flex items-center gap-4">
-            <span className="text-xs font-black uppercase text-primary-foreground">Previewing Trader: {previewUserId}</span>
+            <span className="text-xs font-black uppercase text-primary-foreground">Previewing Trader: {targetUser?.name || previewUserId}</span>
+            {targetUser?.readyForPhaseAdvancement && (
+              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-black h-8 px-4" onClick={() => handleAdvancePhase(previewUserId)} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Trophy className="w-3 h-3 mr-2" />}
+                Provision Next Phase
+              </Button>
+            )}
             <Button variant="secondary" size="sm" className="bg-destructive hover:bg-destructive/90 text-white font-bold h-8" onClick={() => setIsSoftBreachOpen(true)}>Log Soft Breach</Button>
           </div>
           <Button variant="secondary" size="sm" onClick={() => setPreviewUserId(null)}><ChevronLeft className="w-3 h-3 mr-1" /> Exit Preview</Button>

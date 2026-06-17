@@ -4,6 +4,7 @@ import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * @fileOverview Administrative Server Actions
@@ -345,6 +346,86 @@ export async function registerMt5AccountAction(data: {
     }
 
     return { success: true, docId: accountRef.id };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function advanceTraderPhaseAction(userId: string) {
+  try {
+    const db = getAdminDb();
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader not found.");
+    const userData = userSnap.data()!;
+
+    const currentPhase = userData.currentPhase || 'evaluation';
+    const plan = userData.accountPlan || '1-Step Pro';
+    const planKey = getPlanKey(plan);
+    const size = parseFloat(String(userData.accountBalance || 100000));
+
+    // Simple advancement logic
+    let nextPhase = 'funded';
+    if (planKey.includes('1-step')) {
+      nextPhase = 'funded';
+    } else if (planKey.includes('2-step')) {
+      nextPhase = currentPhase === 'phase1' ? 'phase2' : 'funded';
+    } else if (planKey.includes('3-step')) {
+      if (currentPhase === 'phase1') nextPhase = 'phase2';
+      else if (currentPhase === 'phase2') nextPhase = 'phase3';
+      else nextPhase = 'funded';
+    }
+
+    // Provision new phase credentials (reusing manual logic)
+    // In a real scenario, this would generate new credentials via API
+    // For now, we update the existing phase and clear the advancement flag
+    await userRef.update({
+      currentPhase: nextPhase,
+      readyForPhaseAdvancement: false,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    // Also update mt5_accounts link
+    const accountsRef = db.collection('mt5_accounts');
+    const accSnap = await accountsRef.where('userId', '==', userId).limit(1).get();
+    if (!accSnap.empty) {
+      await accSnap.docs[0].ref.update({
+        phase: nextPhase,
+        readyForPhaseAdvancement: false
+      });
+    }
+
+    await userRef.collection('notifications').add({
+      title: "🚀 Phase Advanced",
+      message: `Congratulations! Your account has been advanced to: ${nextPhase.toUpperCase()}.`,
+      type: 'challenge_passed',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    // Record in historical ledger
+    await userRef.collection('phaseHistory').add({
+      phase: nextPhase,
+      plan,
+      accountSize: userData.accountSize,
+      advancedAt: FieldValue.serverTimestamp()
+    });
+
+    // Trigger Certificate & Email
+    try {
+      await generateAndSendCertificate(
+        userId,
+        userData.name || 'Trader',
+        userData.email,
+        nextPhase,
+        plan,
+        size
+      );
+    } catch (certErr) {
+      console.error('[Phase-Advancement-Cert] Error:', certErr);
+    }
+
+    return { success: true, nextPhase };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
