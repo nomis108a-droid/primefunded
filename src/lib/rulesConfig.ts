@@ -82,7 +82,7 @@ export const RULES_CONFIG = {
         maxFloatingLoss: 1
       }
     }
-  },
+  } as Record<string, Record<string, PlanPhaseRules>>,
   universal: {
     maxSingleTradeLossPct: 3,
     minTradeDurationSeconds: 120,
