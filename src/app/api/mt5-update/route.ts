@@ -59,7 +59,6 @@ export async function POST(request: Request) {
     const accountData = accountDoc.data();
     const userId = accountData.userId;
 
-    // Check existing status - still process updates but log if already breached
     const isAlreadyBreached = accountData.status === 'breached';
 
     const currBalance = parseFloat(String(payload.balance)) || 0;
@@ -92,11 +91,8 @@ export async function POST(request: Request) {
       const planName = accountData.accountPlan || '1-Step Pro';
       const phase = accountData.phase || 'evaluation';
       const planKey = getPlanKey(planName);
-      
-      // Get plan-specific rules
       const rules: PlanPhaseRules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-      // A. Daily Drawdown Check
       const dailyDrawdownLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
       const dailyThreshold = dailyStartBalance - dailyDrawdownLimit;
       if (currEquity < dailyThreshold) {
@@ -104,7 +100,6 @@ export async function POST(request: Request) {
         breachReason = `Daily drawdown: equity $${currEquity.toLocaleString()} fell below day-start threshold of $${dailyThreshold.toLocaleString()} (${rules.dailyDrawdown}% of $${dailyStartBalance.toLocaleString()})`;
       }
 
-      // B. Max Drawdown Check
       if (!breachDetected) {
         const maxDrawdownLimit = initialBalance * (rules.maxDrawdown / 100);
         const maxThreshold = initialBalance - maxDrawdownLimit;
@@ -114,7 +109,6 @@ export async function POST(request: Request) {
         }
       }
 
-      // C. Max Floating Loss Check (Funded Accounts only)
       if (!breachDetected && (phase === 'funded' || phase === 'live') && rules.maxFloatingLoss) {
         const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
         const floatingLimit = initialBalance * (rules.maxFloatingLoss / 100);
@@ -133,12 +127,10 @@ export async function POST(request: Request) {
     };
 
     if (breachDetected) {
-      console.error(`[RISK-ENGINE] Account ${loginStr} BREACHED: ${breachReason}`);
       updates.status = 'breached';
       updates.breachReason = breachReason;
       updates.breachedAt = FieldValue.serverTimestamp();
 
-      // Record breach in ledger
       await db.collection('breaches').add({
         userId,
         login: loginStr,
@@ -150,7 +142,6 @@ export async function POST(request: Request) {
         breachedAt: FieldValue.serverTimestamp()
       });
 
-      // Update main user profile status
       if (userId) {
         await db.collection('users').doc(userId).update({
           accountStatus: 'breached',
@@ -162,7 +153,6 @@ export async function POST(request: Request) {
 
     await accountDoc.ref.update(updates);
 
-    // Sync live metrics to User document for UI visibility
     if (userId) {
       const userUpdates: any = {
         liveBalance: currBalance,
@@ -170,13 +160,25 @@ export async function POST(request: Request) {
         lastMT5Update: FieldValue.serverTimestamp(),
       };
       
-      // CRITICAL FIX: Always keep User record's dailyStartBalance in sync for Dashboard P&L
       if (sessionWasReset || !accountData.dailyStartBalance) {
         userUpdates.dailyStartBalance = dailyStartBalance;
         userUpdates.dailyStartBalanceDate = todayKey;
       }
 
       await db.collection('users').doc(userId).update(userUpdates);
+
+      // --- 3. PERFORMANCE SNAPSHOT RECORDING ---
+      const perfRef = db.collection('users').doc(userId).collection('performance').doc(todayKey);
+      const cumulativePnL = currBalance - initialBalance;
+      
+      await perfRef.set({
+        date: todayKey,
+        balance: currBalance,
+        equity: currEquity,
+        pnl: currBalance - dailyStartBalance,
+        cumulativePnL,
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
     }
 
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });

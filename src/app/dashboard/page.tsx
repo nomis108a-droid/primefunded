@@ -133,7 +133,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const [chartPeriod, setChartPeriod] = useState('7D');
   const { toast } = useToast();
 
-  // In admin view mode, we might want to fetch the target user data specifically if it's not the logged-in user
   const [adminTargetData, setAdminTargetData] = useState<any>(null);
   
   useEffect(() => {
@@ -164,7 +163,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     };
   }, [userData]);
 
-  // Determine EA Connectivity Status
   const connectivityStatus = useMemo(() => {
     if (isBreached) return 'terminated';
     if (!userData?.lastMT5Update) return 'awaiting';
@@ -183,7 +181,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
   }, [userData?.lastMT5Update, isBreached]);
 
-  // Fetch performance snapshots
   const performanceConstraints = useMemo(() => [
     orderBy('date', 'asc'),
     limit(31)
@@ -209,7 +206,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }));
   }, [performanceData, chartPeriod]);
 
-  // Fetch recent trades
   const tradeConstraints = useMemo(() => [
     orderBy('date', 'desc'),
     limit(200)
@@ -224,7 +220,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (!time) return null;
     let date;
     if (typeof time === 'number') date = new Date(time * 1000);
-    else if (time.toDate && typeof time.toDate === 'function') date = t.toDate();
+    else if (time.toDate && typeof time.toDate === 'function') date = time.toDate();
     else date = new Date(time);
     
     if (!date || isNaN(date.getTime())) return null;
@@ -241,7 +237,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
   };
 
-  // Calculate unique trading days using boundary
   const tradingDaysData = useMemo(() => {
     if (!recentTrades) return { count: 0, required: 5, progress: 0 };
     
@@ -254,7 +249,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     });
 
     const count = days.size;
-    
     const plan = userData?.accountPlan?.toLowerCase() || '';
     const phase = userData?.currentPhase || 'evaluation';
     
@@ -274,7 +268,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     };
   }, [recentTrades, userData]);
 
-  // Calculate account age
   const accountAgeData = useMemo(() => {
     const start = userData?.activatedAt?.toDate?.() || 
                   userData?.activatedAt || 
@@ -349,6 +342,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             type: partner.type,
             lots: trade.lots || trade.volume,
             pnl: profit,
+            login: trade.login || userData?.mt5Login || 'N/A',
             duration: calculateHoldingTime(partner.time || partner.date, trade.time || trade.date)
           });
           processedTickets.add(trade.id);
@@ -360,6 +354,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             closeTime: trade.time || trade.date,
             lots: trade.lots || trade.volume,
             pnl: profit,
+            login: trade.login || userData?.mt5Login || 'N/A',
             duration: '—'
           });
           processedTickets.add(trade.id);
@@ -375,6 +370,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           closeTime: null,
           pnl: trade.pnl || trade.profit || 0,
           lots: trade.lots || trade.volume,
+          login: trade.login || userData?.mt5Login || 'N/A',
           duration: '—'
         });
         processedTickets.add(trade.id);
@@ -386,7 +382,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       const dateB = getTradeDate(b.closeTime || b.openTime);
       return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
     });
-  }, [recentTrades]);
+  }, [recentTrades, userData]);
 
   const tradeStats = useMemo(() => {
     if (!recentTrades || recentTrades.length === 0) return null;
@@ -416,8 +412,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   }, [recentTrades]);
 
   const dailyRiskMetrics = useMemo(() => {
-    const dailyStart = userData?.dailyStartBalance || userData?.accountBalance || metrics.balance;
-    
+    const dailyStart = userData?.dailyStartBalance || metrics.balance;
     const currentEquity = metrics.equity;
     const pnl = metrics.balance - dailyStart;
     const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
@@ -465,7 +460,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p>Live Equity: {metrics.equity}</p>
             <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
             <p>Daily Date (Stored): {userData?.dailyStartBalanceDate || 'N/A'}</p>
-            <p>Last Sync: {userData?.lastMT5Update?.seconds ? new Date(userData.lastMT5Update.seconds * 1000).toLocaleString() : 'N/A'}</p>
           </div>
         )}
 
@@ -484,23 +478,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               <Button size="lg" className="bg-destructive hover:bg-destructive/90 font-bold whitespace-nowrap px-8 h-12 rounded-xl" asChild>
                 <Link href="/challenges">Start New Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
               </Button>
-            )}
-          </div>
-        )}
-
-        {userData?.readyForNextPhase && (
-           <div className="mb-8 p-6 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-black shrink-0">
-                <Trophy className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Challenge Passed!</h3>
-                <p className="text-sm text-emerald-400">Target hit and trading days met. {adminViewMode ? "Ready for administrative advancement." : "Our team is reviewing your account for phase advancement."}</p>
-              </div>
-            </div>
-            {adminViewMode && (
-              <Badge className="bg-emerald-500 text-black font-black animate-pulse px-4 py-2 text-xs">ADVANCEMENT READY</Badge>
             )}
           </div>
         )}
@@ -608,9 +585,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           <div className="lg:col-span-2">
             <Card className={cn("border-border/50 bg-card/40", isBreached && "opacity-40 grayscale")}>
               <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl font-headline text-white flex items-center gap-2"><BarChart3 className="w-5 h-5 text-primary" /> Performance</CardTitle>
-                </div>
+                <CardTitle className="text-xl font-headline text-white flex items-center gap-2"><BarChart3 className="w-5 h-5 text-primary" /> Performance</CardTitle>
                 <Tabs value={chartPeriod} onValueChange={setChartPeriod}>
                   <TabsList className="bg-secondary/50">
                     <TabsTrigger value="7D" className="text-[10px] font-bold">7D</TabsTrigger>
@@ -621,7 +596,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               </CardHeader>
               <CardContent className="h-[300px] w-full pt-4">
                 {isBreached ? (
-                  <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">No performance data visible for liquidated accounts.</div>
+                  <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">No data visible for liquidated accounts.</div>
                 ) : perfLoading ? (
                   <div className="h-full flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
                 ) : filteredPerfData.length > 0 ? (
@@ -634,39 +609,15 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                      <XAxis 
-                        dataKey="displayDate" 
-                        stroke="#ffffff40" 
-                        fontSize={10} 
-                        tickLine={false} 
-                        axisLine={false} 
-                      />
-                      <YAxis 
-                        stroke="#ffffff40" 
-                        fontSize={10} 
-                        tickLine={false} 
-                        axisLine={false} 
-                        tickFormatter={(value) => `$${value}`}
-                      />
-                      <ChartTooltip 
-                        contentStyle={{ backgroundColor: '#0a0f1e', border: '1px solid #11b3f520', borderRadius: '12px' }}
-                        itemStyle={{ color: '#11b3f5', fontSize: '12px', fontWeight: 'bold' }}
-                        labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px' }}
-                      />
+                      <XAxis dataKey="displayDate" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
+                      <ChartTooltip contentStyle={{ backgroundColor: '#0a0f1e', border: '1px solid #11b3f520', borderRadius: '12px' }} itemStyle={{ color: '#11b3f5', fontSize: '12px', fontWeight: 'bold' }} labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px' }} />
                       <ReferenceLine y={0} stroke="#ffffff10" />
-                      <Area 
-                        type="monotone" 
-                        dataKey="amount" 
-                        stroke="#11b3f5" 
-                        strokeWidth={3}
-                        fillOpacity={1} 
-                        fill="url(#colorPnL)" 
-                        animationDuration={1500}
-                      />
+                      <Area type="monotone" dataKey="amount" stroke="#11b3f5" strokeWidth={3} fillOpacity={1} fill="url(#colorPnL)" animationDuration={1500} />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">No performance data captured for this session.</div>
+                  <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">Waiting for institutional performance data...</div>
                 )}
               </CardContent>
             </Card>
@@ -689,11 +640,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                         {isBreached ? 'Breached' : currentPhaseDisplay.label}
                       </Badge>
                    </div>
-                   {userData?.readyForNextPhase && (
-                      <div className="p-1 bg-emerald-500/20 rounded-full">
-                        <Trophy className="w-4 h-4 text-emerald-500" />
-                      </div>
-                   )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Plan</p><p className="text-xs font-bold text-white">{userData?.accountPlan || 'None'}</p></div>
@@ -703,34 +649,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 </div>
               </CardContent>
             </Card>
-
-            {userData?.certificates?.length > 0 && (
-              <Card className="border-border/50 bg-card/40">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-lg flex items-center gap-2 text-white">
-                    <Award className="w-5 h-5 text-primary" /> Recent Achievement
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {userData.certificates.slice(-2).map((cert: any, i: number) => (
-                    <div key={i} className="p-3 rounded-xl bg-background/50 border border-white/5 flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <p className="text-[10px] font-black uppercase text-white truncate max-w-[120px]">{cert.label}</p>
-                        <p className="text-[8px] text-muted-foreground">{cert.date ? format(new Date(cert.date), 'MMM d, yyyy') : 'Recently Issued'}</p>
-                      </div>
-                      <Button size="icon" variant="ghost" className="h-8 w-8 text-primary hover:bg-primary/20" asChild>
-                        <a href={cert.url} target="_blank" rel="noopener noreferrer">
-                          <Download className="w-4 h-4" />
-                        </a>
-                      </Button>
-                    </div>
-                  ))}
-                  <Button variant="link" className="w-full text-[10px] font-black uppercase tracking-widest text-primary p-0 h-auto" asChild>
-                    <Link href="/certificates">View All Achievements <ArrowRight className="ml-1 w-3 h-3" /></Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
 
@@ -739,11 +657,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
               <History className="w-5 h-5 text-primary" /> Position Journal
             </CardTitle>
-            {!adminViewMode && (
-              <Button variant="ghost" size="sm" className="text-[10px] font-black uppercase tracking-widest text-primary hover:text-white" asChild>
-                <Link href="/history">View Full Journal <ArrowRight className="ml-2 w-3 h-3" /></Link>
-              </Button>
-            )}
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -751,6 +664,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
                   <tr>
                     <th className="py-4 px-6">Symbol</th>
+                    <th className="py-4 px-4">Account</th>
                     <th className="py-4 px-4">Type</th>
                     <th className="py-4 px-4">Time</th>
                     <th className="py-4 px-4">Duration</th>
@@ -761,44 +675,29 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 <tbody className="divide-y divide-border/50">
                   {tradesLoading ? (
                     [...Array(3)].map((_, i) => (
-                      <tr key={i} className="animate-pulse"><td colSpan={6} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>
+                      <tr key={i} className="animate-pulse"><td colSpan={7} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>
                     ))
                   ) : enrichedTrades.length > 0 ? (
-                    enrichedTrades.slice(0, 30).map((trade: any) => {
-                      return (
-                        <tr key={trade.id} className="hover:bg-primary/5 transition-colors">
-                          <td className="py-4 px-6 font-bold text-white">{trade.symbol || 'N/A'}</td>
-                          <td className="py-4 px-4">
-                            <Badge variant="outline" className={cn(
-                              "text-[9px] font-black uppercase px-2",
-                              trade.type?.toLowerCase() === 'buy' ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5' : 'border-destructive/30 text-destructive bg-destructive/5'
-                            )}>
-                              {trade.type || 'N/A'}
-                            </Badge>
-                          </td>
-                          <td className="py-4 px-4 text-xs text-muted-foreground font-mono">
-                            {formatTradeDate(trade.closeTime || trade.time || trade.date)}
-                          </td>
-                          <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5">
-                            <Clock className="w-3 h-3" />
-                            {trade.duration}
-                          </td>
-                          <td className="py-4 px-4 text-right text-white font-mono">{trade.lots || trade.volume || '0.00'}</td>
-                          <td className={cn(
-                            "py-4 px-6 text-right font-bold tabular-nums",
-                            (trade.pnl || trade.profit || 0) >= 0 ? 'text-emerald-500' : 'text-destructive'
-                          )}>
-                            {(trade.pnl || trade.profit || 0) >= 0 ? '+' : ''}${(trade.pnl || trade.profit || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      );
-                    })
+                    enrichedTrades.slice(0, 30).map((trade: any) => (
+                      <tr key={trade.id} className="hover:bg-primary/5 transition-colors">
+                        <td className="py-4 px-6 font-bold text-white">{trade.symbol || 'N/A'}</td>
+                        <td className="py-4 px-4 font-mono text-[10px] text-muted-foreground">{trade.login}</td>
+                        <td className="py-4 px-4">
+                          <Badge variant="outline" className={cn(
+                            "text-[9px] font-black uppercase px-2",
+                            trade.type?.toLowerCase() === 'buy' ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5' : 'border-destructive/30 text-destructive bg-destructive/5'
+                          )}>{trade.type || 'N/A'}</Badge>
+                        </td>
+                        <td className="py-4 px-4 text-xs text-muted-foreground font-mono">{formatTradeDate(trade.closeTime || trade.time || trade.date)}</td>
+                        <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5 pt-5"><Clock className="w-3 h-3" />{trade.duration}</td>
+                        <td className="py-4 px-4 text-right text-white font-mono">{trade.lots || '0.00'}</td>
+                        <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (trade.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                          {(trade.pnl || 0) >= 0 ? '+' : ''}${(trade.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))
                   ) : (
-                    <tr>
-                      <td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">
-                        No trades recorded yet. MT5 executions will appear here live.
-                      </td>
-                    </tr>
+                    <tr><td colSpan={7} className="py-20 text-center text-muted-foreground italic text-sm">No trades recorded yet. MT5 executions will appear here live.</td></tr>
                   )}
                 </tbody>
               </table>
