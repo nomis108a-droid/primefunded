@@ -7,6 +7,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
  * 
  * AUTOMATED CHECKS:
  * - Profit Targets (Achievement Detection)
+ * - Minimum Trading Days (Verification)
  * - Daily & Max Drawdown
  * - Single Trade Loss Limits (3%)
  * - Execution Frequency (1/3 mins)
@@ -26,6 +27,14 @@ function getAdminDb() {
   return getFirestore();
 }
 
+/**
+ * Helper to calculate unique trading days based on 7:30 AM IST (2:00 AM UTC) boundary.
+ */
+const getTradingDayKey = (date: Date) => {
+  const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
+  return adjusted.toISOString().split('T')[0];
+};
+
 export async function POST(request: Request) {
   try {
     const { userId, mt5Data } = await request.json();
@@ -38,7 +47,7 @@ export async function POST(request: Request) {
     if (!userSnap.exists) return new Response('User not found', { status: 404 });
     const userData = userSnap.data()!;
     
-    // Skip if already breached or already passed
+    // Skip if already breached or already marked ready
     if (userData.accountStatus === 'breached') return new Response('Account already breached', { status: 200 });
 
     const plan = userData.accountPlan || '1-Step Pro';
@@ -79,22 +88,46 @@ export async function POST(request: Request) {
     const targetPct = getTargetPct();
     const currentProfitPct = ((liveBalance - startingBalance) / startingBalance) * 100;
 
-    if (targetPct > 0 && currentProfitPct >= targetPct && !userData.readyForPhaseAdvancement) {
-      await userRef.update({
-        readyForPhaseAdvancement: true,
-        passedAt: FieldValue.serverTimestamp()
+    // 2. TRADING DAYS VERIFICATION
+    const getRequiredDays = () => {
+      if (planKey.includes('1-step')) return 5;
+      if (planKey.includes('2-step')) return 5;
+      if (planKey.includes('3-step')) {
+        if (phase === 'phase1') return 7;
+        if (phase === 'phase2') return 6;
+        return 5;
+      }
+      return 1;
+    };
+
+    if (targetPct > 0 && currentProfitPct >= targetPct && !userData.readyForNextPhase) {
+      // Check unique trading days before marking as ready
+      const tradesSnap = await userRef.collection('trades').get();
+      const uniqueDays = new Set();
+      tradesSnap.docs.forEach(d => {
+        const trade = d.data();
+        const tDate = trade.date?.toDate?.() || new Date(trade.date);
+        if (tDate) uniqueDays.add(getTradingDayKey(tDate));
       });
 
-      await userRef.collection('notifications').add({
-        title: "🎯 Profit Target Reached!",
-        message: `Congratulations! You have reached the ${targetPct}% profit target. Our desk is reviewing your unique trading days and consistency patterns to advance you to the next stage.`,
-        type: 'challenge_passed',
-        isRead: false,
-        createdAt: FieldValue.serverTimestamp()
-      });
+      const requiredDays = getRequiredDays();
+      if (uniqueDays.size >= requiredDays) {
+        await userRef.update({
+          readyForNextPhase: true,
+          passedAt: FieldValue.serverTimestamp()
+        });
+
+        await userRef.collection('notifications').add({
+          title: "🎯 Phase Pass Requirements Met!",
+          message: `Congratulations! You have reached the ${targetPct}% profit target and completed ${uniqueDays.size} trading days. Our desk is preparing your next phase credentials.`,
+          type: 'challenge_passed',
+          isRead: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
     }
 
-    // 2. UNIFIED TIMING RULES (Duration and Frequency)
+    // 3. UNIFIED TIMING RULES (Duration and Frequency)
     if (lastTradeDuration !== undefined && lastTradeDuration > 0 && lastTradeDuration < 120) {
       breachType = 'hard';
       breachReason = 'Duration violation: Trades must be held for at least 2 minutes';
@@ -103,7 +136,7 @@ export async function POST(request: Request) {
       breachReason = 'Frequency violation: 1 trade per 3 mins maximum execution speed';
     }
 
-    // 3. PLAN-SPECIFIC LOGIC
+    // 4. PLAN-SPECIFIC LOGIC
     if (!breachType) {
       if (planKey.includes('1-step')) {
         if (dailyDrawdown > 3) { breachType = 'hard'; breachReason = '1-Step: Daily drawdown exceeded 3%'; }
@@ -195,7 +228,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ 
       status: breachType || 'compliant', 
       reason: breachReason,
-      achieved: userData.readyForPhaseAdvancement || false 
+      achieved: userData.readyForNextPhase || false 
     }), { status: 200 });
 
   } catch (error: any) {

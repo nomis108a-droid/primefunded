@@ -296,7 +296,7 @@ export default function AdminPage() {
         <div className="fixed top-0 left-0 w-full z-[100] bg-primary h-14 flex items-center justify-between px-6 shadow-xl">
           <div className="flex items-center gap-4">
             <span className="text-xs font-black uppercase text-primary-foreground">Previewing Trader: {targetUser?.name || previewUserId}</span>
-            {targetUser?.readyForPhaseAdvancement && (
+            {targetUser?.readyForNextPhase && (
               <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-black h-8 px-4" onClick={() => handleAdvancePhase(previewUserId)} disabled={actionLoading}>
                 {actionLoading ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Trophy className="w-3 h-3 mr-2" />}
                 Provision Next Phase
@@ -348,6 +348,11 @@ export default function AdminPage() {
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="font-bold">Overview</TabsTrigger>
+              <TabsTrigger value="passers" className="font-bold flex items-center gap-2">
+                Phase Passers {adminData.users.filter((u: any) => u.readyForNextPhase).length > 0 && (
+                  <Badge className="h-4 px-1 bg-emerald-500 text-[8px]">{adminData.users.filter((u: any) => u.readyForNextPhase).length}</Badge>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
@@ -384,6 +389,84 @@ export default function AdminPage() {
                         <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {formatDistanceToNow(new Date(act.timestamp), { addSuffix: true })}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
                       </div>
                     ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'passers' && (
+            <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-emerald-500" /> Traders Ready for Next Phase
+                  </CardTitle>
+                  <CardDescription>Traders who have successfully hit profit targets and completed mandatory trading days.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Trader</th>
+                          <th className="py-4 px-4">Plan & Phase</th>
+                          <th className="py-4 px-4">Performance</th>
+                          <th className="py-4 px-4">Status</th>
+                          <th className="py-4 px-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {adminData.users.filter((u: any) => u.readyForNextPhase).map((user: any) => (
+                          <tr key={user.id} className="hover:bg-primary/5">
+                            <td className="py-4 px-6">
+                              <p className="font-bold text-white">{user.name || 'Unknown'}</p>
+                              <p className="text-[10px] text-muted-foreground">{user.email}</p>
+                            </td>
+                            <td className="py-4 px-4">
+                              <Badge className="bg-primary/10 text-primary border-primary/20">
+                                {user.accountPlan}
+                              </Badge>
+                              <p className="text-[10px] text-muted-foreground mt-1 uppercase font-bold">Current: {user.currentPhase}</p>
+                            </td>
+                            <td className="py-4 px-4">
+                               <p className="font-bold text-white">${user.liveBalance?.toLocaleString()}</p>
+                               <p className="text-[9px] text-emerald-500 font-black uppercase">Profit Target Reached</p>
+                            </td>
+                            <td className="py-4 px-4">
+                               <div className="flex items-center gap-1.5 text-emerald-500">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  <span className="text-[10px] font-black uppercase">Ready</span>
+                                </div>
+                            </td>
+                            <td className="py-4 px-6 text-right flex justify-end gap-2">
+                               <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setPreviewUserId(user.id)}>
+                                 <Eye className="w-4 h-4" />
+                               </Button>
+                               <Button 
+                                className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase px-4"
+                                onClick={() => {
+                                  setProvisionForm({
+                                    ...provisionForm,
+                                    userId: user.id,
+                                    plan: user.accountPlan,
+                                    size: String(user.accountBalance)
+                                  });
+                                  setUserSearchTerm(user.email);
+                                  setActiveTab('provisioning');
+                                  toast({ title: "Redirecting to Terminal", description: `Pre-filling credentials for ${user.email}` });
+                                }}
+                               >
+                                 Provision Next Phase
+                               </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {adminData.users.filter((u: any) => u.readyForNextPhase).length === 0 && (
+                      <div className="p-20 text-center text-muted-foreground italic text-sm">No traders currently awaiting phase advancement.</div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -668,7 +751,7 @@ export default function AdminPage() {
                             <td className="py-4 px-4">
                                <div className="flex items-center gap-2 group">
                                   <div className="space-y-1">
-                                     <p className="font-mono text-sm font-bold text-primary">{u.uid || '--------'}</p>
+                                     <p className="font-mono text-sm font-bold text-primary">{u.readyForNextPhase ? 'PASSED' : u.uid || '--------'}</p>
                                      <p className="text-[8px] text-muted-foreground uppercase opacity-40">{u.id}</p>
                                   </div>
                                   <TooltipProvider>

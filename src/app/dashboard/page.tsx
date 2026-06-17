@@ -224,7 +224,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (!time) return null;
     let date;
     if (typeof time === 'number') date = new Date(time * 1000);
-    else if (time.toDate && typeof time.toDate === 'function') date = time.toDate();
+    else if (time.toDate && typeof time.toDate === 'function') date = t.toDate();
     else date = new Date(time);
     
     if (!date || isNaN(date.getTime())) return null;
@@ -241,7 +241,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
   };
 
-  // Calculate unique trading days using 7:30 AM IST boundary
+  // Calculate unique trading days using boundary
   const tradingDaysData = useMemo(() => {
     if (!recentTrades) return { count: 0, required: 5, progress: 0 };
     
@@ -416,9 +416,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   }, [recentTrades]);
 
   const dailyRiskMetrics = useMemo(() => {
-    // CRITICAL BUG FIX: Ensure dailyStartBalance is correctly calculated.
-    // If dailyStartBalance exists on User doc and is for TODAY (based on boundary), use it.
-    // Fallback order: stored baseline -> initial account balance -> current live balance
     const dailyStart = userData?.dailyStartBalance || userData?.accountBalance || metrics.balance;
     
     const currentEquity = metrics.equity;
@@ -458,7 +455,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       {!adminViewMode && <Navigation />}
       
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
-        {/* Debug Panel */}
         {isDebug && (
           <div className="mb-8 p-4 rounded-xl bg-black border border-primary/50 font-mono text-[10px] text-primary space-y-1 shadow-2xl">
             <p className="font-bold border-b border-primary/20 pb-1 mb-2 uppercase flex items-center justify-between">
@@ -469,10 +465,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p>Live Equity: {metrics.equity}</p>
             <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
             <p>Daily Date (Stored): {userData?.dailyStartBalanceDate || 'N/A'}</p>
-            <p>Current Day Key: {getTradingDayKey(new Date())}</p>
-            <p>Baseline Match: {String(userData?.dailyStartBalanceDate === getTradingDayKey(new Date()))}</p>
             <p>Last Sync: {userData?.lastMT5Update?.seconds ? new Date(userData.lastMT5Update.seconds * 1000).toLocaleString() : 'N/A'}</p>
-            <p>Performance Logs: {performanceData?.length || 0}</p>
           </div>
         )}
 
@@ -495,7 +488,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           </div>
         )}
 
-        {userData?.readyForPhaseAdvancement && (
+        {userData?.readyForNextPhase && (
            <div className="mb-8 p-6 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center text-black shrink-0">
@@ -581,7 +574,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               </p>
               <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
                 {dailyRiskMetrics.pnlPct.toFixed(2)}% of session start 
-                {isDebug && <span className="ml-1 opacity-40">(${userData?.dailyStartBalance?.toLocaleString()})</span>}
               </p>
             </CardContent>
           </Card>
@@ -603,7 +595,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           </Card>
         </div>
 
-        {/* Trade Statistics for Admins and Traders */}
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
            <StatMiniCard title="Total Trades" value={tradeStats?.totalTrades || 0} icon={<PieChart className="w-3 h-3" />} />
            <StatMiniCard title="Win Rate" value={`${tradeStats?.winRate.toFixed(1) || 0}%`} icon={<TrendingUp className="w-3 h-3" />} color="emerald" />
@@ -698,7 +689,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                         {isBreached ? 'Breached' : currentPhaseDisplay.label}
                       </Badge>
                    </div>
-                   {userData?.readyForPhaseAdvancement && (
+                   {userData?.readyForNextPhase && (
                       <div className="p-1 bg-emerald-500/20 rounded-full">
                         <Trophy className="w-4 h-4 text-emerald-500" />
                       </div>
@@ -710,12 +701,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                   <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">MT5 Login</p><p className="text-xs font-bold text-white font-mono">{userData?.mt5Login || 'PENDING'}</p></div>
                   <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Status</p><p className="text-xs font-bold text-white uppercase">{userData?.accountStatus || 'INACTIVE'}</p></div>
                 </div>
-                {userData?.createdAt && (
-                   <div className="pt-4 border-t border-white/5">
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase">Account Created</p>
-                      <p className="text-[10px] text-zinc-300">{format(userData.createdAt?.toDate?.() || new Date(userData.createdAt), 'PPP')}</p>
-                   </div>
-                )}
               </CardContent>
             </Card>
 

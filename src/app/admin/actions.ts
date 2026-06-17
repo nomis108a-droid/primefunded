@@ -340,7 +340,7 @@ export async function registerMt5AccountAction(data: {
       mt5Login: data.login,
       mt5Password: data.password,
       mt5Server: "MetaQuotes-Demo",
-      readyForPhaseAdvancement: false,
+      readyForNextPhase: false,
       readyForPhaseReset: false,
       activatedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -406,7 +406,7 @@ export async function advanceTraderPhaseAction(userId: string) {
     // For now, we update the existing phase and clear the advancement flag
     await userRef.update({
       currentPhase: nextPhase,
-      readyForPhaseAdvancement: false,
+      readyForNextPhase: false,
       updatedAt: FieldValue.serverTimestamp()
     });
 
@@ -416,7 +416,7 @@ export async function advanceTraderPhaseAction(userId: string) {
     if (!accSnap.empty) {
       await accSnap.docs[0].ref.update({
         phase: nextPhase,
-        readyForPhaseAdvancement: false
+        readyForNextPhase: false
       });
     }
 
@@ -561,7 +561,7 @@ export async function resetPhaseProgressAction(userId: string) {
 
     await userRef.update({
       readyForPhaseReset: false,
-      readyForPhaseAdvancement: false,
+      readyForNextPhase: false,
       liveBalance: initialBalance,
       liveEquity: initialBalance,
       dailyStartBalance: initialBalance,
@@ -577,7 +577,7 @@ export async function resetPhaseProgressAction(userId: string) {
         balance: initialBalance,
         equity: initialBalance,
         dailyStartBalance: initialBalance,
-        readyForPhaseAdvancement: false
+        readyForNextPhase: false
       });
     }
 
