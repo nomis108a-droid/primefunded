@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -127,7 +126,7 @@ export default function AdminPage() {
     setActionLoading(true);
     try {
       const res = await runRetroactiveRiskAuditAction();
-      console.log(">>> [CLIENT] Server Action Response Received:", res);
+      console.log(">>> [CLIENT] Server Action Response Received:", res); // Full Response Object printed here
       if (res.success) {
         toast({ title: "Audit Complete", description: `Detected and processed ${res.breachCount} retroactive breaches.` });
         refreshData();

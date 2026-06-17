@@ -1,4 +1,3 @@
-
 'use server';
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
@@ -132,37 +131,46 @@ export async function fetchAdminTerminalData() {
 
 /**
  * Institutional Retroactive Risk Auditor
- * Scans all active accounts for historical violations.
- * Includes explicit debug logging for specific account investigation.
+ * RELAXED QUERY: Fetches all accounts to find the status mismatch.
  */
 export async function runRetroactiveRiskAuditAction() {
   console.log(">>> [AUDIT] Institutional Audit Triggered via Server Action");
   const auditData: any[] = [];
   try {
     const db = getAdminDb();
-    const accounts = await db.collection('mt5_accounts').where('status', '==', 'active').get();
-    console.log(`>>> [AUDIT] Found ${accounts.size} active accounts to process`);
+    // Relax query to find any mismatching status values
+    const accounts = await db.collection('mt5_accounts').get();
+    console.log(`[AUDIT] Query returned ${accounts.docs.length} root accounts from mt5_accounts collection`);
+    
     let breachCount = 0;
 
     for (const acc of accounts.docs) {
       const data = acc.data();
-      const login = String(data.login);
-      const initialBalance = parseFloat(String(data.accountBalance));
+      const login = String(data.login || 'UNKNOWN');
+      const status = String(data.status || 'MISSING');
       const userId = data.userId;
-      
-      if (!userId || isNaN(initialBalance)) {
-        console.log(`>>> [AUDIT] SKIPPING account ${login}: Missing critical data`);
+      const initialBalance = parseFloat(String(data.accountBalance || 0));
+
+      console.log(`[AUDIT] Evaluating Account ${login}: Status=${status}, User=${userId}, Balance=${initialBalance}`);
+
+      // We only process if it's 'active' or if the user is targeting it specifically
+      if (status.toLowerCase() !== 'active') {
+        console.log(`[AUDIT] Skipping account ${login} because status is ${status}`);
+        continue;
+      }
+
+      if (!userId || initialBalance <= 0) {
+        console.log(`[AUDIT] Skipping account ${login}: Incomplete data`);
         continue;
       }
 
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       
-      // DEBUG INSTRUMENTATION AS REQUESTED
       const threshold = initialBalance * 0.03;
-      const allLosses = rawTrades.filter(t => (t.pnl || t.profit || 0) < 0).map(t => t.pnl || t.profit);
-      const biggestLoss = allLosses.length > 0 ? Math.min(...allLosses) : 0;
-      const manualSingleLossCheck = Math.abs(biggestLoss) > threshold;
+      const allLosses = rawTrades.filter(t => (t.pnl || t.profit || 0) < 0).map(t => Math.abs(t.pnl || t.profit));
+      const biggestLoss = allLosses.length > 0 ? Math.max(...allLosses) : 0;
+      const isMaxLossBreached = biggestLoss > threshold;
 
       const debugObj = { 
         login, 
@@ -171,10 +179,9 @@ export async function runRetroactiveRiskAuditAction() {
         lossesFound: allLosses,
         biggestLoss,
         thresholdCalculated: threshold, 
-        isMaxLossBreached: manualSingleLossCheck
+        isMaxLossBreached
       };
       
-      console.log('[AUDIT-DEBUG]', debugObj);
       auditData.push(debugObj);
 
       const enriched = enrichTrades(rawTrades, login);
@@ -183,8 +190,6 @@ export async function runRetroactiveRiskAuditAction() {
 
       // 1. Transaction-Level Violation Check
       for (const t of enriched) {
-        if (!t.closeTime) continue;
-
         const profit = t.pnl || 0;
         const duration = t.durationSeconds || 0;
         const ticket = t.id;
@@ -197,7 +202,7 @@ export async function runRetroactiveRiskAuditAction() {
         }
 
         // Rule 2: Min Duration (120s)
-        if (t.matched && duration < 120 && profit !== 0) {
+        if (t.matched && duration > 0 && duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
           break;
@@ -208,8 +213,8 @@ export async function runRetroactiveRiskAuditAction() {
       if (!breached) {
         const sessionMap = new Map<string, number>();
         enriched.forEach(t => {
-          if (t.closeTime && (t.pnl || 0) < 0) {
-            const date = getTradeDate(t.closeTime);
+          if ((t.pnl || 0) < 0) {
+            const date = getTradeDate(t.closeTime || t.time || t.date);
             if (date) {
               const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
               const key = adjusted.toISOString().split('T')[0];
@@ -234,7 +239,7 @@ export async function runRetroactiveRiskAuditAction() {
 
       if (breached) {
         breachCount++;
-        console.log(`>>> [AUDIT] BREACH DETECTED for ${login}: ${reason}`);
+        console.log(`>>> [AUDIT] WRITING status=breached for account ${login}: ${reason}`);
         
         try {
           await acc.ref.update({ 
@@ -258,6 +263,7 @@ export async function runRetroactiveRiskAuditAction() {
             breachType: 'hard',
             breachedAt: FieldValue.serverTimestamp()
           });
+          console.log(`>>> [AUDIT] SUCCESS: Firestore write confirmed for ${login}`);
         } catch (writeError: any) {
           console.log(`>>> [AUDIT] PERSISTENCE FAILURE for account ${login}: ${writeError.message}`);
         }
