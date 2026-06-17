@@ -4,6 +4,14 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+/**
+ * Institutional temporal helper: Boundary at 2:00 AM UTC (7:30 AM IST)
+ */
+const getTradingDayKey = (date: Date) => {
+  const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
+  return adjusted.toISOString().split('T')[0];
+};
+
 function getAdminDb() {
   if (!getApps().length) {
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
@@ -17,6 +25,7 @@ function getAdminDb() {
 async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trades: any[]) {
   const accountData = accountDoc.data();
   const initialBalance = parseFloat(String(accountData.accountBalance || 100000));
+  const tradesRef = db.collection('users').doc(userId).collection('trades');
   
   const sortedNewTrades = [...trades].sort((a, b) => (a.openTime || 0) - (b.openTime || 0));
 
@@ -45,7 +54,6 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
     }
 
     // 3. Max Execution Frequency (180s)
-    const tradesRef = db.collection('users').doc(userId).collection('trades');
     const prevTradeQuery = await tradesRef
       .where('openTime', '<', openTime)
       .orderBy('openTime', 'desc')
@@ -110,6 +118,7 @@ export async function POST(request: Request) {
 
     if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
 
+    // 1. Save Trades
     const batch = db.batch();
     for (const trade of trades) {
       const tradeRef = db.collection('users').doc(userId).collection('trades').doc(String(trade.ticket));
@@ -128,6 +137,24 @@ export async function POST(request: Request) {
     }
     await batch.commit();
 
+    // 2. Recalculate dailyClosedLosses for the session
+    const todayKey = getTradingDayKey(new Date());
+    const sessionStartTime = Math.floor(new Date(todayKey + 'T02:00:00Z').getTime() / 1000);
+    
+    const todaysTrades = await db.collection('users').doc(userId).collection('trades')
+      .where('closeTime', '>=', sessionStartTime)
+      .get();
+    
+    let dailyLossTotal = 0;
+    todaysTrades.docs.forEach((d: any) => {
+      const t = d.data();
+      const pnl = t.pnl || t.profit || 0;
+      if (pnl < 0) dailyLossTotal += Math.abs(pnl);
+    });
+
+    await accountDoc.ref.update({ dailyClosedLosses: dailyLossTotal });
+
+    // 3. Evaluate Risk Rules
     if (accountData.status !== 'breached') {
       const riskCheck = await evaluateTradeRules(db, userId, accountDoc, trades);
       if (riskCheck.breached) {

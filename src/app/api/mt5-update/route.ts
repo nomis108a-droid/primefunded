@@ -1,6 +1,6 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { RULES_CONFIG, getPlanKey, type PlanPhaseRules } from '@/lib/rulesConfig';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -25,6 +25,7 @@ function getAdminDb() {
 
 /**
  * Internal logic for phase passing (Profit Target + Trading Days)
+ * Target is checked against BALANCE (Realized only)
  */
 async function checkPhasePassing(db: any, userId: string, accountData: any, currentBalance: number) {
   const planName = accountData.accountPlan || '1-Step Pro';
@@ -32,9 +33,9 @@ async function checkPhasePassing(db: any, userId: string, accountData: any, curr
   const planKey = getPlanKey(planName);
   
   const startingBalance = parseFloat(String(accountData.accountBalance || 100000));
-  const currentProfitPct = ((currentBalance - startingBalance) / startingBalance) * 100;
+  const currentProfitAmount = currentBalance - startingBalance;
+  const currentProfitPct = (currentProfitAmount / startingBalance) * 100;
 
-  // 1. Get Targets from Config
   const getTargetPct = () => {
     if (planKey.includes('1-step')) return 10;
     if (planKey.includes('2-step')) return (phase === 'phase1') ? 8 : (phase === 'phase2') ? 5 : 0;
@@ -50,7 +51,6 @@ async function checkPhasePassing(db: any, userId: string, accountData: any, curr
   const targetPct = getTargetPct();
   if (targetPct <= 0 || currentProfitPct < targetPct) return;
 
-  // 2. Verify Minimum Trading Days
   const getRequiredDays = () => {
     if (planKey.includes('1-step')) return 5;
     if (planKey.includes('2-step')) return 5;
@@ -118,9 +118,7 @@ export async function POST(request: Request) {
       querySnapshot = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
     }
 
-    if (querySnapshot.empty) {
-      return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
-    }
+    if (querySnapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
 
     const accountDoc = querySnapshot.docs[0];
     const accountData = accountDoc.data();
@@ -130,26 +128,23 @@ export async function POST(request: Request) {
     const currBalance = parseFloat(String(payload.balance)) || 0;
     const currEquity = parseFloat(String(payload.equity)) || 0;
     
-    // Fixed initial balance for risk calculations (e.g. 100000)
-    // Field 'accountBalance' is set once during provisioning and never changes.
+    // Fixed initial balance for risk calculations
     const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
 
-    // 1. Session Reset (2:00 AM UTC Boundary)
+    // 1. Session Reset & dailyClosedLosses tracking
     const todayKey = getTradingDayKey(new Date());
-    let dailyStartBalance = parseFloat(String(accountData.dailyStartBalance)) || initialBalance;
+    let dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
     const existingDateKey = accountData.lastDailyResetDate;
 
-    let sessionWasReset = false;
     if (!existingDateKey || existingDateKey !== todayKey) {
-      dailyStartBalance = currEquity; // New session starts at current equity
+      dailyClosedLosses = 0;
       await accountDoc.ref.update({
-        dailyStartBalance: dailyStartBalance,
+        dailyClosedLosses: 0,
         lastDailyResetDate: todayKey
       });
-      sessionWasReset = true;
     }
 
-    // 2. Rules Evaluation
+    // 2. Rules Evaluation (Mid-Trade / Real-Time)
     let breachDetected = false;
     let breachReason = "";
 
@@ -158,33 +153,42 @@ export async function POST(request: Request) {
       const phase = accountData.phase || 'evaluation';
       const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-      // Daily Drawdown
-      const dailyLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
-      if (currEquity < (dailyStartBalance - dailyLimit)) {
+      // A. Corrected Daily Drawdown (Gross Loss Counter)
+      // dailyGrossLoss = Sum of closed losses today + current floating loss (if negative)
+      const currentFloatingPnL = currEquity - currBalance;
+      const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
+      
+      const totalDailyGrossLoss = dailyClosedLosses + currentFloatingLoss;
+      const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
+
+      if (totalDailyGrossLoss > dailyLimit) {
         breachDetected = true;
-        breachReason = `Daily drawdown: equity $${currEquity.toLocaleString()} fell below threshold (${rules.dailyDrawdown}% of $${dailyStartBalance.toLocaleString()})`;
+        breachReason = `Daily Drawdown (Gross Loss): Total loss of $${totalDailyGrossLoss.toFixed(2)} ($${dailyClosedLosses.toFixed(2)} closed + $${currentFloatingLoss.toFixed(2)} floating) exceeded fixed limit of $${dailyLimit.toFixed(2)} (3% of $${initialBalance.toLocaleString()})`;
       }
 
-      // Max Drawdown
+      // B. Max Drawdown (Real-Time Equity Floor)
       if (!breachDetected) {
-        const maxLimit = initialBalance * (rules.maxDrawdown / 100);
-        if (currEquity < (initialBalance - maxLimit)) {
+        const maxLimitPct = rules.maxDrawdown;
+        const maxLossAllowed = initialBalance * (maxLimitPct / 100);
+        const equityFloor = initialBalance - maxLossAllowed;
+        
+        if (currEquity < equityFloor) {
           breachDetected = true;
-          breachReason = `Max drawdown: equity $${currEquity.toLocaleString()} fell below plan limit (${rules.maxDrawdown}% of initial balance)`;
+          breachReason = `Maximum Drawdown: Equity $${currEquity.toLocaleString()} fell below the fixed floor of $${equityFloor.toLocaleString()} (${maxLimitPct}% of initial balance)`;
         }
       }
 
-      // Max Floating Loss (Funded) - Rule: 1% of FIXED initial balance
+      // C. Max Floating Loss (Funded)
       if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
         const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
         const threshold = initialBalance * (rules.maxFloatingLoss / 100);
         if (floatingLoss > threshold) {
           breachDetected = true;
-          breachReason = `Max floating loss: unrealized loss of $${floatingLoss.toFixed(2)} exceeded the 1% fixed threshold ($${threshold.toFixed(2)}) of initial balance ($${initialBalance.toLocaleString()})`;
+          breachReason = `Max Floating Loss (Funded): Unrealized loss of $${floatingLoss.toFixed(2)} exceeded the 1% fixed threshold ($${threshold.toFixed(2)})`;
         }
       }
 
-      // Phase Passing
+      // D. Phase Passing (Realized Balance only)
       if (!breachDetected && userId) {
         await checkPhasePassing(db, userId, accountData, currBalance);
       }
@@ -226,16 +230,11 @@ export async function POST(request: Request) {
     await accountDoc.ref.update(updates);
 
     if (userId) {
-      const userUpdates: any = {
+      await db.collection('users').doc(userId).update({
         liveBalance: currBalance,
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp(),
-      };
-      if (sessionWasReset) {
-        userUpdates.dailyStartBalance = dailyStartBalance;
-        userUpdates.dailyStartBalanceDate = todayKey;
-      }
-      await db.collection('users').doc(userId).update(userUpdates);
+      });
 
       const perfRef = db.collection('users').doc(userId).collection('performance').doc(todayKey);
       await perfRef.set({
