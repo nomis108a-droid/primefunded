@@ -7,7 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getPlanKey, RULES_CONFIG } from '@/lib/rulesConfig';
 import { enrichTrades, getTradeDate } from '@/lib/tradeUtils';
 
-const AUDIT_VERSION = "2024-06-18-AUDIT-VERIFY-99";
+const AUDIT_VERSION = "2024-06-18-AUDIT-VERIFY-100";
 
 /**
  * Initializes the Firebase Admin SDK for administrative operations.
@@ -43,7 +43,6 @@ function getAdminDb(): Firestore {
 
 /**
  * Isolated Connection Test
- * This function successfully finds 2 documents in mt5_accounts.
  */
 export async function probeInstitutionalConnectionAction() {
   console.log(">>> [PROBE] Starting connection test...");
@@ -69,8 +68,7 @@ export async function probeInstitutionalConnectionAction() {
 
 /**
  * Institutional Retroactive Risk Auditor
- * This is the LITERAL source code. No stubs. 
- * It is structured to be identical to the working Probe test.
+ * Optimized to catch historical violations across any session.
  */
 export async function runRetroactiveRiskAuditAction() {
   console.log(`>>> [AUDIT-ENTRY] Invoked at ${new Date().toISOString()}`);
@@ -80,7 +78,6 @@ export async function runRetroactiveRiskAuditAction() {
   try {
     const db = getAdminDb();
     
-    // FETCH: Identical path to Probe test
     console.log(">>> [AUDIT-FETCH] Attempting to fetch mt5_accounts...");
     const snap = await db.collection('mt5_accounts').get();
     
@@ -91,51 +88,42 @@ export async function runRetroactiveRiskAuditAction() {
       return { success: true, breachCount: 0, auditData: [], version: AUDIT_VERSION, note: "Empty collection" };
     }
 
-    // LOOP: Iterate through every document found
     for (const doc of snap.docs) {
       const data = doc.data();
       const login = String(data.login || doc.id);
-      const userId = data.userId;
       
-      // LOG RAW DATA: Expose exactly what the server sees
-      console.log(`>>> [AUDIT-LOOP] Now checking account: ${doc.id} (Login: ${login})`);
-      console.log(`>>> [AUDIT-DATA] Raw account fields: ${JSON.stringify(data)}`);
+      // Support multiple field name variations for user linkage
+      const userId = data.userId || data.uid || data.user_id;
+      
+      // Support multiple field name variations for initial balance
+      const initialBalance = parseFloat(String(data.accountBalance || data.startingBalance || data.balance || 0));
+      
+      // LOG RAW DATA FOR DEBUGGING
+      console.log(`>>> [AUDIT-LOOP] Checking: ${login} | ID: ${doc.id} | User: ${userId} | Balance: ${initialBalance}`);
 
-      // Determine initial balance for risk math
-      const initialBalance = parseFloat(String(data.accountBalance || 0));
-      
       if (!userId || initialBalance <= 0) {
-        console.warn(`>>> [AUDIT-SKIP] Skipping ${login}: No userId or balance (Balance: ${initialBalance})`);
-        auditData.push({ login, skipped: true, reason: "Incomplete data" });
+        const skipReason = !userId ? "Missing userId field on account document" : "Balance field is zero or missing";
+        console.warn(`>>> [AUDIT-SKIP] Skipping ${login}: ${skipReason}`);
+        auditData.push({ 
+          login, 
+          skipped: true, 
+          reason: skipReason,
+          debug_fields: Object.keys(data),
+          raw_data_snapshot: data 
+        });
         continue;
       }
 
-      // FETCH TRADES: Audit the transaction history
+      // FETCH TRADES
       console.log(`>>> [AUDIT-TRADES] Fetching positions for User ${userId}...`);
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       console.log(`>>> [AUDIT-TRADES-RESULT] Found ${rawTrades.length} trades for ${login}`);
 
-      // CALCULATION: Thresholds based on plan
-      const threshold = initialBalance * 0.03;
-      const losses = rawTrades.filter(t => (t.pnl || t.profit || 0) < 0).map(t => Math.abs(t.pnl || t.profit || 0));
-      const biggestLoss = losses.length > 0 ? Math.max(...losses) : 0;
-      const isMaxLossBreached = biggestLoss > threshold;
-
-      const debugObj = { 
-        login, 
-        initialBalanceUsed: initialBalance, 
-        totalTrades: rawTrades.length,
-        lossesFound: losses,
-        biggestLoss,
-        thresholdCalculated: threshold, 
-        isMaxLossBreached
-      };
+      // CALCULATION: Rule Thresholds
+      const threshold3Pct = initialBalance * 0.03;
       
-      console.log(`>>> [AUDIT-RESULT] ${login} Evaluation: ${JSON.stringify(debugObj)}`);
-      auditData.push(debugObj);
-
-      // ENFORCEMENT: Pair deals and check rules
+      // ENFORCEMENT: Reconstruct positions using shared logic
       const enriched = enrichTrades(rawTrades, login);
       let breached = false;
       let reason = "";
@@ -144,20 +132,29 @@ export async function runRetroactiveRiskAuditAction() {
         const profit = t.pnl || 0;
         const duration = t.durationSeconds || 0;
 
-        // Rule 1: Max Single Loss
-        if (profit < 0 && Math.abs(profit) > threshold) {
+        // Rule 1: Max Single Loss (3% of initial balance)
+        if (profit < 0 && Math.abs(profit) > threshold3Pct) {
           breached = true;
-          reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${threshold.toFixed(2)}) (Ticket: ${t.id})`;
+          reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${threshold3Pct.toFixed(2)}) (Ticket: ${t.id})`;
           break;
         }
 
-        // Rule 2: Min Duration
+        // Rule 2: Min Duration (120s)
         if (t.matched && duration > 0 && duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${t.id})`;
           break;
         }
       }
+
+      auditData.push({ 
+        login, 
+        initialBalanceUsed: initialBalance, 
+        totalTrades: rawTrades.length,
+        thresholdCalculated: threshold3Pct,
+        breachDetected: breached,
+        reason: breached ? reason : "Compliant"
+      });
 
       // WRITE: Commit breach to Firestore if detected
       if (breached) {
@@ -184,7 +181,6 @@ export async function runRetroactiveRiskAuditAction() {
       }
     }
 
-    console.log(`>>> [AUDIT-EXIT] Audit complete. Processed ${auditData.length} accounts.`);
     return { 
       success: true, 
       breachCount, 
@@ -197,8 +193,6 @@ export async function runRetroactiveRiskAuditAction() {
     return { success: false, error: error.message, version: AUDIT_VERSION };
   }
 }
-
-// ... helper functions for Serialization and Certificate Generation remain below ...
 
 function serializeFirestoreData(data: any): any {
   if (data === null || data === undefined) return data;
