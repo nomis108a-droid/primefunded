@@ -7,7 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { getPlanKey, RULES_CONFIG } from '@/lib/rulesConfig';
 import { enrichTrades, getTradeDate } from '@/lib/tradeUtils';
 
-const AUDIT_VERSION = "2024-06-18-AUDIT-VERIFY-101";
+const AUDIT_VERSION = "2024-06-18-AUDIT-VERIFY-102";
 
 /**
  * Initializes the Firebase Admin SDK for administrative operations.
@@ -69,6 +69,7 @@ export async function probeInstitutionalConnectionAction() {
 /**
  * Institutional Retroactive Risk Auditor
  * Optimized to catch historical violations across any session and persist to ledger.
+ * Updated to deduplicate ledger entries and resolve trader names.
  */
 export async function runRetroactiveRiskAuditAction() {
   console.log(`>>> [AUDIT-ENTRY] Invoked at ${new Date().toISOString()}`);
@@ -108,6 +109,13 @@ export async function runRetroactiveRiskAuditAction() {
         });
         continue;
       }
+
+      // FETCH USER PROFILE (For naming/email in ledger)
+      const userRef = db.collection('users').doc(userId);
+      const userSnap = await userRef.get();
+      const userProfile = userSnap.exists ? userSnap.data() : {};
+      const traderName = userProfile?.name || data.name || 'Trader';
+      const traderEmail = userProfile?.email || data.email || 'N/A';
 
       // FETCH TRADES
       console.log(`>>> [AUDIT-TRADES] Fetching trades for User ${userId}...`);
@@ -170,18 +178,29 @@ export async function runRetroactiveRiskAuditAction() {
             breachedAt: FieldValue.serverTimestamp() 
           });
 
-          // 3. Create Entry in Breaches Ledger (CRITICAL: For Admin UI)
-          await db.collection('breaches').add({
-            userId,
-            userName: data.name || 'Trader',
-            userEmail: data.email || 'N/A',
-            login: login,
-            breachType: 'hard',
-            breachReason: reason,
-            breachedAt: FieldValue.serverTimestamp()
-          });
+          // 3. Create Entry in Breaches Ledger (DEDUPLICATED)
+          const existingBreach = await db.collection('breaches')
+            .where('login', '==', login)
+            .where('breachReason', '==', reason)
+            .limit(1)
+            .get();
 
-          console.log(`>>> [AUDIT-WRITE-SUCCESS] Firestore records updated for ${login}`);
+          if (existingBreach.empty) {
+            await db.collection('breaches').add({
+              userId,
+              userName: traderName,
+              userEmail: traderEmail,
+              login: login,
+              breachType: 'hard',
+              breachReason: reason,
+              breachedAt: FieldValue.serverTimestamp()
+            });
+            console.log(`>>> [AUDIT-WRITE-SUCCESS] New breach record created for ${login}`);
+          } else {
+            console.log(`>>> [AUDIT-IDEMPOTENT] Breach record already exists for ${login}, skipping write.`);
+          }
+
+          console.log(`>>> [AUDIT-WRITE-SUCCESS] Status records updated for ${login}`);
         } catch (writeErr: any) {
           console.error(`>>> [AUDIT-WRITE-FAIL] Failed to update ${login}: ${writeErr.message}`);
         }
