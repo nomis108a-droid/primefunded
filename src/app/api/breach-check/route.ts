@@ -1,4 +1,3 @@
-
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
@@ -13,8 +12,8 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
  * - Execution Frequency (1/3 mins)
  * - Holding Time (2 mins minimum)
  * - Floating Loss Thresholds (1% in Funded stage)
- * - Martingale lot-scaling patterns
- * - Friday Overnight holding (Instant Plan)
+ * - Martingale lot-scaling patterns (Hard Breach)
+ * - Friday Overnight holding (Instant Plan - Soft Breach)
  */
 
 function getAdminDb() {
