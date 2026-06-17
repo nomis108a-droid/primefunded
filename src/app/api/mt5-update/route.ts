@@ -142,6 +142,15 @@ export async function POST(request: Request) {
         dailyClosedLosses: 0,
         lastDailyResetDate: todayKey
       });
+
+      // Synchronize session reset to User document
+      if (userId) {
+        await db.collection('users').doc(userId).update({
+          dailyClosedLosses: 0,
+          dailyStartBalance: currBalance,
+          dailyStartBalanceDate: todayKey
+        });
+      }
     }
 
     // 2. Rules Evaluation (Mid-Trade / Real-Time)
@@ -234,6 +243,8 @@ export async function POST(request: Request) {
         liveBalance: currBalance,
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp(),
+        // Also sync realized losses for dashboard display
+        dailyClosedLosses: dailyClosedLosses
       });
 
       const perfRef = db.collection('users').doc(userId).collection('performance').doc(todayKey);

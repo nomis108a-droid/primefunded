@@ -435,10 +435,14 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   }, [recentTrades]);
 
   const dailyRiskMetrics = useMemo(() => {
-    const dailyStart = userData?.dailyStartBalance || metrics.balance;
-    const currentEquity = metrics.equity;
-    const pnl = metrics.balance - dailyStart;
-    const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
+    const initialBalance = userData?.accountBalance || 100000;
+    const dailyClosedLosses = userData?.dailyClosedLosses || 0;
+    
+    // Calculate current floating loss: balance vs equity
+    const currentFloatingPnL = metrics.equity - metrics.balance;
+    const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
+    
+    const totalDailyLoss = dailyClosedLosses + currentFloatingLoss;
     
     const getLimit = () => {
       const plan = userData?.accountPlan?.toLowerCase() || '';
@@ -449,12 +453,18 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       return 3;
     };
 
-    const limit = getLimit();
-    const drawdownAmount = dailyStart > currentEquity ? dailyStart - currentEquity : 0;
-    const drawdownPct = dailyStart > 0 ? (drawdownAmount / dailyStart) * 100 : 0;
-    const usage = Math.min((drawdownPct / limit) * 100, 100);
+    const limitPct = getLimit();
+    const limitAmount = initialBalance * (limitPct / 100);
+    
+    const drawdownPct = initialBalance > 0 ? (totalDailyLoss / initialBalance) * 100 : 0;
+    const usage = Math.min((totalDailyLoss / limitAmount) * 100, 100);
 
-    return { pnl, pnlPct, usage, limit, drawdownPct, isPositive: pnl >= 0 };
+    // P&L logic for display relative to session start
+    const dailyStart = userData?.dailyStartBalance || metrics.balance;
+    const pnl = metrics.balance - dailyStart;
+    const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
+
+    return { pnl, pnlPct, usage, limit: limitPct, drawdownPct, isPositive: pnl >= 0 };
   }, [userData, metrics]);
 
   const currentPhaseDisplay = useMemo(() => {
@@ -481,8 +491,8 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p>UID: {effectiveUid}</p>
             <p>Live Balance: {metrics.balance}</p>
             <p>Live Equity: {metrics.equity}</p>
+            <p>Realized Session Loss: {userData?.dailyClosedLosses || 0}</p>
             <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
-            <p>Daily Date (Stored): {userData?.dailyStartBalanceDate || 'N/A'}</p>
           </div>
         )}
 
@@ -630,9 +640,9 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                       <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
                       <ChartTooltip 
                         cursor={{ fill: '#ffffff05' }}
-                        contentStyle={{ backgroundColor: '#0a0f1e', border: '1px solid #11b3f520', borderRadius: '12px' }} 
-                        itemStyle={{ fontSize: '12px', fontWeight: 'bold' }} 
-                        labelStyle={{ color: '#fff', fontSize: '10px', marginBottom: '4px' }} 
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)' }} 
+                        itemStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#f8fafc' }} 
+                        labelStyle={{ color: '#94a3b8', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: '900' }} 
                         formatter={(value: number) => [`$${value.toLocaleString()}`, 'Daily P&L']}
                       />
                       <ReferenceLine y={0} stroke="#ffffff10" />

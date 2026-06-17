@@ -153,6 +153,13 @@ export async function POST(request: Request) {
     });
 
     await accountDoc.ref.update({ dailyClosedLosses: dailyLossTotal });
+    
+    // Synchronize to User document for real-time dashboard display
+    if (userId) {
+      await db.collection('users').doc(userId).update({ 
+        dailyClosedLosses: dailyLossTotal 
+      });
+    }
 
     // 3. Evaluate Risk Rules
     if (accountData.status !== 'breached') {
