@@ -20,6 +20,11 @@ export async function POST(request: Request) {
   try {
     // SECURITY: Verify MT5 API Key
     const apiKey = request.headers.get('x-api-key');
+
+    // TEMPORARY DEBUG LOGS
+    console.log("[MT5_AUTH_DEBUG] incoming key:", apiKey);
+    console.log("[MT5_AUTH_DEBUG] expected key:", process.env.MT5_API_KEY);
+
     if (apiKey !== process.env.MT5_API_KEY) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
