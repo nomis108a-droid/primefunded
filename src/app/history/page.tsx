@@ -71,7 +71,7 @@ export default function HistoryPage() {
     if (!time) return null;
     let date;
     if (typeof time === 'number') date = new Date(time * 1000);
-    else if (time.toDate && typeof time.toDate === 'function') date = t.toDate();
+    else if (time.toDate && typeof time.toDate === 'function') date = time.toDate();
     else date = new Date(time);
     
     if (!date || isNaN(date.getTime())) return null;
