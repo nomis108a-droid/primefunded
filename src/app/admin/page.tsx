@@ -13,9 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -133,6 +133,23 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
+  const handleUpdateKycStatus = async (userId: string, status: 'verified' | 'rejected') => {
+    let reason = "";
+    if (status === 'rejected') {
+      reason = window.prompt("Enter rejection reason:") || "Documents do not meet institutional requirements.";
+    }
+
+    setActionLoading(true);
+    const res = await processKycAction(userId, status, reason);
+    if (res.success) {
+      toast({ title: `KYC ${status === 'verified' ? 'Approved' : 'Rejected'}` });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "KYC Update Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
   const filteredUsersForSearch = useMemo(() => {
     if (!userSearchTerm) return [];
     return adminData.users.filter((u: any) => 
@@ -205,10 +222,12 @@ export default function AdminPage() {
               <h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1>
               <p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p>
             </div>
-            <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}
-              Refresh Data
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}
+                Refresh Data
+              </Button>
+            </div>
           </div>
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
@@ -630,6 +649,102 @@ export default function AdminPage() {
             </Card>
           )}
 
+          {activeTab === 'kyc' && (
+            <Card className="bg-card/30 border-border/50">
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black">
+                      <tr>
+                        <th className="py-4 px-6">Trader Name / Email</th>
+                        <th className="py-4 px-6">Submission Date</th>
+                        <th className="py-4 px-6">Status</th>
+                        <th className="py-4 px-6">Document Inspection</th>
+                        <th className="py-4 px-6 text-right">Review Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {adminData.users.filter((u: any) => u.kycStatus === 'pending' || u.kycStatus === 'verified' || u.kycStatus === 'rejected').length === 0 ? (
+                        <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No identity applications found.</td></tr>
+                      ) : adminData.users.filter((u: any) => u.kycStatus === 'pending' || u.kycStatus === 'verified' || u.kycStatus === 'rejected').map((user: any) => (
+                        <tr key={user.id} className={cn("hover:bg-primary/5 transition-colors", user.kycStatus === 'pending' ? 'bg-primary/5' : '')}>
+                          <td className="py-4 px-6">
+                            <div className="font-bold text-white">{user.name}</div>
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-tight">{user.email}</div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="text-white text-xs">
+                              {user.kycSubmittedAt ? new Date(user.kycSubmittedAt).toLocaleString() : 'N/A'}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <Badge className={cn(
+                              "uppercase text-[10px] font-black",
+                              user.kycStatus === 'verified' ? "bg-emerald-500 text-black" : 
+                              user.kycStatus === 'rejected' ? "bg-destructive text-white" : 
+                              "bg-primary text-black"
+                            )}>
+                              {user.kycStatus || 'None'}
+                            </Badge>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-2">
+                              {user.idProofUrl && (
+                                <Button variant="outline" size="sm" className="h-8 text-[10px] font-black uppercase tracking-tight gap-1.5" onClick={() => setViewProofProofUrl(user.idProofUrl)}>
+                                  <Fingerprint className="w-3 h-3" /> ID Proof
+                                </Button>
+                              )}
+                              {user.addressProofUrl && (
+                                <Button variant="outline" size="sm" className="h-8 text-[10px] font-black uppercase tracking-tight gap-1.5" onClick={() => setViewProofProofUrl(user.addressProofUrl)}>
+                                  <landmark className="w-3 h-3" /> Address
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6 text-right space-x-2">
+                            {user.kycStatus === 'pending' && (
+                              <>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-emerald-500 hover:bg-emerald-500/10"
+                                  onClick={() => handleUpdateKycStatus(user.id, 'verified')}
+                                  disabled={actionLoading}
+                                >
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleUpdateKycStatus(user.id, 'rejected')}
+                                  disabled={actionLoading}
+                                >
+                                  <XCircle className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                            {(user.kycStatus === 'verified' || user.kycStatus === 'rejected') && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-muted-foreground opacity-50"
+                                onClick={() => handleUpdateKycStatus(user.id, user.kycStatus === 'verified' ? 'rejected' : 'verified')}
+                                disabled={actionLoading}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {activeTab === 'breaches' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                <Card className="bg-destructive/5 border-destructive/20 h-fit">
@@ -661,13 +776,13 @@ export default function AdminPage() {
       <Dialog open={!!viewProofUrl} onOpenChange={() => setViewProofProofUrl(null)}>
         <DialogContent className="max-w-4xl bg-card border-border p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-white/5">
-            <DialogTitle className="text-white">Payment Proof Inspection</DialogTitle>
+            <DialogTitle className="text-white">Document Inspection</DialogTitle>
           </DialogHeader>
           <div className="relative w-full aspect-video bg-black/50">
             {viewProofUrl && (
               <Image 
                 src={viewProofUrl} 
-                alt="Payment Proof" 
+                alt="Verification Proof" 
                 fill 
                 className="object-contain"
                 unoptimized
