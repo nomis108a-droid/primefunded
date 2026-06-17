@@ -136,7 +136,7 @@ export async function fetchAdminTerminalData() {
  * Includes Daily Drawdown session analysis.
  */
 export async function runRetroactiveRiskAuditAction() {
-  console.log(">>> [AUDIT] Institutional Audit Triggered");
+  console.log(">>> [AUDIT] Institutional Audit Triggered via Server Action");
   try {
     const db = getAdminDb();
     const accounts = await db.collection('mt5_accounts').where('status', '==', 'active').get();
@@ -182,7 +182,6 @@ export async function runRetroactiveRiskAuditAction() {
         }
 
         // Rule 2: Min Duration (120s)
-        // Note: matched ensures we have paired an entry/exit to correctly compute duration
         if (t.matched && duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
@@ -222,7 +221,7 @@ export async function runRetroactiveRiskAuditAction() {
 
       if (breached) {
         breachCount++;
-        console.log(`>>> [AUDIT] WRITING status=breached for account ${login}. Reason: ${reason}`);
+        console.log(`>>> [AUDIT] ATTEMPTING WRITE status=breached for account ${login}. Reason: ${reason}`);
         
         try {
           await acc.ref.update({ 

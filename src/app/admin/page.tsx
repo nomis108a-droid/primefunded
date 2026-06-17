@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -116,16 +117,29 @@ export default function AdminPage() {
   };
 
   const handleRetroactiveAudit = async () => {
-    if (!confirm("Run retroactive risk audit on ALL active accounts? This will liquidate any accounts with historical violations (Duration, Frequency, Martingale).")) return;
-    setActionLoading(true);
-    const res = await runRetroactiveRiskAuditAction();
-    if (res.success) {
-      toast({ title: "Audit Complete", description: `Detected and processed ${res.breachCount} retroactive breaches.` });
-      refreshData();
-    } else {
-      toast({ variant: "destructive", title: "Audit Failed", description: res.error });
+    console.log(">>> [CLIENT] Risk Audit Button Clicked");
+    if (!confirm("Run retroactive risk audit on ALL active accounts? This will liquidate any accounts with historical violations (Duration, Frequency, Martingale).")) {
+      console.log(">>> [CLIENT] Audit Cancelled by user via confirm dialog");
+      return;
     }
-    setActionLoading(false);
+    
+    console.log(">>> [CLIENT] Invoking Server Action: runRetroactiveRiskAuditAction...");
+    setActionLoading(true);
+    try {
+      const res = await runRetroactiveRiskAuditAction();
+      console.log(">>> [CLIENT] Server Action Response Received:", res);
+      if (res.success) {
+        toast({ title: "Audit Complete", description: `Detected and processed ${res.breachCount} retroactive breaches.` });
+        refreshData();
+      } else {
+        toast({ variant: "destructive", title: "Audit Failed", description: res.error });
+      }
+    } catch (error: any) {
+      console.error(">>> [CLIENT] CRITICAL ERROR during server action call:", error);
+      toast({ variant: "destructive", title: "Connection Error", description: "The server action failed to execute. Check your network console." });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleLogSoftBreach = async () => {
