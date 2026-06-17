@@ -57,6 +57,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
     if (profit < 0 && Math.abs(profit) > limit3Pct) {
       return {
         breached: true,
+        violatingTicket: ticket,
         reason: `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${limit3Pct.toFixed(2)} on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`
       };
     }
@@ -65,6 +66,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       if (durationSec < 120 && profit !== 0) {
         return {
           breached: true,
+          violatingTicket: ticket,
           reason: `Trade duration violation: position closed in ${durationSec} seconds, minimum hold time is 120 seconds (Ticket: ${ticket})`
         };
       }
@@ -78,6 +80,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       if (diff > 0 && diff < 180) {
         return {
           breached: true,
+          violatingTicket: ticket,
           reason: `Execution frequency violation: ${diff} seconds between trade opens, minimum required is 180 seconds (Ticket: ${ticket})`
         };
       }
@@ -96,6 +99,7 @@ async function evaluateTradeRules(db: any, userId: string, accountDoc: any, trad
       if (martingaleTrigger) {
         return {
           breached: true,
+          violatingTicket: ticket,
           reason: `Martingale lot scaling detected: lot size increased from ${volume} to ${martingaleTrigger.lots} after a loss on ${symbol} within 15 minutes (Ticket: ${ticket} -> ${martingaleTrigger.id})`
         };
       }
@@ -127,6 +131,12 @@ export async function POST(request: Request) {
     const userId = accountData.userId;
 
     if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
+
+    // Fetch user for identity resolution
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const traderId = userData?.uid || userData?.traderId || 'N/A';
 
     // 1. Save Trades
     const batch = db.batch();
@@ -162,7 +172,6 @@ export async function POST(request: Request) {
       if (pnl < 0) dailyLossTotal += Math.abs(pnl);
     });
 
-    // Synchronize session state
     const accountUpdates: any = { 
       dailyClosedLosses: dailyLossTotal,
       lastDailyResetDate: todayKey 
@@ -187,6 +196,19 @@ export async function POST(request: Request) {
       accountUpdates.status = 'breached';
       accountUpdates.breachReason = dailyReason;
       accountUpdates.breachedAt = FieldValue.serverTimestamp();
+      
+      // Deterministic ID for daily breach
+      const breachKey = `live_daily_${loginStr}_${todayKey}`;
+      await db.collection('breaches').doc(breachKey).set({
+        userId,
+        traderId,
+        userName: userData?.name || accountData.name || 'N/A',
+        userEmail: userData?.email || accountData.email || 'N/A',
+        login: loginStr,
+        breachReason: dailyReason,
+        breachType: 'hard',
+        breachedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
     }
 
     await accountDoc.ref.update(accountUpdates);
@@ -202,35 +224,29 @@ export async function POST(request: Request) {
         userUpdates.breachedAt = FieldValue.serverTimestamp();
       }
       await db.collection('users').doc(userId).update(userUpdates);
-
-      if (dailyBreach) {
-        await db.collection('breaches').add({
-          userId,
-          login: loginStr,
-          userEmail: accountData.email || 'N/A',
-          userName: accountData.name || 'N/A',
-          breachReason: dailyReason,
-          breachType: 'hard',
-          breachedAt: FieldValue.serverTimestamp()
-        });
-      }
     }
 
     // 4. Evaluate Risk Rules (Transaction-Level)
     if (!dailyBreach && accountData.status !== 'breached') {
       const riskCheck = await evaluateTradeRules(db, userId, accountDoc, trades);
       if (riskCheck.breached) {
-        await accountDoc.ref.update({ status: 'breached', breachReason: riskCheck.reason, breachedAt: FieldValue.serverTimestamp() });
-        await db.collection('users').doc(userId).update({ accountStatus: 'breached', breachReason: riskCheck.reason, breachedAt: FieldValue.serverTimestamp() });
-        await db.collection('breaches').add({
+        const rReason = riskCheck.reason;
+        const rTicket = riskCheck.violatingTicket || 'trade';
+        
+        await accountDoc.ref.update({ status: 'breached', breachReason: rReason, breachedAt: FieldValue.serverTimestamp() });
+        await db.collection('users').doc(userId).update({ accountStatus: 'breached', breachReason: rReason, breachedAt: FieldValue.serverTimestamp() });
+        
+        const breachKey = `live_trade_${loginStr}_${rTicket}`;
+        await db.collection('breaches').doc(breachKey).set({
           userId,
+          traderId,
           login: loginStr,
-          userEmail: accountData.email || 'N/A',
-          userName: accountData.name || 'N/A',
-          breachReason: riskCheck.reason,
+          userEmail: userData?.email || accountData.email || 'N/A',
+          userName: userData?.name || accountData.name || 'N/A',
+          breachReason: rReason,
           breachType: 'hard',
           breachedAt: FieldValue.serverTimestamp()
-        });
+        }, { merge: true });
       }
     }
 

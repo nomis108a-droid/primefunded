@@ -69,7 +69,7 @@ export async function probeInstitutionalConnectionAction() {
 /**
  * Institutional Retroactive Risk Auditor
  * Optimized to catch historical violations across any session and persist to ledger.
- * Updated to deduplicate ledger entries and resolve trader names.
+ * Updated to enforce deterministic deduplication and resolve trader IDs.
  */
 export async function runRetroactiveRiskAuditAction() {
   console.log(`>>> [AUDIT-ENTRY] Invoked at ${new Date().toISOString()}`);
@@ -78,14 +78,9 @@ export async function runRetroactiveRiskAuditAction() {
 
   try {
     const db = getAdminDb();
-    
-    console.log(">>> [AUDIT-FETCH] Attempting to fetch mt5_accounts...");
     const snap = await db.collection('mt5_accounts').get();
     
-    console.log(`>>> [AUDIT-FETCH-RESULT] Found ${snap.size} documents.`);
-    
     if (snap.empty) {
-      console.warn(">>> [AUDIT-FETCH-EMPTY] The collection was empty.");
       return { success: true, breachCount: 0, auditData: [], version: AUDIT_VERSION, note: "Empty collection" };
     }
 
@@ -93,35 +88,26 @@ export async function runRetroactiveRiskAuditAction() {
       const data = doc.data();
       const login = String(data.login || doc.id);
       
-      // Field-agnostic user and balance resolution
       const userId = data.userId || data.uid || data.user_id;
       const initialBalance = parseFloat(String(data.accountBalance || data.startingBalance || data.balance || 0));
       
-      console.log(`>>> [AUDIT-LOOP] Checking: ${login} | User: ${userId} | Balance: ${initialBalance}`);
-
       if (!userId || initialBalance <= 0) {
-        const skipReason = !userId ? "Missing userId field" : "Invalid balance value";
-        auditData.push({ 
-          login, 
-          skipped: true, 
-          reason: skipReason,
-          raw_data_snapshot: data 
-        });
+        auditData.push({ login, skipped: true, reason: "Missing userId or balance" });
         continue;
       }
 
-      // FETCH USER PROFILE (For naming/email in ledger)
+      // FETCH USER PROFILE (For identity resolution)
       const userRef = db.collection('users').doc(userId);
       const userSnap = await userRef.get();
       const userProfile = userSnap.exists ? userSnap.data() : {};
-      const traderName = userProfile?.name || data.name || 'Trader';
+      
+      const traderId = userProfile?.uid || userProfile?.traderId || 'N/A';
+      const traderName = userProfile?.name || data.name || 'Anonymous';
       const traderEmail = userProfile?.email || data.email || 'N/A';
 
       // FETCH TRADES
-      console.log(`>>> [AUDIT-TRADES] Fetching trades for User ${userId}...`);
-      const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
+      const tradesSnap = await userRef.collection('trades').get();
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      console.log(`>>> [AUDIT-TRADES-RESULT] Found ${rawTrades.length} trades for ${login}`);
 
       // CALCULATION: Rule Thresholds
       const threshold3Pct = initialBalance * 0.03;
@@ -130,6 +116,7 @@ export async function runRetroactiveRiskAuditAction() {
       const enriched = enrichTrades(rawTrades, login);
       let breached = false;
       let reason = "";
+      let violatingTicket = "general";
 
       for (const t of enriched) {
         const profit = t.pnl || 0;
@@ -138,6 +125,7 @@ export async function runRetroactiveRiskAuditAction() {
         // Rule 1: Max Single Loss (3% of initial balance)
         if (profit < 0 && Math.abs(profit) > threshold3Pct) {
           breached = true;
+          violatingTicket = String(t.id);
           reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${threshold3Pct.toFixed(2)}) (Ticket: ${t.id})`;
           break;
         }
@@ -145,6 +133,7 @@ export async function runRetroactiveRiskAuditAction() {
         // Rule 2: Min Duration (120s)
         if (t.matched && duration > 0 && duration < 120 && profit !== 0) {
           breached = true;
+          violatingTicket = String(t.id);
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${t.id})`;
           break;
         }
@@ -153,16 +142,12 @@ export async function runRetroactiveRiskAuditAction() {
       auditData.push({ 
         login, 
         initialBalanceUsed: initialBalance, 
-        totalTrades: rawTrades.length,
         breachDetected: breached,
         reason: breached ? reason : "Compliant"
       });
 
-      // WRITE: Commit breach to Firestore if detected
       if (breached) {
         breachCount++;
-        console.log(`>>> [AUDIT-ENFORCE] VIOLATION DETECTED for ${login}: ${reason}`);
-        
         try {
           // 1. Update MT5 Account Status
           await doc.ref.update({ 
@@ -178,42 +163,27 @@ export async function runRetroactiveRiskAuditAction() {
             breachedAt: FieldValue.serverTimestamp() 
           });
 
-          // 3. Create Entry in Breaches Ledger (DEDUPLICATED)
-          const existingBreach = await db.collection('breaches')
-            .where('login', '==', login)
-            .where('breachReason', '==', reason)
-            .limit(1)
-            .get();
+          // 3. Create Entry in Breaches Ledger (DETERMINISTIC ID FOR DEDUPLICATION)
+          const breachKey = `audit_hard_${login}_${violatingTicket}`;
+          await db.collection('breaches').doc(breachKey).set({
+            userId,
+            traderId, // 8-digit Trader ID
+            userName: traderName,
+            userEmail: traderEmail,
+            login: login,
+            breachType: 'hard',
+            breachReason: reason,
+            breachedAt: FieldValue.serverTimestamp()
+          }, { merge: true });
 
-          if (existingBreach.empty) {
-            await db.collection('breaches').add({
-              userId,
-              userName: traderName,
-              userEmail: traderEmail,
-              login: login,
-              breachType: 'hard',
-              breachReason: reason,
-              breachedAt: FieldValue.serverTimestamp()
-            });
-            console.log(`>>> [AUDIT-WRITE-SUCCESS] New breach record created for ${login}`);
-          } else {
-            console.log(`>>> [AUDIT-IDEMPOTENT] Breach record already exists for ${login}, skipping write.`);
-          }
-
-          console.log(`>>> [AUDIT-WRITE-SUCCESS] Status records updated for ${login}`);
+          console.log(`>>> [AUDIT-WRITE-SUCCESS] Status and Ledger entry synchronized for ${login}`);
         } catch (writeErr: any) {
           console.error(`>>> [AUDIT-WRITE-FAIL] Failed to update ${login}: ${writeErr.message}`);
         }
       }
     }
 
-    return { 
-      success: true, 
-      breachCount, 
-      auditData, 
-      version: AUDIT_VERSION 
-    };
-
+    return { success: true, breachCount, auditData, version: AUDIT_VERSION };
   } catch (error: any) {
     console.error(`>>> [AUDIT-FATAL] ${error.message}`);
     return { success: false, error: error.message, version: AUDIT_VERSION };
@@ -321,8 +291,26 @@ export async function advanceTraderPhaseAction(userId: string) {
 export async function logSoftBreachAction(userId: string, reason: string, note?: string) {
   try {
     const db = getAdminDb();
-    await db.collection('breaches').add({ userId, breachType: 'soft', breachReason: reason, adminNote: note || '', breachedAt: FieldValue.serverTimestamp() });
-    await db.collection('users').doc(userId).update({ readyForPhaseReset: true, updatedAt: FieldValue.serverTimestamp() });
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? userSnap.data() : {};
+    
+    const traderId = userData?.uid || userData?.traderId || 'N/A';
+    const traderName = userData?.name || 'Anonymous';
+    const traderEmail = userData?.email || 'N/A';
+
+    await db.collection('breaches').add({ 
+      userId, 
+      traderId,
+      userName: traderName,
+      userEmail: traderEmail,
+      breachType: 'soft', 
+      breachReason: reason, 
+      adminNote: note || '', 
+      breachedAt: FieldValue.serverTimestamp() 
+    });
+    
+    await userRef.update({ readyForPhaseReset: true, updatedAt: FieldValue.serverTimestamp() });
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };

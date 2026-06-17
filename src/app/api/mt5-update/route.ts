@@ -130,7 +130,6 @@ export async function POST(request: Request) {
     let dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
     const existingDateKey = accountData.lastDailyResetDate;
 
-    // Only reset if the session date actually changes
     if (!existingDateKey || existingDateKey !== todayKey) {
       dailyClosedLosses = 0;
       await accountDoc.ref.update({
@@ -204,20 +203,31 @@ export async function POST(request: Request) {
       updates.breachReason = breachReason;
       updates.breachedAt = FieldValue.serverTimestamp();
 
-      await db.collection('breaches').add({
+      // Resolve identity for ledger
+      const userRef = db.collection('users').doc(userId);
+      const userSnap = await userRef.get();
+      const userProfile = userSnap.exists ? userSnap.data() : {};
+      const traderId = userProfile?.uid || userProfile?.traderId || 'N/A';
+
+      // Deterministic ID for breach
+      const typeKey = breachReason.includes('Daily') ? 'daily' : breachReason.includes('Maximum') ? 'max' : 'floating';
+      const breachKey = `update_${typeKey}_${loginStr}_${todayKey}`;
+
+      await db.collection('breaches').doc(breachKey).set({
         userId,
+        traderId,
         login: loginStr,
-        userEmail: accountData.email || 'N/A',
-        userName: accountData.name || 'N/A',
+        userEmail: userProfile?.email || accountData.email || 'N/A',
+        userName: userProfile?.name || accountData.name || 'N/A',
         plan: accountData.accountPlan || 'N/A',
         phase: accountData.phase || 'N/A',
         breachReason,
         breachType: 'hard',
         breachedAt: FieldValue.serverTimestamp()
-      });
+      }, { merge: true });
 
       if (userId) {
-        await db.collection('users').doc(userId).update({
+        await userRef.update({
           accountStatus: 'breached',
           breachReason,
           breachedAt: FieldValue.serverTimestamp()

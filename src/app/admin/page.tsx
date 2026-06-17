@@ -146,7 +146,7 @@ export default function AdminPage() {
     setActionLoading(true);
     try {
       const res = await runRetroactiveRiskAuditAction();
-      console.log(">>> [CLIENT] Server Action Response Received:", res); // Full Response Object printed here
+      console.log(">>> [CLIENT] Server Action Response Received:", res);
       if (res.success) {
         toast({ title: "Audit Complete", description: `Detected and processed ${res.breachCount} retroactive breaches.` });
         refreshData();
@@ -534,11 +534,17 @@ export default function AdminPage() {
                   <CardContent className="p-0">
                      <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                           <thead className="bg-destructive/10 text-destructive uppercase text-[10px] font-black"><tr><th className="py-3 px-4">Trader</th><th className="py-3 px-4">Reason</th><th className="py-3 px-4 text-right">Date</th></tr></thead>
+                           <thead className="bg-destructive/10 text-destructive uppercase text-[10px] font-black"><tr><th className="py-3 px-4">Trader Identity</th><th className="py-3 px-4">Reason</th><th className="py-3 px-4 text-right">Date</th></tr></thead>
                            <tbody className="divide-y divide-white/5">
                               {adminData.breaches.filter((b: any) => b.breachType === 'hard').map((b: any) => (
                                  <tr key={b.id} className="hover:bg-destructive/5">
-                                    <td className="py-3 px-4 font-bold text-white">{b.userName || b.userEmail}</td>
+                                    <td className="py-3 px-4">
+                                       <div className="flex flex-col">
+                                          <p className="font-mono text-[10px] font-black text-primary uppercase tracking-widest">{b.traderId || '---'}</p>
+                                          <p className="font-bold text-white text-xs">{b.userName || 'Anonymous'}</p>
+                                          <p className="text-[9px] text-muted-foreground">{b.userEmail || 'N/A'}</p>
+                                       </div>
+                                    </td>
                                     <td className="py-3 px-4 text-xs text-muted-foreground">{b.breachReason}</td>
                                     <td className="py-3 px-4 text-right text-[10px] text-muted-foreground">{b.breachedAt ? new Date(b.breachedAt).toLocaleDateString() : 'N/A'}</td>
                                  </tr>
@@ -555,11 +561,17 @@ export default function AdminPage() {
                   <CardContent className="p-0">
                      <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                           <thead className="bg-amber-500/10 text-amber-500 uppercase text-[10px] font-black"><tr><th className="py-3 px-4">Trader</th><th className="py-3 px-4">Reason</th><th className="py-3 px-4">Date</th><th className="py-3 px-4 text-right">Actions</th></tr></thead>
+                           <thead className="bg-amber-500/10 text-amber-500 uppercase text-[10px] font-black"><tr><th className="py-3 px-4">Trader Identity</th><th className="py-3 px-4">Reason</th><th className="py-3 px-4">Date</th><th className="py-3 px-4 text-right">Actions</th></tr></thead>
                            <tbody className="divide-y divide-white/5">
                               {adminData.breaches.filter((b: any) => b.breachType === 'soft').map((b: any) => (
                                  <tr key={b.id} className="hover:bg-amber-500/5">
-                                    <td className="py-3 px-4 font-bold text-white">{b.userName || b.userEmail}</td>
+                                    <td className="py-3 px-4">
+                                       <div className="flex flex-col">
+                                          <p className="font-mono text-[10px] font-black text-amber-500 uppercase tracking-widest">{b.traderId || '---'}</p>
+                                          <p className="font-bold text-white text-xs">{b.userName || 'Anonymous'}</p>
+                                          <p className="text-[9px] text-muted-foreground">{b.userEmail || 'N/A'}</p>
+                                       </div>
+                                    </td>
                                     <td className="py-3 px-4 text-xs text-muted-foreground">{b.breachReason}</td>
                                     <td className="py-3 px-4 text-[10px] text-muted-foreground">{b.breachedAt ? new Date(b.breachedAt).toLocaleDateString() : 'N/A'}</td>
                                     <td className="py-3 px-4 text-right">
