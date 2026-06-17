@@ -163,6 +163,31 @@ async function generateAndSendCertificate(
   }
 }
 
+/**
+ * Manual trigger to generate a certificate for an existing funded/passed trader.
+ */
+export async function manualGenerateCertificateAction(userId: string) {
+  try {
+    const db = getAdminDb();
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader not found.");
+    const userData = userSnap.data()!;
+
+    const res = await generateAndSendCertificate(
+      userId,
+      userData.name || 'Trader',
+      userData.email,
+      userData.currentPhase || 'funded',
+      userData.accountPlan || 'Challenge',
+      parseFloat(String(userData.accountBalance || 100000))
+    );
+    return res;
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 export async function fetchAdminTerminalData() {
   try {
     const db = getAdminDb();

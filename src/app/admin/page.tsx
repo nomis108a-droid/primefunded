@@ -17,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -67,7 +67,7 @@ export default function AdminPage() {
   // User Editor State
   const [editorSearchTerm, setEditorSearchTerm] = useState('');
   const [selectedEditorUser, setSelectedEditorUser] = useState<any>(null);
-  const [userEditForm, setUserEditForm] = useState({ name: '', phone: '', country: '', referralCode: '', tier: 'Bronze', status: 'active' });
+  const [userEditForm, setUserEditForm] = useState({ name: '', phone: '', country: '', referralCode: '', tier: 'Bronze', status: 'active', currentPhase: 'evaluation' });
   const [isEditorConfirmOpen, setIsEditorConfirmOpen] = useState(false);
 
   // Soft Breach State
@@ -151,6 +151,17 @@ export default function AdminPage() {
       refreshData();
     } else {
       toast({ variant: "destructive", title: "Advancement Failed", description: res.error });
+    }
+    setActionLoading(false);
+  };
+
+  const handleManualCertificate = async (userId: string) => {
+    setActionLoading(true);
+    const res = await manualGenerateCertificateAction(userId);
+    if (res.success) {
+      toast({ title: "Certificate Regenerated", description: "PDF generated and email queued successfully." });
+    } else {
+      toast({ variant: "destructive", title: "Generation Failed", description: res.error });
     }
     setActionLoading(false);
   };
@@ -560,7 +571,7 @@ export default function AdminPage() {
                       {filteredUsersForEditor.length > 0 && (
                         <div className="absolute top-full left-0 w-full z-20 mt-1 bg-secondary border border-border rounded-lg shadow-2xl overflow-hidden">
                           {filteredUsersForEditor.map((u: any) => (
-                            <button key={u.id} className="w-full px-4 py-3 flex items-center justify-between hover:bg-primary/10 text-left border-b border-white/5 last:border-none" onClick={() => { setSelectedEditorUser(u); setUserEditForm({ name: u.name || '', phone: u.phone || '', country: u.country || '', referralCode: u.referralCode || '', tier: u.tier || 'Bronze', status: u.status || 'active' }); setEditorSearchTerm(''); }}>
+                            <button key={u.id} className="w-full px-4 py-3 flex items-center justify-between hover:bg-primary/10 text-left border-b border-white/5 last:border-none" onClick={() => { setSelectedEditorUser(u); setUserEditForm({ name: u.name || '', phone: u.phone || '', country: u.country || '', referralCode: u.referralCode || '', tier: u.tier || 'Bronze', status: u.status || 'active', currentPhase: u.currentPhase || 'evaluation' }); setEditorSearchTerm(''); }}>
                               <div><p className="font-bold text-white">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></div>
                               <ArrowRight className="w-4 h-4 text-muted-foreground" />
                             </button>
@@ -579,15 +590,62 @@ export default function AdminPage() {
                           <div className="space-y-2"><Label>Referral Code</Label><Input value={userEditForm.referralCode} onChange={e => setUserEditForm({...userEditForm, referralCode: e.target.value})} /></div>
                           <div className="space-y-2"><Label>Account Tier</Label><Select value={userEditForm.tier} onValueChange={v => setUserEditForm({...userEditForm, tier: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Bronze">Bronze</SelectItem><SelectItem value="Silver">Silver</SelectItem><SelectItem value="Gold">Gold</SelectItem></SelectContent></Select></div>
                           <div className="space-y-2"><Label>Platform Status</Label><Select value={userEditForm.status} onValueChange={v => setUserEditForm({...userEditForm, status: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="suspended">Suspended</SelectItem></SelectContent></Select></div>
+                          <div className="space-y-2">
+                            <Label>Institutional Phase Override</Label>
+                            <Select value={userEditForm.currentPhase} onValueChange={v => setUserEditForm({...userEditForm, currentPhase: v})}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="evaluation">Evaluation Phase</SelectItem>
+                                <SelectItem value="phase1">Phase 1</SelectItem>
+                                <SelectItem value="phase2">Phase 2</SelectItem>
+                                <SelectItem value="phase3">Phase 3</SelectItem>
+                                <SelectItem value="funded">Live Funded</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
                        </div>
-                       <div className="p-4 bg-primary/5 rounded-xl border border-primary/20"><p className="text-[10px] font-black uppercase text-primary mb-2">Immutable MT5 Metrics</p><div className="grid grid-cols-3 gap-4 text-xs"><div><p className="text-muted-foreground">Live Balance</p><p className="font-bold text-white">${selectedEditorUser.liveBalance?.toLocaleString() || '0'}</p></div><div><p className="text-muted-foreground">Live Equity</p><p className="font-bold text-white">${selectedEditorUser.liveEquity?.toLocaleString() || '0'}</p></div><div><p className="text-muted-foreground">Last Sync</p><p className="font-bold text-white">{selectedEditorUser.lastMT5Update ? new Date(selectedEditorUser.lastMT5Update).toLocaleTimeString() : 'N/A'}</p></div></div></div>
+                       
+                       <div className="p-4 bg-primary/5 rounded-xl border border-primary/20">
+                         <div className="flex justify-between items-center mb-4">
+                           <p className="text-[10px] font-black uppercase text-primary">Immutable MT5 Metrics</p>
+                           <Button variant="outline" size="sm" className="h-7 text-[9px] uppercase font-black border-primary/30 text-primary" onClick={() => handleManualCertificate(selectedEditorUser.id)} disabled={actionLoading}>
+                             {actionLoading ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Award className="w-3 h-3 mr-1" />}
+                             Generate Certificate Retroactively
+                           </Button>
+                         </div>
+                         <div className="grid grid-cols-3 gap-4 text-xs">
+                           <div><p className="text-muted-foreground">Live Balance</p><p className="font-bold text-white">${selectedEditorUser.liveBalance?.toLocaleString() || '0'}</p></div>
+                           <div><p className="text-muted-foreground">Live Equity</p><p className="font-bold text-white">${selectedEditorUser.liveEquity?.toLocaleString() || '0'}</p></div>
+                           <div><p className="text-muted-foreground">Last Sync</p><p className="font-bold text-white">{selectedEditorUser.lastMT5Update ? new Date(selectedEditorUser.lastMT5Update).toLocaleTimeString() : 'N/A'}</p></div>
+                         </div>
+                       </div>
+                       
                        <Button className="w-full h-12 font-bold cyan-box-glow" onClick={() => setIsEditorConfirmOpen(true)} disabled={actionLoading}>Update Profile Information</Button>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              <Dialog open={isEditorConfirmOpen} onOpenChange={setIsEditorConfirmOpen}><DialogContent><DialogHeader><DialogTitle>Verify Administrative Override</DialogTitle><DialogDescription>You are about to modify core profile records for {selectedEditorUser?.email}. This action is logged for compliance audit.</DialogDescription></DialogHeader><DialogFooter><Button variant="ghost" onClick={() => setIsEditorConfirmOpen(false)}>Cancel</Button><Button onClick={handleUserEditSubmit} disabled={actionLoading}>Confirm Override</Button></DialogFooter></DialogContent></Dialog>
+              <Dialog open={isEditorConfirmOpen} onOpenChange={setIsEditorConfirmOpen}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Verify Administrative Override</DialogTitle>
+                    <DialogDescription className="space-y-4 pt-2">
+                      <p>You are about to modify core profile records for <span className="text-white font-bold">{selectedEditorUser?.email}</span>.</p>
+                      {userEditForm.currentPhase !== selectedEditorUser?.currentPhase && (
+                        <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+                          <p className="text-destructive font-bold text-xs uppercase flex items-center gap-2 mb-1"><AlertTriangle className="w-4 h-4" /> Warning: Phase Override Detected</p>
+                          <p className="text-xs text-muted-foreground">Manually changing phase here will NOT provision new MT5 credentials. It will trigger certificate/email automation if the phase is a milestone. Use 'Provisioning Terminal' for normal advancement.</p>
+                        </div>
+                      )}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="ghost" onClick={() => setIsEditorConfirmOpen(false)}>Cancel</Button>
+                    <Button onClick={handleUserEditSubmit} disabled={actionLoading}>Confirm Override</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           )}
 
@@ -628,7 +686,7 @@ export default function AdminPage() {
                             <td className="py-4 px-6 text-right">
                                <div className="flex justify-end gap-2">
                                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setPreviewUserId(u.id)}><Eye className="w-4 h-4" /></Button>
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setSelectedEditorUser(u); setUserEditForm({ name: u.name || '', phone: u.phone || '', country: u.country || '', referralCode: u.referralCode || '', tier: u.tier || 'Bronze', status: u.status || 'active' }); setActiveTab('user_editor'); }}><Edit2 className="w-4 h-4" /></Button>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setSelectedEditorUser(u); setUserEditForm({ name: u.name || '', phone: u.phone || '', country: u.country || '', referralCode: u.referralCode || '', tier: u.tier || 'Bronze', status: u.status || 'active', currentPhase: u.currentPhase || 'evaluation' }); setActiveTab('user_editor'); }}><Edit2 className="w-4 h-4" /></Button>
                                </div>
                             </td>
                           </tr>
