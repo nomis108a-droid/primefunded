@@ -13,11 +13,11 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction, runRetroactiveRiskAuditAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -113,6 +113,19 @@ export default function AdminPage() {
       setAdminError("❌ Access Denied");
       setAdminPasswordInput('');
     }
+  };
+
+  const handleRetroactiveAudit = async () => {
+    if (!confirm("Run retroactive risk audit on ALL active accounts? This will liquidate any accounts with historical violations (Duration, Frequency, Martingale).")) return;
+    setActionLoading(true);
+    const res = await runRetroactiveRiskAuditAction();
+    if (res.success) {
+      toast({ title: "Audit Complete", description: `Detected and processed ${res.breachCount} retroactive breaches.` });
+      refreshData();
+    } else {
+      toast({ variant: "destructive", title: "Audit Failed", description: res.error });
+    }
+    setActionLoading(false);
   };
 
   const handleLogSoftBreach = async () => {
@@ -343,7 +356,13 @@ export default function AdminPage() {
         <div className="p-8 pb-4 shrink-0">
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
             <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p></div>
-            <div className="flex gap-2"><Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>{isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}Refresh Data</Button></div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="border-destructive/30 text-destructive hover:bg-destructive/10" onClick={handleRetroactiveRiskAudit} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldAlert className="w-4 h-4 mr-2" />}
+                Risk Audit All Accounts
+              </Button>
+              <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>{isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}Refresh Data</Button>
+            </div>
           </div>
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
@@ -440,9 +459,7 @@ export default function AdminPage() {
                                 </div>
                             </td>
                             <td className="py-4 px-6 text-right flex justify-end gap-2">
-                               <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setPreviewUserId(user.id)}>
-                                 <Eye className="w-4 h-4" />
-                               </Button>
+                               <button onClick={() => setPreviewUserId(user.id)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4" /></button>
                                <Button 
                                 className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase px-4"
                                 onClick={() => {
@@ -476,7 +493,7 @@ export default function AdminPage() {
           {activeTab === 'breaches' && (
             <div className="space-y-8">
                <Card className="bg-destructive/5 border-destructive/20 h-fit">
-                  <CardHeader><CardTitle className="text-destructive flex items-center gap-2">🔴 HARD BREACH - Account Terminated</CardTitle><CardDescription>Immediate liquidation triggered by mathematical drawdown or lot scaling violation.</CardDescription></CardHeader>
+                  <CardHeader><CardTitle className="text-destructive flex items-center gap-2">🔴 HARD BREACH - Account Terminated</CardTitle><CardDescription>Immediate liquidation triggered by mathematical drawdown or risk violations.</CardDescription></CardHeader>
                   <CardContent className="p-0">
                      <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
@@ -541,7 +558,7 @@ export default function AdminPage() {
                             <td className="py-4 px-4 text-xs">{order.network}</td>
                             <td className="py-4 px-4"><TooltipProvider><Tooltip><TooltipTrigger className="font-mono text-[9px] text-primary truncate max-w-[100px] block cursor-help">{order.txHash}</TooltipTrigger><TooltipContent className="bg-black text-white border-primary/20 max-w-xs break-all p-2 font-mono text-[10px]">{order.txHash}</TooltipContent></Tooltip></TooltipProvider></td>
                             <td className="py-4 px-6 text-right flex justify-end gap-2">
-                              {order.paymentScreenshot && <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setViewProofProofUrl(order.paymentScreenshot)}><FileImage className="w-4 h-4" /></Button>}
+                              {order.paymentScreenshot && <button onClick={() => setViewProofProofUrl(order.paymentScreenshot)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-muted-foreground hover:text-white"><FileImage className="w-4 h-4" /></button>}
                               <Button className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'verified')}>Approve</Button>
                               <Button variant="destructive" className="h-8 text-[10px] font-bold uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'rejected')}>Reject</Button>
                             </td>
@@ -757,7 +774,7 @@ export default function AdminPage() {
                                   <TooltipProvider>
                                      <Tooltip>
                                         <TooltipTrigger asChild>
-                                           <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100" onClick={() => { navigator.clipboard.writeText(u.uid || u.id); toast({ title: "Copied ID" }); }}><Copy className="w-3" /></Button>
+                                           <button className="p-1 hover:bg-white/5 rounded transition-colors opacity-0 group-hover:opacity-100" onClick={() => { navigator.clipboard.writeText(u.uid || u.id); toast({ title: "Copied ID" }); }}><Copy className="w-3 h-3 text-muted-foreground hover:text-primary" /></button>
                                         </TooltipTrigger>
                                         <TooltipContent>Copy Trader ID</TooltipContent>
                                      </Tooltip>
@@ -768,8 +785,8 @@ export default function AdminPage() {
                             <td className="py-4 px-4 text-xs text-muted-foreground">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : u.joinDate ? new Date(u.joinDate).toLocaleDateString() : 'N/A'}</td>
                             <td className="py-4 px-6 text-right">
                                <div className="flex justify-end gap-2">
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setPreviewUserId(u.id)}><Eye className="w-4 h-4" /></Button>
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setSelectedEditorUser(u); setUserEditForm({ name: u.name || '', phone: u.phone || '', country: u.country || '', referralCode: u.referralCode || '', tier: u.tier || 'Bronze', status: u.status || 'active', currentPhase: u.currentPhase || 'evaluation' }); setActiveTab('user_editor'); }}><Edit2 className="w-4 h-4" /></Button>
+                                  <button onClick={() => setPreviewUserId(u.id)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4 text-muted-foreground hover:text-white" /></button>
+                                  <button onClick={() => { setSelectedEditorUser(u); setUserEditForm({ name: u.name || '', phone: u.phone || '', country: u.country || '', referralCode: u.referralCode || '', tier: u.tier || 'Bronze', status: u.status || 'active', currentPhase: u.currentPhase || 'evaluation' }); setActiveTab('user_editor'); }} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Edit2 className="w-4 h-4 text-muted-foreground hover:text-white" /></button>
                                </div>
                             </td>
                           </tr>
@@ -865,7 +882,7 @@ export default function AdminPage() {
                             <td className="py-4 px-6"><p className="font-bold text-white">{b.title}</p><p className="text-[10px] text-muted-foreground line-clamp-1">{b.message}</p></td>
                             <td className="py-4 px-4 text-xs">{b.sentAt ? new Date(b.sentAt).toLocaleDateString() : 'Recently'}</td>
                             <td className="py-4 px-4"><Badge className="bg-emerald-500/10 text-emerald-500 text-[9px] uppercase font-black">ACTIVE</Badge></td>
-                            <td className="py-4 px-6 text-right"><Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteBroadcast(b.id)}><Trash2 className="w-4 h-4" /></Button></td>
+                            <td className="py-4 px-6 text-right"><button onClick={() => handleDeleteBroadcast(b.id)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-destructive"><Trash2 className="w-4 h-4" /></button></td>
                           </tr>
                         ))}
                       </tbody>

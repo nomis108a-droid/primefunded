@@ -188,6 +188,93 @@ export async function manualGenerateCertificateAction(userId: string) {
   }
 }
 
+/**
+ * Audit all active traders against trade-level risk rules.
+ */
+export async function runRetroactiveRiskAuditAction() {
+  try {
+    const db = getAdminDb();
+    const accountsSnap = await db.collection('mt5_accounts').where('status', '==', 'active').get();
+    
+    let breachCount = 0;
+
+    for (const accDoc of accountsSnap.docs) {
+      const accData = accDoc.data();
+      const userId = accData.userId;
+      const initialBalance = parseFloat(String(accData.accountBalance || 100000));
+      
+      const tradesSnap = await db.collection('users').doc(userId).collection('trades').orderBy('openTime', 'asc').get();
+      const trades = tradesSnap.docs.map(d => d.data());
+
+      let userBreached = false;
+      let breachReason = "";
+
+      for (let i = 0; i < trades.length; i++) {
+        const trade = trades[i];
+        const profit = trade.pnl || trade.profit || 0;
+        const duration = trade.duration || (trade.closeTime && trade.openTime ? trade.closeTime - trade.openTime : null);
+        const openTime = trade.openTime || 0;
+
+        // 1. Max Single Loss (3%)
+        if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
+          userBreached = true;
+          breachReason = `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${(initialBalance * 0.03).toFixed(2)} (Ticket: ${trade.ticket})`;
+          break;
+        }
+
+        // 2. Min Duration (120s)
+        if (duration !== null && duration < 120 && profit !== 0) {
+          userBreached = true;
+          breachReason = `Trade duration violation: position closed in ${duration} seconds, minimum hold time is 120 seconds (Ticket: ${trade.ticket})`;
+          break;
+        }
+
+        // 3. Frequency (180s)
+        if (i > 0) {
+          const prevTrade = trades[i-1];
+          const diff = openTime - prevTrade.openTime;
+          if (diff > 0 && diff < 180) {
+            userBreached = true;
+            breachReason = `Execution frequency violation: ${diff} seconds between trade opens, minimum required is 180 seconds (Ticket: ${trade.ticket})`;
+            break;
+          }
+        }
+
+        // 4. Martingale
+        // Find previous trade on same symbol within 15 mins
+        const prevSymbolTrade = trades.slice(0, i).reverse().find(t => t.symbol === trade.symbol && (openTime - t.openTime) < 900);
+        if (prevSymbolTrade) {
+          const prevProfit = prevSymbolTrade.pnl || prevSymbolTrade.profit || 0;
+          if (prevProfit < 0 && trade.volume > prevSymbolTrade.volume) {
+            userBreached = true;
+            breachReason = `Martingale lot scaling detected: lot size increased to ${trade.volume} after a loss on ${trade.symbol} within 15 minutes`;
+            break;
+          }
+        }
+      }
+
+      if (userBreached) {
+        breachCount++;
+        await accDoc.ref.update({ status: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
+        await db.collection('users').doc(userId).update({ accountStatus: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
+        await db.collection('breaches').add({
+          userId,
+          userEmail: accData.email || 'N/A',
+          userName: accData.name || 'N/A',
+          login: accData.login,
+          breachType: 'hard',
+          breachReason,
+          breachedAt: FieldValue.serverTimestamp()
+        });
+      }
+    }
+
+    return { success: true, breachCount };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
 export async function fetchAdminTerminalData() {
   try {
     const db = getAdminDb();
