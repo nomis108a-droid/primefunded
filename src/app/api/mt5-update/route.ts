@@ -129,6 +129,9 @@ export async function POST(request: Request) {
     const isAlreadyBreached = accountData.status === 'breached';
     const currBalance = parseFloat(String(payload.balance)) || 0;
     const currEquity = parseFloat(String(payload.equity)) || 0;
+    
+    // Fixed initial balance for risk calculations (e.g. 100000)
+    // Field 'accountBalance' is set once during provisioning and never changes.
     const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
 
     // 1. Session Reset (2:00 AM UTC Boundary)
@@ -171,12 +174,13 @@ export async function POST(request: Request) {
         }
       }
 
-      // Max Floating Loss (Funded)
+      // Max Floating Loss (Funded) - Rule: 1% of FIXED initial balance
       if (!breachDetected && phase === 'funded' && rules.maxFloatingLoss) {
         const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
-        if (floatingLoss > (initialBalance * (rules.maxFloatingLoss / 100))) {
+        const threshold = initialBalance * (rules.maxFloatingLoss / 100);
+        if (floatingLoss > threshold) {
           breachDetected = true;
-          breachReason = `Max floating loss: unrealized loss exceeded 1% threshold.`;
+          breachReason = `Max floating loss: unrealized loss of $${floatingLoss.toFixed(2)} exceeded the 1% fixed threshold ($${threshold.toFixed(2)}) of initial balance ($${initialBalance.toLocaleString()})`;
         }
       }
 

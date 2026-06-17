@@ -25,7 +25,8 @@ export const RULES_CONFIG = {
       funded: {
         dailyDrawdown: 3,
         maxDrawdown: 4,
-        minTradingDaysBeforePayout: 5
+        minTradingDaysBeforePayout: 5,
+        maxFloatingLoss: 1
       }
     },
     "2-step-classic": {
@@ -44,7 +45,8 @@ export const RULES_CONFIG = {
       funded: {
         dailyDrawdown: 5,
         maxDrawdown: 10,
-        minTradingDaysBeforePayout: 5
+        minTradingDaysBeforePayout: 5,
+        maxFloatingLoss: 1
       }
     },
     "3-step-classic": {
@@ -69,7 +71,8 @@ export const RULES_CONFIG = {
       funded: {
         dailyDrawdown: 4,
         maxDrawdown: 8,
-        minTradingDaysBeforePayout: 5
+        minTradingDaysBeforePayout: 5,
+        maxFloatingLoss: 1
       }
     },
     "instant-funding": {

@@ -4,17 +4,6 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 /**
  * @fileOverview Institutional Breach Detection Engine
  * Algorithmic evaluation of MT5 metrics against plan-specific prop firm rules.
- * 
- * AUTOMATED CHECKS:
- * - Profit Targets (Achievement Detection)
- * - Minimum Trading Days (Verification)
- * - Daily & Max Drawdown
- * - Single Trade Loss Limits (3%)
- * - Execution Frequency (1/3 mins)
- * - Holding Time (2 mins minimum)
- * - Floating Loss Thresholds (1% in Funded stage)
- * - Martingale lot-scaling patterns (Hard Breach)
- * - Friday Overnight holding (Instant Plan - Soft Breach)
  */
 
 function getAdminDb() {
@@ -54,20 +43,20 @@ export async function POST(request: Request) {
     const phase = userData.currentPhase || 'evaluation';
     const planKey = plan.toLowerCase();
     
-    // Normalize numeric values
+    // Normalize numeric values - accountBalance is the fixed initial size
     const startingBalance = parseFloat(String(userData.accountBalance || 100000));
     const liveBalance = parseFloat(String(userData.liveBalance || startingBalance));
+    const liveEquity = parseFloat(String(userData.liveEquity || liveBalance));
     
     // Metrics provided by MT5 EA
     const { 
       dailyDrawdown, 
       maxDrawdown, 
-      floatingLoss, 
       lastLotSize, 
       prevLotSize,
-      lastTradeDuration, // Seconds held
-      lastTradeInterval, // Seconds since previous trade
-      lastTradeLossPct   // Percentage of balance lost on single trade
+      lastTradeDuration, 
+      lastTradeInterval, 
+      lastTradeLossPct   
     } = mt5Data;
 
     let breachType: 'hard' | 'soft' | null = null;
@@ -101,7 +90,6 @@ export async function POST(request: Request) {
     };
 
     if (targetPct > 0 && currentProfitPct >= targetPct && !userData.readyForNextPhase) {
-      // Check unique trading days before marking as ready
       const tradesSnap = await userRef.collection('trades').get();
       const uniqueDays = new Set();
       tradesSnap.docs.forEach(d => {
@@ -127,7 +115,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. UNIFIED TIMING RULES (Duration and Frequency)
+    // 3. UNIFIED TIMING RULES
     if (lastTradeDuration !== undefined && lastTradeDuration > 0 && lastTradeDuration < 120) {
       breachType = 'hard';
       breachReason = 'Duration violation: Trades must be held for at least 2 minutes';
@@ -136,26 +124,39 @@ export async function POST(request: Request) {
       breachReason = 'Frequency violation: 1 trade per 3 mins maximum execution speed';
     }
 
-    // 4. PLAN-SPECIFIC LOGIC
+    // 4. FLOATING LOSS CALCULATION (Rule: 1% of FIXED initial balance)
+    const currentFloatingLoss = liveBalance > liveEquity ? liveBalance - liveEquity : 0;
+    const floatingLossLimit = startingBalance * 0.01;
+
+    // 5. PLAN-SPECIFIC LOGIC
     if (!breachType) {
       if (planKey.includes('1-step')) {
         if (dailyDrawdown > 3) { breachType = 'hard'; breachReason = '1-Step: Daily drawdown exceeded 3%'; }
         else if (maxDrawdown > 6) { breachType = 'hard'; breachReason = '1-Step: Maximum drawdown exceeded 6%'; }
-        else if (phase === 'funded' && floatingLoss > 1) { breachType = 'hard'; breachReason = 'Funded Stage: Floating loss exceeded 1% threshold'; }
+        else if (phase === 'funded' && currentFloatingLoss > floatingLossLimit) { 
+          breachType = 'hard'; 
+          breachReason = `Funded Stage: Floating loss ($${currentFloatingLoss.toFixed(2)}) exceeded 1% fixed threshold ($${floatingLossLimit.toFixed(2)})`; 
+        }
         else if (lastLotSize > prevLotSize * 1.5) { breachType = 'hard'; breachReason = 'Martingale lot scaling detected'; }
       } 
       else if (planKey.includes('2-step')) {
         if (dailyDrawdown > 5) { breachType = 'hard'; breachReason = '2-Step: Daily drawdown exceeded 5%'; }
         else if (maxDrawdown > 10) { breachType = 'hard'; breachReason = '2-Step: Max drawdown exceeded 10%'; }
         else if (lastTradeLossPct > 3) { breachType = 'hard'; breachReason = 'Single trade loss exceeded 3% limit'; }
-        else if (phase === 'funded' && floatingLoss > 1) { breachType = 'hard'; breachReason = 'Funded Stage: Floating loss exceeded 1% threshold'; }
+        else if (phase === 'funded' && currentFloatingLoss > floatingLossLimit) { 
+          breachType = 'hard'; 
+          breachReason = `Funded Stage: Floating loss ($${currentFloatingLoss.toFixed(2)}) exceeded 1% fixed threshold ($${floatingLossLimit.toFixed(2)})`; 
+        }
         else if (lastLotSize > prevLotSize * 1.5) { breachType = 'hard'; breachReason = 'Martingale lot scaling detected'; }
       }
       else if (planKey.includes('3-step')) {
         if (dailyDrawdown > 4) { breachType = 'hard'; breachReason = '3-Step: Daily drawdown exceeded 4%'; }
         else if (maxDrawdown > 8) { breachType = 'hard'; breachReason = '3-Step: Max drawdown exceeded 8%'; }
         else if (lastTradeLossPct > 3) { breachType = 'hard'; breachReason = 'Single trade loss exceeded 3% limit'; }
-        else if (phase === 'funded' && floatingLoss > 1) { breachType = 'hard'; breachReason = 'Funded Stage: Floating loss exceeded 1% threshold'; }
+        else if (phase === 'funded' && currentFloatingLoss > floatingLossLimit) { 
+          breachType = 'hard'; 
+          breachReason = `Funded Stage: Floating loss ($${currentFloatingLoss.toFixed(2)}) exceeded 1% fixed threshold ($${floatingLossLimit.toFixed(2)})`; 
+        }
         else if (lastLotSize > prevLotSize * 1.5) { breachType = 'hard'; breachReason = 'Martingale lot scaling detected'; }
       }
       else if (planKey.includes('instant')) {
@@ -165,7 +166,10 @@ export async function POST(request: Request) {
         if (dailyDrawdown > 3) { breachType = 'hard'; breachReason = 'Instant: Daily drawdown hit 3% limit'; }
         else if (maxDrawdown > 4) { breachType = 'hard'; breachReason = 'Instant: Max drawdown hit 4% limit'; }
         else if (lastTradeLossPct > 3) { breachType = 'hard'; breachReason = 'Instant: Single trade loss exceeded 3%'; }
-        else if (floatingLoss > 1) { breachType = 'hard'; breachReason = 'Instant: Floating loss exceeded 1% threshold'; }
+        else if (currentFloatingLoss > floatingLossLimit) { 
+          breachType = 'hard'; 
+          breachReason = `Instant: Floating loss ($${currentFloatingLoss.toFixed(2)}) exceeded 1% fixed threshold ($${floatingLossLimit.toFixed(2)})`; 
+        }
         else if (isFridayEvening && mt5Data.hasOpenTrades) { breachType = 'soft'; breachReason = 'Holding over the weekend: position closed automatically (Soft Breach)'; }
       }
     }
