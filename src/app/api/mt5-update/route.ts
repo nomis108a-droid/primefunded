@@ -24,6 +24,78 @@ function getAdminDb() {
   return getFirestore();
 }
 
+/**
+ * Internal logic for phase passing (Profit Target + Trading Days)
+ */
+async function checkPhasePassing(db: any, userId: string, accountData: any, currentBalance: number) {
+  const planName = accountData.accountPlan || '1-Step Pro';
+  const phase = accountData.phase || 'evaluation';
+  const planKey = getPlanKey(planName);
+  
+  const startingBalance = parseFloat(String(accountData.accountBalance || 100000));
+  const currentProfitPct = ((currentBalance - startingBalance) / startingBalance) * 100;
+
+  // 1. Get Targets from Config
+  const getTargetPct = () => {
+    if (planKey.includes('1-step')) return 10;
+    if (planKey.includes('2-step')) return (phase === 'phase1') ? 8 : (phase === 'phase2') ? 5 : 0;
+    if (planKey.includes('3-step')) {
+      if (phase === 'phase1') return 10;
+      if (phase === 'phase2') return 8;
+      if (phase === 'phase3') return 5;
+      return 0;
+    }
+    return 0;
+  };
+
+  const targetPct = getTargetPct();
+  if (targetPct <= 0 || currentProfitPct < targetPct) return;
+
+  // 2. Verify Minimum Trading Days
+  const getRequiredDays = () => {
+    if (planKey.includes('1-step')) return 5;
+    if (planKey.includes('2-step')) return 5;
+    if (planKey.includes('3-step')) {
+      if (phase === 'phase1') return 7;
+      if (phase === 'phase2') return 6;
+      return 5;
+    }
+    return 1;
+  };
+
+  const userRef = db.collection('users').doc(userId);
+  const tradesSnap = await userRef.collection('trades').get();
+  const uniqueDays = new Set();
+  tradesSnap.docs.forEach((d: any) => {
+    const trade = d.data();
+    const tDate = trade.date?.toDate?.() || new Date(trade.date);
+    if (tDate) uniqueDays.add(getTradingDayKey(tDate));
+  });
+
+  const requiredDays = getRequiredDays();
+  if (uniqueDays.size >= requiredDays) {
+    await userRef.update({
+      readyForNextPhase: true,
+      passedAt: FieldValue.serverTimestamp()
+    });
+
+    // Also update account link
+    const accountsRef = db.collection('mt5_accounts');
+    const accSnap = await accountsRef.where('userId', '==', userId).where('status', '==', 'active').limit(1).get();
+    if (!accSnap.empty) {
+      await accSnap.docs[0].ref.update({ readyForNextPhase: true });
+    }
+
+    await userRef.collection('notifications').add({
+      title: "🎯 Phase Target Reached!",
+      message: `Congratulations! You hit your ${targetPct}% profit target and completed ${uniqueDays.size} trading days. Admin review is pending for your next phase credentials.`,
+      type: 'challenge_passed',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const db = getAdminDb();
@@ -51,7 +123,6 @@ export async function POST(request: Request) {
     }
 
     if (querySnapshot.empty) {
-      console.warn(`[MT5-Sync] No account found with login: ${loginStr}`);
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
@@ -72,10 +143,7 @@ export async function POST(request: Request) {
 
     let sessionWasReset = false;
     if (!existingDateKey || existingDateKey !== todayKey) {
-      // Baseline is current equity BEFORE this update (stored in DB)
       dailyStartBalance = parseFloat(String(accountData.equity)) || initialBalance;
-      console.log(`[MT5-Sync] SESSION RESET for ${loginStr}. Boundary: ${todayKey}. New Baseline: ${dailyStartBalance}`);
-      
       await accountDoc.ref.update({
         dailyStartBalance: dailyStartBalance,
         lastDailyResetDate: todayKey
@@ -93,6 +161,7 @@ export async function POST(request: Request) {
       const planKey = getPlanKey(planName);
       const rules: PlanPhaseRules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
+      // Drawdown checks
       const dailyDrawdownLimit = dailyStartBalance * (rules.dailyDrawdown / 100);
       const dailyThreshold = dailyStartBalance - dailyDrawdownLimit;
       if (currEquity < dailyThreshold) {
@@ -102,10 +171,10 @@ export async function POST(request: Request) {
 
       if (!breachDetected) {
         const maxDrawdownLimit = initialBalance * (rules.maxDrawdown / 100);
-        const maxThreshold = initialBalance - maxDrawdownLimit;
-        if (currEquity < maxThreshold) {
+        const maxThreshold = initialBalance - maxThreshold;
+        if (currEquity < (initialBalance - maxDrawdownLimit)) {
           breachDetected = true;
-          breachReason = `Maximum drawdown: equity $${currEquity.toLocaleString()} fell below plan limit of $${maxThreshold.toLocaleString()} (${rules.maxDrawdown}% of $${initialBalance.toLocaleString()})`;
+          breachReason = `Maximum drawdown: equity $${currEquity.toLocaleString()} fell below plan limit (${rules.maxDrawdown}% of initial balance)`;
         }
       }
 
@@ -114,8 +183,13 @@ export async function POST(request: Request) {
         const floatingLimit = initialBalance * (rules.maxFloatingLoss / 100);
         if (floatingLoss > floatingLimit) {
           breachDetected = true;
-          breachReason = `Max floating loss: unrealized loss $${floatingLoss.toLocaleString()} exceeded 1% threshold ($${floatingLimit.toLocaleString()}) of initial balance.`;
+          breachReason = `Max floating loss: unrealized loss $${floatingLoss.toLocaleString()} exceeded 1% threshold.`;
         }
+      }
+
+      // --- 3. PHASE PASSING AUTOMATION ---
+      if (!breachDetected && userId) {
+        await checkPhasePassing(db, userId, accountData, currBalance);
       }
     }
 
@@ -167,16 +241,12 @@ export async function POST(request: Request) {
 
       await db.collection('users').doc(userId).update(userUpdates);
 
-      // --- 3. PERFORMANCE SNAPSHOT RECORDING ---
       const perfRef = db.collection('users').doc(userId).collection('performance').doc(todayKey);
-      const cumulativePnL = currBalance - initialBalance;
-      
       await perfRef.set({
         date: todayKey,
         balance: currBalance,
         equity: currEquity,
-        pnl: currBalance - dailyStartBalance,
-        cumulativePnL,
+        cumulativePnL: currBalance - initialBalance,
         updatedAt: FieldValue.serverTimestamp()
       }, { merge: true });
     }

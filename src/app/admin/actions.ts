@@ -77,7 +77,6 @@ async function generateAndSendCertificate(
     const storage = getStorage(app);
     const bucket = storage.bucket();
 
-    // 1. Generate PDF Certificate
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([600, 400]);
     const { width, height } = page.getSize();
@@ -89,7 +88,6 @@ async function generateAndSendCertificate(
     const subTitle = isFunded ? 'Live Institutional Funding Granted' : `Evaluation Passed: ${phase.toUpperCase()}`;
     const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-    // Decorative border (Prime Cyan)
     page.drawRectangle({
       x: 20, y: 20, width: width - 40, height: height - 40,
       borderColor: rgb(0.06, 0.7, 0.96),
@@ -107,7 +105,6 @@ async function generateAndSendCertificate(
 
     const pdfBytes = await pdfDoc.save();
 
-    // 2. Upload to Storage
     const fileName = `certificates/${userId}/${phase}-${Date.now()}.pdf`;
     const file = bucket.file(fileName);
     await file.save(Buffer.from(pdfBytes), {
@@ -115,7 +112,6 @@ async function generateAndSendCertificate(
       metadata: { cacheControl: 'public, max-age=31536000' }
     });
     
-    // Construct public-access URL (Firebase Storage format)
     const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(fileName)}?alt=media`;
 
     const certData = {
@@ -126,13 +122,11 @@ async function generateAndSendCertificate(
       plan
     };
 
-    // 3. Update User Document Portfolio
     const userRef = db.collection('users').doc(userId);
     await userRef.update({
       certificates: FieldValue.arrayUnion(certData)
     });
 
-    // 4. Queue Congratulatory Email (Trigger Email Extension)
     await db.collection('mail').add({
       to: userEmail,
       message: {
@@ -163,9 +157,6 @@ async function generateAndSendCertificate(
   }
 }
 
-/**
- * Manual trigger to generate a certificate for an existing funded/passed trader.
- */
 export async function manualGenerateCertificateAction(userId: string) {
   try {
     const db = getAdminDb();
@@ -188,9 +179,6 @@ export async function manualGenerateCertificateAction(userId: string) {
   }
 }
 
-/**
- * Audit all active traders against trade-level risk rules.
- */
 export async function runRetroactiveRiskAuditAction() {
   try {
     const db = getAdminDb();
@@ -215,21 +203,18 @@ export async function runRetroactiveRiskAuditAction() {
         const duration = trade.duration || (trade.closeTime && trade.openTime ? trade.closeTime - trade.openTime : null);
         const openTime = trade.openTime || 0;
 
-        // 1. Max Single Loss (3%)
         if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
           userBreached = true;
           breachReason = `Single trade loss violation: -$${Math.abs(profit).toFixed(2)} exceeds 3% max loss limit of $${(initialBalance * 0.03).toFixed(2)} (Ticket: ${trade.ticket})`;
           break;
         }
 
-        // 2. Min Duration (120s)
         if (duration !== null && duration < 120 && profit !== 0) {
           userBreached = true;
           breachReason = `Trade duration violation: position closed in ${duration} seconds, minimum hold time is 120 seconds (Ticket: ${trade.ticket})`;
           break;
         }
 
-        // 3. Frequency (180s)
         if (i > 0) {
           const prevTrade = trades[i-1];
           const diff = openTime - prevTrade.openTime;
@@ -240,8 +225,6 @@ export async function runRetroactiveRiskAuditAction() {
           }
         }
 
-        // 4. Martingale
-        // Find previous trade on same symbol within 15 mins
         const prevSymbolTrade = trades.slice(0, i).reverse().find(t => t.symbol === trade.symbol && (openTime - t.openTime) < 900);
         if (prevSymbolTrade) {
           const prevProfit = prevSymbolTrade.pnl || prevSymbolTrade.profit || 0;
@@ -290,7 +273,6 @@ export async function fetchAdminTerminalData() {
         const snap = await q.limit(limitCount).get();
         return snap.docs;
       } catch (err: any) {
-        console.error(`[Admin-SDK] Error fetching ${name}:`, err.message);
         return [];
       }
     };
@@ -319,7 +301,6 @@ export async function fetchAdminTerminalData() {
       success: true
     };
   } catch (error: any) {
-    console.error('[Admin-SDK] fetchAdminTerminalData Critical Failure:', error);
     return { success: false, error: `Sync Failure: ${error.message}` };
   }
 }
@@ -393,6 +374,15 @@ export async function registerMt5AccountAction(data: {
     if (!userSnap.exists) throw new Error("Trader document not found.");
     const userData = userSnap.data()!;
 
+    // 1. Mark previous active accounts as passed
+    const accountsRef = db.collection('mt5_accounts');
+    const activeAccs = await accountsRef.where('userId', '==', data.userId).where('status', '==', 'active').get();
+    const batch = db.batch();
+    activeAccs.docs.forEach(doc => {
+      batch.update(doc.ref, { status: 'passed', updatedAt: FieldValue.serverTimestamp() });
+    });
+
+    // 2. Create new stage account
     const accountRef = db.collection('mt5_accounts').doc();
     const accountData = {
       login: String(data.login),
@@ -411,10 +401,10 @@ export async function registerMt5AccountAction(data: {
       createdAt: FieldValue.serverTimestamp(),
       lastMT5Update: null,
     };
+    batch.set(accountRef, accountData);
 
-    await accountRef.set(accountData);
-
-    await userRef.update({
+    // 3. Update User document
+    batch.update(userRef, {
       accountBalance: data.size,
       accountSize: `$${(data.size / 1000)}k`.replace('.0k', 'k'),
       accountPlan: data.plan,
@@ -433,6 +423,8 @@ export async function registerMt5AccountAction(data: {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
+    await batch.commit();
+
     await userRef.collection('notifications').add({
       title: "✅ Institutional Account Ready",
       message: `Your ${data.plan} account with $${data.size.toLocaleString()} is now active at stage: ${data.phase.toUpperCase()}.`,
@@ -441,7 +433,6 @@ export async function registerMt5AccountAction(data: {
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // Handle Certificate Delivery for Passing/Funding
     if (data.phase && data.phase !== 'evaluation' && data.phase !== 'phase1') {
       try {
         await generateAndSendCertificate(
@@ -452,9 +443,7 @@ export async function registerMt5AccountAction(data: {
           data.plan,
           data.size
         );
-      } catch (certErr) {
-        console.error('[Certificate-Trigger] Failed to generate:', certErr);
-      }
+      } catch (certErr) {}
     }
 
     return { success: true, docId: accountRef.id };
@@ -476,7 +465,6 @@ export async function advanceTraderPhaseAction(userId: string) {
     const planKey = getPlanKey(plan);
     const size = parseFloat(String(userData.accountBalance || 100000));
 
-    // Simple advancement logic
     let nextPhase = 'funded';
     if (planKey.includes('1-step')) {
       nextPhase = 'funded';
@@ -488,18 +476,14 @@ export async function advanceTraderPhaseAction(userId: string) {
       else nextPhase = 'funded';
     }
 
-    // Provision new phase credentials (reusing manual logic)
-    // In a real scenario, this would generate new credentials via API
-    // For now, we update the existing phase and clear the advancement flag
     await userRef.update({
       currentPhase: nextPhase,
       readyForNextPhase: false,
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    // Also update mt5_accounts link
     const accountsRef = db.collection('mt5_accounts');
-    const accSnap = await accountsRef.where('userId', '==', userId).limit(1).get();
+    const accSnap = await accountsRef.where('userId', '==', userId).where('status', '==', 'active').limit(1).get();
     if (!accSnap.empty) {
       await accSnap.docs[0].ref.update({
         phase: nextPhase,
@@ -515,7 +499,6 @@ export async function advanceTraderPhaseAction(userId: string) {
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // Record in historical ledger
     await userRef.collection('phaseHistory').add({
       phase: nextPhase,
       plan,
@@ -523,7 +506,6 @@ export async function advanceTraderPhaseAction(userId: string) {
       advancedAt: FieldValue.serverTimestamp()
     });
 
-    // Trigger Certificate & Email
     try {
       await generateAndSendCertificate(
         userId,
@@ -533,9 +515,7 @@ export async function advanceTraderPhaseAction(userId: string) {
         plan,
         size
       );
-    } catch (certErr) {
-      console.error('[Phase-Advancement-Cert] Error:', certErr);
-    }
+    } catch (certErr) {}
 
     return { success: true, nextPhase };
   } catch (error: any) {
@@ -571,7 +551,6 @@ export async function updateUserProfileAction(userId: string, data: any) {
     
     await userRef.update(updates);
 
-    // FIX: If admin manually updates phase to a milestone, trigger certificate logic
     const newPhase = data.currentPhase;
     const oldPhase = currentData.currentPhase;
 
@@ -585,9 +564,7 @@ export async function updateUserProfileAction(userId: string, data: any) {
           currentData.accountPlan || 'Challenge',
           parseFloat(String(currentData.accountBalance || 100000))
         );
-      } catch (certErr) {
-        console.error('[Manual-Update-Cert] Error:', certErr);
-      }
+      } catch (certErr) {}
     }
 
     return { success: true };
@@ -655,7 +632,6 @@ export async function resetPhaseProgressAction(userId: string) {
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    // Also update mt5_accounts link if it exists
     const accountsRef = db.collection('mt5_accounts');
     const accSnap = await accountsRef.where('userId', '==', userId).limit(1).get();
     if (!accSnap.empty) {
