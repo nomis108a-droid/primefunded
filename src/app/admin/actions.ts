@@ -42,6 +42,35 @@ function getAdminDb(): Firestore {
   return getFirestore(app);
 }
 
+/**
+ * Helper to recursively convert Firestore Timestamps to ISO Strings for Next.js serialization.
+ * This prevents the "Classes or null prototypes are not supported" runtime error.
+ */
+function serializeFirestoreData(data: any): any {
+  if (data === null || data === undefined) return data;
+
+  // Handle Firestore Admin Timestamps
+  if (data && typeof data.toDate === 'function') {
+    return data.toDate().toISOString();
+  }
+
+  // Handle Arrays
+  if (Array.isArray(data)) {
+    return data.map(item => serializeFirestoreData(item));
+  }
+
+  // Handle Objects
+  if (typeof data === 'object' && data.constructor.name === 'Object') {
+    const serialized: any = {};
+    for (const [key, value] of Object.entries(data)) {
+      serialized[key] = serializeFirestoreData(value);
+    }
+    return serialized;
+  }
+
+  return data;
+}
+
 export async function fetchAdminTerminalData() {
   try {
     const db = getAdminDb();
@@ -57,6 +86,7 @@ export async function fetchAdminTerminalData() {
         const snap = await q.limit(limitCount).get();
         return snap.docs;
       } catch (err: any) {
+        console.error(`[Admin-SDK] Error fetching ${name}:`, err.message);
         return [];
       }
     };
@@ -72,11 +102,7 @@ export async function fetchAdminTerminalData() {
 
     const serialize = (doc: any) => ({
       id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || doc.data().createdAt,
-      sentAt: doc.data().sentAt?.toDate?.()?.toISOString() || doc.data().sentAt,
-      lastCodeChange: doc.data().lastCodeChange?.toDate?.()?.toISOString() || doc.data().lastCodeChange,
-      breachedAt: doc.data().breachedAt?.toDate?.()?.toISOString() || doc.data().breachedAt,
+      ...serializeFirestoreData(doc.data())
     });
 
     return {
@@ -89,6 +115,7 @@ export async function fetchAdminTerminalData() {
       success: true
     };
   } catch (error: any) {
+    console.error('[Admin-SDK] fetchAdminTerminalData Critical Failure:', error);
     return { success: false, error: `Sync Failure: ${error.message}` };
   }
 }
@@ -110,7 +137,7 @@ export async function registerMt5AccountAction(data: {
     
     // 1. Create MT5 sync document with String login
     const accountRef = db.collection('mt5_accounts').doc();
-    await accountRef.set({
+    const accountData = {
       login: String(data.login),
       displayLogin: data.displayLogin || String(data.login),
       mt5Password: data.password,
@@ -125,7 +152,9 @@ export async function registerMt5AccountAction(data: {
       maxDrawdownPct: 0,
       createdAt: FieldValue.serverTimestamp(),
       lastMT5Update: null,
-    });
+    };
+
+    await accountRef.set(accountData);
 
     // 2. Update the user's primary profile
     const userRef = db.collection('users').doc(data.userId);
