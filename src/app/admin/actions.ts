@@ -133,10 +133,11 @@ export async function fetchAdminTerminalData() {
 /**
  * Institutional Retroactive Risk Auditor
  * Scans all active accounts for historical violations.
- * Includes Daily Drawdown session analysis.
+ * Includes explicit debug logging for specific account investigation.
  */
 export async function runRetroactiveRiskAuditAction() {
   console.log(">>> [AUDIT] Institutional Audit Triggered via Server Action");
+  const auditData: any[] = [];
   try {
     const db = getAdminDb();
     const accounts = await db.collection('mt5_accounts').where('status', '==', 'active').get();
@@ -145,23 +146,38 @@ export async function runRetroactiveRiskAuditAction() {
 
     for (const acc of accounts.docs) {
       const data = acc.data();
-      const login = data.login;
+      const login = String(data.login);
       const initialBalance = parseFloat(String(data.accountBalance));
       const userId = data.userId;
       
-      console.log(`>>> [AUDIT] STARTED for account: ${login} (Size: $${initialBalance}, User: ${userId})`);
-
       if (!userId || isNaN(initialBalance)) {
-        console.log(`>>> [AUDIT] SKIPPING account ${login}: Missing critical data (userId or balance)`);
+        console.log(`>>> [AUDIT] SKIPPING account ${login}: Missing critical data`);
         continue;
       }
 
       const tradesSnap = await db.collection('users').doc(userId).collection('trades').get();
-      console.log(`>>> [AUDIT] Analyzing ${tradesSnap.size} historical trades for ${login}`);
-      
       const rawTrades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const enriched = enrichTrades(rawTrades, String(login));
       
+      // DEBUG INSTRUMENTATION AS REQUESTED
+      const threshold = initialBalance * 0.03;
+      const allLosses = rawTrades.filter(t => (t.pnl || t.profit || 0) < 0).map(t => t.pnl || t.profit);
+      const biggestLoss = allLosses.length > 0 ? Math.min(...allLosses) : 0;
+      const manualSingleLossCheck = Math.abs(biggestLoss) > threshold;
+
+      const debugObj = { 
+        login, 
+        initialBalanceUsed: initialBalance, 
+        totalTrades: rawTrades.length,
+        lossesFound: allLosses,
+        biggestLoss,
+        thresholdCalculated: threshold, 
+        isMaxLossBreached: manualSingleLossCheck
+      };
+      
+      console.log('[AUDIT-DEBUG]', debugObj);
+      auditData.push(debugObj);
+
+      const enriched = enrichTrades(rawTrades, login);
       let breached = false;
       let reason = "";
 
@@ -174,10 +190,9 @@ export async function runRetroactiveRiskAuditAction() {
         const ticket = t.id;
 
         // Rule 1: Max Single Loss (3% of initial balance)
-        if (profit < 0 && Math.abs(profit) > initialBalance * 0.03) {
+        if (profit < 0 && Math.abs(profit) > threshold) {
           breached = true;
-          reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${(initialBalance * 0.03).toFixed(2)}) on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`;
-          console.log(`>>> [AUDIT] RULE VIOLATION (MAX LOSS) on account ${login}: ${reason}`);
+          reason = `Retroactive breach: Single trade loss -$${Math.abs(profit).toFixed(2)} exceeds 3% limit ($${threshold.toFixed(2)}) on $${initialBalance.toLocaleString()} account (Ticket: ${ticket})`;
           break;
         }
 
@@ -185,12 +200,11 @@ export async function runRetroactiveRiskAuditAction() {
         if (t.matched && duration < 120 && profit !== 0) {
           breached = true;
           reason = `Retroactive breach: Trade duration ${duration}s is under 120s minimum required (Ticket: ${ticket})`;
-          console.log(`>>> [AUDIT] RULE VIOLATION (DURATION) on account ${login}: ${reason}`);
           break;
         }
       }
 
-      // 2. Daily Drawdown Session Analysis (Catch resets that hid breaches)
+      // 2. Daily Drawdown Session Analysis
       if (!breached) {
         const sessionMap = new Map<string, number>();
         enriched.forEach(t => {
@@ -213,7 +227,6 @@ export async function runRetroactiveRiskAuditAction() {
           if (loss > dailyLimit) {
             breached = true;
             reason = `Retroactive breach: Daily Gross Loss of $${loss.toFixed(2)} on ${date} exceeded session limit of $${dailyLimit.toFixed(2)}`;
-            console.log(`>>> [AUDIT] RULE VIOLATION (DAILY DRAWDOWN) on account ${login}: ${reason}`);
             break;
           }
         }
@@ -221,7 +234,7 @@ export async function runRetroactiveRiskAuditAction() {
 
       if (breached) {
         breachCount++;
-        console.log(`>>> [AUDIT] ATTEMPTING WRITE status=breached for account ${login}. Reason: ${reason}`);
+        console.log(`>>> [AUDIT] BREACH DETECTED for ${login}: ${reason}`);
         
         try {
           await acc.ref.update({ 
@@ -245,16 +258,12 @@ export async function runRetroactiveRiskAuditAction() {
             breachType: 'hard',
             breachedAt: FieldValue.serverTimestamp()
           });
-          console.log(`>>> [AUDIT] PERSISTENCE SUCCESS for account ${login}`);
         } catch (writeError: any) {
           console.log(`>>> [AUDIT] PERSISTENCE FAILURE for account ${login}: ${writeError.message}`);
         }
-      } else {
-        console.log(`>>> [AUDIT] ACCOUNT CLEAN: ${login}`);
       }
     }
-    console.log(`>>> [AUDIT] Process Complete. Breached ${breachCount} accounts.`);
-    return { success: true, breachCount };
+    return { success: true, breachCount, auditData };
   } catch (error: any) {
     console.log(`>>> [AUDIT] CRITICAL SYSTEM ERROR: ${error.message}`);
     return { success: false, error: error.message };
