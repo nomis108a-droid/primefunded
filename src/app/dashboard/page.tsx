@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -379,6 +380,20 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p>Realized Session Loss: {userData?.dailyClosedLosses || 0}</p>
             <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
             <p>Session Key: {getTradingDayKey(new Date())}</p>
+          </div>
+        )}
+
+        {userData?.accountStatus === 'pending_activation' && (
+          <div className="mb-8 p-6 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0">
+                <Clock className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Activation Pending</h3>
+                <p className="text-sm text-amber-200/80">Your new challenge is being activated. Our team will provision your account shortly.</p>
+              </div>
+            </div>
           </div>
         )}
 

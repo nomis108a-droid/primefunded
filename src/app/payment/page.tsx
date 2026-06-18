@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Copy, CheckCircle2, AlertTriangle, QrCode, Mail, Hash, Loader2, Globe, Upload, FileImage, DollarSign } from 'lucide-react';
@@ -137,6 +137,12 @@ function PaymentContent() {
 
       const ordersRef = collection(db, 'orders');
       await addDoc(ordersRef, orderData);
+
+      await updateDoc(doc(db, "users", user.uid), {
+        accountStatus: "pending_activation",
+        updatedAt: serverTimestamp()
+      });
+
       setSubmitted(true);
       toast({
         title: "Proof Submitted!",
@@ -244,7 +250,7 @@ function PaymentContent() {
         <div className="space-y-6">
           <Card className="bg-card border-primary/20 shadow-2xl sticky top-24">
             <CardHeader>
-              <CardTitle className="text-xl font-headline text-white">Verification Form</CardTitle>
+              <CardTitle className="text-xl font-headline font-bold text-white">Verification Form</CardTitle>
               <CardDescription className="text-xs">Submit proof of transaction</CardDescription>
             </CardHeader>
             <CardContent>
