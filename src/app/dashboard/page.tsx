@@ -185,23 +185,23 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (isBreached) return 'terminated';
     
     // UPDATED: Read from mt5_accounts document specifically to avoid profile stale data
-    const mt5LastUpdate = activeAccountData?.lastMT5Update;
+    const lastMT5Update = activeAccountData?.lastMT5Update;
     
-    if (!mt5LastUpdate) {
+    if (!lastMT5Update) {
       if (userData?.mt5Login) return 'awaiting';
       return 'offline';
     }
     
     try {
-      const lastUpdate = mt5LastUpdate?.seconds 
-        ? new Date(mt5LastUpdate.seconds * 1000) 
-        : mt5LastUpdate?.toDate?.() || new Date(mt5LastUpdate);
-
-      if (!isValid(lastUpdate)) return 'offline';
-
-      const diffSeconds = Math.abs(Date.now() - lastUpdate.getTime()) / 1000;
-      // UPDATED Threshold: 90 seconds
-      return diffSeconds < 90 ? 'live' : 'offline';
+      const lastUpdateMs = (lastMT5Update as any)?.seconds
+        ? (lastMT5Update as any).seconds * 1000
+        : lastMT5Update instanceof Date
+          ? lastMT5Update.getTime()
+          : Number(lastMT5Update);
+      
+      const isOnline = Math.floor((Date.now() - lastUpdateMs) / 1000) <= 60;
+      
+      return isOnline ? 'live' : 'offline';
     } catch (e) {
       return 'offline';
     }
