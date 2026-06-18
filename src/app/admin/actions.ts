@@ -296,6 +296,56 @@ export async function probeInstitutionalConnectionAction() {
   };
 }
 
+export async function forceBreachAccountAction(userId: string, login: string, reason: string) {
+  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  const db = getAdminDb();
+  const fullReason = `Manual Admin Breach: ${reason}`;
+  
+  const userRef = db.collection('users').doc(userId);
+  const userSnap = await userRef.get();
+  const userData = userSnap.data();
+
+  const batch = db.batch();
+
+  // 1. Update Account
+  if (login && login !== 'undefined' && login !== 'N/A') {
+    const accountRef = db.collection('mt5_accounts').doc(String(login));
+    batch.update(accountRef, {
+      status: 'breached',
+      breachedAt: FieldValue.serverTimestamp(),
+      breachReason: fullReason
+    });
+  }
+
+  // 2. Update User Profile
+  batch.update(userRef, {
+    accountStatus: 'breached',
+    breachReason: fullReason,
+    breachedAt: FieldValue.serverTimestamp()
+  });
+
+  // 3. Write to Ledger
+  const breachId = `manual_${login}_${Date.now()}`;
+  batch.set(db.collection('breaches').doc(breachId), {
+    login,
+    userId,
+    traderId: userData?.uid || 'N/A',
+    userName: userData?.name || 'N/A',
+    userEmail: userData?.email || 'N/A',
+    reason: fullReason,
+    breachReason: fullReason,
+    type: 'hard',
+    breachedAt: FieldValue.serverTimestamp(),
+    phase: userData?.currentPhase || 'N/A',
+    plan: userData?.accountPlan || 'N/A',
+    manualBreach: true,
+    adminAction: true
+  });
+
+  await batch.commit();
+  return { success: true };
+}
+
 export async function fetchAdminTerminalData() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();

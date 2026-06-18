@@ -17,7 +17,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction, runRetroactiveRiskAuditAction, probeInstitutionalConnectionAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, createBroadcastAction, deleteBroadcastAction, updateUserProfileAction, logSoftBreachAction, resetPhaseProgressAction, manualGenerateCertificateAction, runRetroactiveRiskAuditAction, probeInstitutionalConnectionAction, forceBreachAccountAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -74,6 +74,10 @@ export default function AdminPage() {
   // Soft Breach State
   const [isSoftBreachOpen, setIsSoftBreachOpen] = useState(false);
   const [softBreachForm, setSoftBreachForm] = useState({ reason: 'Holding over the weekend', note: '' });
+
+  // Force Breach State
+  const [isForceBreachOpen, setIsForceBreachOpen] = useState(false);
+  const [forceBreachReason, setForceBreachReason] = useState('');
 
   // Broadcast Form State
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '' });
@@ -167,6 +171,29 @@ export default function AdminPage() {
       toast({ variant: "destructive", title: "Action Failed", description: res.error });
     }
     setActionLoading(false);
+  };
+
+  const handleForceBreach = async () => {
+    if (!previewUserId || !forceBreachReason) return;
+    const targetUser = adminData.users.find((u: any) => u.id === previewUserId);
+    const login = targetUser?.mt5Login || 'N/A';
+    
+    setActionLoading(true);
+    try {
+      const res = await forceBreachAccountAction(previewUserId, login, forceBreachReason);
+      if (res.success) {
+        toast({ title: "Account manually breached" });
+        setIsForceBreachOpen(false);
+        setForceBreachReason('');
+        refreshData();
+      } else {
+        toast({ variant: "destructive", title: "Action Failed", description: res.error });
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Fatal Error", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleResetPhase = async (userId: string) => {
@@ -369,6 +396,7 @@ export default function AdminPage() {
               </Button>
             )}
             <Button variant="secondary" size="sm" className="bg-destructive hover:bg-destructive/90 text-white font-bold h-8" onClick={() => setIsSoftBreachOpen(true)}>Log Soft Breach</Button>
+            <Button variant="destructive" size="sm" className="bg-black hover:bg-black/80 text-destructive border border-destructive font-black h-8" onClick={() => setIsForceBreachOpen(true)}>Force Breach Account</Button>
           </div>
           <Button variant="secondary" size="sm" onClick={() => setPreviewUserId(null)}><ChevronLeft className="w-3 h-3 mr-1" /> Exit Preview</Button>
         </div>
@@ -395,6 +423,31 @@ export default function AdminPage() {
             <DialogFooter>
               <Button variant="ghost" onClick={() => setIsSoftBreachOpen(false)}>Cancel</Button>
               <Button className="bg-amber-500 text-black font-bold" onClick={handleLogSoftBreach} disabled={actionLoading}>Commit Soft Breach</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isForceBreachOpen} onOpenChange={setIsForceBreachOpen}>
+          <DialogContent className="bg-card border-destructive">
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2"><Skull className="w-5 h-5" /> Manual Account Liquidation</DialogTitle>
+              <DialogDescription>Are you sure you want to manually breach this account? This action is immutable.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Breach Reason (For Ledger)</Label>
+                <Input 
+                  placeholder="e.g. Risk protocol violation detected..." 
+                  value={forceBreachReason} 
+                  onChange={e => setForceBreachReason(e.target.value)} 
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsForceBreachOpen(false)}>Cancel</Button>
+              <Button variant="destructive" className="font-bold" onClick={handleForceBreach} disabled={actionLoading || !forceBreachReason}>
+                Confirm Manual Breach
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
