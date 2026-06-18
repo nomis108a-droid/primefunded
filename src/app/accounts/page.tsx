@@ -1,27 +1,30 @@
+
 "use client";
 
 import { useMemo } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useCollection } from '@/firebase';
-import { limit } from 'firebase/firestore';
+import { limit, where } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ShieldCheck, Plus, Copy, SearchX, Terminal } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
 export default function AccountsPage() {
   const { user, userData } = useAuth();
   const { toast } = useToast();
 
   const constraints = useMemo(() => [
+    where('userId', '==', user?.uid || '_none_'),
     limit(20)
-  ], []);
+  ], [user?.uid]);
 
   const { data: accounts, loading } = useCollection<any>(
-    user ? `users/${user.uid}/accounts` : null,
+    user ? 'mt5_accounts' : null,
     constraints
   );
 
@@ -29,24 +32,6 @@ export default function AccountsPage() {
     navigator.clipboard.writeText(text);
     toast({ title: "Copied", description: "Account detail copied to clipboard." });
   };
-
-  const hasPrimaryAccount = userData?.accountStatus === 'active';
-  const displayAccounts = useMemo(() => {
-    const list = [...accounts];
-    if (hasPrimaryAccount && !list.find(a => a.mt5Login === userData.mt5Login)) {
-      list.unshift({
-        id: 'primary',
-        plan: userData.accountPlan,
-        size: userData.accountSize,
-        mt5Login: userData.mt5Login,
-        mt5Password: userData.mt5Password,
-        mt5Server: userData.mt5Server,
-        status: userData.accountStatus,
-        balance: userData.accountBalance
-      });
-    }
-    return list;
-  }, [accounts, userData, hasPrimaryAccount]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -67,7 +52,7 @@ export default function AccountsPage() {
             [1, 2].map(i => (
               <Card key={i} className="border-border/50 bg-secondary/10 animate-pulse h-48 rounded-2xl" />
             ))
-          ) : displayAccounts.length === 0 ? (
+          ) : accounts.length === 0 ? (
             <Card className="border-2 border-dashed border-border/50 bg-secondary/5">
               <CardContent className="flex flex-col items-center justify-center p-20 text-center space-y-6">
                 <div className="p-6 bg-secondary/50 rounded-full border border-border">
@@ -85,7 +70,7 @@ export default function AccountsPage() {
               </CardContent>
             </Card>
           ) : (
-            displayAccounts.map((acc) => (
+            accounts.map((acc) => (
               <Card key={acc.id} className={cn(
                 "border-border/50 transition-all hover:border-primary/30",
                 acc.status === 'active' ? "bg-primary/5 border-primary/20" : "opacity-60 grayscale bg-card/50"
@@ -99,13 +84,15 @@ export default function AccountsPage() {
                       <ShieldCheck className="w-6 h-6" />
                     </div>
                     <div>
-                      <CardTitle className="text-xl font-headline font-bold text-white">{acc.size} {acc.plan}</CardTitle>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account ID: PF-{acc.mt5Login || 'PENDING'}</p>
+                      <CardTitle className="text-xl font-headline font-bold text-white">
+                        {acc.accountBalance ? `$${(acc.accountBalance / 1000).toFixed(0)}k` : 'Standard'} {acc.accountPlan || 'Account'}
+                      </CardTitle>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account ID: PF-{acc.login || 'PENDING'}</p>
                     </div>
                   </div>
                   <Badge className={cn(
                     "uppercase text-[10px] font-black tracking-widest px-3 py-1",
-                    acc.status === 'active' ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"
+                    acc.status === 'active' ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-muted text-muted-foreground"
                   )}>
                     {acc.status || 'Active'}
                   </Badge>
@@ -116,24 +103,24 @@ export default function AccountsPage() {
                     <CredentialItem label="Server" value={acc.mt5Server || 'MetaQuotes-Demo'} />
                     <CredentialItem 
                       label="Login" 
-                      value={acc.mt5Login || 'Generating...'} 
-                      onCopy={acc.mt5Login ? () => copyToClipboard(acc.mt5Login) : undefined} 
+                      value={acc.login || 'Generating...'} 
+                      onCopy={acc.login ? () => copyToClipboard(acc.login) : undefined} 
                     />
                     <CredentialItem 
                       label="Password" 
-                      value={acc.mt5Password ? "••••••••" : "Pending"} 
-                      onCopy={acc.mt5Password ? () => copyToClipboard(acc.mt5Password) : undefined} 
+                      value={acc.password ? "••••••••" : "Pending"} 
+                      onCopy={acc.password ? () => copyToClipboard(acc.password) : undefined} 
                     />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3">
                     <Button variant="outline" size="sm" className="h-10 px-6 rounded-xl font-bold border-border/50 hover:bg-secondary cursor-pointer" asChild>
                       <Link href="/mt5-account">
-                        <Terminal className="w-4 h-4 mr-2" /> Credentials Details
+                        <Terminal className="w-4 h-4 mr-2" /> Live Metrics
                       </Link>
                     </Button>
                     {acc.status === 'active' && (
                       <Button variant="secondary" size="sm" className="h-10 px-6 rounded-xl font-bold cursor-pointer">
-                        Reset Password
+                        Help Center
                       </Button>
                     )}
                   </div>
@@ -161,8 +148,4 @@ function CredentialItem({ label, value, onCopy }: { label: string, value: string
       </div>
     </div>
   );
-}
-
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(' ');
 }
