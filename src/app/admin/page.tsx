@@ -22,7 +22,7 @@ import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow, format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -225,7 +225,7 @@ export default function AdminPage() {
     try {
       const res = await sendGlobalBroadcastAction(broadcastForm);
       if (res.success) {
-        toast({ title: "Broadcast Sent", description: "Annoucement delivered to all nodes." });
+        toast({ title: "Broadcast Sent", description: "Announcement delivered to all nodes." });
         setBroadcastForm({ title: '', message: '', type: 'info' });
         refreshData();
       }
@@ -579,7 +579,16 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
-                        {adminData.referrals.map((ref: any) => (
+                        {adminData.referrals.sort((a: any, b: any) => {
+                          const getT = (o: any) => {
+                            if (!o?.createdAt) return 0;
+                            const s = o.createdAt.seconds ?? o.createdAt._seconds;
+                            if (s) return s;
+                            const d = new Date(o.createdAt);
+                            return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
+                          };
+                          return getT(b) - getT(a);
+                        }).map((ref: any) => (
                           <tr key={ref.id} className="hover:bg-primary/5 transition-colors">
                             <td className="py-4 px-6 font-mono text-xs text-white">{ref.referrerId}</td>
                             <td className="py-4 px-4">
@@ -587,9 +596,12 @@ export default function AdminPage() {
                               <p className="text-[10px] text-muted-foreground">{ref.referredUserId}</p>
                             </td>
                             <td className="py-4 px-4 text-muted-foreground">
-                              {ref.createdAt?.seconds || ref.createdAt?._seconds 
-                                ? format(new Date((ref.createdAt.seconds || ref.createdAt._seconds) * 1000), 'yyyy-MM-dd') 
-                                : 'N/A'}
+                              {(() => {
+                                const s = ref.createdAt?.seconds ?? ref.createdAt?._seconds;
+                                if (!s) return '—';
+                                const d = new Date(s * 1000);
+                                return isValid(d) ? format(d, 'yyyy-MM-dd') : '—';
+                              })()}
                             </td>
                             <td className="py-4 px-6 text-right">
                               <Badge className={cn("uppercase text-[10px]", ref.status === 'paid' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
@@ -630,21 +642,28 @@ export default function AdminPage() {
                   <CardContent className="p-0">
                     <div className="divide-y divide-white/5">
                       {adminData.broadcasts.sort((a:any, b:any) => {
-                        const timeA = a.sentAt?.seconds || a.sentAt?._seconds || 0;
-                        const timeB = b.sentAt?.seconds || b.sentAt?._seconds || 0;
-                        return timeB - timeA;
+                        const getT = (o: any) => {
+                          if (!o?.sentAt) return 0;
+                          const s = o.sentAt.seconds ?? o.sentAt._seconds;
+                          if (s) return s;
+                          const d = new Date(o.sentAt);
+                          return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
+                        };
+                        return getT(b) - getT(a);
                       }).map((b: any) => (
                         <div key={b.id} className="p-6 space-y-2 hover:bg-white/5 transition-colors">
                           <div className="flex justify-between items-start">
                              <Badge variant="outline" className="uppercase text-[9px]">{b.type}</Badge>
                              <span className="text-[10px] text-muted-foreground uppercase font-black">
                                {(() => {
-                                 const seconds = b.sentAt?.seconds || b.sentAt?._seconds;
-                                 if (!seconds) return 'Recently';
+                                 const s = b.sentAt?.seconds ?? b.sentAt?._seconds;
+                                 if (!s) return '—';
+                                 const d = new Date(s * 1000);
+                                 if (!isValid(d)) return '—';
                                  try {
-                                   return formatDistanceToNow(new Date(seconds * 1000), { addSuffix: true });
+                                   return formatDistanceToNow(d, { addSuffix: true });
                                  } catch (e) {
-                                   return 'Recently';
+                                   return '—';
                                  }
                                })()}
                              </span>
@@ -687,7 +706,13 @@ export default function AdminPage() {
                           <tr key={u.id} className="hover:bg-primary/5 transition-colors">
                             <td className="py-4 px-6 font-bold text-white">{u.name}</td>
                             <td className="py-4 px-4 text-muted-foreground">{u.email}</td>
-                            <td className="py-4 px-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'yyyy-MM-dd HH:mm') : 'N/A'}</td>
+                            <td className="py-4 px-4 text-xs">
+                              {(() => {
+                                if (!u.kycSubmittedAt) return '—';
+                                const d = new Date(u.kycSubmittedAt);
+                                return isValid(d) ? format(d, 'yyyy-MM-dd HH:mm') : '—';
+                              })()}
+                            </td>
                             <td className="py-4 px-4">
                               <Badge className={cn("uppercase text-[9px]", u.kycStatus === 'verified' ? 'bg-emerald-500/10 text-emerald-500' : u.kycStatus === 'pending' ? 'bg-amber-500/10 text-amber-500' : 'bg-destructive/10 text-destructive')}>
                                 {u.kycStatus}
@@ -736,18 +761,26 @@ export default function AdminPage() {
                       </thead>
                       <tbody className="divide-y divide-border/50">
                         {adminData.breaches.sort((a: any, b: any) => {
-                          const timeA = a.breachedAt?.seconds || a.breachedAt?._seconds || 0;
-                          const timeB = b.breachedAt?.seconds || b.breachedAt?._seconds || 0;
-                          return timeB - timeA;
+                          const getT = (o: any) => {
+                            if (!o?.breachedAt) return 0;
+                            const s = o.breachedAt.seconds ?? o.breachedAt._seconds;
+                            if (s) return s;
+                            const d = new Date(o.breachedAt);
+                            return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
+                          };
+                          return getT(b) - getT(a);
                         }).map((b: any) => (
                           <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
                             <td className="py-4 px-6 font-bold text-white">{b.userName || 'N/A'}</td>
                             <td className="py-4 px-4 font-mono text-xs">{b.login || 'N/A'}</td>
                             <td className="py-4 px-4 uppercase text-[10px] font-black text-destructive">{b.breachType || 'Hard'}</td>
                             <td className="py-4 px-4 text-xs text-muted-foreground">
-                              {b.breachedAt?.seconds || b.breachedAt?._seconds 
-                                ? format(new Date((b.breachedAt.seconds || b.breachedAt._seconds) * 1000), 'yyyy-MM-dd HH:mm') 
-                                : 'N/A'}
+                              {(() => {
+                                const s = b.breachedAt?.seconds ?? b.breachedAt?._seconds;
+                                if (!s) return '—';
+                                const d = new Date(s * 1000);
+                                return isValid(d) ? format(d, 'yyyy-MM-dd HH:mm') : '—';
+                              })()}
                             </td>
                             <td className="py-4 px-6 text-right text-xs text-muted-foreground truncate max-w-[200px]">{b.breachReason || b.reason}</td>
                           </tr>
