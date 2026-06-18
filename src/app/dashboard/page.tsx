@@ -183,21 +183,29 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
   const connectivityStatus = useMemo(() => {
     if (isBreached) return 'terminated';
-    if (!userData?.lastMT5Update) return 'awaiting';
+    
+    // UPDATED: Read from mt5_accounts document specifically to avoid profile stale data
+    const mt5LastUpdate = activeAccountData?.lastMT5Update;
+    
+    if (!mt5LastUpdate) {
+      if (userData?.mt5Login) return 'awaiting';
+      return 'offline';
+    }
     
     try {
-      const lastUpdate = userData.lastMT5Update?.seconds 
-        ? new Date(userData.lastMT5Update.seconds * 1000) 
-        : userData.lastMT5Update?.toDate?.() || new Date(userData.lastMT5Update);
+      const lastUpdate = mt5LastUpdate?.seconds 
+        ? new Date(mt5LastUpdate.seconds * 1000) 
+        : mt5LastUpdate?.toDate?.() || new Date(mt5LastUpdate);
 
       if (!isValid(lastUpdate)) return 'offline';
 
       const diffSeconds = Math.abs(Date.now() - lastUpdate.getTime()) / 1000;
-      return diffSeconds < 65 ? 'live' : 'offline';
+      // UPDATED Threshold: 90 seconds
+      return diffSeconds < 90 ? 'live' : 'offline';
     } catch (e) {
       return 'offline';
     }
-  }, [userData?.lastMT5Update, isBreached]);
+  }, [activeAccountData?.lastMT5Update, userData?.mt5Login, isBreached]);
 
   const performanceConstraints = useMemo(() => [
     orderBy('date', 'asc'),
