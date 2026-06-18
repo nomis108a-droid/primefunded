@@ -466,12 +466,22 @@ export default function AdminPage() {
                 <CardContent className="p-0">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="py-4 px-6">Trader</th><th className="py-4 px-4">Email</th><th className="py-4 px-4">UID</th><th className="py-4 px-4">Status</th><th className="py-4 px-6 text-right">Action</th></tr></thead>
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Trader</th>
+                          <th className="py-4 px-4">Email</th>
+                          <th className="py-4 px-4">Phone</th>
+                          <th className="py-4 px-4">UID</th>
+                          <th className="py-4 px-4">Status</th>
+                          <th className="py-4 px-6 text-right">Action</th>
+                        </tr>
+                      </thead>
                       <tbody className="divide-y divide-border/50">
                         {filteredUsersForDirectory.map((u: any) => (
                           <tr key={u.id} className="hover:bg-primary/5 transition-colors">
                             <td className="py-4 px-6 font-bold text-white">{u.name || 'Anonymous'}</td>
                             <td className="py-4 px-4 text-white">{u.email}</td>
+                            <td className="py-4 px-4 text-white">{u.phone || '—'}</td>
                             <td className="py-4 px-4 font-mono text-xs text-primary">{u.uid || '--------'}</td>
                             <td className="py-4 px-4"><Badge className={cn("text-[10px] uppercase font-black", u.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive')}>{u.status || 'active'}</Badge></td>
                             <td className="py-4 px-6 text-right"><button onClick={() => setPreviewUserId(u.id)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4 text-muted-foreground hover:text-white" /></button></td>
