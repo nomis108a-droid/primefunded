@@ -17,7 +17,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -64,21 +64,9 @@ export default function AdminPage() {
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
-  // User Editor State
-  const [editorSearchTerm, setEditorSearchTerm] = useState('');
-  const [selectedEditorUser, setSelectedEditorUser] = useState<any>(null);
-  const [userEditForm, setUserEditForm] = useState({ name: '', phone: '', country: '', referralCode: '', tier: 'Bronze', status: 'active', currentPhase: 'evaluation' });
-
-  // Soft Breach State
-  const [isSoftBreachOpen, setIsSoftBreachOpen] = useState(false);
-  const [softBreachForm, setSoftBreachForm] = useState({ reason: 'Holding over the weekend', note: '' });
-
   // Force Breach State
   const [isForceBreachOpen, setIsForceBreachOpen] = useState(false);
   const [forceBreachReason, setForceBreachReason] = useState('');
-
-  // Proof Preview State
-  const [viewProofUrl, setViewProofProofUrl] = useState<string | null>(null);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -112,6 +100,38 @@ export default function AdminPage() {
     } else {
       setAdminError("❌ Access Denied");
       setAdminPasswordInput('');
+    }
+  };
+
+  const handleProbeConnection = async () => {
+    toast({ title: "Probing Node...", description: "Testing latency to institutional terminals." });
+    try {
+      const start = Date.now();
+      const res = await fetch('/api/health');
+      const latency = Date.now() - start;
+      if (res.ok) {
+        toast({ title: "Node Online", description: `Latency: ${latency}ms. Connection stable.` });
+      } else {
+        toast({ variant: "destructive", title: "Node Offline", description: "Terminal heartbeat failed." });
+      }
+    } catch (err) {
+      toast({ variant: "destructive", title: "Probe Failed", description: "Network error." });
+    }
+  };
+
+  const handleRiskAudit = async () => {
+    if (!confirm("Run retroactive audit on all active MT5 nodes? This may terminate accounts found in breach.")) return;
+    setActionLoading(true);
+    try {
+      const res = await runRetroactiveRiskAuditAction();
+      if (res.success) {
+        toast({ title: "Audit Complete", description: `Detected ${res.breachCount} retroactive breaches.` });
+        refreshData();
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Audit Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -199,11 +219,6 @@ export default function AdminPage() {
     if (!userSearchTerm) return [];
     return adminData.users.filter((u: any) => u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.name?.toLowerCase().includes(userSearchTerm.toLowerCase())).slice(0, 5);
   }, [adminData.users, userSearchTerm]);
-
-  const filteredUsersForEditor = useMemo(() => {
-    if (!editorSearchTerm) return [];
-    return adminData.users.filter((u: any) => u.email?.toLowerCase().includes(editorSearchTerm.toLowerCase()) || u.name?.toLowerCase().includes(editorSearchTerm.toLowerCase())).slice(0, 5);
-  }, [adminData.users, editorSearchTerm]);
 
   const filteredUsersForDirectory = useMemo(() => {
     if (!searchTerm) return adminData.users;
@@ -297,6 +312,8 @@ export default function AdminPage() {
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
             <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p></div>
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleProbeConnection} disabled={actionLoading}><Wifi className="w-4 h-4 mr-2" /> Probe Connection</Button>
+              <Button variant="destructive" size="sm" onClick={handleRiskAudit} disabled={actionLoading}><ShieldCheck className="w-4 h-4 mr-2" /> Risk Audit All Accounts</Button>
               <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>{isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}Refresh Data</Button>
             </div>
           </div>
