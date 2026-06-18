@@ -206,10 +206,32 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
-  const handleUpdateOrderStatus = async (orderId: string, status: 'verified' | 'rejected', reason?: string) => {
+  const handleUpdateOrderStatus = async (orderId: string, status: string, orderData?: any) => {
     setActionLoading(true);
     const res = await updateOrderStatusAction(orderId, status);
-    if (res.success) { toast({ title: `Order ${status.toUpperCase()}` }); refreshData(); }
+    if (res.success) { 
+      toast({ title: `Order ${status.toUpperCase()}` }); 
+      
+      if (status === 'approved' && orderData) {
+        // Parse size string (e.g. "$100k" -> "100000")
+        const rawSize = orderData.accountSize || '';
+        const numericSize = rawSize.replace(/[$,]/g, '').replace(/k/i, '000');
+        
+        setProvisionForm(prev => ({
+          ...prev,
+          userId: orderData.userId,
+          plan: orderData.plan,
+          size: numericSize
+        }));
+        setUserSearchTerm(orderData.email);
+        
+        // Automated Tab Switch
+        setActiveTab('provisioning');
+        localStorage.setItem('admin_active_tab', 'provisioning');
+      }
+      
+      refreshData(); 
+    }
     else { toast({ variant: "destructive", title: "Action Failed", description: res.error }); }
     setActionLoading(false);
   };
@@ -282,7 +304,7 @@ export default function AdminPage() {
   }, [adminData.users, searchTerm]);
 
   const stats = useMemo(() => {
-    const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified');
+    const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified' || o.status === 'approved');
     const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
     const pendingPayouts = adminData.payouts.filter((p: any) => p.status === 'pending').length;
     return { totalRevenue, totalTraders: adminData.users.length, verifiedCount: verifiedOrders.length, pendingOrders: adminData.orders.filter((o: any) => o.status === 'pending').length, pendingPayouts };
@@ -606,7 +628,7 @@ export default function AdminPage() {
                             <td className="py-4 px-4"><TooltipProvider><Tooltip><TooltipTrigger className="font-mono text-[9px] text-primary truncate max-w-[100px] block cursor-help">{order.txHash}</TooltipTrigger><TooltipContent className="bg-black text-white border-primary/20 max-w-xs break-all p-2 font-mono text-[10px]">{order.txHash}</TooltipContent></Tooltip></TooltipProvider></td>
                             <td className="py-4 px-6 text-right flex justify-end gap-2">
                               {order.paymentScreenshot && <button onClick={() => setViewProofProofUrl(order.paymentScreenshot)} className="p-2 hover:bg-white/5 rounded-lg transition-colors text-muted-foreground hover:text-white"><FileImage className="w-4 h-4" /></button>}
-                              <Button className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'verified')}>Approve</Button>
+                              <Button className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'approved', order)}>Approve</Button>
                               <Button variant="destructive" className="h-8 text-[10px] font-bold uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'rejected')}>Reject</Button>
                             </td>
                           </tr>

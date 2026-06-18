@@ -179,7 +179,17 @@ export async function registerMt5AccountAction(data: any) {
 export async function updateOrderStatusAction(id: string, status: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
-  await db.collection('orders').doc(id).update({ status, updatedAt: FieldValue.serverTimestamp() });
+  const updates: any = { 
+    status, 
+    updatedAt: FieldValue.serverTimestamp() 
+  };
+  
+  if (status === 'approved') {
+    updates.approvedAt = FieldValue.serverTimestamp();
+    updates.approvedBy = "admin";
+  }
+  
+  await db.collection('orders').doc(id).update(updates);
   return { success: true };
 }
 
