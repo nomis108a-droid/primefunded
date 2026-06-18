@@ -63,6 +63,33 @@ export default function PayoutsPage() {
 
   const { data: payouts, loading } = useCollection<any>('payouts', payoutConstraints);
 
+  // Added: Query trades to verify instrument diversity for Instant Funding plans
+  const { data: trades } = useCollection<any>(
+    user && userData?.accountPlan?.toLowerCase().includes('instant') 
+      ? `users/${user.uid}/trades` 
+      : null
+  );
+
+  const instrumentCheck = useMemo(() => {
+    if (!userData?.accountPlan?.toLowerCase().includes('instant')) return { valid: true, message: null };
+    if (!trades || trades.length === 0) return { valid: true, message: null };
+
+    const counts: Record<string, number> = {};
+    trades.forEach((t: any) => {
+      const sym = t.symbol || 'N/A';
+      counts[sym] = (counts[sym] || 0) + 1;
+    });
+
+    const failed = Object.entries(counts).find(([_, count]) => count < 5);
+    if (failed) {
+      return {
+        valid: false,
+        message: `Payout requires minimum 5 trades per instrument. Symbol [${failed[0]}] only has [${failed[1]}] trades.`
+      };
+    }
+    return { valid: true, message: null };
+  }, [trades, userData?.accountPlan]);
+
   const stats = useMemo(() => {
     const totalPaid = payouts?.filter(p => p.status === 'done').reduce((acc, p) => acc + parseFloat(p.amount || 0), 0) || 0;
     const pending = payouts?.filter(p => p.status === 'pending' || p.status === 'approved').reduce((acc, p) => acc + parseFloat(p.amount || 0), 0) || 0;
@@ -74,7 +101,7 @@ export default function PayoutsPage() {
   const isThresholdMet = withdrawableProfit >= 25;
 
   const handleRequestPayout = async () => {
-    if (!user || !isKycVerified || !isThresholdMet) return;
+    if (!user || !isKycVerified || !isThresholdMet || !instrumentCheck.valid) return;
     
     const amountNum = parseFloat(payoutForm.amount);
     if (isNaN(amountNum) || amountNum < 25) {
@@ -196,7 +223,7 @@ export default function PayoutsPage() {
                     <span className="w-full">
                       <Button 
                         className="w-full mt-6 font-bold cursor-pointer cyan-box-glow" 
-                        disabled={!isKycVerified || !isThresholdMet}
+                        disabled={!isKycVerified || !isThresholdMet || !instrumentCheck.valid}
                         onClick={() => {
                           setPayoutForm({ ...payoutForm, amount: withdrawableProfit.toFixed(2) });
                           setIsFormOpen(true);
@@ -214,13 +241,22 @@ export default function PayoutsPage() {
                     <TooltipContent className="bg-amber-500 text-black border-none">
                       <p className="text-xs font-bold">Minimum payout amount is $25.00</p>
                     </TooltipContent>
+                  ) : !instrumentCheck.valid ? (
+                    <TooltipContent className="bg-destructive text-white border-none max-w-xs">
+                      <p className="text-xs font-bold">{instrumentCheck.message}</p>
+                    </TooltipContent>
                   ) : null}
                 </Tooltip>
               </TooltipProvider>
 
-              {!isThresholdMet && isKycVerified && (
+              {(!isThresholdMet && isKycVerified) && (
                 <p className="mt-4 text-[10px] text-amber-500 font-bold uppercase tracking-widest text-center">
                   Minimum withdrawal threshold: $25.00
+                </p>
+              )}
+              {!instrumentCheck.valid && (
+                <p className="mt-4 text-[10px] text-destructive font-bold uppercase tracking-widest text-center">
+                  {instrumentCheck.message}
                 </p>
               )}
             </CardContent>
@@ -288,6 +324,15 @@ export default function PayoutsPage() {
           </DialogHeader>
           
           <div className="space-y-6 py-4">
+            {!instrumentCheck.valid && (
+              <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+                <div className="flex gap-2">
+                  <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+                  <p className="text-xs font-bold text-destructive">{instrumentCheck.message}</p>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label className="text-xs font-black uppercase text-primary tracking-widest">Withdrawal Amount ($)</Label>
               <div className="relative">
@@ -340,7 +385,7 @@ export default function PayoutsPage() {
             <Button 
               className="font-black bg-primary text-black h-12 px-8 flex-1 sm:flex-none" 
               onClick={handleRequestPayout}
-              disabled={requesting || parseFloat(payoutForm.amount) < 25}
+              disabled={requesting || parseFloat(payoutForm.amount) < 25 || !instrumentCheck.valid}
             >
               {requesting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
               Submit Request
