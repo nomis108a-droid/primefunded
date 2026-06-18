@@ -308,14 +308,24 @@ export async function forceBreachAccountAction(userId: string, login: string, re
 export async function fetchAdminTerminalData() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
-  const [users, orders, payouts, referrals, broadcasts, breaches] = await Promise.all([
-    db.collection('users').get().then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
-    db.collection('orders').orderBy('submittedAt', 'desc').limit(50).get().then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
-    db.collection('payouts').orderBy('date', 'desc').limit(50).get().then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
-    db.collection('referrals').limit(50).get().then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
-    db.collection('broadcasts').orderBy('sentAt', 'desc').limit(10).get().then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
-    db.collection('breaches').orderBy('breachedAt', 'desc').limit(50).get().then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))),
+  const [usersSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap, accountsSnap] = await Promise.all([
+    db.collection('users').get(),
+    db.collection('orders').get(),
+    db.collection('payouts').get(),
+    db.collection('referrals').get(),
+    db.collection('broadcasts').get(),
+    db.collection('breaches').get(),
+    db.collection('mt5_accounts').get(),
   ]);
+
+  const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const payouts = payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const referrals = referralsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const broadcasts = broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const breaches = breachesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const accounts = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
   return { 
     users: JSON.parse(JSON.stringify(users)), 
     orders: JSON.parse(JSON.stringify(orders)), 
@@ -323,6 +333,7 @@ export async function fetchAdminTerminalData() {
     referrals: JSON.parse(JSON.stringify(referrals)), 
     broadcasts: JSON.parse(JSON.stringify(broadcasts)), 
     breaches: JSON.parse(JSON.stringify(breaches)), 
+    accounts: JSON.parse(JSON.stringify(accounts)),
     success: true 
   };
 }
