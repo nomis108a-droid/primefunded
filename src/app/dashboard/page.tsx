@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -184,27 +183,18 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const connectivityStatus = useMemo(() => {
     if (isBreached) return 'terminated';
     
-    // UPDATED: Read from mt5_accounts document specifically to avoid profile stale data
-    const lastMT5Update = activeAccountData?.lastMT5Update;
+    const rawTs = activeAccountData?.lastMT5Update;
+    const lastUpdateMs = rawTs?.seconds
+      ? rawTs.seconds * 1000
+      : rawTs instanceof Date
+        ? rawTs.getTime()
+        : rawTs ? Number(rawTs) : 0;
     
-    if (!lastMT5Update) {
-      if (userData?.mt5Login) return 'awaiting';
-      return 'offline';
-    }
-    
-    try {
-      const lastUpdateMs = (lastMT5Update as any)?.seconds
-        ? (lastMT5Update as any).seconds * 1000
-        : lastMT5Update instanceof Date
-          ? lastMT5Update.getTime()
-          : Number(lastMT5Update);
-      
-      const isOnline = Math.floor((Date.now() - lastUpdateMs) / 1000) <= 60;
-      
-      return isOnline ? 'live' : 'offline';
-    } catch (e) {
-      return 'offline';
-    }
+    const isEAOnline = lastUpdateMs > 0 && Math.floor((Date.now() - lastUpdateMs) / 1000) <= 60;
+
+    if (isEAOnline) return 'live';
+    if (userData?.mt5Login && !rawTs) return 'awaiting';
+    return 'offline';
   }, [activeAccountData?.lastMT5Update, userData?.mt5Login, isBreached]);
 
   const performanceConstraints = useMemo(() => [
