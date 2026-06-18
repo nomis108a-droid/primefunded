@@ -133,7 +133,8 @@ const PLAN_RULES = {
       { text: "3% daily drawdown (Hard Breach)", warning: true },
       { text: "4% max drawdown (Hard Breach)", warning: true },
       { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "No Friday overnight holding (Hard Breach)", check: false },
+      { text: "No Friday overnight holding (Warning only)", warning: true },
+      { text: "Minimum 5 trades per instrument required for payout eligibility (Soft Rule)", warning: true },
     ]
   }
 };
