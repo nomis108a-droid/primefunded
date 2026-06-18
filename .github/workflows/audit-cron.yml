@@ -1,0 +1,13 @@
+name: Risk Audit Cron
+
+on:
+  schedule:
+    - cron: '* * * * *'
+  workflow_dispatch:
+
+jobs:
+  call-audit-endpoint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call audit endpoint
+        run: curl -s -o /dev/null -w "%{http_code}" https://primefunded.fund/api/cron/audit
