@@ -2,6 +2,7 @@ import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { auditAccount } from '@/lib/rulesEngine';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -65,6 +66,14 @@ export async function POST(request: Request) {
       }, { merge: true });
     }
     await batch.commit();
+
+    if (accountData.status !== 'breached' && trades.length > 0) {
+      try {
+        await auditAccount({ id: accountDoc.id, ...accountData });
+      } catch (auditErr: any) {
+        console.error("[AUDIT_ERROR]", auditErr.message);
+      }
+    }
 
     return new Response(JSON.stringify({ status: "OK", saved: trades.length }), { status: 200 });
   } catch (error: any) {

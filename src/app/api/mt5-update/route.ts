@@ -1,6 +1,7 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { auditAccount } from '@/lib/rulesEngine';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -128,6 +129,15 @@ export async function POST(request: Request) {
         liveBalance: currBalance, liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp()
       });
+    }
+
+    if (accountData.status !== 'breached' && !breachDetected) {
+      try {
+        const freshSnap = await accountDoc.ref.get();
+        await auditAccount({ id: accountDoc.id, ...freshSnap.data() });
+      } catch (auditErr: any) {
+        console.error("[AUDIT_ERROR]", auditErr.message);
+      }
     }
 
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
