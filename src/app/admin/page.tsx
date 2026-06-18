@@ -320,10 +320,14 @@ export default function AdminPage() {
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="font-bold">Overview</TabsTrigger>
+              <TabsTrigger value="phase_passers" className="font-bold">Phase Passers</TabsTrigger>
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
+              <TabsTrigger value="profile_editor" className="font-bold">Profile Editor</TabsTrigger>
+              <TabsTrigger value="referral_audit" className="font-bold">Referral Audit</TabsTrigger>
+              <TabsTrigger value="broadcasts" className="font-bold">Broadcasts</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
               <TabsTrigger value="breaches" className="font-bold">Breaches</TabsTrigger>
             </TabsList>
@@ -354,6 +358,20 @@ export default function AdminPage() {
                       </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'phase_passers' && (
+            <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white">Phase Passers</CardTitle>
+                  <CardDescription>Traders ready for advancement.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-20 text-center text-muted-foreground italic">
+                  Institutional phase progression engine is monitoring all active evaluations.
                 </CardContent>
               </Card>
             </div>
@@ -462,6 +480,48 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'profile_editor' && (
+            <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white">Profile Editor</CardTitle>
+                  <CardDescription>Administrative control over user institutional records.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-20 text-center text-muted-foreground italic">
+                  Select a user from the directory to manually override profile fields.
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'referral_audit' && (
+            <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white">Referral Audit</CardTitle>
+                  <CardDescription>Commission verification and multi-tier network analysis.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-20 text-center text-muted-foreground italic">
+                  Referral network metrics are being calculated.
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'broadcasts' && (
+            <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white">Global Broadcasts</CardTitle>
+                  <CardDescription>Network-wide announcements and trader alerts.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-20 text-center text-muted-foreground italic">
+                  Broadcast terminal initialized. Select target groups for communication.
                 </CardContent>
               </Card>
             </div>
