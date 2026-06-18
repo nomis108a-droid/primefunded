@@ -586,7 +586,11 @@ export default function AdminPage() {
                               <p className="text-white font-bold">{ref.referredUserEmail}</p>
                               <p className="text-[10px] text-muted-foreground">{ref.referredUserId}</p>
                             </td>
-                            <td className="py-4 px-4 text-muted-foreground">{ref.createdAt ? format(new Date(ref.createdAt.seconds * 1000), 'yyyy-MM-dd') : 'N/A'}</td>
+                            <td className="py-4 px-4 text-muted-foreground">
+                              {ref.createdAt?.seconds || ref.createdAt?._seconds 
+                                ? format(new Date((ref.createdAt.seconds || ref.createdAt._seconds) * 1000), 'yyyy-MM-dd') 
+                                : 'N/A'}
+                            </td>
                             <td className="py-4 px-6 text-right">
                               <Badge className={cn("uppercase text-[10px]", ref.status === 'paid' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
                                 {ref.status}
@@ -625,11 +629,25 @@ export default function AdminPage() {
                   <CardHeader><CardTitle className="text-white">Broadcast History</CardTitle></CardHeader>
                   <CardContent className="p-0">
                     <div className="divide-y divide-white/5">
-                      {adminData.broadcasts.sort((a:any, b:any) => (b.sentAt?.seconds || 0) - (a.sentAt?.seconds || 0)).map((b: any) => (
+                      {adminData.broadcasts.sort((a:any, b:any) => {
+                        const timeA = a.sentAt?.seconds || a.sentAt?._seconds || 0;
+                        const timeB = b.sentAt?.seconds || b.sentAt?._seconds || 0;
+                        return timeB - timeA;
+                      }).map((b: any) => (
                         <div key={b.id} className="p-6 space-y-2 hover:bg-white/5 transition-colors">
                           <div className="flex justify-between items-start">
                              <Badge variant="outline" className="uppercase text-[9px]">{b.type}</Badge>
-                             <span className="text-[10px] text-muted-foreground uppercase font-black">{b.sentAt ? formatDistanceToNow(new Date(b.sentAt.seconds * 1000), { addSuffix: true }) : 'Recently'}</span>
+                             <span className="text-[10px] text-muted-foreground uppercase font-black">
+                               {(() => {
+                                 const seconds = b.sentAt?.seconds || b.sentAt?._seconds;
+                                 if (!seconds) return 'Recently';
+                                 try {
+                                   return formatDistanceToNow(new Date(seconds * 1000), { addSuffix: true });
+                                 } catch (e) {
+                                   return 'Recently';
+                                 }
+                               })()}
+                             </span>
                           </div>
                           <h4 className="font-bold text-white">{b.title}</h4>
                           <p className="text-sm text-muted-foreground line-clamp-2">{b.message}</p>
@@ -717,12 +735,20 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
-                        {adminData.breaches.sort((a: any, b: any) => (b.breachedAt?.seconds || 0) - (a.breachedAt?.seconds || 0)).map((b: any) => (
+                        {adminData.breaches.sort((a: any, b: any) => {
+                          const timeA = a.breachedAt?.seconds || a.breachedAt?._seconds || 0;
+                          const timeB = b.breachedAt?.seconds || b.breachedAt?._seconds || 0;
+                          return timeB - timeA;
+                        }).map((b: any) => (
                           <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
                             <td className="py-4 px-6 font-bold text-white">{b.userName || 'N/A'}</td>
                             <td className="py-4 px-4 font-mono text-xs">{b.login || 'N/A'}</td>
                             <td className="py-4 px-4 uppercase text-[10px] font-black text-destructive">{b.breachType || 'Hard'}</td>
-                            <td className="py-4 px-4 text-xs text-muted-foreground">{b.breachedAt ? format(new Date(b.breachedAt.seconds * 1000), 'yyyy-MM-dd HH:mm') : 'N/A'}</td>
+                            <td className="py-4 px-4 text-xs text-muted-foreground">
+                              {b.breachedAt?.seconds || b.breachedAt?._seconds 
+                                ? format(new Date((b.breachedAt.seconds || b.breachedAt._seconds) * 1000), 'yyyy-MM-dd HH:mm') 
+                                : 'N/A'}
+                            </td>
                             <td className="py-4 px-6 text-right text-xs text-muted-foreground truncate max-w-[200px]">{b.breachReason || b.reason}</td>
                           </tr>
                         ))}
