@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
@@ -55,6 +54,8 @@ export default function HistoryPage() {
 
   // Use SHARED logic for positioning matching
   const enrichedPositions = useMemo(() => {
+    // Trades are stored per-account in mt5_accounts subcollection via EA sync
+    // Currently showing all trades across all accounts for this user
     return enrichTrades(trades, userData?.mt5Login || 'N/A');
   }, [trades, userData?.mt5Login]);
 
