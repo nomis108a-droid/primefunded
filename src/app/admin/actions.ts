@@ -1,6 +1,6 @@
 'use server';
 
-import { getApps, initializeApp, cert, type App, getApp } from 'firebase-admin/app';
+import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { enrichTrades } from '@/lib/tradeUtils';
 
@@ -9,8 +9,6 @@ import { enrichTrades } from '@/lib/tradeUtils';
  */
 async function verifyAdminAuth() {
   const masterKey = "93463962569392846256";
-  // In a real app, this would check a secure session or custom claim
-  // For this terminal, we verify the protocol master key
   return process.env.ADMIN_PASSWORD === masterKey || "93463962569392846256" === masterKey; 
 }
 
@@ -80,42 +78,48 @@ export async function runRetroactiveRiskAuditAction() {
     }
 
     if (breached) {
-      breachCount++;
       const breachKey = `audit_hard_${login}_${violatingTicket}`;
       
-      // Update Account
-      await doc.ref.update({ 
-        status: 'breached', 
-        breachReason: reason, 
-        breachedAt: FieldValue.serverTimestamp() 
-      });
-      
-      // Update User Profile
-      await userRef.update({ 
-        accountStatus: 'breached', 
-        breachReason: reason, 
-        breachedAt: FieldValue.serverTimestamp() 
-      });
-      
-      // Persist to Ledger
-      await db.collection('breaches').doc(breachKey).set({
-        userId, 
-        traderId, 
-        login,
-        userName: userData?.name || 'N/A',
-        userEmail: userData?.email || 'N/A',
-        breachReason: reason, 
-        breachType: 'hard',
-        breachedAt: FieldValue.serverTimestamp()
-      }, { merge: true });
+      // Idempotency check: don't write duplicate breach records
+      const existingBreach = await db.collection('breaches').doc(breachKey).get();
+      if (!existingBreach.exists) {
+        breachCount++;
+        // Update Account
+        await doc.ref.update({ 
+          status: 'breached', 
+          breachReason: reason, 
+          breachedAt: FieldValue.serverTimestamp() 
+        });
+        
+        // Update User Profile
+        await userRef.update({ 
+          accountStatus: 'breached', 
+          breachReason: reason, 
+          breachedAt: FieldValue.serverTimestamp() 
+        });
+        
+        // Persist to Ledger
+        await db.collection('breaches').doc(breachKey).set({
+          userId, 
+          traderId, 
+          login,
+          userName: userData?.name || 'N/A',
+          userEmail: userData?.email || 'N/A',
+          breachReason: reason, 
+          breachType: 'hard',
+          breachedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
 
-      auditData.push({ login, breached: true, reason });
+        auditData.push({ login, breached: true, reason });
+      } else {
+        auditData.push({ login, skipped: true, reason: "Breach already recorded" });
+      }
     } else {
       auditData.push({ login, breached: false });
     }
   }
 
-  return { success: true, breachCount, auditData, version: "2024-06-18-AUDIT-VERIFY-100" };
+  return { success: true, breachCount, auditData };
 }
 
 export async function advanceTraderPhaseAction(userId: string) {
@@ -123,10 +127,11 @@ export async function advanceTraderPhaseAction(userId: string) {
   const db = getAdminDb();
   const userRef = db.collection('users').doc(userId);
   const userSnap = await userRef.get();
-  const currentPhase = userSnap.data()?.currentPhase || 'evaluation';
+  const userData = userSnap.data();
+  const currentPhase = userData?.currentPhase || 'evaluation';
   let nextPhase = 'funded';
   
-  if (userSnap.data()?.accountPlan?.toLowerCase().includes('2-step')) {
+  if (userData?.accountPlan?.toLowerCase().includes('2-step')) {
     nextPhase = currentPhase === 'phase1' ? 'phase2' : 'funded';
   }
   
@@ -138,6 +143,7 @@ export async function registerMt5AccountAction(data: any) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
   
+  // 1. Create the new account document
   const accountRef = db.collection('mt5_accounts').doc(String(data.login));
   await accountRef.set({
     userId: data.userId,
@@ -152,6 +158,7 @@ export async function registerMt5AccountAction(data: any) {
     updatedAt: FieldValue.serverTimestamp()
   });
 
+  // 2. Synchronize user profile to point to this new active account
   const userRef = db.collection('users').doc(data.userId);
   await userRef.update({
     mt5Login: data.login,
@@ -162,7 +169,8 @@ export async function registerMt5AccountAction(data: any) {
     accountBalance: data.size,
     accountStatus: 'active',
     currentPhase: data.phase,
-    activatedAt: FieldValue.serverTimestamp()
+    activatedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
   });
 
   return { success: true, docId: data.login };
@@ -254,7 +262,6 @@ export async function resetPhaseProgressAction(userId: string) {
 
 export async function manualGenerateCertificateAction(userId: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  // Logic for manual certificate generation would go here
   return { success: true };
 }
 
