@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
@@ -47,9 +48,15 @@ export default function HistoryPage() {
     [orderBy('date', 'desc'), limit(500)]
   );
 
-  const { data: phaseHistory, loading: phasesLoading } = useCollection<any>(
-    user ? `users/${user.uid}/phaseHistory` : null,
-    [orderBy('advancedAt', 'desc')]
+  const accountConstraints = useMemo(() => [
+    where('userId', '==', user?.uid || '_none_'),
+    orderBy('createdAt', 'desc'),
+    limit(20)
+  ], [user?.uid]);
+
+  const { data: accountHistory, loading: accountsLoading } = useCollection<any>(
+    user ? 'mt5_accounts' : null,
+    accountConstraints
   );
 
   // Use SHARED logic for positioning matching
@@ -146,48 +153,61 @@ export default function HistoryPage() {
             <h2 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Phase Progression</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {phasesLoading ? (
+            {accountsLoading ? (
                [1, 2].map(i => <div key={i} className="h-32 bg-secondary/20 rounded-2xl animate-pulse border border-border/30" />)
-            ) : phaseHistory.length > 0 ? (
-               phaseHistory.map((phase: any) => {
-                  const isCurrent = userData && String(userData.mt5Login) === String(phase.mt5Login);
-                  const status = isCurrent ? (userData.accountStatus || 'active') : 'passed';
-                  const isBreached = status === 'breached' || status === 'terminated';
+            ) : accountHistory.length > 0 ? (
+               accountHistory.map((acc: any) => {
+                  const isBreached = acc.status === 'breached' || acc.status === 'terminated';
+                  const isActive = acc.status === 'active';
+                  const isPassed = acc.status === 'passed' || acc.status === 'completed';
 
                   return (
-                    <Card key={phase.id} className={cn(
+                    <Card key={acc.id} className={cn(
                       "bg-card/40 border-border/50 hover:border-primary/20 transition-all",
-                      isBreached && "border-destructive/40 bg-destructive/5"
+                      isBreached && "border-destructive/40 bg-destructive/5",
+                      isActive && "border-emerald-500/40 bg-emerald-500/5",
+                      isPassed && "border-primary/40 bg-primary/5"
                     )}>
                        <CardContent className="p-5 space-y-3">
                           <div className="flex justify-between items-start">
-                             <Badge className="bg-primary/20 text-primary uppercase text-[9px] font-black border-none px-2">{phase.phase}</Badge>
+                             <Badge className={cn(
+                               "uppercase text-[9px] font-black border-none px-2",
+                               isBreached ? "bg-destructive/20 text-destructive" :
+                               isActive ? "bg-emerald-500/20 text-emerald-500" :
+                               "bg-primary/20 text-primary"
+                             )}>
+                               {acc.phase || acc.accountPlan}
+                             </Badge>
                              <span className="text-[10px] text-muted-foreground font-medium">
-                              {phase.advancedAt ? format(getTradeDate(phase.advancedAt)!, 'yyyy-MM-dd') : 'N/A'}
+                              {acc.createdAt?.seconds ? format(new Date(acc.createdAt.seconds * 1000), 'yyyy-MM-dd') : 'N/A'}
                              </span>
                           </div>
                           <div>
-                             <p className="text-xs font-bold text-white">{phase.accountSize || 'Standard'} Account</p>
-                             <p className="text-[10px] text-muted-foreground font-mono">MT5: {maskLogin(phase.mt5Login)}</p>
+                             <p className="text-xs font-bold text-white">{acc.accountSize || ('$' + (acc.accountBalance/1000).toFixed(0) + 'k')} Account</p>
+                             <p className="text-[10px] text-muted-foreground font-mono">MT5: {maskLogin(acc.login)}</p>
                           </div>
                           
                           <div className="space-y-2 pt-1">
                             <div className="flex items-center gap-1.5">
                                {isBreached ? (
                                   <XCircle className="w-3 h-3 text-destructive" />
+                               ) : isActive ? (
+                                  <Clock className="w-3 h-3 text-emerald-500" />
                                ) : (
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                  <CheckCircle2 className="w-3 h-3 text-primary" />
                                )}
                                <span className={cn(
                                  "text-[9px] font-black uppercase tracking-widest",
-                                 isBreached ? "text-destructive" : "text-emerald-500"
+                                 isBreached ? "text-destructive" :
+                                 isActive ? "text-emerald-500" :
+                                 "text-primary"
                                )}>
-                                 {isBreached ? 'TERMINATED' : isCurrent ? 'ACTIVE STATUS' : 'PHASE PASSED'}
+                                 {isBreached ? 'TERMINATED' : isActive ? 'ACTIVE STATUS' : 'PHASE PASSED'}
                                </span>
                             </div>
-                            {isBreached && isCurrent && userData?.breachReason && (
+                            {isBreached && acc.breachReason && (
                               <p className="text-[8px] text-destructive/70 leading-tight italic line-clamp-2">
-                                Reason: {userData.breachReason}
+                                Reason: {acc.breachReason}
                               </p>
                             )}
                           </div>
@@ -199,7 +219,7 @@ export default function HistoryPage() {
                <Card className="col-span-full bg-secondary/5 border-dashed border-border/50 py-10">
                   <CardContent className="flex flex-col items-center justify-center text-center opacity-50">
                      <Clock className="w-8 h-8 mb-2" />
-                     <p className="text-sm font-bold">No phase advancements recorded yet.</p>
+                     <p className="text-sm font-bold">No historical trading nodes found.</p>
                   </CardContent>
                </Card>
             )}
