@@ -91,6 +91,19 @@ async function sendAdminNotification(
   }
 }
 
+export async function sendGlobalBroadcastAction(data: { title: string, message: string, type: string }) {
+  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  const db = getAdminDb();
+  
+  await db.collection('broadcasts').add({
+    ...data,
+    sentAt: FieldValue.serverTimestamp(),
+    sentBy: 'admin'
+  });
+
+  return { success: true };
+}
+
 export async function runRetroactiveRiskAuditAction() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   

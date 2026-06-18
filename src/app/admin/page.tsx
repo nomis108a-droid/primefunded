@@ -17,12 +17,12 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import Image from 'next/image';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -63,6 +63,9 @@ export default function AdminPage() {
   const [provisionForm, setProvisionForm] = useState({ login: '', password: '', displayLogin: '', plan: '1-Step Pro', size: '100000', userId: '', phase: 'evaluation' });
   const [userSearchTerm, setUserSearchTerm] = useState('');
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
+  // Broadcast Form State
+  const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
 
   // Force Breach State
   const [isForceBreachOpen, setIsForceBreachOpen] = useState(false);
@@ -213,6 +216,24 @@ export default function AdminPage() {
     if (res.success) { toast({ title: `KYC ${status === 'verified' ? 'Approved' : 'Rejected'}` }); refreshData(); }
     else { toast({ variant: "destructive", title: "KYC Update Failed" }); }
     setActionLoading(false);
+  };
+
+  const handleSendBroadcast = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!broadcastForm.title || !broadcastForm.message) return;
+    setActionLoading(true);
+    try {
+      const res = await sendGlobalBroadcastAction(broadcastForm);
+      if (res.success) {
+        toast({ title: "Broadcast Sent", description: "Annoucement delivered to all nodes." });
+        setBroadcastForm({ title: '', message: '', type: 'info' });
+        refreshData();
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Broadcast Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const filteredUsersForSearch = useMemo(() => {
@@ -370,8 +391,38 @@ export default function AdminPage() {
                   <CardTitle className="text-white">Phase Passers</CardTitle>
                   <CardDescription>Traders ready for advancement.</CardDescription>
                 </CardHeader>
-                <CardContent className="p-20 text-center text-muted-foreground italic">
-                  Institutional phase progression engine is monitoring all active evaluations.
+                <CardContent className="p-0">
+                   <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Trader</th>
+                          <th className="py-4 px-4">Plan</th>
+                          <th className="py-4 px-4">Phase</th>
+                          <th className="py-4 px-4">Login</th>
+                          <th className="py-4 px-6 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {adminData.users.filter((u: any) => u.readyForNextPhase).map((u: any) => (
+                          <tr key={u.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="py-4 px-6 font-bold text-white">{u.name}</td>
+                            <td className="py-4 px-4 text-white">{u.accountPlan}</td>
+                            <td className="py-4 px-4 uppercase text-xs font-bold text-primary">{u.currentPhase}</td>
+                            <td className="py-4 px-4 font-mono text-xs">{u.mt5Login}</td>
+                            <td className="py-4 px-6 text-right">
+                              <Button size="sm" onClick={() => handleAdvancePhase(u.id)} disabled={actionLoading}>
+                                Advance Phase
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminData.users.filter((u: any) => u.readyForNextPhase).length === 0 && (
+                          <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No traders currently awaiting phase advancement.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -516,22 +567,171 @@ export default function AdminPage() {
                   <CardTitle className="text-white">Referral Audit</CardTitle>
                   <CardDescription>Commission verification and multi-tier network analysis.</CardDescription>
                 </CardHeader>
-                <CardContent className="p-20 text-center text-muted-foreground italic">
-                  Referral network metrics are being calculated.
+                <CardContent className="p-0">
+                   <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Referrer ID</th>
+                          <th className="py-4 px-4">Referred User</th>
+                          <th className="py-4 px-4">Signup Date</th>
+                          <th className="py-4 px-6 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {adminData.referrals.map((ref: any) => (
+                          <tr key={ref.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="py-4 px-6 font-mono text-xs text-white">{ref.referrerId}</td>
+                            <td className="py-4 px-4">
+                              <p className="text-white font-bold">{ref.referredUserEmail}</p>
+                              <p className="text-[10px] text-muted-foreground">{ref.referredUserId}</p>
+                            </td>
+                            <td className="py-4 px-4 text-muted-foreground">{ref.createdAt ? format(new Date(ref.createdAt.seconds * 1000), 'yyyy-MM-dd') : 'N/A'}</td>
+                            <td className="py-4 px-6 text-right">
+                              <Badge className={cn("uppercase text-[10px]", ref.status === 'paid' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
+                                {ref.status}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminData.referrals.length === 0 && (
+                           <tr><td colSpan={4} className="py-20 text-center text-muted-foreground italic">No referral records detected.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
           )}
 
           {activeTab === 'broadcasts' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-1 space-y-6">
+                <Card className="bg-card/40 border-primary/20">
+                  <CardHeader><CardTitle className="text-white">New Broadcast</CardTitle><CardDescription>Send a platform-wide alert.</CardDescription></CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleSendBroadcast} className="space-y-4">
+                      <div className="space-y-2"><Label>Title</Label><Input value={broadcastForm.title} onChange={e => setBroadcastForm({...broadcastForm, title: e.target.value})} placeholder="e.g. System Maintenance" /></div>
+                      <div className="space-y-2"><Label>Message</Label><Textarea value={broadcastForm.message} onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})} placeholder="Announcement details..." rows={5} /></div>
+                      <div className="space-y-2"><Label>Type</Label><Select value={broadcastForm.type} onValueChange={v => setBroadcastForm({...broadcastForm, type: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="info">Information</SelectItem><SelectItem value="success">Success</SelectItem><SelectItem value="warning">Warning</SelectItem><SelectItem value="alert">Alert</SelectItem></SelectContent></Select></div>
+                      <Button className="w-full font-bold" disabled={actionLoading || !broadcastForm.title}><Send className="w-4 h-4 mr-2" /> Send Broadcast</Button>
+                    </form>
+                  </CardContent>
+                </Card>
+              </div>
+              <div className="lg:col-span-2">
+                <Card className="bg-card/30 border-border/50">
+                  <CardHeader><CardTitle className="text-white">Broadcast History</CardTitle></CardHeader>
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-white/5">
+                      {adminData.broadcasts.sort((a:any, b:any) => (b.sentAt?.seconds || 0) - (a.sentAt?.seconds || 0)).map((b: any) => (
+                        <div key={b.id} className="p-6 space-y-2 hover:bg-white/5 transition-colors">
+                          <div className="flex justify-between items-start">
+                             <Badge variant="outline" className="uppercase text-[9px]">{b.type}</Badge>
+                             <span className="text-[10px] text-muted-foreground uppercase font-black">{b.sentAt ? formatDistanceToNow(new Date(b.sentAt.seconds * 1000), { addSuffix: true }) : 'Recently'}</span>
+                          </div>
+                          <h4 className="font-bold text-white">{b.title}</h4>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{b.message}</p>
+                        </div>
+                      ))}
+                      {adminData.broadcasts.length === 0 && (
+                        <div className="p-20 text-center text-muted-foreground italic text-sm">No previous broadcasts recorded.</div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'kyc' && (
+             <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white">KYC Review Hub</CardTitle>
+                  <CardDescription>Manage identity verification requests.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                   <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Trader</th>
+                          <th className="py-4 px-4">Email</th>
+                          <th className="py-4 px-4">Submitted At</th>
+                          <th className="py-4 px-4">Status</th>
+                          <th className="py-4 px-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {adminData.users.filter((u: any) => u.kycStatus && u.kycStatus !== 'none').map((u: any) => (
+                          <tr key={u.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="py-4 px-6 font-bold text-white">{u.name}</td>
+                            <td className="py-4 px-4 text-muted-foreground">{u.email}</td>
+                            <td className="py-4 px-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'yyyy-MM-dd HH:mm') : 'N/A'}</td>
+                            <td className="py-4 px-4">
+                              <Badge className={cn("uppercase text-[9px]", u.kycStatus === 'verified' ? 'bg-emerald-500/10 text-emerald-500' : u.kycStatus === 'pending' ? 'bg-amber-500/10 text-amber-500' : 'bg-destructive/10 text-destructive')}>
+                                {u.kycStatus}
+                              </Badge>
+                            </td>
+                            <td className="py-4 px-6 text-right flex justify-end gap-2">
+                               <button onClick={() => setPreviewUserId(u.id)} className="p-2 hover:bg-white/5 rounded-lg text-primary"><Eye className="w-4 h-4" /></button>
+                               {u.kycStatus === 'pending' && (
+                                 <>
+                                   <Button className="h-8 text-[10px] bg-emerald-500 text-black font-bold uppercase" onClick={() => handleUpdateKycStatus(u.id, 'verified')}>Approve</Button>
+                                   <Button variant="destructive" className="h-8 text-[10px] font-bold uppercase" onClick={() => handleUpdateKycStatus(u.id, 'rejected')}>Reject</Button>
+                                 </>
+                               )}
+                            </td>
+                          </tr>
+                        ))}
+                        {adminData.users.filter((u: any) => u.kycStatus && u.kycStatus !== 'none').length === 0 && (
+                          <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No KYC submissions found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'breaches' && (
             <div className="space-y-6">
               <Card className="bg-card/30 border-border/50">
                 <CardHeader>
-                  <CardTitle className="text-white">Global Broadcasts</CardTitle>
-                  <CardDescription>Network-wide announcements and trader alerts.</CardDescription>
+                  <CardTitle className="text-white">Risk Breach Ledger</CardTitle>
+                  <CardDescription>History of liquidated accounts across the network.</CardDescription>
                 </CardHeader>
-                <CardContent className="p-20 text-center text-muted-foreground italic">
-                  Broadcast terminal initialized. Select target groups for communication.
+                <CardContent className="p-0">
+                   <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Trader</th>
+                          <th className="py-4 px-4">Account ID</th>
+                          <th className="py-4 px-4">Breach Type</th>
+                          <th className="py-4 px-4">Date</th>
+                          <th className="py-4 px-6 text-right">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {adminData.breaches.sort((a: any, b: any) => (b.breachedAt?.seconds || 0) - (a.breachedAt?.seconds || 0)).map((b: any) => (
+                          <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
+                            <td className="py-4 px-6 font-bold text-white">{b.userName || 'N/A'}</td>
+                            <td className="py-4 px-4 font-mono text-xs">{b.login || 'N/A'}</td>
+                            <td className="py-4 px-4 uppercase text-[10px] font-black text-destructive">{b.breachType || 'Hard'}</td>
+                            <td className="py-4 px-4 text-xs text-muted-foreground">{b.breachedAt ? format(new Date(b.breachedAt.seconds * 1000), 'yyyy-MM-dd HH:mm') : 'N/A'}</td>
+                            <td className="py-4 px-6 text-right text-xs text-muted-foreground truncate max-w-[200px]">{b.breachReason || b.reason}</td>
+                          </tr>
+                        ))}
+                        {adminData.breaches.length === 0 && (
+                           <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">Zero records found in the risk ledger.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
