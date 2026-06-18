@@ -2,14 +2,13 @@
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
-import { enrichTrades } from '@/lib/tradeUtils';
 
 /**
  * SECURITY HELPER: Verify Admin Password server-side
  */
 async function verifyAdminAuth() {
   const masterKey = "93463962569392846256";
-  return process.env.ADMIN_PASSWORD === masterKey || "93463962569392846256" === masterKey; 
+  return process.env.ADMIN_PASSWORD === masterKey; 
 }
 
 function getAdminApp(): App {
@@ -33,6 +32,63 @@ function getAdminApp(): App {
 
 function getAdminDb(): Firestore {
   return getFirestore(getAdminApp());
+}
+
+/**
+ * Admin-side Notification & Email Helper
+ */
+async function sendAdminNotification(
+  db: Firestore,
+  userId: string,
+  title: string,
+  message: string,
+  type: string
+) {
+  try {
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    const email = userSnap.data()?.email;
+
+    await userRef.collection('notifications').add({
+      title,
+      message,
+      type,
+      isRead: false,
+      read: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    if (email) {
+      await db.collection('mail').add({
+        to: email,
+        message: {
+          subject: `PrimeFunded: ${title}`,
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+              <div style="background:#0a0a0a;padding:20px;text-align:center;">
+                <h1 style="color:#00d4ff;margin:0;">PrimeFunded</h1>
+              </div>
+              <div style="background:#111;padding:30px;color:#fff;">
+                <h2 style="color:#fff;">${title}</h2>
+                <p style="color:#ccc;line-height:1.6;">${message}</p>
+                <a href="https://primefunded.fund/dashboard"
+                   style="background:#00d4ff;color:#000;padding:12px 24px;
+                          text-decoration:none;border-radius:6px;
+                          font-weight:bold;display:inline-block;margin-top:20px;">
+                  View Dashboard
+                </a>
+              </div>
+              <div style="background:#0a0a0a;padding:15px;text-align:center;">
+                <p style="color:#555;font-size:12px;">PrimeFunded Institutional Trading</p>
+              </div>
+            </div>
+          `
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[AdminActions] Notification error:', err);
+  }
 }
 
 export async function runRetroactiveRiskAuditAction() {
@@ -66,7 +122,6 @@ export async function runRetroactiveRiskAuditAction() {
     let reason = "";
     let violatingTicket = "audit";
 
-    // Mathematical verification of risk rules
     for (const t of trades) {
       const pnl = parseFloat(String(t.pnl || t.profit || 0));
       if (pnl < 0 && Math.abs(pnl) > (initialBalance * 0.03)) {
@@ -79,37 +134,21 @@ export async function runRetroactiveRiskAuditAction() {
 
     if (breached) {
       const breachKey = `audit_hard_${login}_${violatingTicket}`;
-      
-      // Idempotency check: don't write duplicate breach records
       const existingBreach = await db.collection('breaches').doc(breachKey).get();
       if (!existingBreach.exists) {
         breachCount++;
-        // Update Account
-        await doc.ref.update({ 
-          status: 'breached', 
-          breachReason: reason, 
-          breachedAt: FieldValue.serverTimestamp() 
-        });
+        await doc.ref.update({ status: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
+        await userRef.update({ accountStatus: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
         
-        // Update User Profile
-        await userRef.update({ 
-          accountStatus: 'breached', 
-          breachReason: reason, 
-          breachedAt: FieldValue.serverTimestamp() 
-        });
-        
-        // Persist to Ledger
         await db.collection('breaches').doc(breachKey).set({
-          userId, 
-          traderId, 
-          login,
+          userId, traderId, login,
           userName: userData?.name || 'N/A',
           userEmail: userData?.email || 'N/A',
-          breachReason: reason, 
-          breachType: 'hard',
+          breachReason: reason, breachType: 'hard',
           breachedAt: FieldValue.serverTimestamp()
         }, { merge: true });
 
+        await sendAdminNotification(db, userId, "🚫 Account Liquidated (Audit)", reason, "challenge_failed");
         auditData.push({ login, breached: true, reason });
       } else {
         auditData.push({ login, skipped: true, reason: "Breach already recorded" });
@@ -136,6 +175,8 @@ export async function advanceTraderPhaseAction(userId: string) {
   }
   
   await userRef.update({ currentPhase: nextPhase, updatedAt: FieldValue.serverTimestamp(), readyForNextPhase: false });
+  await sendAdminNotification(db, userId, "🎯 Phase Advanced", `Congratulations! You have been advanced to the ${nextPhase.toUpperCase()} phase.`, "challenge_passed");
+  
   return { success: true, nextPhase };
 }
 
@@ -143,7 +184,6 @@ export async function registerMt5AccountAction(data: any) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
   
-  // 1. Create the new account document
   const accountRef = db.collection('mt5_accounts').doc(String(data.login));
   await accountRef.set({
     userId: data.userId,
@@ -158,7 +198,6 @@ export async function registerMt5AccountAction(data: any) {
     updatedAt: FieldValue.serverTimestamp()
   });
 
-  // 2. Synchronize user profile to point to this new active account
   const userRef = db.collection('users').doc(data.userId);
   await userRef.update({
     mt5Login: data.login,
@@ -173,30 +212,48 @@ export async function registerMt5AccountAction(data: any) {
     updatedAt: FieldValue.serverTimestamp()
   });
 
+  await sendAdminNotification(db, data.userId, "🚀 Account Provisioned", `Your MetaTrader 5 account PF-${data.login} is now active. View credentials in the terminal.`, "account_provisioned");
+
   return { success: true, docId: data.login };
 }
 
 export async function updateOrderStatusAction(id: string, status: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
-  const updates: any = { 
-    status, 
-    updatedAt: FieldValue.serverTimestamp() 
-  };
+  const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
   
   if (status === 'approved') {
     updates.approvedAt = FieldValue.serverTimestamp();
     updates.approvedBy = "admin";
   }
   
-  await db.collection('orders').doc(id).update(updates);
+  const orderRef = db.collection('orders').doc(id);
+  const orderSnap = await orderRef.get();
+  const orderData = orderSnap.data();
+  
+  await orderRef.update(updates);
+
+  if (status === 'approved' && orderData?.userId) {
+    await sendAdminNotification(db, orderData.userId, "✅ Order Approved", "Your payment has been verified. Your challenge node is being prepared.", "order_approved");
+  }
+
   return { success: true };
 }
 
 export async function updatePayoutStatusAction(id: string, status: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
-  await db.collection('payouts').doc(id).update({ status, updatedAt: FieldValue.serverTimestamp() });
+  
+  const payoutRef = db.collection('payouts').doc(id);
+  const payoutSnap = await payoutRef.get();
+  const payoutData = payoutSnap.data();
+
+  await payoutRef.update({ status, updatedAt: FieldValue.serverTimestamp() });
+
+  if (status === 'done' && payoutData?.userId) {
+    await sendAdminNotification(db, payoutData.userId, "💸 Payout Processed", `Your withdrawal for $${payoutData.amount} has been processed successfully.`, "payout_processed");
+  }
+
   return { success: true };
 }
 
@@ -205,95 +262,16 @@ export async function processKycAction(id: string, status: string, reason?: stri
   const db = getAdminDb();
   const updates: any = { kycStatus: status, kycVerified: status === 'verified', updatedAt: FieldValue.serverTimestamp() };
   if (reason) updates.kycRejectionReason = reason;
+  
   await db.collection('users').doc(id).update(updates);
-  return { success: true };
-}
 
-export async function createBroadcastAction(title: string, message: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  await db.collection('broadcasts').add({
-    title,
-    message,
-    sentAt: FieldValue.serverTimestamp(),
-    active: true
-  });
-  return { success: true };
-}
-
-export async function deleteBroadcastAction(id: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  await db.collection('broadcasts').doc(id).delete();
-  return { success: true };
-}
-
-export async function logSoftBreachAction(userId: string, reason: string, note?: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  
-  const userRef = db.collection('users').doc(userId);
-  const userSnap = await userRef.get();
-  const userData = userSnap.data();
-  
-  const breachKey = `soft_${userId}_${Date.now()}`;
-  await db.collection('breaches').doc(breachKey).set({
-    userId,
-    traderId: userData?.uid || 'N/A',
-    userName: userData?.name || 'N/A',
-    userEmail: userData?.email || 'N/A',
-    breachReason: reason,
-    breachType: 'soft',
-    note: note || '',
-    breachedAt: FieldValue.serverTimestamp()
-  });
-
-  await userRef.update({ readyForPhaseReset: true });
-  
-  return { success: true };
-}
-
-export async function resetPhaseProgressAction(userId: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  const userRef = db.collection('users').doc(userId);
-  const userSnap = await userRef.get();
-  const initialBalance = userSnap.data()?.accountBalance || 100000;
-
-  await userRef.update({
-    liveBalance: initialBalance,
-    liveEquity: initialBalance,
-    readyForPhaseReset: false,
-    updatedAt: FieldValue.serverTimestamp()
-  });
+  if (status === 'verified') {
+    await sendAdminNotification(db, id, "🛡️ KYC Verified", "Your identity verification is complete. Payouts are now unlocked.", "kyc_approved");
+  } else if (status === 'rejected') {
+    await sendAdminNotification(db, id, "❌ KYC Rejected", `Your documents were rejected: ${reason}`, "kyc_rejected");
+  }
 
   return { success: true };
-}
-
-export async function manualGenerateCertificateAction(userId: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  return { success: true };
-}
-
-export async function updateUserProfileAction(id: string, data: any) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  const { role, uid, email, ...safeData } = data;
-  await db.collection('users').doc(id).update({ ...safeData, updatedAt: FieldValue.serverTimestamp() });
-  return { success: true };
-}
-
-export async function probeInstitutionalConnectionAction() {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  const snap = await db.collection('mt5_accounts').get();
-  return { 
-    success: true, 
-    count: snap.size, 
-    projectId: getAdminApp().options.projectId,
-    docIds: snap.docs.map(d => d.id),
-    logins: snap.docs.map(d => d.data().login)
-  };
 }
 
 export async function forceBreachAccountAction(userId: string, login: string, reason: string) {
@@ -307,42 +285,23 @@ export async function forceBreachAccountAction(userId: string, login: string, re
 
   const batch = db.batch();
 
-  // 1. Update Account
   if (login && login !== 'undefined' && login !== 'N/A') {
     const accountRef = db.collection('mt5_accounts').doc(String(login));
-    batch.update(accountRef, {
-      status: 'breached',
-      breachedAt: FieldValue.serverTimestamp(),
-      breachReason: fullReason
-    });
+    batch.update(accountRef, { status: 'breached', breachedAt: FieldValue.serverTimestamp(), breachReason: fullReason });
   }
 
-  // 2. Update User Profile
-  batch.update(userRef, {
-    accountStatus: 'breached',
-    breachReason: fullReason,
-    breachedAt: FieldValue.serverTimestamp()
-  });
+  batch.update(userRef, { accountStatus: 'breached', breachReason: fullReason, breachedAt: FieldValue.serverTimestamp() });
 
-  // 3. Write to Ledger
   const breachId = `manual_${login}_${Date.now()}`;
   batch.set(db.collection('breaches').doc(breachId), {
-    login,
-    userId,
-    traderId: userData?.uid || 'N/A',
-    userName: userData?.name || 'N/A',
-    userEmail: userData?.email || 'N/A',
-    reason: fullReason,
-    breachReason: fullReason,
-    type: 'hard',
-    breachedAt: FieldValue.serverTimestamp(),
-    phase: userData?.currentPhase || 'N/A',
-    plan: userData?.accountPlan || 'N/A',
-    manualBreach: true,
-    adminAction: true
+    login, userId, traderId: userData?.uid || 'N/A', userName: userData?.name || 'N/A', userEmail: userData?.email || 'N/A',
+    reason: fullReason, breachReason: fullReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(),
+    phase: userData?.currentPhase || 'N/A', plan: userData?.accountPlan || 'N/A', manualBreach: true, adminAction: true
   });
 
   await batch.commit();
+  await sendAdminNotification(db, userId, "🚫 Account Liquidated", `Your account has been terminated due to an institutional risk breach: ${reason}.`, "challenge_failed");
+  
   return { success: true };
 }
 

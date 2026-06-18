@@ -1,4 +1,3 @@
-
 'use client';
 
 import { Bell, ExternalLink, Check } from 'lucide-react';
@@ -21,9 +20,10 @@ export function NotificationBell() {
   const db = useFirestore();
   const [isOpen, setIsOpen] = useState(false);
 
+  // FIXED: Limit to 10 and ensure correct ordering as requested
   const constraints = useMemo(() => [
     orderBy('createdAt', 'desc'),
-    limit(5)
+    limit(10)
   ], []);
 
   const { data: notifications, loading } = useCollection<any>(
@@ -32,13 +32,13 @@ export function NotificationBell() {
   );
 
   const unreadCount = useMemo(() => 
-    notifications.filter(n => !n.isRead).length
+    notifications.filter(n => !n.isRead && n.read !== true).length
   , [notifications]);
 
   const handleMarkAsRead = async (id: string) => {
     if (!user) return;
     const ref = doc(db, 'users', user.uid, 'notifications', id);
-    updateDoc(ref, { isRead: true });
+    updateDoc(ref, { isRead: true, read: true });
   };
 
   const handleMarkAllAsRead = async () => {
@@ -50,7 +50,7 @@ export function NotificationBell() {
     const snapshot = await getDocs(q);
     const batch = writeBatch(db);
     snapshot.docs.forEach((d) => {
-      batch.update(d.ref, { isRead: true });
+      batch.update(d.ref, { isRead: true, read: true });
     });
     await batch.commit();
   };
@@ -97,12 +97,12 @@ export function NotificationBell() {
                   key={n.id} 
                   className={cn(
                     "p-4 transition-all cursor-pointer group relative",
-                    !n.isRead ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-secondary/20"
+                    (!n.isRead && n.read !== true) ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-secondary/20"
                   )}
                   onClick={() => handleMarkAsRead(n.id)}
                 >
                   <div className="flex justify-between items-start gap-2 mb-1">
-                    <p className={cn("text-[11px] font-black uppercase tracking-tight", !n.isRead ? "text-white" : "text-muted-foreground")}>
+                    <p className={cn("text-[11px] font-black uppercase tracking-tight", (!n.isRead && n.read !== true) ? "text-white" : "text-muted-foreground")}>
                       {n.title}
                     </p>
                     <span className="text-[8px] font-bold text-muted-foreground uppercase whitespace-nowrap pt-0.5">
@@ -112,7 +112,7 @@ export function NotificationBell() {
                   <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2 pr-4">
                     {n.message}
                   </p>
-                  {!n.isRead && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary" />}
+                  {(!n.isRead && n.read !== true) && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary" />}
                 </div>
               ))}
             </div>
