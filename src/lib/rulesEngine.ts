@@ -1,6 +1,6 @@
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 /**
  * @fileOverview Institutional Risk Rules Engine
@@ -17,6 +17,36 @@ function getAdminDb() {
   return getFirestore();
 }
 
+/**
+ * Executes an audit on all active MT5 accounts in the system.
+ */
+export async function runGlobalAudit() {
+  const db = getAdminDb();
+  const snapshot = await db.collection('mt5_accounts').where('status', '==', 'active').get();
+  
+  const results = {
+    totalChecked: snapshot.size,
+    breachesDetected: 0,
+    errors: 0,
+    details: [] as any[]
+  };
+
+  for (const doc of snapshot.docs) {
+    try {
+      const res = await auditAccount({ id: doc.id, ...doc.data() });
+      if (res?.breached) {
+        results.breachesDetected++;
+        results.details.push({ login: doc.id, status: 'breached', reason: res.reason });
+      }
+    } catch (err: any) {
+      results.errors++;
+      results.details.push({ login: doc.id, status: 'error', message: err.message });
+    }
+  }
+
+  return results;
+}
+
 export async function auditAccount(accountDoc: any) {
   const db = getAdminDb();
   const {
@@ -27,7 +57,6 @@ export async function auditAccount(accountDoc: any) {
     balance,
     equity,
     phase,
-    status,
     liveBalance,
     liveEquity
   } = accountDoc;
@@ -206,25 +235,6 @@ export async function auditAccount(accountDoc: any) {
           await db.collection('mt5_accounts').doc(String(login)).update({ readyForPhaseReset: true });
         }
       }
-    }
-  }
-
-  // 10. WEEKEND HOLDING CHECK
-  if (!breachType) {
-    const day = now.getUTCDay();
-    // Simplified: if open trades exist on Sat (6) or Sun (0)
-    // In a real audit, you'd check the MT5 account's current open positions
-    // This logic assumes accountDoc has hasOpenTrades boolean from EA
-    if ((day === 0 || day === 6) && accountDoc.hasOpenTrades) {
-       const reason = "Weekend Holding Violation: Open trades detected on weekend.";
-       const breachId = `soft_${login}_weekend_${now.toISOString().split('T')[0]}`;
-       const existing = await db.collection('softBreaches').doc(breachId).get();
-       if (!existing.exists) {
-          await db.collection('softBreaches').doc(breachId).set({
-            login, userId, reason, type: 'soft', createdAt: FieldValue.serverTimestamp()
-          });
-          await db.collection('mt5_accounts').doc(String(login)).update({ readyForPhaseReset: true });
-       }
     }
   }
 
