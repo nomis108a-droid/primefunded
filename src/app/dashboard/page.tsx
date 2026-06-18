@@ -31,7 +31,8 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Award,
-  Download
+  Download,
+  Target
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,7 @@ import {
 } from 'recharts';
 import { format, subDays, subMonths, differenceInSeconds, isValid, startOfDay, differenceInDays } from 'date-fns';
 import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * Institutional temporal helper: Boundary at 2:00 AM UTC (7:30 AM IST)
@@ -130,6 +132,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const { toast } = useToast();
 
   const [adminTargetData, setAdminTargetData] = useState<any>(null);
+  const [activeAccountData, setActiveAccountData] = useState<any>(null);
   
   useEffect(() => {
     if (adminViewMode && targetUid && db) {
@@ -140,6 +143,23 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
   }, [adminViewMode, targetUid, db]);
 
+  // Real-time MT5 Account Listener
+  useEffect(() => {
+    const userData = adminViewMode ? adminTargetData : contextUserData;
+    const login = userData?.mt5Login;
+    
+    if (login && db) {
+      const unsub = onSnapshot(doc(db, 'mt5_accounts', String(login)), (snap) => {
+        if (snap.exists()) {
+          setActiveAccountData(snap.data());
+        }
+      });
+      return () => unsub();
+    } else {
+      setActiveAccountData(null);
+    }
+  }, [adminViewMode, adminTargetData, contextUserData, db]);
+
   const userData = adminViewMode ? adminTargetData : contextUserData;
   const isBreached = userData?.accountStatus === 'breached';
 
@@ -149,15 +169,17 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       return parseFloat(sizeStr.replace(/[$,]/g, '').replace(/k/i, '000')) || 0;
     };
 
-    const staticBalance = userData?.accountBalance || parseSize(userData?.accountSize);
-    const liveBalance = userData?.liveBalance !== undefined ? userData.liveBalance : staticBalance;
-    const liveEquity = userData?.liveEquity !== undefined ? userData.liveEquity : liveBalance;
+    const initial = userData?.accountBalance || parseSize(userData?.accountSize);
+    
+    // Priority: Real-time MT5 Account Data > User Doc Fallback > Initial Static Balance
+    const balance = activeAccountData?.liveBalance ?? activeAccountData?.balance ?? userData?.liveBalance ?? initial;
+    const equity = activeAccountData?.liveEquity ?? activeAccountData?.equity ?? userData?.liveEquity ?? balance;
     
     return {
-      balance: liveBalance,
-      equity: liveEquity,
+      balance,
+      equity,
     };
-  }, [userData]);
+  }, [userData, activeAccountData]);
 
   const connectivityStatus = useMemo(() => {
     if (isBreached) return 'terminated';
@@ -264,23 +286,26 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     };
   }, [recentTrades, userData]);
 
-  const accountAgeData = useMemo(() => {
-    const start = userData?.activatedAt?.toDate?.() || 
-                  userData?.activatedAt || 
-                  userData?.giftedAt || 
-                  userData?.createdAt?.toDate?.() || 
-                  userData?.createdAt;
+  const profitTargetData = useMemo(() => {
+    const initial = userData?.accountBalance || 0;
+    const planKey = getPlanKey(userData?.accountPlan || '');
+    const phase = userData?.currentPhase || 'evaluation';
+    const rules = RULES_CONFIG.plans[planKey]?.[phase];
     
-    if (!start) return { days: 0, date: 'N/A' };
-    const startDate = new Date(start);
-    if (!isValid(startDate)) return { days: 0, date: 'N/A' };
+    const targetPct = rules?.profitTarget || 0;
+    const targetAmount = initial * (targetPct / 100);
+    const currentProfit = metrics.balance - initial;
     
-    const diffDays = Math.max(0, differenceInDays(new Date(), startDate));
-    return { 
-      days: diffDays, 
-      date: format(startDate, 'MMM d, yyyy') 
+    const progress = targetAmount > 0 ? Math.max(0, Math.min((currentProfit / targetAmount) * 100, 100)) : 0;
+    
+    return {
+      targetPct,
+      targetAmount,
+      currentProfit,
+      progress,
+      hasTarget: targetPct > 0
     };
-  }, [userData]);
+  }, [userData, metrics.balance]);
 
   const enrichedTrades = useMemo(() => {
     return enrichTrades(recentTrades, userData?.mt5Login || 'N/A');
@@ -315,7 +340,9 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
   const dailyRiskMetrics = useMemo(() => {
     const initialBalance = userData?.accountBalance || 100000;
-    const dailyClosedLosses = userData?.dailyClosedLosses || 0;
+    
+    // Priority: Real-time MT5 account 'dailyGrossLoss' field > User Doc fallback
+    const dailyClosedLosses = activeAccountData?.dailyGrossLoss ?? userData?.dailyClosedLosses ?? 0;
     
     const currentFloatingPnL = metrics.equity - metrics.balance;
     const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
@@ -351,7 +378,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       drawdownPct, 
       isPositive: pnl >= 0 
     };
-  }, [userData, metrics]);
+  }, [userData, metrics, activeAccountData]);
 
   const currentPhaseDisplay = useMemo(() => {
     const phase = userData?.currentPhase || 'evaluation';
@@ -377,7 +404,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p>UID: {effectiveUid}</p>
             <p>Live Balance: {metrics.balance}</p>
             <p>Live Equity: {metrics.equity}</p>
-            <p>Realized Session Loss: {userData?.dailyClosedLosses || 0}</p>
+            <p>Realized Session Loss: {activeAccountData?.dailyGrossLoss ?? userData?.dailyClosedLosses ?? 0}</p>
             <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
             <p>Session Key: {getTradingDayKey(new Date())}</p>
           </div>
@@ -466,10 +493,12 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             progressLabel={`${tradingDaysData.progress.toFixed(0)}% Completed`}
           />
           <MetricCard 
-            title="Account Age" 
-            value={`${accountAgeData.days} Days`} 
-            icon={<Clock className="text-amber-500" />} 
-            footer={`Trading since ${accountAgeData.date}`}
+            title="Profit Target" 
+            value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / $${(userData?.accountBalance + profitTargetData.targetAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'N/A'} 
+            icon={<Target className="text-amber-500" />} 
+            progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
+            progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
+            footer={profitTargetData.hasTarget ? `Target: ${profitTargetData.targetPct}% ($${profitTargetData.targetAmount.toLocaleString()})` : 'Keep trading to maximize payouts.'}
           />
         </div>
 
