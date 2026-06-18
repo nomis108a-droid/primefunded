@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 const StatBox = memo(function StatSmall({ title, value, icon, color = 'primary' }: { title: string, value: string, icon: any, color?: string }) {
   return (
@@ -299,7 +300,9 @@ export default function PayoutsPage() {
                 />
                 <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               </div>
-              <p className="text-[10px] text-muted-foreground">Max available: ${withdrawableProfit.toFixed(2)}</p>
+              <p className={cn("text-[10px] font-bold uppercase", parseFloat(payoutForm.amount) < 25 ? "text-destructive" : "text-muted-foreground")}>
+                {parseFloat(payoutForm.amount) < 25 ? "Minimum payout is $25" : `Max available: $${withdrawableProfit.toFixed(2)}`}
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -337,7 +340,7 @@ export default function PayoutsPage() {
             <Button 
               className="font-black bg-primary text-black h-12 px-8 flex-1 sm:flex-none" 
               onClick={handleRequestPayout}
-              disabled={requesting}
+              disabled={requesting || parseFloat(payoutForm.amount) < 25}
             >
               {requesting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
               Submit Request
@@ -347,8 +350,4 @@ export default function PayoutsPage() {
       </Dialog>
     </div>
   );
-}
-
-function cn(...inputs: any[]) {
-  return inputs.filter(Boolean).join(' ');
 }
