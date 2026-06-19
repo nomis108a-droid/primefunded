@@ -32,7 +32,9 @@ import {
   ArrowDownRight,
   Award,
   Download,
-  Target
+  Target,
+  ChevronRight,
+  ShieldAlert
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -117,301 +119,171 @@ const MetricCard = memo(function MetricCard({
 });
 
 export default function DashboardPage({ adminViewMode = false, targetUid }: DashboardPageProps) {
-  const { user, userData: contextUserData, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
   const db = useFirestore();
   const router = useRouter();
   const searchParams = useSearchParams();
   const isDebug = searchParams.get('debug') === 'true';
-  
   const effectiveUid = adminViewMode && targetUid ? targetUid : user?.uid;
-  const [chartPeriod, setChartPeriod] = useState('7D');
   const { toast } = useToast();
 
-  const [adminTargetData, setAdminTargetData] = useState<any>(null);
-  const [activeAccountData, setActiveAccountData] = useState<any>(null);
-  
+  const [activeLogin, setActiveLogin] = useState<string | null>(null);
+  const [chartPeriod, setChartPeriod] = useState('7D');
+
+  // FETCH ALL ACCOUNTS FOR THIS USER - NO MERGING
+  const accountConstraints = useMemo(() => [
+    where('userId', '==', effectiveUid || '_none_'),
+    orderBy('createdAt', 'desc')
+  ], [effectiveUid]);
+
+  const { data: userAccounts, loading: accountsLoading } = useCollection<any>(
+    effectiveUid ? 'mt5_accounts' : null,
+    accountConstraints
+  );
+
+  // Set default active account if not set
   useEffect(() => {
-    if (adminViewMode && targetUid && db) {
-      const unsub = onSnapshot(doc(db, 'users', targetUid), (snap) => {
-        if (snap.exists()) setAdminTargetData(snap.data());
-      });
-      return () => unsub();
+    if (userAccounts.length > 0 && !activeLogin) {
+      // Prioritize the login defined in the main user profile if it exists in the accounts list
+      const profileLogin = userData?.mt5Login;
+      if (profileLogin && userAccounts.find(a => String(a.id) === String(profileLogin))) {
+        setActiveLogin(String(profileLogin));
+      } else {
+        setActiveLogin(String(userAccounts[0].id));
+      }
     }
-  }, [adminViewMode, targetUid, db]);
+  }, [userAccounts, userData?.mt5Login, activeLogin]);
 
-  useEffect(() => {
-    const userData = adminViewMode ? adminTargetData : contextUserData;
-    const login = userData?.mt5Login;
-    
-    if (login && db) {
-      const unsub = onSnapshot(doc(db, 'mt5_accounts', String(login)), (snap) => {
-        if (snap.exists()) {
-          setActiveAccountData(snap.data());
-        }
-      });
-      return () => unsub();
-    } else {
-      setActiveAccountData(null);
-    }
-  }, [adminViewMode, adminTargetData, contextUserData, db]);
+  const activeAccount = useMemo(() => 
+    userAccounts.find(a => String(a.id) === String(activeLogin)) || userAccounts[0]
+  , [userAccounts, activeLogin]);
 
-  const userData = adminViewMode ? adminTargetData : contextUserData;
-  const isBreached = userData?.accountStatus === 'breached';
+  const isBreached = activeAccount?.status === 'breached';
 
+  // DERIVE METRICS EXCLUSIVELY FROM ACTIVE ACCOUNT DOCUMENT
   const metrics = useMemo(() => {
-    const parseSize = (sizeStr: string) => {
-      if (!sizeStr) return 0;
-      return parseFloat(sizeStr.replace(/[$,]/g, '').replace(/k/i, '000')) || 0;
-    };
-
-    const initial = userData?.accountBalance || parseSize(userData?.accountSize);
+    if (!activeAccount) return { balance: 0, equity: 0, initial: 100000 };
     
-    const balance = activeAccountData ? (activeAccountData.liveBalance ?? activeAccountData.balance ?? initial) : initial;
-    const equity = activeAccountData ? (activeAccountData.liveEquity ?? activeAccountData.equity ?? balance) : balance;
+    const initial = parseFloat(String(activeAccount.accountBalance || 100000));
+    const balance = parseFloat(String(activeAccount.liveBalance ?? activeAccount.balance ?? initial));
+    const equity = parseFloat(String(activeAccount.liveEquity ?? activeAccount.equity ?? balance));
     
-    return { balance, equity };
-  }, [userData, activeAccountData]);
+    return { balance, equity, initial };
+  }, [activeAccount]);
 
   const connectivityStatus = useMemo(() => {
+    if (!activeAccount) return 'offline';
     if (isBreached) return 'terminated';
     
-    const rawTs = activeAccountData?.lastMT5Update;
+    const rawTs = activeAccount?.lastMT5Update;
     const lastUpdateMs = rawTs?.seconds
       ? rawTs.seconds * 1000
       : rawTs instanceof Date
         ? rawTs.getTime()
         : rawTs ? Number(rawTs) : 0;
     
-    const isEAOnline = lastUpdateMs > 0 && Math.floor((Date.now() - lastUpdateMs) / 1000) <= 60;
+    const isEAOnline = lastUpdateMs > 0 && Math.floor((Date.now() - lastUpdateMs) / 1000) <= 120;
 
     if (isEAOnline) return 'live';
-    if (userData?.mt5Login && !rawTs) return 'awaiting';
+    if (activeAccount?.login && !rawTs) return 'awaiting';
     return 'offline';
-  }, [activeAccountData?.lastMT5Update, userData?.mt5Login, isBreached]);
+  }, [activeAccount, isBreached]);
 
-  const performanceConstraints = useMemo(() => [
-    orderBy('date', 'asc'),
-    limit(31)
-  ], []);
-
-  const { data: performanceData, loading: perfLoading } = useCollection<any>(
-    effectiveUid ? `users/${effectiveUid}/performance` : null,
-    performanceConstraints
-  );
-
-  const filteredPerfData = useMemo(() => {
-    if (!performanceData) return [];
-    
-    const now = new Date();
-    let daysToKeep = 7;
-    if (chartPeriod === '14D') daysToKeep = 14;
-    if (chartPeriod === '1M') daysToKeep = 30;
-
-    const dataMap = new Map();
-    performanceData.forEach(d => dataMap.set(d.date, d));
-
-    const sortedData = [...performanceData].sort((a, b) => a.date.localeCompare(b.date));
-
-    const result = [];
-    for (let i = daysToKeep - 1; i >= 0; i--) {
-      const date = subDays(now, i);
-      const key = getTradingDayKey(date);
-      const todayDoc = dataMap.get(key);
-      
-      let dailyPnl = 0;
-      if (todayDoc) {
-        const prevDoc = sortedData.filter(d => d.date < key).pop();
-        const todayCum = todayDoc.cumulativePnL || 0;
-        const prevCum = prevDoc ? (prevDoc.cumulativePnL || 0) : 0;
-        dailyPnl = todayCum - prevCum;
-      }
-
-      result.push({
-        date: key,
-        displayDate: format(date, daysToKeep <= 7 ? 'EEE' : 'MMM d'),
-        amount: parseFloat(dailyPnl.toFixed(2))
-      });
-    }
-    return result;
-  }, [performanceData, chartPeriod]);
-
+  // ISOLATED TRADES & PERFORMANCE
   const tradeConstraints = useMemo(() => [
     orderBy('date', 'desc'),
-    limit(300)
+    limit(500)
   ], []);
 
-  const { data: recentTrades, loading: tradesLoading } = useCollection<any>(
+  const { data: rawTrades, loading: tradesLoading } = useCollection<any>(
     effectiveUid ? `users/${effectiveUid}/trades` : null,
     tradeConstraints
   );
 
   const filteredTrades = useMemo(() => {
-    if (!recentTrades) return [];
-    const currentLogin = userData?.mt5Login;
-    if (!currentLogin) return [];
-    return recentTrades.filter(t => String(t.login) === String(currentLogin));
-  }, [recentTrades, userData?.mt5Login]);
+    if (!rawTrades || !activeAccount) return [];
+    return rawTrades.filter(t => String(t.login) === String(activeAccount.id));
+  }, [rawTrades, activeAccount]);
 
-  const tradingDaysData = useMemo(() => {
-    if (!filteredTrades) return { count: 0, required: 5, progress: 0 };
+  const enrichedTrades = useMemo(() => {
+    return enrichTrades(filteredTrades, activeAccount?.id || 'N/A');
+  }, [filteredTrades, activeAccount?.id]);
+
+  // RISK CALCULATIONS
+  const dailyRiskMetrics = useMemo(() => {
+    if (!activeAccount) return { pnl: 0, pnlPct: 0, usage: 0, limit: 3, limitAmount: 0, totalDailyLoss: 0, drawdownPct: 0, isPositive: true };
     
-    const days = new Set<string>();
-    filteredTrades.forEach(trade => {
-      const date = getTradeDate(trade.time || trade.date);
-      if (date && isValid(date)) {
-        days.add(getTradingDayKey(date));
-      }
-    });
-
-    const count = days.size;
-    const plan = userData?.accountPlan?.toLowerCase() || '';
-    const phase = userData?.currentPhase || 'evaluation';
+    const initialBalance = metrics.initial;
+    const planKey = getPlanKey(activeAccount.accountPlan || '1-Step Pro');
+    const phase = activeAccount.phase || 'evaluation';
+    const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
     
-    let required = 5;
-    if (plan.includes('3-step')) {
-      if (phase === 'phase1') required = 7;
-      else if (phase === 'phase2') required = 6;
-      else required = 5;
-    } else if (plan.includes('instant')) {
-      required = 1;
-    }
+    const limitPct = rules.dailyDrawdown;
+    const limitAmount = initialBalance * (limitPct / 100);
+    
+    const dailyClosedLosses = activeAccount.dailyGrossLoss ?? 0;
+    const currentFloatingPnL = metrics.equity - metrics.balance;
+    const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
+    const totalDailyLoss = dailyClosedLosses + currentFloatingLoss;
+    
+    const usage = Math.min((totalDailyLoss / limitAmount) * 100, 100);
+    const dailyStart = activeAccount.dailyStartBalance || initialBalance;
+    const pnl = metrics.balance - dailyStart;
+    const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
 
-    return {
-      count,
-      required,
-      progress: Math.min((count / required) * 100, 100)
-    };
-  }, [filteredTrades, userData]);
-
-  const instrumentCheck = useMemo(() => {
-    const plan = userData?.accountPlan?.toLowerCase() || '';
-    if (!plan.includes('instant')) return null;
-
-    const symbolCounts: Record<string, number> = {};
-    filteredTrades.forEach((t: any) => {
-      const sym = t.symbol || 'N/A';
-      symbolCounts[sym] = (symbolCounts[sym] || 0) + 1;
-    });
-
-    const entries = Object.entries(symbolCounts);
-    const qualified = entries.filter(([_, count]) => count >= 5).length;
-    const progress = entries.length > 0 ? (qualified / entries.length) * 100 : 0;
-
-    return {
-      qualified,
-      total: entries.length,
-      progress
-    };
-  }, [filteredTrades, userData]);
+    return { pnl, pnlPct, usage, limit: limitPct, limitAmount, totalDailyLoss, isPositive: pnl >= 0 };
+  }, [activeAccount, metrics]);
 
   const profitTargetData = useMemo(() => {
-    const initial = userData?.accountBalance || 0;
-    const planKey = getPlanKey(userData?.accountPlan || '');
-    const phase = userData?.currentPhase || 'evaluation';
+    if (!activeAccount) return { targetPct: 0, progress: 0, hasTarget: false };
+    
+    const initial = metrics.initial;
+    const planKey = getPlanKey(activeAccount.accountPlan || '');
+    const phase = activeAccount.phase || 'evaluation';
     const rules = RULES_CONFIG.plans[planKey]?.[phase];
     
     const targetPct = rules?.profitTarget || 0;
     const targetAmount = initial * (targetPct / 100);
     const currentProfit = metrics.balance - initial;
-    
     const progress = targetAmount > 0 ? Math.max(0, Math.min((currentProfit / targetAmount) * 100, 100)) : 0;
     
-    return {
-      targetPct,
-      targetAmount,
-      currentProfit,
-      progress,
-      hasTarget: targetPct > 0
-    };
-  }, [userData, metrics.balance]);
+    return { targetPct, targetAmount, currentProfit, progress, hasTarget: targetPct > 0 };
+  }, [activeAccount, metrics]);
 
-  const enrichedTrades = useMemo(() => {
-    return enrichTrades(filteredTrades, userData?.mt5Login || 'N/A');
-  }, [filteredTrades, userData?.mt5Login]);
+  const tradingDaysData = useMemo(() => {
+    if (!filteredTrades || !activeAccount) return { count: 0, required: 5, progress: 0 };
+    const days = new Set<string>();
+    filteredTrades.forEach(t => {
+      const date = getTradeDate(t.time || t.date);
+      if (date && isValid(date)) days.add(getTradingDayKey(date));
+    });
 
-  const tradeStats = useMemo(() => {
-    if (!filteredTrades || filteredTrades.length === 0) return null;
+    const count = days.size;
+    const plan = activeAccount.accountPlan?.toLowerCase() || '';
+    const phase = activeAccount.phase || 'evaluation';
     
-    const closedTrades = filteredTrades.filter(t => (t.pnl || t.profit || 0) !== 0);
-    const winCount = closedTrades.filter(t => (t.pnl || t.profit || 0) > 0).length;
-    const lossCount = closedTrades.filter(t => (t.pnl || t.profit || 0) < 0).length;
-    const winRate = closedTrades.length > 0 ? (winCount / closedTrades.length) * 100 : 0;
-    
-    const totalProfit = closedTrades.reduce((acc, t) => acc + Math.max(0, t.pnl || t.profit || 0), 0);
-    const totalLoss = closedTrades.reduce((acc, t) => acc + Math.abs(Math.min(0, t.pnl || t.profit || 0)), 0);
-    
-    const profits = closedTrades.map(t => t.pnl || t.profit || 0);
-    const largestWin = Math.max(0, ...profits);
-    const largestLoss = Math.min(0, ...profits);
-    
-    return {
-      totalTrades: closedTrades.length,
-      winRate,
-      totalProfit,
-      totalLoss,
-      largestWin,
-      largestLoss,
-      winCount,
-      lossCount
-    };
-  }, [filteredTrades]);
-
-  const dailyRiskMetrics = useMemo(() => {
-    const initialBalance = userData?.accountBalance || 100000;
-    const getLimit = () => {
-      const plan = userData?.accountPlan?.toLowerCase() || '';
-      if (plan.includes('1-step')) return 3;
-      if (plan.includes('2-step')) return 5;
-      if (plan.includes('3-step')) return 4;
-      if (plan.includes('instant')) return 3;
-      return 3;
-    };
-
-    const limitPct = getLimit();
-    const limitAmount = initialBalance * (limitPct / 100);
-
-    if (!activeAccountData) {
-      return { pnl: 0, pnlPct: 0, usage: 0, limit: limitPct, limitAmount, totalDailyLoss: 0, drawdownPct: 0, isPositive: true };
-    }
-    
-    const dailyClosedLosses = activeAccountData.dailyGrossLoss ?? 0;
-    const currentFloatingPnL = metrics.equity - metrics.balance;
-    const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
-    const totalDailyLoss = dailyClosedLosses + currentFloatingLoss;
-    
-    const drawdownPct = initialBalance > 0 ? (totalDailyLoss / initialBalance) * 100 : 0;
-    const usage = Math.min((totalDailyLoss / limitAmount) * 100, 100);
-
-    const dailyStart = activeAccountData.dailyStartBalance || initialBalance;
-    const pnl = metrics.balance - dailyStart;
-    const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
-
-    return { 
-      pnl, 
-      pnlPct, 
-      usage, 
-      limit: limitPct, 
-      limitAmount, 
-      totalDailyLoss, 
-      drawdownPct, 
-      isPositive: pnl >= 0 
-    };
-  }, [userData, metrics, activeAccountData]);
-
-  const currentPhaseDisplay = useMemo(() => {
-    const phase = userData?.currentPhase || 'evaluation';
-    const plan = userData?.accountPlan?.toLowerCase() || '';
-
-    if (plan.includes('instant')) {
-      return { label: 'Live Funded', icon: <ShieldCheck className="w-3 h-3" />, className: 'bg-accent/10 text-accent border-accent/20' };
+    let required = 5;
+    if (plan.includes('3-step')) {
+      required = phase === 'phase1' ? 7 : phase === 'phase2' ? 6 : 5;
+    } else if (plan.includes('instant')) {
+      required = 1;
     }
 
-    if (phase === 'funded') return { label: 'Funded Stage', icon: <Trophy className="w-3 h-3" />, className: 'bg-amber-500/10 text-amber-500 border-amber-500/20' };
-    if (phase === 'phase1') return { label: 'Phase 1: Evaluation', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
-    if (phase === 'phase2') return { label: 'Phase 2: Verification', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
-    if (phase === 'phase3') return { label: 'Phase 3: Final Stage', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
-    return { label: 'Evaluation Phase', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
-  }, [userData?.currentPhase, userData?.accountPlan]);
+    return { count, required, progress: Math.min((count / required) * 100, 100) };
+  }, [filteredTrades, activeAccount]);
+
+  const instrumentCheck = useMemo(() => {
+    if (!activeAccount?.accountPlan?.toLowerCase().includes('instant')) return null;
+    const symbolCounts: Record<string, number> = {};
+    filteredTrades.forEach((t: any) => {
+      const sym = t.symbol || 'N/A';
+      symbolCounts[sym] = (symbolCounts[sym] || 0) + 1;
+    });
+    const entries = Object.entries(symbolCounts);
+    const qualified = entries.filter(([_, count]) => count >= 5).length;
+    const progress = entries.length > 0 ? (qualified / entries.length) * 100 : 0;
+    return { qualified, total: entries.length, progress };
+  }, [filteredTrades, activeAccount]);
 
   if (authLoading && !adminViewMode) return null;
 
@@ -420,324 +292,228 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       {!adminViewMode && <Navigation />}
       
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
-        {isDebug && (
-          <div className="mb-8 p-4 rounded-xl bg-black border border-primary/50 font-mono text-[10px] text-primary space-y-1 shadow-2xl">
-            <p className="font-bold border-b border-primary/20 pb-1 mb-2 uppercase flex items-center justify-between">
-              Terminal Debug Protocol <span>[ACTIVE]</span>
-            </p>
-            <p>Active Login: {userData?.mt5Login}</p>
-            <p>Balance: {metrics.balance}</p>
-            <p>Equity: {metrics.equity}</p>
-            <p>Daily Loss (Account Doc): {activeAccountData?.dailyGrossLoss || 0}</p>
-            <p>Account Status: {activeAccountData?.status}</p>
-          </div>
-        )}
-
-        {userData?.accountStatus === 'pending_activation' && (
-          <div className="mb-8 p-6 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-white shrink-0">
-                <Clock className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Activation Pending</h3>
-                <p className="text-sm text-amber-200/80">Your new challenge is being activated. Our team will provision your account shortly.</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isBreached && (
-          <div className="mb-8 p-6 rounded-2xl bg-destructive/20 border border-destructive/40 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-destructive flex items-center justify-center text-white shrink-0">
-                <Skull className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Account Liquidated</h3>
-                <p className="text-sm text-destructive-foreground">This account has been terminated due to a hard rule breach: <span className="font-bold text-white">{userData?.breachReason || 'Rule Violation'}</span>.</p>
-              </div>
-            </div>
-            {!adminViewMode && (
-              <Button size="lg" className="bg-destructive hover:bg-destructive/90 font-bold whitespace-nowrap px-8 h-12 rounded-xl" asChild>
-                <Link href="/challenges">Start New Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
-              </Button>
-            )}
-          </div>
-        )}
-
-        <header className="flex justify-between items-start mb-10">
+        <header className="flex flex-col md:flex-row justify-between items-start mb-10 gap-6">
           <div>
             <h1 className="text-3xl font-headline font-bold mb-1 text-white">
-              {adminViewMode ? `Previewing: ${userData?.name || 'Trader'}` : "Trader Terminal"}
+              {adminViewMode ? `Previewing: ${userData?.name || 'Trader'}` : "Institutional Terminal"}
             </h1>
-            <p className="text-muted-foreground">
-              {adminViewMode ? `UID: ${effectiveUid}` : `Welcome back, ${userData?.name || 'Trader'}.`}
-            </p>
+            <p className="text-muted-foreground">Manage your funding nodes and risk protocols.</p>
           </div>
           <div className="flex items-center gap-4">
             {!adminViewMode && <NotificationBell />}
             <Badge variant="outline" className={cn(
               "h-9 px-4 uppercase font-bold tracking-widest border-white/10",
-              connectivityStatus === 'terminated' && "border-destructive/30 text-destructive",
-              connectivityStatus === 'offline' && "border-destructive/30 text-destructive",
               connectivityStatus === 'live' && "border-accent/30 text-accent"
             )}>
               <div className={cn(
                 "w-2 h-2 rounded-full mr-2", 
                 connectivityStatus === 'live' ? 'bg-accent live-indicator' : 
-                connectivityStatus === 'offline' || connectivityStatus === 'terminated' ? 'bg-destructive' : 'bg-muted'
+                connectivityStatus === 'offline' || connectivityStatus === 'terminated' ? 'bg-destructive' : 'bg-amber-500'
               )} />
               {connectivityStatus === 'live' ? 'Live Sync' : 
-               connectivityStatus === 'offline' ? 'EA Offline' : 
-               connectivityStatus === 'terminated' ? 'Terminated' : 'Awaiting Sync'}
+               connectivityStatus === 'offline' ? 'Terminal Offline' : 
+               connectivityStatus === 'terminated' ? 'Terminated' : 'Awaiting Data'}
             </Badge>
           </div>
         </header>
 
-        <div className={cn(
-          "grid grid-cols-1 md:grid-cols-2 gap-6 mb-6",
-          instrumentCheck ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"
-        )}>
-          <MetricCard 
-            title="Account Balance" 
-            value={`$${metrics.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
-            icon={<Wallet className="text-primary" />} 
-            disabled={isBreached} 
-          />
-          <MetricCard 
-            title="Equity" 
-            value={`$${metrics.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
-            icon={<Activity className="text-accent" />} 
-            disabled={isBreached} 
-          />
-          <MetricCard 
-            title="Minimum Trading Days" 
-            value={`${tradingDaysData.count} / ${tradingDaysData.required} days`} 
-            icon={<Calendar className="text-emerald-500" />} 
-            progress={tradingDaysData.progress}
-            progressLabel={`${tradingDaysData.progress.toFixed(0)}% Completed`}
-          />
-          {instrumentCheck ? (
-            <MetricCard 
-              title="Instrument Diversity (Soft Rule)" 
-              value={`${instrumentCheck.qualified} / ${instrumentCheck.total} Qualified`} 
-              icon={<ShieldCheck className="text-accent" />} 
-              progress={instrumentCheck.progress}
-              progressLabel="Min 5 trades per instrument"
-              footer="Required for payout eligibility."
-            />
-          ) : (
-            <MetricCard 
-              title="Profit Target" 
-              value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / $${(userData?.accountBalance + profitTargetData.targetAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'N/A'} 
-              icon={<Target className="text-amber-500" />} 
-              progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
-              progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
-              footer={profitTargetData.hasTarget ? `Target: ${profitTargetData.targetPct}% ($${profitTargetData.targetAmount.toLocaleString()})` : 'Keep trading to maximize payouts.'}
-            />
-          )}
-          {instrumentCheck && (
-             <MetricCard 
-              title="Profit Target" 
-              value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / $${(userData?.accountBalance + profitTargetData.targetAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'N/A'} 
-              icon={<Target className="text-amber-500" />} 
-              progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
-              progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
-              footer={profitTargetData.hasTarget ? `Target: ${profitTargetData.targetPct}% ($${profitTargetData.targetAmount.toLocaleString()})` : 'Keep trading to maximize payouts.'}
-            />
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <Card className={cn("border-border/50 bg-card/40 transition-opacity", isBreached && "opacity-40 grayscale")}>
-            <CardContent className="p-6">
-              <div className="flex justify-between mb-4">
-                <span className="text-[10px] font-black uppercase text-muted-foreground">Daily P&L</span>
-                {dailyRiskMetrics.isPositive ? <TrendingUp className="text-emerald-500 w-4 h-4" /> : <TrendingDown className="text-destructive w-4 h-4" />}
-              </div>
-              <p className={cn("text-3xl font-bold font-headline", dailyRiskMetrics.isPositive ? 'text-emerald-500' : 'text-destructive')}>
-                {dailyRiskMetrics.isPositive ? '+' : ''}${dailyRiskMetrics.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
-                {dailyRiskMetrics.pnlPct.toFixed(2)}% of session start 
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className={cn("border-border/50 bg-card/40 transition-opacity", isBreached && "opacity-40 grayscale")}>
-            <CardContent className="p-6">
-              <div className="flex justify-between mb-4">
-                <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Drawdown (Gross Loss)</span>
-                <span className="text-[10px] font-bold text-muted-foreground">Threshold: ${dailyRiskMetrics.limitAmount.toLocaleString()}</span>
-              </div>
-              <p className="text-3xl font-bold font-headline text-white">${dailyRiskMetrics.totalDailyLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-              <div className="mt-4 space-y-1.5">
-                <Progress value={dailyRiskMetrics.usage} className="h-1.5" />
-                <p className={cn("text-[9px] font-black uppercase", dailyRiskMetrics.usage > 80 ? 'text-destructive' : 'text-primary')}>
-                  ${dailyRiskMetrics.totalDailyLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of ${dailyRiskMetrics.limitAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} limit used
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-           <StatMiniCard title="Total Trades" value={tradeStats?.totalTrades || 0} icon={<PieChart className="w-3 h-3" />} />
-           <StatMiniCard title="Win Rate" value={`${tradeStats?.winRate.toFixed(1) || 0}%`} icon={<TrendingUp className="w-3 h-3" />} color="emerald" />
-           <StatMiniCard title="Total Profit" value={`$${tradeStats?.totalProfit.toLocaleString() || 0}`} icon={<ArrowUpRight className="w-3 h-3" />} color="emerald" />
-           <StatMiniCard title="Total Loss" value={`$${tradeStats?.totalLoss.toLocaleString() || 0}`} icon={<ArrowDownRight className="w-3 h-3" />} color="destructive" />
-           <StatMiniCard title="Largest Win" value={`$${tradeStats?.largestWin.toLocaleString() || 0}`} icon={<TrendingUp className="w-3 h-3" />} color="emerald" />
-           <StatMiniCard title="Largest Loss" value={`$${tradeStats?.largestLoss.toLocaleString() || 0}`} icon={<TrendingDown className="w-3 h-3" />} color="destructive" />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          <div className="lg:col-span-2">
-            <Card className={cn("border-border/50 bg-card/40", isBreached && "opacity-40 grayscale")}>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-xl font-headline text-white flex items-center gap-2"><BarChart3 className="w-5 h-5 text-primary" /> Performance</CardTitle>
-                <Tabs value={chartPeriod} onValueChange={setChartPeriod}>
-                  <TabsList className="bg-secondary/50">
-                    <TabsTrigger value="7D" className="text-[10px] font-bold">7D</TabsTrigger>
-                    <TabsTrigger value="14D" className="text-[10px] font-bold">14D</TabsTrigger>
-                    <TabsTrigger value="1M" className="text-[10px] font-bold">1M</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </CardHeader>
-              <CardContent className="h-[300px] w-full pt-4">
-                {isBreached ? (
-                  <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">No data visible for liquidated accounts.</div>
-                ) : perfLoading ? (
-                  <div className="h-full flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-                ) : filteredPerfData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={filteredPerfData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                      <XAxis dataKey="displayDate" stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#ffffff40" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
-                      <ChartTooltip 
-                        cursor={{ fill: '#ffffff05' }}
-                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)' }} 
-                        itemStyle={{ fontSize: '12px', fontWeight: 'bold', color: '#f8fafc' }} 
-                        labelStyle={{ color: '#94a3b8', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', fontWeight: '900' }} 
-                        formatter={(value: number) => [`$${value.toLocaleString()}`, 'Daily P&L']}
-                      />
-                      <ReferenceLine y={0} stroke="#ffffff10" />
-                      <Bar dataKey="amount" radius={[4, 4, 0, 0]} animationDuration={1000}>
-                        {filteredPerfData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.amount >= 0 ? '#10b981' : '#ef4444'} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-muted-foreground italic text-sm">Waiting for institutional performance data...</div>
-                )}
-              </CardContent>
-            </Card>
+        {/* ACCOUNT NODE SELECTOR */}
+        <section className="mb-10">
+          <div className="flex items-center gap-2 mb-4">
+            <Server className="w-4 h-4 text-primary" />
+            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Select Active Node</h2>
           </div>
-          
-          <div className="space-y-6">
-            <Card className={cn("border-primary/20 bg-primary/5", isBreached && "border-destructive/20 bg-destructive/5 grayscale")}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2 text-white">
-                  {isBreached ? <Skull className="w-5 h-5 text-destructive" /> : <ShieldCheck className="w-5 h-5 text-primary" />}
-                  My Account
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-3 rounded-xl bg-background/50 border border-white/5">
-                   <div className="space-y-1">
-                      <p className="text-[9px] font-black text-muted-foreground uppercase">Current Status</p>
-                      <Badge className={cn("gap-1.5 py-1 px-3", isBreached ? "bg-destructive/10 text-destructive border-destructive/20" : currentPhaseDisplay.className)}>
-                        {isBreached ? <Skull className="w-3 h-3" /> : currentPhaseDisplay.icon}
-                        {isBreached ? 'Breached' : currentPhaseDisplay.label}
-                      </Badge>
-                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Plan</p><p className="text-xs font-bold text-white">{userData?.accountPlan || 'None'}</p></div>
-                  <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Size</p><p className="text-xs font-bold text-white">{userData?.accountSize || 'N/A'}</p></div>
-                  <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">MT5 Login</p><p className="text-xs font-bold text-white font-mono">{userData?.mt5Login || 'PENDING'}</p></div>
-                  <div className="space-y-1"><p className="text-[9px] font-black text-muted-foreground uppercase">Status</p><p className="text-xs font-bold text-white uppercase">{userData?.accountStatus || 'INACTIVE'}</p></div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm", isBreached && "opacity-40 grayscale")}>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
-              <History className="w-5 h-5 text-primary" /> Position Journal
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                  <tr>
-                    <th className="py-4 px-6">Symbol</th>
-                    <th className="py-4 px-4">Account</th>
-                    <th className="py-4 px-4">Type</th>
-                    <th className="py-4 px-4">Time</th>
-                    <th className="py-4 px-4">Duration</th>
-                    <th className="py-4 px-4 text-right">Lots</th>
-                    <th className="py-4 px-6 text-right">P&L</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {tradesLoading ? (
-                    [...Array(3)].map((_, i) => (
-                      <tr key={i} className="animate-pulse"><td colSpan={7} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>
-                    ))
-                  ) : enrichedTrades.length > 0 ? (
-                    enrichedTrades.slice(0, 30).map((trade: any) => (
-                      <tr key={trade.id} className="hover:bg-primary/5 transition-colors">
-                        <td className="py-4 px-6 font-bold text-white">{trade.symbol || 'N/A'}</td>
-                        <td className="py-4 px-4 font-mono text-[10px] text-muted-foreground">{trade.login}</td>
-                        <td className="py-4 px-4">
-                          <Badge variant="outline" className={cn(
-                            "text-[9px] font-black uppercase px-2",
-                            trade.type?.toLowerCase() === 'buy' ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5' : 'border-destructive/30 text-destructive bg-destructive/5'
-                          )}>{trade.type || 'N/A'}</Badge>
-                        </td>
-                        <td className="py-4 px-4 text-xs text-muted-foreground font-mono">{trade.closeTime ? format(getTradeDate(trade.closeTime)!, 'MMM d, HH:mm') : 'N/A'}</td>
-                        <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5 pt-5"><Clock className="w-3 h-3" />{trade.duration}</td>
-                        <td className="py-4 px-4 text-right text-white font-mono">{trade.lots || '0.00'}</td>
-                        <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (trade.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                          {(trade.pnl || 0) >= 0 ? '+' : ''}${(trade.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr><td colSpan={7} className="py-20 text-center text-muted-foreground italic text-sm">No trades recorded yet. MT5 executions will appear here live.</td></tr>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {accountsLoading ? (
+              [1, 2].map(i => <Skeleton key={i} className="h-24 rounded-2xl bg-secondary/20" />)
+            ) : userAccounts.length === 0 ? (
+              <Card className="col-span-full border-dashed border-border/50 bg-secondary/5 p-12 text-center">
+                 <p className="text-muted-foreground mb-6">No institutional nodes found. Begin your evaluation to start trading.</p>
+                 <Button className="font-bold cyan-box-glow px-10 h-12 rounded-xl" asChild>
+                    <Link href="/challenges">Start New Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                 </Button>
+              </Card>
+            ) : (
+              userAccounts.map((acc: any) => (
+                <Card 
+                  key={acc.id} 
+                  onClick={() => setActiveLogin(acc.id)}
+                  className={cn(
+                    "cursor-pointer transition-all duration-300 relative overflow-hidden group",
+                    activeLogin === acc.id ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(17,179,245,0.1)]" : "bg-card/40 border-border/50 hover:border-primary/30"
                   )}
-                </tbody>
-              </table>
+                >
+                  <CardContent className="p-5">
+                    <div className="flex justify-between items-start mb-3">
+                       <Badge className={cn(
+                         "text-[9px] font-black uppercase",
+                         acc.status === 'breached' ? "bg-destructive/20 text-destructive" : "bg-secondary text-white"
+                       )}>
+                         {acc.status || 'Active'}
+                       </Badge>
+                       <span className="font-mono text-[10px] text-muted-foreground">PF-{acc.login}</span>
+                    </div>
+                    <p className="text-sm font-bold text-white mb-0.5">{acc.accountPlan}</p>
+                    <p className="text-lg font-black text-primary font-headline">${(parseFloat(acc.accountBalance || 100000) / 1000).toFixed(0)}k Node</p>
+                    {activeLogin === acc.id && (
+                       <div className="absolute bottom-0 left-0 w-full h-1 bg-primary" />
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </section>
+
+        {activeAccount ? (
+          <>
+            {isBreached && (
+              <div className="mb-8 p-6 rounded-2xl bg-destructive/20 border border-destructive/40 flex items-center gap-6">
+                <Skull className="w-10 h-10 text-destructive shrink-0" />
+                <div>
+                  <h3 className="text-xl font-headline font-bold text-white uppercase">Node Liquidated</h3>
+                  <p className="text-sm text-destructive-foreground">Terminated: <span className="font-bold text-white">{activeAccount.breachReason || 'Institutional Risk Violation'}</span></p>
+                </div>
+              </div>
+            )}
+
+            <div className={cn(
+              "grid grid-cols-1 md:grid-cols-2 gap-6 mb-6",
+              instrumentCheck ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"
+            )}>
+              <MetricCard 
+                title="Current Balance" 
+                value={`$${metrics.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} 
+                icon={<Wallet className="text-primary" />} 
+                disabled={isBreached} 
+              />
+              <MetricCard 
+                title="Current Equity" 
+                value={`$${metrics.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} 
+                icon={<Activity className="text-accent" />} 
+                disabled={isBreached} 
+              />
+              <MetricCard 
+                title="Trading Days" 
+                value={`${tradingDaysData.count} / ${tradingDaysData.required} Days`} 
+                icon={<Calendar className="text-emerald-500" />} 
+                progress={tradingDaysData.progress}
+                progressLabel={`${tradingDaysData.progress.toFixed(0)}% Completed`}
+              />
+              {instrumentCheck ? (
+                <MetricCard 
+                  title="Asset Diversity" 
+                  value={`${instrumentCheck.qualified} Qualified`} 
+                  icon={<ShieldCheck className="text-accent" />} 
+                  progress={instrumentCheck.progress}
+                  progressLabel="Min 5 trades per instrument"
+                  footer="Mandatory for payouts."
+                />
+              ) : (
+                <MetricCard 
+                  title="Profit Target" 
+                  value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Live Node'} 
+                  icon={<Target className="text-amber-500" />} 
+                  progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
+                  progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
+                />
+              )}
             </div>
-          </CardContent>
-        </Card>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <Card className={cn("border-border/50 bg-card/40", isBreached && "opacity-40")}>
+                <CardContent className="p-6">
+                  <div className="flex justify-between mb-4">
+                    <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Session P&L</span>
+                    {dailyRiskMetrics.isPositive ? <TrendingUp className="text-emerald-500 w-4 h-4" /> : <TrendingDown className="text-destructive w-4 h-4" />}
+                  </div>
+                  <p className={cn("text-3xl font-bold font-headline", dailyRiskMetrics.isPositive ? 'text-emerald-500' : 'text-destructive')}>
+                    {dailyRiskMetrics.isPositive ? '+' : ''}${dailyRiskMetrics.pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
+                    {dailyRiskMetrics.pnlPct.toFixed(2)}% session change
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className={cn("border-border/50 bg-card/40", isBreached && "opacity-40")}>
+                <CardContent className="p-6">
+                  <div className="flex justify-between mb-4">
+                    <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Drawdown Status</span>
+                    <span className="text-[10px] font-bold text-muted-foreground">Limit: ${dailyRiskMetrics.limitAmount.toLocaleString()}</span>
+                  </div>
+                  <p className="text-3xl font-bold font-headline text-white">${dailyRiskMetrics.totalDailyLoss.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                  <div className="mt-4 space-y-1.5">
+                    <Progress value={dailyRiskMetrics.usage} className="h-1.5" />
+                    <p className={cn("text-[9px] font-black uppercase", dailyRiskMetrics.usage > 80 ? 'text-destructive' : 'text-primary')}>
+                      {dailyRiskMetrics.usage.toFixed(1)}% of institutional limit used
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm", isBreached && "opacity-40")}>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
+                  <History className="w-5 h-5 text-primary" /> Position Journal (Isolated)
+                </CardTitle>
+                <Badge variant="outline" className="text-[9px] font-black uppercase">PF-{activeAccount.login}</Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                      <tr>
+                        <th className="py-4 px-6">Symbol</th>
+                        <th className="py-4 px-4">Type</th>
+                        <th className="py-4 px-4">Close Time</th>
+                        <th className="py-4 px-4">Duration</th>
+                        <th className="py-4 px-4 text-right">Lots</th>
+                        <th className="py-4 px-6 text-right">P&L</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {tradesLoading ? (
+                        [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={6} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                      ) : enrichedTrades.length > 0 ? (
+                        enrichedTrades.slice(0, 50).map((trade: any) => (
+                          <tr key={trade.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="py-4 px-6 font-bold text-white">{trade.symbol}</td>
+                            <td className="py-4 px-4">
+                              <Badge variant="outline" className={cn(
+                                "text-[9px] font-black uppercase",
+                                trade.type?.toLowerCase() === 'buy' ? 'text-emerald-500 border-emerald-500/30' : 'text-destructive border-destructive/30'
+                              )}>{trade.type}</Badge>
+                            </td>
+                            <td className="py-4 px-4 text-xs text-muted-foreground font-mono">{trade.closeTime ? format(getTradeDate(trade.closeTime)!, 'MMM d, HH:mm') : '—'}</td>
+                            <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5 pt-5"><Clock className="w-3 h-3" />{trade.duration}</td>
+                            <td className="py-4 px-4 text-right text-white font-mono">{trade.lots || trade.volume}</td>
+                            <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (trade.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                              {(trade.pnl || 0) >= 0 ? '+' : ''}${(trade.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">No executions recorded for node PF-{activeAccount.login}.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : !accountsLoading && (
+          <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-6">
+             <ShieldAlert className="w-16 h-16 text-muted-foreground opacity-20" />
+             <h3 className="text-2xl font-headline font-bold text-white uppercase tracking-tight">Access Terminal</h3>
+             <p className="text-muted-foreground max-w-sm">No active institutional nodes were detected for your profile. Select a challenge to begin your verification.</p>
+             <Button size="lg" className="h-14 px-12 font-bold text-lg cyan-box-glow rounded-2xl" asChild>
+                <Link href="/challenges">Start Challenge <ChevronRight className="ml-2 w-5 h-5" /></Link>
+             </Button>
+          </div>
+        )}
       </main>
     </div>
-  );
-}
-
-function StatMiniCard({ title, value, icon, color = 'primary' }: { title: string, value: string | number, icon: React.ReactNode, color?: string }) {
-  const colors: any = {
-    primary: 'text-primary bg-primary/10 border-primary/20',
-    emerald: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
-    destructive: 'text-destructive bg-destructive/10 border-destructive/20',
-  };
-  return (
-    <Card className="bg-secondary/30 border-border/50">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{title}</p>
-          <div className={cn("p-1 rounded", colors[color])}>{icon}</div>
-        </div>
-        <p className="text-sm font-bold text-white font-mono">{value}</p>
-      </CardContent>
-    </Card>
   );
 }
