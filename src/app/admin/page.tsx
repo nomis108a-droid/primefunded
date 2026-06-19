@@ -422,6 +422,7 @@ export default function AdminPage() {
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
+              <TabsTrigger value="mt5_nodes" className="font-bold">Account Nodes</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="profile_editor" className="font-bold">Profile Editor</TabsTrigger>
               <TabsTrigger value="referral_audit" className="font-bold">Referral Audit</TabsTrigger>
@@ -584,6 +585,80 @@ export default function AdminPage() {
             </div>
           )}
 
+          {activeTab === 'mt5_nodes' && (
+            <div className="space-y-6">
+              <Card className="bg-card/30 border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-white">Institutional Nodes</CardTitle>
+                  <CardDescription>Registry of all provisioned MetaTrader 5 accounts.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                   <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Login ID</th>
+                          <th className="py-4 px-4">Plan</th>
+                          <th className="py-4 px-4">Balance</th>
+                          <th className="py-4 px-4">Phase</th>
+                          <th className="py-4 px-4">Status</th>
+                          <th className="py-4 px-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {adminData.accounts.sort((a: any, b: any) => String(b.login).localeCompare(String(a.login))).map((acc: any) => (
+                          <tr key={acc.id} className="hover:bg-primary/5 transition-colors group">
+                            <td className="py-4 px-6 font-mono text-xs text-white">PF-{acc.login}</td>
+                            <td className="py-4 px-4 text-white text-xs">{acc.accountPlan}</td>
+                            <td className="py-4 px-4 font-bold text-white">${parseFloat(acc.accountBalance || 0).toLocaleString()}</td>
+                            <td className="py-4 px-4 uppercase text-[10px] font-black text-muted-foreground">{acc.phase || 'evaluation'}</td>
+                            <td className="py-4 px-4">
+                              <Badge className={cn("text-[9px] font-black uppercase", acc.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive')}>
+                                {acc.status || 'active'}
+                              </Badge>
+                            </td>
+                            <td className="py-4 px-6 text-right flex justify-end gap-2">
+                               {acc.status === 'breached' && (
+                                 <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="h-7 text-[9px] font-black uppercase border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 cursor-pointer"
+                                    onClick={async () => {
+                                      const originalBalance = parseFloat(String(acc.accountBalance || 100000));
+                                      if (!confirm(`Reset account PF-${acc.login} back to active status?`)) return;
+                                      setActionLoading(true);
+                                      try {
+                                        const res = await resetAccountAction(acc.login, originalBalance, acc.phase || 'evaluation');
+                                        if (res.success) {
+                                          toast({ title: "Account Restored", description: `PF-${acc.login} is now active.` });
+                                          refreshData();
+                                        }
+                                      } catch (err: any) {
+                                        toast({ variant: "destructive", title: "Reset Failed", description: err.message });
+                                      } finally {
+                                        setActionLoading(false);
+                                      }
+                                    }}
+                                    disabled={actionLoading}
+                                  >
+                                    <RefreshCw className="w-3 h-3 mr-1" /> Reset Node
+                                 </Button>
+                               )}
+                               <button onClick={() => setPreviewUserId(acc.userId)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4 text-muted-foreground hover:text-white" /></button>
+                            </td>
+                          </tr>
+                        ))}
+                        {adminData.accounts.length === 0 && (
+                           <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">No institutional nodes provisioned.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {activeTab === 'user_directory' && (
             <div className="space-y-6">
               <div className="relative mb-6">
@@ -681,7 +756,7 @@ export default function AdminPage() {
                               })()}
                             </td>
                             <td className="py-4 px-6 text-right">
-                              <Badge className={cn("uppercase text-[10px]", ref.status === 'paid' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-amber-500/10 text-amber-500')}>
+                              <Badge className={cn("uppercase text-[10px]", ref.status === 'paid' ? 'bg-emerald-500/10 text-emerald-500' : ref.status === 'joined' ? 'bg-amber-500/10 text-amber-500' : 'bg-muted')}>
                                 {ref.status}
                               </Badge>
                             </td>
@@ -833,6 +908,7 @@ export default function AdminPage() {
                           <th className="py-4 px-4">Account ID</th>
                           <th className="py-4 px-4">Breach Type</th>
                           <th className="py-4 px-4">Date</th>
+                          <th className="py-4 px-4">Action</th>
                           <th className="py-4 px-6 text-right">Reason</th>
                         </tr>
                       </thead>
@@ -859,11 +935,45 @@ export default function AdminPage() {
                                 return isValid(d) ? format(d, 'yyyy-MM-dd HH:mm') : '—';
                               })()}
                             </td>
+                            <td className="py-4 px-4">
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="h-7 text-[9px] font-black uppercase tracking-widest border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 cursor-pointer"
+                                onClick={async () => {
+                                  const acc = adminData.accounts.find((a: any) => String(a.login) === String(b.login));
+                                  if (!acc) {
+                                    toast({ variant: "destructive", title: "Node Not Found", description: "Could not locate the MT5 account record to reset." });
+                                    return;
+                                  }
+                                  const originalBalance = parseFloat(String(acc.accountBalance || 100000));
+                                  const phase = acc.phase || 'evaluation';
+                                  if (!confirm(`Reset account PF-${b.login} to active status with $${originalBalance} balance?`)) return;
+                                  
+                                  setActionLoading(true);
+                                  try {
+                                    const res = await resetAccountAction(b.login, originalBalance, phase);
+                                    if (res.success) {
+                                      toast({ title: "Account Reset Successful", description: `PF-${b.login} is now active.` });
+                                      refreshData();
+                                    }
+                                  } catch (err: any) {
+                                    toast({ variant: "destructive", title: "Reset Failed", description: err.message });
+                                  } finally {
+                                    setActionLoading(false);
+                                  }
+                                }}
+                                disabled={actionLoading}
+                              >
+                                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                                Reset Node
+                              </Button>
+                            </td>
                             <td className="py-4 px-6 text-right text-xs text-muted-foreground truncate max-w-[200px]">{b.breachReason || b.reason}</td>
                           </tr>
                         ))}
                         {adminData.breaches.length === 0 && (
-                           <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">Zero records found in the risk ledger.</td></tr>
+                           <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">Zero records found in the risk ledger.</td></tr>
                         )}
                       </tbody>
                     </table>
