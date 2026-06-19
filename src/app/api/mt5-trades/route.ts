@@ -93,6 +93,7 @@ export async function POST(request: Request) {
       }, { merge: true });
     }
     await batch.commit();
+    await accountDoc.ref.update({ lastMT5Update: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
 
     if (accountData.status !== 'breached' && trades.length > 0) {
       try {
