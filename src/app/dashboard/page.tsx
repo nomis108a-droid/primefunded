@@ -692,4 +692,5 @@ function StatMiniCard({ title, value, icon, color = 'primary' }: { title: string
         <p className="text-sm font-bold text-white font-mono">{value}</p>
       </CardContent>
     </Card>
+  );
 }
