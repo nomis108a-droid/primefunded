@@ -1,3 +1,4 @@
+
 'use server';
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
@@ -96,6 +97,7 @@ export async function runOneTimeCleanupAction() {
   const db = getAdminDb();
   const snap = await db.collection('mt5_accounts').get();
   const deletedIds: string[] = [];
+  const resetUserIds: string[] = [];
 
   for (const doc of snap.docs) {
     // PRESERVE SPECIFIC NODE
@@ -108,7 +110,7 @@ export async function runOneTimeCleanupAction() {
     await doc.ref.delete();
     deletedIds.push(doc.id);
 
-    // 2. Reset the user document if linked
+    // 2. Reset the user document if linked - Removing all trading traces
     if (userId) {
       const userRef = db.collection('users').doc(userId);
       await userRef.update({
@@ -121,12 +123,19 @@ export async function runOneTimeCleanupAction() {
         lastMT5Update: FieldValue.delete(),
         breachReason: FieldValue.delete(),
         breachedAt: FieldValue.delete(),
-        currentPhase: FieldValue.delete()
+        currentPhase: FieldValue.delete(),
+        accountPlan: FieldValue.delete(),
+        accountSize: FieldValue.delete(),
+        accountBalance: FieldValue.delete(),
+        activatedAt: FieldValue.delete(),
+        readyForNextPhase: FieldValue.delete(),
+        readyForPhaseReset: FieldValue.delete()
       });
+      resetUserIds.push(userId);
     }
   }
 
-  return { success: true, deletedIds };
+  return { success: true, deletedIds, resetUserIds };
 }
 
 export async function resetAccountAction(login: string, newBalance: number, phase: string = 'funded') {

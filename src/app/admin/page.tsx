@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -144,13 +145,14 @@ export default function AdminPage() {
   };
 
   const handleRunCleanup = async () => {
-    if (!confirm("CRITICAL: This will delete ALL MT5 account nodes except 108582571 and reset all user profiles. This is irreversible. Proceed?")) return;
+    if (!confirm("CRITICAL: This will delete ALL MT5 account documents except 108582571 and perform an EXHAUSTIVE reset of all linked user profiles (removing all trading traces). This is irreversible. Proceed?")) return;
     setActionLoading(true);
     try {
       const res = await runOneTimeCleanupAction();
       if (res.success) {
-        toast({ title: "Cleanup Complete", description: `Deleted ${res.deletedIds.length} nodes.` });
-        console.log('Purged IDs:', res.deletedIds);
+        toast({ title: "Cleanup Complete", description: `Deleted ${res.deletedIds.length} nodes and reset ${res.resetUserIds.length} profiles.` });
+        console.log('Cleanup Audit - Deleted Account IDs:', res.deletedIds);
+        console.log('Cleanup Audit - Reset User IDs:', res.resetUserIds);
         refreshData();
       }
     } catch (err: any) {
