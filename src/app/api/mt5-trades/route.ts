@@ -20,18 +20,15 @@ export async function POST(request: Request) {
   try {
     // SECURITY: Verify MT5 API Key
     const apiKey = request.headers.get('x-api-key');
-
     if (apiKey !== process.env.MT5_API_KEY) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
 
     const payload = await request.json();
     const loginStr = String(payload.login || payload.accountId || '').trim();
-
-    // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
     console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
-    // HARD BLOCK: Silently ignore deleted legacy account to stop log noise
+    // HARD BLOCK: Silently ignore deleted legacy account
     if (loginStr === "757003491") {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
@@ -56,19 +53,11 @@ export async function POST(request: Request) {
       }
     }
 
-    // 3. PRIORITY #3: Field Query (Number match for legacy)
+    // 3. PRIORITY #3: Field Query (Numeric match for legacy)
     if (!accountDoc && !isNaN(Number(loginStr))) {
       const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
       if (!q2.empty) {
         accountDoc = q2.docs[0];
-      }
-    }
-
-    // 4. PRIORITY #4: Prefix Fallback
-    if (!accountDoc) {
-      const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
-      if (d2.exists) {
-        accountDoc = d2;
       }
     }
     

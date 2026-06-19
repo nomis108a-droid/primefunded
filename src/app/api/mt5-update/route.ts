@@ -26,14 +26,12 @@ export async function POST(request: Request) {
   try {
     // SECURITY: Verify MT5 API Key
     const apiKey = request.headers.get('x-api-key');
-
     if (apiKey !== process.env.MT5_API_KEY) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
 
     let payload: any = {};
     const contentType = request.headers.get('content-type') || '';
-    
     if (contentType.includes('application/json')) {
       payload = await request.json();
     } else {
@@ -42,11 +40,9 @@ export async function POST(request: Request) {
     }
 
     const loginStr = String(payload.login || payload.accountId || '').trim();
-
-    // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
     console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
-    // HARD BLOCK: Silently ignore deleted legacy account to stop log noise
+    // HARD BLOCK: Silently ignore deleted legacy account
     if (loginStr === "757003491") {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
@@ -60,13 +56,12 @@ export async function POST(request: Request) {
     let accountDoc = null;
     
     // 1. PRIORITY #1: Direct Document ID Lookup (Strict match)
-    // This is critical because the Dashboard listens to exact ID matches.
     const d1 = await accountsRef.doc(loginStr).get();
     if (d1.exists) {
       accountDoc = d1;
     }
 
-    // 2. PRIORITY #2: Field Query (String match) - Fallback for legacy records
+    // 2. PRIORITY #2: Field Query (String match)
     if (!accountDoc) {
       const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
       if (!q1.empty) {
@@ -82,14 +77,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. PRIORITY #4: Prefix Fallback (PF- prefix)
-    if (!accountDoc) {
-      const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
-      if (d2.exists) {
-        accountDoc = d2;
-      }
-    }
-    
     if (!accountDoc) {
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
@@ -111,27 +98,25 @@ export async function POST(request: Request) {
     let breachDetected = false;
     let breachReason = "";
 
-    if (accountData.status !== 'breached') {
-      const planKey = getPlanKey(accountData.accountPlan || '1-Step Pro');
-      const phase = accountData.phase || 'evaluation';
-      const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    const planKey = getPlanKey(accountData.accountPlan || '1-Step Pro');
+    const phase = accountData.phase || 'evaluation';
+    const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-      const currentFloatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
-      const totalDailyGrossLoss = dailyClosedLosses + currentFloatingLoss;
-      const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
+    const currentFloatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
+    const totalDailyGrossLoss = dailyClosedLosses + currentFloatingLoss;
+    const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
 
-      if (totalDailyGrossLoss > dailyLimit) {
+    if (totalDailyGrossLoss > dailyLimit) {
+      breachDetected = true;
+      breachReason = `Daily Drawdown: Total loss $${totalDailyGrossLoss.toFixed(2)} exceeded limit $${dailyLimit.toFixed(2)}`;
+    }
+
+    if (!breachDetected) {
+      const maxLossAllowed = initialBalance * (rules.maxDrawdown / 100);
+      const equityFloor = initialBalance - maxLossAllowed;
+      if (currEquity < equityFloor) {
         breachDetected = true;
-        breachReason = `Daily Drawdown: Total loss $${totalDailyGrossLoss.toFixed(2)} exceeded limit $${dailyLimit.toFixed(2)}`;
-      }
-
-      if (!breachDetected) {
-        const maxLossAllowed = initialBalance * (rules.maxDrawdown / 100);
-        const equityFloor = initialBalance - maxLossAllowed;
-        if (currEquity < equityFloor) {
-          breachDetected = true;
-          breachReason = `Max Drawdown: Equity $${currEquity.toLocaleString()} fell below floor $${equityFloor.toLocaleString()}`;
-        }
+        breachReason = `Max Drawdown: Equity $${currEquity.toLocaleString()} fell below floor $${equityFloor.toLocaleString()}`;
       }
     }
 
@@ -167,7 +152,8 @@ export async function POST(request: Request) {
 
     if (userId) {
       await db.collection('users').doc(userId).update({
-        liveBalance: currBalance, liveEquity: currEquity,
+        liveBalance: currBalance, 
+        liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp()
       });
     }

@@ -207,7 +207,7 @@ export async function registerMt5AccountAction(data: any) {
 
   await accountRef.set({
     userId: data.userId,
-    login: loginStr, // FIXED: Guaranteed String type
+    login: loginStr,
     password: data.password,
     displayLogin: data.displayLogin || `PF-${loginStr}`,
     accountPlan: data.plan,
@@ -220,7 +220,7 @@ export async function registerMt5AccountAction(data: any) {
 
   const userRef = db.collection('users').doc(data.userId);
   await userRef.update({
-    mt5Login: loginStr, // FIXED: Guaranteed String type
+    mt5Login: loginStr,
     mt5Password: data.password,
     mt5Server: "MetaQuotes-Demo",
     accountPlan: data.plan,
@@ -347,11 +347,9 @@ export async function fetchAdminTerminalData() {
   
   const accounts = accountsSnap.docs.map(d => {
     const data = d.data();
-    // AGGRESSIVE MIGRATION: Fix numeric or missing String type logins
     const currentLogin = data.login;
     if (typeof currentLogin !== 'string') {
       const loginStr = String(currentLogin || d.id).trim();
-      console.log(`[MIGRATION] Repairing account ${d.id}: converting login ${currentLogin} to String.`);
       d.ref.update({ login: loginStr }).catch(() => {});
       return { id: d.id, ...data, login: loginStr };
     }
