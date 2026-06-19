@@ -76,6 +76,11 @@ export const RULES_CONFIG = {
       }
     },
     "instant-funding": {
+      evaluation: {
+        dailyDrawdown: 3,
+        maxDrawdown: 4,
+        maxFloatingLoss: 1
+      },
       funded: {
         dailyDrawdown: 3,
         maxDrawdown: 4,

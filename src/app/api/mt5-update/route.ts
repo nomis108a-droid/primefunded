@@ -1,3 +1,4 @@
+
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
@@ -58,29 +59,31 @@ export async function POST(request: Request) {
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
-    // EXHAUSTIVE DIAGNOSTIC QUERY
+    // EXHAUSTIVE DIAGNOSTIC QUERY: Prioritize Document ID and String matches
     const allMatches = await accountsRef.where('login', '==', loginStr).get();
     
     if (allMatches.size > 0) {
-      console.log(`[DUPLICATE_CHECK] Login: ${loginStr} | Found ${allMatches.size} matches:`, allMatches.docs.map(d => ({ id: d.id, dataType: typeof d.data().login })));
-      
+      console.log(`[DUPLICATE_CHECK] Login: ${loginStr} | Found ${allMatches.size} string matches:`, allMatches.docs.map(d => ({ id: d.id, dataType: typeof d.data().login })));
       // PRIORITIZATION PROTOCOL: Prefer document where ID matches the login string exactly
       const exactIdMatch = allMatches.docs.find(d => d.id === loginStr);
       accountDoc = exactIdMatch || allMatches.docs[0];
     } 
-    else if (!isNaN(Number(loginStr))) {
-      const q2 = await accountsRef.where('login', '==', Number(loginStr)).get();
-      if (!q2.empty) {
-        console.log(`[DUPLICATE_CHECK] Found ${q2.size} Numeric matches for ${loginStr}:`, q2.docs.map(d => d.id));
-        accountDoc = q2.docs[0];
-      }
-    }
 
+    // PRIORITY FALLBACK: Check Document ID directly before checking numeric fields
     if (!accountDoc) {
       const d1 = await accountsRef.doc(loginStr).get();
       if (d1.exists) {
-        console.log(`[DUPLICATE_CHECK] Found direct ID match (Fallback) for ${loginStr}`);
+        console.log(`[DUPLICATE_CHECK] Found direct ID match for ${loginStr}`);
         accountDoc = d1;
+      }
+    }
+
+    // LEGACY FALLBACK: Check for numeric login field
+    if (!accountDoc && !isNaN(Number(loginStr))) {
+      const q2 = await accountsRef.where('login', '==', Number(loginStr)).get();
+      if (!q2.empty) {
+        console.log(`[DUPLICATE_CHECK] Found ${q2.size} numeric matches for ${loginStr}:`, q2.docs.map(d => d.id));
+        accountDoc = q2.docs[0];
       }
     }
 

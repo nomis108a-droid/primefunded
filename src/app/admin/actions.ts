@@ -1,3 +1,4 @@
+
 'use server';
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
@@ -200,6 +201,10 @@ export async function registerMt5AccountAction(data: any) {
   const loginStr = String(data.login).trim();
   const accountRef = db.collection('mt5_accounts').doc(loginStr);
   
+  // Patch: Instant Funding accounts automatically start in 'funded' phase
+  const isInstant = data.plan?.toLowerCase().includes('instant');
+  const finalPhase = isInstant ? 'funded' : data.phase;
+
   await accountRef.set({
     userId: data.userId,
     login: loginStr, // FIXED: Guaranteed String type
@@ -207,7 +212,7 @@ export async function registerMt5AccountAction(data: any) {
     displayLogin: data.displayLogin || `PF-${loginStr}`,
     accountPlan: data.plan,
     accountBalance: data.size,
-    phase: data.phase,
+    phase: finalPhase,
     status: 'active',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
@@ -222,7 +227,7 @@ export async function registerMt5AccountAction(data: any) {
     accountSize: `$${data.size / 1000}k`,
     accountBalance: data.size,
     accountStatus: 'active',
-    currentPhase: data.phase,
+    currentPhase: finalPhase,
     activatedAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
   });
