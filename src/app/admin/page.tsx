@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -15,9 +16,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award, Wrench
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -70,6 +71,10 @@ export default function AdminPage() {
   // Force Breach State
   const [isForceBreachOpen, setIsForceBreachOpen] = useState(false);
   const [forceBreachReason, setForceBreachReason] = useState('');
+
+  // Repair/Reset State
+  const [isResetOpen, setIsResetOpen] = useState(false);
+  const [resetBalance, setResetBalance] = useState('');
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -133,6 +138,32 @@ export default function AdminPage() {
       }
     } catch (err: any) {
       toast({ variant: "destructive", title: "Audit Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResetAccount = async () => {
+    if (!previewUserId || !resetBalance) return;
+    const targetUser = adminData.users.find((u: any) => u.id === previewUserId);
+    const login = targetUser?.mt5Login;
+    
+    if (!login) {
+      toast({ variant: "destructive", title: "Action Failed", description: "No MT5 login linked to this user profile." });
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const res = await resetAccountAction(login, Number(resetBalance));
+      if (res.success) {
+        toast({ title: "Account Repaired", description: `Login PF-${login} restored to active status at $${resetBalance}.` });
+        setIsResetOpen(false);
+        setResetBalance('');
+        refreshData();
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Repair Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -291,6 +322,9 @@ export default function AdminPage() {
                 Provision Next Phase
               </Button>
             )}
+            <Button variant="secondary" size="sm" className="bg-black hover:bg-black/80 text-primary border border-primary font-black h-8" onClick={() => { setResetBalance(targetUser?.accountBalance || ''); setIsResetOpen(true); }}>
+               <Wrench className="w-3 h-3 mr-2" /> Reset/Repair Node
+            </Button>
             <Button variant="destructive" size="sm" className="bg-black hover:bg-black/80 text-destructive border border-destructive font-black h-8" onClick={() => setIsForceBreachOpen(true)}>Force Breach Account</Button>
           </div>
           <Button variant="secondary" size="sm" onClick={() => setPreviewUserId(null)}><ChevronLeft className="w-3 h-3 mr-1" /> Exit Preview</Button>
@@ -317,6 +351,33 @@ export default function AdminPage() {
               <Button variant="ghost" onClick={() => setIsForceBreachOpen(false)}>Cancel</Button>
               <Button variant="destructive" className="font-bold" onClick={handleForceBreach} disabled={actionLoading || !forceBreachReason}>
                 Confirm Manual Breach
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isResetOpen} onOpenChange={setIsResetOpen}>
+          <DialogContent className="bg-card border-primary/20">
+            <DialogHeader>
+              <DialogTitle className="text-primary flex items-center gap-2"><Wrench className="w-5 h-5" /> Reset & Repair Node</DialogTitle>
+              <DialogDescription>Manually restore an account to active status and adjust its starting node balance.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>New Node Balance ($)</Label>
+                <Input 
+                  type="number"
+                  placeholder="e.g. 10000" 
+                  value={resetBalance} 
+                  onChange={e => setResetBalance(e.target.value)} 
+                />
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">This will update both the MT5 node and the user profile to 'Active'.</p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsResetOpen(false)}>Cancel</Button>
+              <Button className="font-bold cyan-box-glow" onClick={handleResetAccount} disabled={actionLoading || !resetBalance}>
+                Confirm Repair
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -714,7 +775,7 @@ export default function AdminPage() {
                               })()}
                             </td>
                             <td className="py-4 px-4">
-                              <Badge className={cn("uppercase text-[9px]", u.kycStatus === 'verified' ? 'bg-emerald-500/10 text-emerald-500' : u.kycStatus === 'pending' ? 'bg-amber-500/10 text-amber-500' : 'bg-destructive/10 text-destructive')}>
+                              <Badge className={cn("uppercase text-[9px]", u.kycStatus === 'verified' ? 'bg-emerald-500/10 text-emerald-500' : u.kycStatus === 'pending' ? 'bg-amber-500/10 text-amber-500' : u.kycStatus === 'rejected' ? 'bg-destructive/10 text-destructive' : 'bg-muted')}>
                                 {u.kycStatus}
                               </Badge>
                             </td>

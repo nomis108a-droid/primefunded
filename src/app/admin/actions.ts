@@ -92,6 +92,40 @@ async function sendAdminNotification(
   }
 }
 
+export async function resetAccountAction(login: string, newBalance: number) {
+  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  const db = getAdminDb();
+  const loginStr = String(login).trim();
+  const accountRef = db.collection('mt5_accounts').doc(loginStr);
+  
+  const accountSnap = await accountRef.get();
+  if (!accountSnap.exists) throw new Error("Account not found");
+  
+  const data = accountSnap.data();
+  const userId = data?.userId;
+
+  await accountRef.update({
+    accountBalance: newBalance,
+    status: 'active',
+    breachReason: FieldValue.delete(),
+    breachedAt: FieldValue.delete(),
+    updatedAt: FieldValue.serverTimestamp()
+  });
+
+  if (userId) {
+    const userRef = db.collection('users').doc(userId);
+    await userRef.update({
+      accountStatus: 'active',
+      accountBalance: newBalance,
+      breachReason: FieldValue.delete(),
+      breachedAt: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+  }
+
+  return { success: true };
+}
+
 export async function sendGlobalBroadcastAction(data: { title: string, message: string, type: string }) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
