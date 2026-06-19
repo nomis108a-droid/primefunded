@@ -60,13 +60,14 @@ export async function POST(request: Request) {
     let accountDoc = null;
     
     // 1. PRIORITY #1: Direct Document ID Lookup (Strict match)
+    // This is critical because the Dashboard listens to exact ID matches.
     const d1 = await accountsRef.doc(loginStr).get();
     if (d1.exists) {
       console.log(`[LOOKUP] Found direct ID match for ${loginStr}`);
       accountDoc = d1;
     }
 
-    // 2. PRIORITY #2: Field Query (String match)
+    // 2. PRIORITY #2: Field Query (String match) - Fallback for legacy records
     if (!accountDoc) {
       const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
       if (!q1.empty) {
@@ -84,7 +85,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. PRIORITY #4: Prefix Fallback
+    // 4. PRIORITY #4: Prefix Fallback (PF- prefix)
     if (!accountDoc) {
       const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
       if (d2.exists) {
