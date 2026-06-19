@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "OK", note: "Account breached, trade records ignored" }), { status: 200 });
     }
 
-    // 1. Save Trades securely
+    // 1. Save Trades securely with login ID for data isolation
     const batch = db.batch();
     for (const trade of trades) {
       const tradeRef = db.collection('users').doc(userId).collection('trades').doc(String(trade.ticket));
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
         closeTime: trade.time || null,
         date: new Date(trade.time * 1000),
         createdAt: FieldValue.serverTimestamp(),
+        login: loginStr, // CRITICAL: Tag with account ID to prevent isolation leakage
       }, { merge: true });
     }
     await batch.commit();

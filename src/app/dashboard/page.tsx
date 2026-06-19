@@ -59,10 +59,6 @@ import { format, subDays, subMonths, differenceInSeconds, isValid, startOfDay, d
 import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
-/**
- * Institutional temporal helper: Boundary at 2:00 AM UTC (7:30 AM IST)
- * Standardized across frontend and backend.
- */
 const getTradingDayKey = (date: Date) => {
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
   return adjusted.toISOString().split('T')[0];
@@ -142,7 +138,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
   }, [adminViewMode, targetUid, db]);
 
-  // Real-time MT5 Account Listener
   useEffect(() => {
     const userData = adminViewMode ? adminTargetData : contextUserData;
     const login = userData?.mt5Login;
@@ -170,14 +165,13 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
     const initial = userData?.accountBalance || parseSize(userData?.accountSize);
     
-    // Priority: Real-time MT5 Account Data > User Doc Fallback > Initial Static Balance
-    const balance = activeAccountData?.liveBalance ?? activeAccountData?.balance ?? userData?.liveBalance ?? initial;
-    const equity = activeAccountData?.liveEquity ?? activeAccountData?.equity ?? userData?.liveEquity ?? balance;
+    // DATA ISOLATION FIX: 
+    // Ignore legacy liveBalance from User Doc to prevent leakage from previous accounts.
+    // If activeAccountData is null (Awaiting Sync), strictly use initial baseline size.
+    const balance = activeAccountData ? (activeAccountData.liveBalance ?? activeAccountData.balance ?? initial) : initial;
+    const equity = activeAccountData ? (activeAccountData.liveEquity ?? activeAccountData.equity ?? balance) : balance;
     
-    return {
-      balance,
-      equity,
-    };
+    return { balance, equity };
   }, [userData, activeAccountData]);
 
   const connectivityStatus = useMemo(() => {
@@ -245,7 +239,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
   const tradeConstraints = useMemo(() => [
     orderBy('date', 'desc'),
-    limit(200)
+    limit(300) // Increased limit to allow filtering multiple accounts in memory
   ], []);
 
   const { data: recentTrades, loading: tradesLoading } = useCollection<any>(
@@ -253,11 +247,19 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     tradeConstraints
   );
 
+  // DATA ISOLATION FIX: Filter trades strictly by active MT5 Login
+  const filteredTrades = useMemo(() => {
+    if (!recentTrades) return [];
+    const currentLogin = userData?.mt5Login;
+    if (!currentLogin) return [];
+    return recentTrades.filter(t => String(t.login) === String(currentLogin));
+  }, [recentTrades, userData?.mt5Login]);
+
   const tradingDaysData = useMemo(() => {
-    if (!recentTrades) return { count: 0, required: 5, progress: 0 };
+    if (!filteredTrades) return { count: 0, required: 5, progress: 0 };
     
     const days = new Set<string>();
-    recentTrades.forEach(trade => {
+    filteredTrades.forEach(trade => {
       const date = getTradeDate(trade.time || trade.date);
       if (date && isValid(date)) {
         days.add(getTradingDayKey(date));
@@ -282,7 +284,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       required,
       progress: Math.min((count / required) * 100, 100)
     };
-  }, [recentTrades, userData]);
+  }, [filteredTrades, userData]);
 
   const profitTargetData = useMemo(() => {
     const initial = userData?.accountBalance || 0;
@@ -306,13 +308,13 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   }, [userData, metrics.balance]);
 
   const enrichedTrades = useMemo(() => {
-    return enrichTrades(recentTrades, userData?.mt5Login || 'N/A');
-  }, [recentTrades, userData?.mt5Login]);
+    return enrichTrades(filteredTrades, userData?.mt5Login || 'N/A');
+  }, [filteredTrades, userData?.mt5Login]);
 
   const tradeStats = useMemo(() => {
-    if (!recentTrades || recentTrades.length === 0) return null;
+    if (!filteredTrades || filteredTrades.length === 0) return null;
     
-    const closedTrades = recentTrades.filter(t => (t.pnl || t.profit || 0) !== 0);
+    const closedTrades = filteredTrades.filter(t => (t.pnl || t.profit || 0) !== 0);
     const winCount = closedTrades.filter(t => (t.pnl || t.profit || 0) > 0).length;
     const lossCount = closedTrades.filter(t => (t.pnl || t.profit || 0) < 0).length;
     const winRate = closedTrades.length > 0 ? (winCount / closedTrades.length) * 100 : 0;
@@ -334,19 +336,10 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       winCount,
       lossCount
     };
-  }, [recentTrades]);
+  }, [filteredTrades]);
 
   const dailyRiskMetrics = useMemo(() => {
     const initialBalance = userData?.accountBalance || 100000;
-    
-    // Priority: Real-time MT5 account 'dailyGrossLoss' field > User Doc fallback
-    const dailyClosedLosses = activeAccountData?.dailyGrossLoss ?? userData?.dailyClosedLosses ?? 0;
-    
-    const currentFloatingPnL = metrics.equity - metrics.balance;
-    const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
-    
-    const totalDailyLoss = dailyClosedLosses + currentFloatingLoss;
-    
     const getLimit = () => {
       const plan = userData?.accountPlan?.toLowerCase() || '';
       if (plan.includes('1-step')) return 3;
@@ -358,11 +351,21 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
     const limitPct = getLimit();
     const limitAmount = initialBalance * (limitPct / 100);
+
+    // DATA ISOLATION FIX: Zero out metrics if "Awaiting Sync"
+    if (!activeAccountData) {
+      return { pnl: 0, pnlPct: 0, usage: 0, limit: limitPct, limitAmount, totalDailyLoss: 0, drawdownPct: 0, isPositive: true };
+    }
+    
+    const dailyClosedLosses = activeAccountData.dailyGrossLoss ?? 0;
+    const currentFloatingPnL = metrics.equity - metrics.balance;
+    const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
+    const totalDailyLoss = dailyClosedLosses + currentFloatingLoss;
     
     const drawdownPct = initialBalance > 0 ? (totalDailyLoss / initialBalance) * 100 : 0;
     const usage = Math.min((totalDailyLoss / limitAmount) * 100, 100);
 
-    const dailyStart = userData?.dailyStartBalance || metrics.balance;
+    const dailyStart = activeAccountData.dailyStartBalance || initialBalance;
     const pnl = metrics.balance - dailyStart;
     const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
 
@@ -399,12 +402,11 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             <p className="font-bold border-b border-primary/20 pb-1 mb-2 uppercase flex items-center justify-between">
               Terminal Debug Protocol <span>[ACTIVE]</span>
             </p>
-            <p>UID: {effectiveUid}</p>
-            <p>Live Balance: {metrics.balance}</p>
-            <p>Live Equity: {metrics.equity}</p>
-            <p>Realized Session Loss: {activeAccountData?.dailyGrossLoss ?? userData?.dailyClosedLosses ?? 0}</p>
-            <p>Daily Start (Baseline): {userData?.dailyStartBalance || 'N/A'}</p>
-            <p>Session Key: {getTradingDayKey(new Date())}</p>
+            <p>Active Login: {userData?.mt5Login}</p>
+            <p>Balance: {metrics.balance}</p>
+            <p>Equity: {metrics.equity}</p>
+            <p>Daily Loss (Account Doc): {activeAccountData?.dailyGrossLoss || 0}</p>
+            <p>Account Status: {activeAccountData?.status}</p>
           </div>
         )}
 
@@ -690,5 +692,4 @@ function StatMiniCard({ title, value, icon, color = 'primary' }: { title: string
         <p className="text-sm font-bold text-white font-mono">{value}</p>
       </CardContent>
     </Card>
-  );
 }
