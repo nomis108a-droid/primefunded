@@ -41,8 +41,8 @@ export async function POST(request: Request) {
       payload = Object.fromEntries(formData.entries());
     }
 
-    // INSTITUTIONAL DEBUG: Log raw payload to verify key names and whitespace
-    console.log("[MT5_UPDATE_DEBUG] Raw Payload:", JSON.stringify(payload));
+    // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
+    console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
     const loginStr = String(payload.login || payload.accountId || '');
     if (!loginStr || loginStr === 'undefined') {
@@ -53,40 +53,33 @@ export async function POST(request: Request) {
     let accountDoc = null;
     
     // BRUTE FORCE RESILIENT LOOKUP
-    // 1. Try Field Query (String)
     const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
     if (!q1.empty) {
       accountDoc = q1.docs[0];
     } 
-    // 2. Try Field Query (Number fallback for legacy records)
     else if (!isNaN(Number(loginStr))) {
       const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
       if (!q2.empty) accountDoc = q2.docs[0];
     }
 
-    // 3. Try Direct Document ID Lookup (Raw digits)
     if (!accountDoc) {
       const d1 = await accountsRef.doc(loginStr).get();
       if (d1.exists) accountDoc = d1;
     }
 
-    // 4. Try Direct Document ID Lookup (With PF- prefix)
     if (!accountDoc) {
       const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
       if (d2.exists) accountDoc = d2;
     }
     
     if (!accountDoc) {
-      console.warn(`[MT5_SYNC] Failed to find account document for login: ${loginStr}`);
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
     const accountData = accountDoc.data()!;
     const userId = accountData.userId;
 
-    // SAFEGUARD: Reject updates for already breached accounts
     if (accountData.status === 'breached') {
-      console.log(`[MT5_SAFEGUARD] Blocked metrics update for breached account PF-${loginStr}`);
       return new Response(JSON.stringify({ status: "OK", note: "Account breached, update ignored" }), { status: 200 });
     }
 
@@ -97,7 +90,6 @@ export async function POST(request: Request) {
     const todayKey = getTradingDayKey(new Date());
     let dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
 
-    // Rules Evaluation Logic
     let breachDetected = false;
     let breachReason = "";
 

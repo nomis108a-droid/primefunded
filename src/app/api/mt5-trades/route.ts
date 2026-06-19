@@ -1,7 +1,5 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 import { auditAccount } from '@/lib/rulesEngine';
 
 export const dynamic = 'force-dynamic';
@@ -29,8 +27,8 @@ export async function POST(request: Request) {
     const db = getAdminDb();
     const payload = await request.json();
     
-    // INSTITUTIONAL DEBUG: Log raw payload to verify key names and whitespace
-    console.log("[MT5_TRADES_DEBUG] Raw Payload:", JSON.stringify(payload));
+    // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
+    console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
     const loginStr = String(payload.login || payload.accountId || '');
     const trades = payload.trades || [];
@@ -41,31 +39,26 @@ export async function POST(request: Request) {
     let accountDoc = null;
     
     // BRUTE FORCE RESILIENT LOOKUP
-    // 1. Try Field Query (String)
     const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
     if (!q1.empty) {
       accountDoc = q1.docs[0];
     } 
-    // 2. Try Field Query (Number fallback for legacy records)
     else if (!isNaN(Number(loginStr))) {
       const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
       if (!q2.empty) accountDoc = q2.docs[0];
     }
 
-    // 3. Try Direct Document ID Lookup (Raw digits)
     if (!accountDoc) {
       const d1 = await accountsRef.doc(loginStr).get();
       if (d1.exists) accountDoc = d1;
     }
 
-    // 4. Try Direct Document ID Lookup (With PF- prefix)
     if (!accountDoc) {
       const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
       if (d2.exists) accountDoc = d2;
     }
     
     if (!accountDoc) {
-      console.warn(`[MT5_TRADES] Resilient lookup failed for login: ${loginStr}`);
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
@@ -74,13 +67,10 @@ export async function POST(request: Request) {
 
     if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
 
-    // SAFEGUARD: Reject trade records for already breached accounts
     if (accountData.status === 'breached') {
-      console.log(`[MT5_SAFEGUARD] Blocked trade sync for breached account PF-${loginStr}`);
       return new Response(JSON.stringify({ status: "OK", note: "Account breached, trade records ignored" }), { status: 200 });
     }
 
-    // 1. Save Trades securely with login ID for data isolation
     const batch = db.batch();
     for (const trade of trades) {
       const tradeRef = db.collection('users').doc(userId).collection('trades').doc(String(trade.ticket));
@@ -95,7 +85,7 @@ export async function POST(request: Request) {
         closeTime: trade.time || null,
         date: new Date(trade.time * 1000),
         createdAt: FieldValue.serverTimestamp(),
-        login: loginStr, // Tag with account ID to prevent isolation leakage
+        login: loginStr,
       }, { merge: true });
     }
     await batch.commit();
