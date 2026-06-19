@@ -1,4 +1,3 @@
-
 'use server';
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
@@ -128,6 +127,59 @@ export async function resetAccountAction(login: string, newBalance: number, phas
       breachedAt: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp()
     });
+  }
+
+  return { success: true };
+}
+
+export async function deleteMt5AccountAction(login: string) {
+  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  const db = getAdminDb();
+  const loginStr = String(login).trim();
+  const accountRef = db.collection('mt5_accounts').doc(loginStr);
+  
+  const accountSnap = await accountRef.get();
+  if (!accountSnap.exists) return { success: true };
+  
+  const data = accountSnap.data();
+  const userId = data?.userId;
+
+  // 1. Delete the primary account node
+  await accountRef.delete();
+
+  // 2. Delete associated trades from the user's profile
+  if (userId) {
+    const tradesRef = db.collection('users').doc(userId).collection('trades');
+    const tradesSnap = await tradesRef.where('login', '==', loginStr).get();
+    
+    if (!tradesSnap.empty) {
+      const batch = db.batch();
+      tradesSnap.docs.forEach(doc => batch.delete(doc.ref));
+      await batch.commit();
+    }
+
+    // 3. Clear mirroring fields on the user profile if this was their active node
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data();
+    
+    if (String(userData?.mt5Login) === loginStr) {
+      await userRef.update({
+        mt5Login: FieldValue.delete(),
+        mt5Password: FieldValue.delete(),
+        mt5Server: FieldValue.delete(),
+        accountStatus: FieldValue.delete(),
+        liveBalance: FieldValue.delete(),
+        liveEquity: FieldValue.delete(),
+        lastMT5Update: FieldValue.delete(),
+        currentPhase: FieldValue.delete(),
+        accountPlan: FieldValue.delete(),
+        accountSize: FieldValue.delete(),
+        accountBalance: FieldValue.delete(),
+        breachReason: FieldValue.delete(),
+        breachedAt: FieldValue.delete()
+      });
+    }
   }
 
   return { success: true };

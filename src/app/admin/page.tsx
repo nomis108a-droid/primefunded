@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -18,7 +17,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award, Wrench
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction, deleteMt5AccountAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -165,6 +164,22 @@ export default function AdminPage() {
       }
     } catch (err: any) {
       toast({ variant: "destructive", title: "Repair Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async (login: string) => {
+    if (!confirm(`PERMANENT PURGE: Are you absolutely sure you want to delete MT5 Node PF-${login}? This will also delete all associated trade history for this specific login. This action is immutable.`)) return;
+    setActionLoading(true);
+    try {
+      const res = await deleteMt5AccountAction(login);
+      if (res.success) {
+        toast({ title: "Node Deleted", description: `PF-${login} has been completely removed from the network.` });
+        refreshData();
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Deletion Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -446,7 +461,7 @@ export default function AdminPage() {
               <Card className="bg-card/30 border-border/50 overflow-hidden">
                 <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
                   <div><CardTitle className="text-xl font-headline text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary" /> Platform Activity Feed</CardTitle><CardDescription>Real-time log of events across the network.</CardDescription></div>
-                  <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest px-3 py-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live</Badge>
+                  <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live</Badge>
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="divide-y divide-white/5">
@@ -645,6 +660,13 @@ export default function AdminPage() {
                                  </Button>
                                )}
                                <button onClick={() => setPreviewUserId(acc.userId)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4 text-muted-foreground hover:text-white" /></button>
+                               <button 
+                                 onClick={() => handleDeleteAccount(acc.login)} 
+                                 className="p-2 hover:bg-destructive/10 rounded-lg transition-colors group/trash"
+                                 title="Permanently Purge Node"
+                               >
+                                 <Trash2 className="w-4 h-4 text-muted-foreground group-hover/trash:text-destructive" />
+                               </button>
                             </td>
                           </tr>
                         ))}
