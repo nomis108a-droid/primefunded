@@ -171,9 +171,9 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     return { balance, equity, initial };
   }, [activeAccount]);
 
-  const connectivityStatus = useMemo(() => {
-    if (!activeAccount) return 'offline';
-    if (isBreached) return 'terminated';
+  const connectivityInfo = useMemo(() => {
+    if (!activeAccount) return { status: 'offline', label: 'Terminal Offline' };
+    if (isBreached) return { status: 'terminated', label: 'Terminated' };
     
     const rawTs = activeAccount?.lastMT5Update;
     const lastUpdateMs = rawTs?.seconds
@@ -182,11 +182,16 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
         ? rawTs.getTime()
         : rawTs ? Number(rawTs) : 0;
     
-    const isEAOnline = lastUpdateMs > 0 && Math.floor((Date.now() - lastUpdateMs) / 1000) <= 120;
+    if (lastUpdateMs === 0) return { status: 'awaiting', label: 'Awaiting Data' };
 
-    if (isEAOnline) return 'live';
-    if (activeAccount?.login && !rawTs) return 'awaiting';
-    return 'offline';
+    const diffSeconds = Math.floor((Date.now() - lastUpdateMs) / 1000);
+    const isEAOnline = diffSeconds <= 300; // 5 minute threshold (less aggressive)
+
+    const minutesAgo = Math.floor(diffSeconds / 60);
+    const timeLabel = minutesAgo === 0 ? 'Just now' : minutesAgo > 59 ? '>1h ago' : `${minutesAgo}m ago`;
+
+    if (isEAOnline) return { status: 'live', label: `Live Sync (${timeLabel})` };
+    return { status: 'offline', label: `Terminal Offline (${timeLabel})` };
   }, [activeAccount, isBreached]);
 
   // ISOLATED TRADES & PERFORMANCE
@@ -303,16 +308,14 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             {!adminViewMode && <NotificationBell />}
             <Badge variant="outline" className={cn(
               "h-9 px-4 uppercase font-bold tracking-widest border-white/10",
-              connectivityStatus === 'live' && "border-accent/30 text-accent"
+              connectivityInfo.status === 'live' && "border-accent/30 text-accent"
             )}>
               <div className={cn(
                 "w-2 h-2 rounded-full mr-2", 
-                connectivityStatus === 'live' ? 'bg-accent live-indicator' : 
-                connectivityStatus === 'offline' || connectivityStatus === 'terminated' ? 'bg-destructive' : 'bg-amber-500'
+                connectivityInfo.status === 'live' ? 'bg-accent live-indicator' : 
+                connectivityInfo.status === 'offline' || connectivityInfo.status === 'terminated' ? 'bg-destructive' : 'bg-amber-500'
               )} />
-              {connectivityStatus === 'live' ? 'Live Sync' : 
-               connectivityStatus === 'offline' ? 'Terminal Offline' : 
-               connectivityStatus === 'terminated' ? 'Terminated' : 'Awaiting Data'}
+              {connectivityInfo.label}
             </Badge>
           </div>
         </header>
@@ -507,7 +510,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-6">
              <ShieldAlert className="w-16 h-16 text-muted-foreground opacity-20" />
              <h3 className="text-2xl font-headline font-bold text-white uppercase tracking-tight">Access Terminal</h3>
-             <p className="text-muted-foreground max-w-sm">No active institutional nodes were detected for your profile. Select a challenge to begin your verification.</p>
+             <p className="text-muted-foreground max-sm">No active institutional nodes were detected for your profile. Select a challenge to begin your verification.</p>
              <Button size="lg" className="h-14 px-12 font-bold text-lg cyan-box-glow rounded-2xl" asChild>
                 <Link href="/challenges">Start Challenge <ChevronRight className="ml-2 w-5 h-5" /></Link>
              </Button>
