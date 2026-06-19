@@ -25,11 +25,6 @@ function getAdminDb() {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = request.headers.get('x-api-key');
-    if (apiKey !== process.env.MT5_API_KEY) {
-      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
-    }
-
     let payload: any = {};
     const contentType = request.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -40,6 +35,14 @@ export async function POST(request: Request) {
     }
 
     const loginStr = String(payload.login || payload.accountId || '').trim();
+
+    // Debug Log: Very first line after loginStr extraction
+    console.log("MT5 UPDATE HIT for login:", loginStr);
+
+    const apiKey = request.headers.get('x-api-key');
+    if (apiKey !== process.env.MT5_API_KEY) {
+      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
+    }
 
     if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
