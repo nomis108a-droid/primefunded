@@ -6,6 +6,8 @@ import { auditAccount } from '@/lib/rulesEngine';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+const BLOCKED_LOGINS = ['757003491'];
+
 function getAdminDb() {
   if (!getApps().length) {
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
@@ -26,10 +28,9 @@ export async function POST(request: Request) {
 
     const payload = await request.json();
     const loginStr = String(payload.login || payload.accountId || '').trim();
-    console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
-    // HARD BLOCK: Silently ignore deleted legacy account
-    if (loginStr === "757003491") {
+    // DENYLIST CHECK: Exit immediately for blocked accounts
+    if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
 
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
       try {
         await auditAccount({ id: accountDoc.id, ...accountData });
       } catch (auditErr: any) {
-        console.error("[AUDIT_ERROR]", auditErr.message);
+        // Silently log audit failure to avoid breaking EA sync
       }
     }
 
