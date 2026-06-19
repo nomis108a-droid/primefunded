@@ -35,11 +35,12 @@ export async function POST(request: Request) {
     }
 
     const loginStr = String(payload.login || payload.accountId || '').trim();
+    const apiKey = request.headers.get('x-api-key');
 
     // Debug Log: Very first line after loginStr extraction
     console.log("MT5 UPDATE HIT for login:", loginStr);
+    console.log("API KEY CHECK:", apiKey === process.env.MT5_API_KEY, "received:", apiKey?.slice(0,6));
 
-    const apiKey = request.headers.get('x-api-key');
     if (apiKey !== process.env.MT5_API_KEY) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
