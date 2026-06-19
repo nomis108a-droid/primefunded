@@ -15,7 +15,7 @@ function getAdminDb() {
   if (!getApps().length) {
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    const serviceAccount = JSON.parse(serviceAccountKey);
+    const serviceAccount = JSON.parse(serviceAccountKey.startsWith("'") ? serviceAccountKey.slice(1, -1) : serviceAccountKey);
     initializeApp({ credential: cert(serviceAccount) });
   }
   return getFirestore();
@@ -25,10 +25,6 @@ export async function POST(request: Request) {
   try {
     // SECURITY: Verify MT5 API Key
     const apiKey = request.headers.get('x-api-key');
-    
-    // TEMPORARY DEBUG LOGS
-    console.log("[MT5_AUTH_DEBUG] incoming key:", apiKey);
-    console.log("[MT5_AUTH_DEBUG] expected key:", process.env.MT5_API_KEY);
 
     if (apiKey !== process.env.MT5_API_KEY) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
@@ -53,20 +49,32 @@ export async function POST(request: Request) {
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
-    // ATTEMPT 1: Query by normalized String login field
-    const fieldQuery = await accountsRef.where('login', '==', loginStr).limit(1).get();
-    if (!fieldQuery.empty) {
-      accountDoc = fieldQuery.docs[0];
-    } else {
-      // ATTEMPT 2: Direct Document ID lookup (Resilient fallback for legacy/mismatched types)
-      const directRef = await accountsRef.doc(loginStr).get();
-      if (directRef.exists) {
-        accountDoc = directRef;
-      }
+    // BRUTE FORCE RESILIENT LOOKUP
+    // 1. Try Field Query (String)
+    const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
+    if (!q1.empty) {
+      accountDoc = q1.docs[0];
+    } 
+    // 2. Try Field Query (Number fallback for legacy records)
+    else if (!isNaN(Number(loginStr))) {
+      const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
+      if (!q2.empty) accountDoc = q2.docs[0];
+    }
+
+    // 3. Try Direct Document ID Lookup (Raw digits)
+    if (!accountDoc) {
+      const d1 = await accountsRef.doc(loginStr).get();
+      if (d1.exists) accountDoc = d1;
+    }
+
+    // 4. Try Direct Document ID Lookup (With PF- prefix)
+    if (!accountDoc) {
+      const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
+      if (d2.exists) accountDoc = d2;
     }
     
     if (!accountDoc) {
-      console.warn(`[MT5_SYNC] Failed to find account document for ID: ${loginStr}`);
+      console.warn(`[MT5_SYNC] Failed to find account document for login: ${loginStr}`);
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
@@ -86,7 +94,7 @@ export async function POST(request: Request) {
     const todayKey = getTradingDayKey(new Date());
     let dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
 
-    // Rules Evaluation Logic...
+    // Rules Evaluation Logic
     let breachDetected = false;
     let breachReason = "";
 

@@ -197,7 +197,7 @@ export async function registerMt5AccountAction(data: any) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
   
-  const loginStr = String(data.login);
+  const loginStr = String(data.login).trim();
   const accountRef = db.collection('mt5_accounts').doc(loginStr);
   
   await accountRef.set({
@@ -342,9 +342,11 @@ export async function fetchAdminTerminalData() {
   
   const accounts = accountsSnap.docs.map(d => {
     const data = d.data();
-    // MIGRATION: Auto-fix numeric logins to String for strict type matching in queries
-    if (typeof data.login === 'number') {
-      const loginStr = String(data.login);
+    // AGGRESSIVE MIGRATION: Fix numeric or missing String type logins
+    const currentLogin = data.login;
+    if (typeof currentLogin !== 'string') {
+      const loginStr = String(currentLogin || d.id).trim();
+      console.log(`[MIGRATION] Repairing account ${d.id}: converting login ${currentLogin} to String.`);
       d.ref.update({ login: loginStr }).catch(() => {});
       return { id: d.id, ...data, login: loginStr };
     }
