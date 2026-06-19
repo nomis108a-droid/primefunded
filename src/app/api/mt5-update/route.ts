@@ -41,6 +41,9 @@ export async function POST(request: Request) {
       payload = Object.fromEntries(formData.entries());
     }
 
+    // INSTITUTIONAL DEBUG: Log raw payload to verify key names and whitespace
+    console.log("[MT5_UPDATE_DEBUG] Raw Payload:", JSON.stringify(payload));
+
     const loginStr = String(payload.login || payload.accountId || '');
     if (!loginStr || loginStr === 'undefined') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });

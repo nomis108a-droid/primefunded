@@ -28,6 +28,10 @@ export async function POST(request: Request) {
 
     const db = getAdminDb();
     const payload = await request.json();
+    
+    // INSTITUTIONAL DEBUG: Log raw payload to verify key names and whitespace
+    console.log("[MT5_TRADES_DEBUG] Raw Payload:", JSON.stringify(payload));
+
     const loginStr = String(payload.login || payload.accountId || '');
     const trades = payload.trades || [];
 
