@@ -63,7 +63,6 @@ export async function POST(request: Request) {
     // This is critical because the Dashboard listens to exact ID matches.
     const d1 = await accountsRef.doc(loginStr).get();
     if (d1.exists) {
-      console.log(`[LOOKUP] Found direct ID match for ${loginStr}`);
       accountDoc = d1;
     }
 
@@ -71,7 +70,6 @@ export async function POST(request: Request) {
     if (!accountDoc) {
       const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
       if (!q1.empty) {
-        console.log(`[LOOKUP] Found string field match for ${loginStr}`);
         accountDoc = q1.docs[0];
       }
     }
@@ -80,7 +78,6 @@ export async function POST(request: Request) {
     if (!accountDoc && !isNaN(Number(loginStr))) {
       const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
       if (!q2.empty) {
-        console.log(`[LOOKUP] Found numeric field match for ${loginStr}`);
         accountDoc = q2.docs[0];
       }
     }
@@ -89,7 +86,6 @@ export async function POST(request: Request) {
     if (!accountDoc) {
       const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
       if (d2.exists) {
-        console.log(`[LOOKUP] Found PF- prefixed ID match for ${loginStr}`);
         accountDoc = d2;
       }
     }

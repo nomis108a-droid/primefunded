@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -519,12 +520,12 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           />
           {instrumentCheck ? (
             <MetricCard 
-              title="Instrument Diversity" 
+              title="Instrument Diversity (Soft Rule)" 
               value={`${instrumentCheck.qualified} / ${instrumentCheck.total} Qualified`} 
               icon={<ShieldCheck className="text-accent" />} 
               progress={instrumentCheck.progress}
               progressLabel="Min 5 trades per instrument"
-              footer="Soft rule for payout eligibility."
+              footer="Required for payout eligibility."
             />
           ) : (
             <MetricCard 
@@ -647,7 +648,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between p-3 rounded-xl bg-background/50 border border-white/5">
                    <div className="space-y-1">
-                      <p className="text-[9px] font-black text-muted-foreground uppercase">Current Phase</p>
+                      <p className="text-[9px] font-black text-muted-foreground uppercase">Current Status</p>
                       <Badge className={cn("gap-1.5 py-1 px-3", isBreached ? "bg-destructive/10 text-destructive border-destructive/20" : currentPhaseDisplay.className)}>
                         {isBreached ? <Skull className="w-3 h-3" /> : currentPhaseDisplay.icon}
                         {isBreached ? 'Breached' : currentPhaseDisplay.label}
