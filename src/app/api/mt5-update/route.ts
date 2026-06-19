@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     const loginStr = String(payload.login || payload.accountId || '').trim();
 
     // HARD BLOCK: Silently ignore deleted legacy account to stop log noise
+    // RETURN PATH 1: Exact match for blocked legacy account
     if (loginStr === "757003491") {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
@@ -50,6 +51,7 @@ export async function POST(request: Request) {
     // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
     console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
+    // RETURN PATH 2: Missing or invalid login identification
     if (!loginStr || loginStr === 'undefined') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
@@ -78,6 +80,7 @@ export async function POST(request: Request) {
       if (d2.exists) accountDoc = d2;
     }
     
+    // RETURN PATH 3: Account ID or login field does not exist in Firestore
     if (!accountDoc) {
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
@@ -85,6 +88,7 @@ export async function POST(request: Request) {
     const accountData = accountDoc.data()!;
     const userId = accountData.userId;
 
+    // RETURN PATH 4: Account is flagged as already breached/liquidated
     if (accountData.status === 'breached') {
       return new Response(JSON.stringify({ status: "OK", note: "Account breached, update ignored" }), { status: 200 });
     }
@@ -151,6 +155,7 @@ export async function POST(request: Request) {
       await userRef.update({ accountStatus: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
     }
 
+    // CRITICAL DATABASE WRITE: This is the only place updatedAt is changed
     await accountDoc.ref.update(updates);
 
     if (userId) {
@@ -169,8 +174,11 @@ export async function POST(request: Request) {
       }
     }
 
+    // RETURN PATH 5: Successful update and audit path
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
+
   } catch (error: any) {
+    // RETURN PATH 6: Fatal server or database connectivity error
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }
 }
