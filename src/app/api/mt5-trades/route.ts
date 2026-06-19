@@ -27,13 +27,13 @@ export async function POST(request: Request) {
     const payload = await request.json();
     const loginStr = String(payload.login || payload.accountId || '').trim();
 
+    // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
+    console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
+
     // HARD BLOCK: Silently ignore deleted legacy account to stop log noise
     if (loginStr === "757003491") {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
-
-    // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
-    console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
     if (!loginStr) return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
 
@@ -41,13 +41,18 @@ export async function POST(request: Request) {
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
-    // BRUTE FORCE RESILIENT LOOKUP
-    const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
-    if (!q1.empty) {
-      accountDoc = q1.docs[0];
+    // EXHAUSTIVE DIAGNOSTIC QUERY
+    const allMatches = await accountsRef.where('login', '==', loginStr).get();
+    
+    if (allMatches.size > 0) {
+      console.log(`[DUPLICATE_CHECK] Trades Login: ${loginStr} | Found ${allMatches.size} matches:`, allMatches.docs.map(d => d.id));
+      
+      // PRIORITIZATION PROTOCOL: Prefer document where ID matches the login string exactly
+      const exactIdMatch = allMatches.docs.find(d => d.id === loginStr);
+      accountDoc = exactIdMatch || allMatches.docs[0];
     } 
     else if (!isNaN(Number(loginStr))) {
-      const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
+      const q2 = await accountsRef.where('login', '==', Number(loginStr)).get();
       if (!q2.empty) accountDoc = q2.docs[0];
     }
 
