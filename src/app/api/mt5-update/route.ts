@@ -51,12 +51,26 @@ export async function POST(request: Request) {
     }
 
     const accountsRef = db.collection('mt5_accounts');
-    let querySnapshot = await accountsRef.where('login', '==', loginStr).limit(1).get();
+    let accountDoc = null;
     
-    if (querySnapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+    // ATTEMPT 1: Query by normalized String login field
+    const fieldQuery = await accountsRef.where('login', '==', loginStr).limit(1).get();
+    if (!fieldQuery.empty) {
+      accountDoc = fieldQuery.docs[0];
+    } else {
+      // ATTEMPT 2: Direct Document ID lookup (Resilient fallback for legacy/mismatched types)
+      const directRef = await accountsRef.doc(loginStr).get();
+      if (directRef.exists) {
+        accountDoc = directRef;
+      }
+    }
+    
+    if (!accountDoc) {
+      console.warn(`[MT5_SYNC] Failed to find account document for ID: ${loginStr}`);
+      return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+    }
 
-    const accountDoc = querySnapshot.docs[0];
-    const accountData = accountDoc.data();
+    const accountData = accountDoc.data()!;
     const userId = accountData.userId;
 
     // SAFEGUARD: Reject updates for already breached accounts

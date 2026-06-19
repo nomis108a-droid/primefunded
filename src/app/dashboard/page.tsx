@@ -165,9 +165,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
     const initial = userData?.accountBalance || parseSize(userData?.accountSize);
     
-    // DATA ISOLATION FIX: 
-    // Ignore legacy liveBalance from User Doc to prevent leakage from previous accounts.
-    // If activeAccountData is null (Awaiting Sync), strictly use initial baseline size.
     const balance = activeAccountData ? (activeAccountData.liveBalance ?? activeAccountData.balance ?? initial) : initial;
     const equity = activeAccountData ? (activeAccountData.liveEquity ?? activeAccountData.equity ?? balance) : balance;
     
@@ -239,7 +236,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
   const tradeConstraints = useMemo(() => [
     orderBy('date', 'desc'),
-    limit(300) // Increased limit to allow filtering multiple accounts in memory
+    limit(300)
   ], []);
 
   const { data: recentTrades, loading: tradesLoading } = useCollection<any>(
@@ -247,7 +244,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     tradeConstraints
   );
 
-  // DATA ISOLATION FIX: Filter trades strictly by active MT5 Login
   const filteredTrades = useMemo(() => {
     if (!recentTrades) return [];
     const currentLogin = userData?.mt5Login;
@@ -283,6 +279,27 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       count,
       required,
       progress: Math.min((count / required) * 100, 100)
+    };
+  }, [filteredTrades, userData]);
+
+  const instrumentCheck = useMemo(() => {
+    const plan = userData?.accountPlan?.toLowerCase() || '';
+    if (!plan.includes('instant')) return null;
+
+    const symbolCounts: Record<string, number> = {};
+    filteredTrades.forEach((t: any) => {
+      const sym = t.symbol || 'N/A';
+      symbolCounts[sym] = (symbolCounts[sym] || 0) + 1;
+    });
+
+    const entries = Object.entries(symbolCounts);
+    const qualified = entries.filter(([_, count]) => count >= 5).length;
+    const progress = entries.length > 0 ? (qualified / entries.length) * 100 : 0;
+
+    return {
+      qualified,
+      total: entries.length,
+      progress
     };
   }, [filteredTrades, userData]);
 
@@ -352,7 +369,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     const limitPct = getLimit();
     const limitAmount = initialBalance * (limitPct / 100);
 
-    // DATA ISOLATION FIX: Zero out metrics if "Awaiting Sync"
     if (!activeAccountData) {
       return { pnl: 0, pnlPct: 0, usage: 0, limit: limitPct, limitAmount, totalDailyLoss: 0, drawdownPct: 0, isPositive: true };
     }
@@ -383,12 +399,18 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
 
   const currentPhaseDisplay = useMemo(() => {
     const phase = userData?.currentPhase || 'evaluation';
+    const plan = userData?.accountPlan?.toLowerCase() || '';
+
+    if (plan.includes('instant')) {
+      return { label: 'Live Funded', icon: <ShieldCheck className="w-3 h-3" />, className: 'bg-accent/10 text-accent border-accent/20' };
+    }
+
     if (phase === 'funded') return { label: 'Funded Stage', icon: <Trophy className="w-3 h-3" />, className: 'bg-amber-500/10 text-amber-500 border-amber-500/20' };
     if (phase === 'phase1') return { label: 'Phase 1: Evaluation', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
     if (phase === 'phase2') return { label: 'Phase 2: Verification', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
     if (phase === 'phase3') return { label: 'Phase 3: Final Stage', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
     return { label: 'Evaluation Phase', icon: <Zap className="w-3 h-3" />, className: 'bg-primary/10 text-primary border-primary/20' };
-  }, [userData?.currentPhase]);
+  }, [userData?.currentPhase, userData?.accountPlan]);
 
   if (authLoading && !adminViewMode) return null;
 
@@ -472,7 +494,10 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div className={cn(
+          "grid grid-cols-1 md:grid-cols-2 gap-6 mb-6",
+          instrumentCheck ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"
+        )}>
           <MetricCard 
             title="Account Balance" 
             value={`$${metrics.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} 
@@ -492,14 +517,35 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             progress={tradingDaysData.progress}
             progressLabel={`${tradingDaysData.progress.toFixed(0)}% Completed`}
           />
-          <MetricCard 
-            title="Profit Target" 
-            value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / $${(userData?.accountBalance + profitTargetData.targetAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'N/A'} 
-            icon={<Target className="text-amber-500" />} 
-            progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
-            progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
-            footer={profitTargetData.hasTarget ? `Target: ${profitTargetData.targetPct}% ($${profitTargetData.targetAmount.toLocaleString()})` : 'Keep trading to maximize payouts.'}
-          />
+          {instrumentCheck ? (
+            <MetricCard 
+              title="Instrument Diversity" 
+              value={`${instrumentCheck.qualified} / ${instrumentCheck.total} Qualified`} 
+              icon={<ShieldCheck className="text-accent" />} 
+              progress={instrumentCheck.progress}
+              progressLabel="Min 5 trades per instrument"
+              footer="Soft rule for payout eligibility."
+            />
+          ) : (
+            <MetricCard 
+              title="Profit Target" 
+              value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / $${(userData?.accountBalance + profitTargetData.targetAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'N/A'} 
+              icon={<Target className="text-amber-500" />} 
+              progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
+              progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
+              footer={profitTargetData.hasTarget ? `Target: ${profitTargetData.targetPct}% ($${profitTargetData.targetAmount.toLocaleString()})` : 'Keep trading to maximize payouts.'}
+            />
+          )}
+          {instrumentCheck && (
+             <MetricCard 
+              title="Profit Target" 
+              value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / $${(userData?.accountBalance + profitTargetData.targetAmount).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'N/A'} 
+              icon={<Target className="text-amber-500" />} 
+              progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
+              progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
+              footer={profitTargetData.hasTarget ? `Target: ${profitTargetData.targetPct}% ($${profitTargetData.targetAmount.toLocaleString()})` : 'Keep trading to maximize payouts.'}
+            />
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">

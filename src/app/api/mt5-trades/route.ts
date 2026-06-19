@@ -38,12 +38,23 @@ export async function POST(request: Request) {
     if (!loginStr) return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
 
     const accountsRef = db.collection('mt5_accounts');
-    let snapshot = await accountsRef.where('login', '==', loginStr).limit(1).get();
+    let accountDoc = null;
     
-    if (snapshot.empty) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+    // ATTEMPT 1: Field lookup
+    const fieldSnapshot = await accountsRef.where('login', '==', loginStr).limit(1).get();
+    if (!fieldSnapshot.empty) {
+      accountDoc = fieldSnapshot.docs[0];
+    } else {
+      // ATTEMPT 2: Resilient direct lookup
+      const directDoc = await accountsRef.doc(loginStr).get();
+      if (directDoc.exists) {
+        accountDoc = directDoc;
+      }
+    }
+    
+    if (!accountDoc) return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
 
-    const accountDoc = snapshot.docs[0];
-    const accountData = accountDoc.data();
+    const accountData = accountDoc.data()!;
     const userId = accountData.userId;
 
     if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
