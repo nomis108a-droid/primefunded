@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -41,6 +40,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from "@/components/ui/skeleton";
 import { useFirestore, useCollection } from '@/firebase';
 import { where, doc, limit, orderBy, onSnapshot, collection, query, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
