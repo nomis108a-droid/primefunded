@@ -48,6 +48,12 @@ export async function POST(request: Request) {
 
     if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
 
+    // SAFEGUARD: Reject trade records for already breached accounts
+    if (accountData.status === 'breached') {
+      console.log(`[MT5_SAFEGUARD] Blocked trade sync for breached account PF-${loginStr}`);
+      return new Response(JSON.stringify({ status: "OK", note: "Account breached, trade records ignored" }), { status: 200 });
+    }
+
     // 1. Save Trades securely
     const batch = db.batch();
     for (const trade of trades) {

@@ -59,6 +59,12 @@ export async function POST(request: Request) {
     const accountData = accountDoc.data();
     const userId = accountData.userId;
 
+    // SAFEGUARD: Reject updates for already breached accounts
+    if (accountData.status === 'breached') {
+      console.log(`[MT5_SAFEGUARD] Blocked metrics update for breached account PF-${loginStr}`);
+      return new Response(JSON.stringify({ status: "OK", note: "Account breached, update ignored" }), { status: 200 });
+    }
+
     const currBalance = Math.max(0, parseFloat(String(payload.balance)) || 0);
     const currEquity = Math.max(0, parseFloat(String(payload.equity)) || 0);
     const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
