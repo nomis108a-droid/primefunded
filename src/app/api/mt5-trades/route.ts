@@ -1,3 +1,4 @@
+
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { auditAccount } from '@/lib/rulesEngine';
@@ -41,29 +42,38 @@ export async function POST(request: Request) {
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
-    // EXHAUSTIVE DIAGNOSTIC QUERY
-    const allMatches = await accountsRef.where('login', '==', loginStr).get();
-    
-    if (allMatches.size > 0) {
-      console.log(`[DUPLICATE_CHECK] Trades Login: ${loginStr} | Found ${allMatches.size} matches:`, allMatches.docs.map(d => d.id));
-      
-      // PRIORITIZATION PROTOCOL: Prefer document where ID matches the login string exactly
-      const exactIdMatch = allMatches.docs.find(d => d.id === loginStr);
-      accountDoc = exactIdMatch || allMatches.docs[0];
-    } 
-    else if (!isNaN(Number(loginStr))) {
-      const q2 = await accountsRef.where('login', '==', Number(loginStr)).get();
-      if (!q2.empty) accountDoc = q2.docs[0];
+    // 1. PRIORITY #1: Direct Document ID Lookup (Strict match)
+    const d1 = await accountsRef.doc(loginStr).get();
+    if (d1.exists) {
+      console.log(`[LOOKUP] Found direct ID match for ${loginStr}`);
+      accountDoc = d1;
     }
 
+    // 2. PRIORITY #2: Field Query (String match)
     if (!accountDoc) {
-      const d1 = await accountsRef.doc(loginStr).get();
-      if (d1.exists) accountDoc = d1;
+      const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
+      if (!q1.empty) {
+        console.log(`[LOOKUP] Found string field match for ${loginStr}`);
+        accountDoc = q1.docs[0];
+      }
     }
 
+    // 3. PRIORITY #3: Field Query (Numeric match for legacy)
+    if (!accountDoc && !isNaN(Number(loginStr))) {
+      const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
+      if (!q2.empty) {
+        console.log(`[LOOKUP] Found numeric field match for ${loginStr}`);
+        accountDoc = q2.docs[0];
+      }
+    }
+
+    // 4. PRIORITY #4: Prefix Fallback
     if (!accountDoc) {
       const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
-      if (d2.exists) accountDoc = d2;
+      if (d2.exists) {
+        console.log(`[LOOKUP] Found PF- prefixed ID match for ${loginStr}`);
+        accountDoc = d2;
+      }
     }
     
     if (!accountDoc) {

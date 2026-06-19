@@ -59,38 +59,36 @@ export async function POST(request: Request) {
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
-    // EXHAUSTIVE DIAGNOSTIC QUERY: Prioritize Document ID and String matches
-    const allMatches = await accountsRef.where('login', '==', loginStr).get();
-    
-    if (allMatches.size > 0) {
-      console.log(`[DUPLICATE_CHECK] Login: ${loginStr} | Found ${allMatches.size} string matches:`, allMatches.docs.map(d => ({ id: d.id, dataType: typeof d.data().login })));
-      // PRIORITIZATION PROTOCOL: Prefer document where ID matches the login string exactly
-      const exactIdMatch = allMatches.docs.find(d => d.id === loginStr);
-      accountDoc = exactIdMatch || allMatches.docs[0];
-    } 
+    // 1. PRIORITY #1: Direct Document ID Lookup (Strict match)
+    const d1 = await accountsRef.doc(loginStr).get();
+    if (d1.exists) {
+      console.log(`[LOOKUP] Found direct ID match for ${loginStr}`);
+      accountDoc = d1;
+    }
 
-    // PRIORITY FALLBACK: Check Document ID directly before checking numeric fields
+    // 2. PRIORITY #2: Field Query (String match)
     if (!accountDoc) {
-      const d1 = await accountsRef.doc(loginStr).get();
-      if (d1.exists) {
-        console.log(`[DUPLICATE_CHECK] Found direct ID match for ${loginStr}`);
-        accountDoc = d1;
+      const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
+      if (!q1.empty) {
+        console.log(`[LOOKUP] Found string field match for ${loginStr}`);
+        accountDoc = q1.docs[0];
       }
     }
 
-    // LEGACY FALLBACK: Check for numeric login field
+    // 3. PRIORITY #3: Field Query (Numeric match for legacy)
     if (!accountDoc && !isNaN(Number(loginStr))) {
-      const q2 = await accountsRef.where('login', '==', Number(loginStr)).get();
+      const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
       if (!q2.empty) {
-        console.log(`[DUPLICATE_CHECK] Found ${q2.size} numeric matches for ${loginStr}:`, q2.docs.map(d => d.id));
+        console.log(`[LOOKUP] Found numeric field match for ${loginStr}`);
         accountDoc = q2.docs[0];
       }
     }
 
+    // 4. PRIORITY #4: Prefix Fallback
     if (!accountDoc) {
       const d2 = await accountsRef.doc(`PF-${loginStr}`).get();
       if (d2.exists) {
-        console.log(`[DUPLICATE_CHECK] Found PF- prefixed ID match for ${loginStr}`);
+        console.log(`[LOOKUP] Found PF- prefixed ID match for ${loginStr}`);
         accountDoc = d2;
       }
     }
