@@ -17,7 +17,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { 
   Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award, Wrench
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction, deleteMt5AccountAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction, deleteMt5AccountAction, runOneTimeCleanupAction } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +138,23 @@ export default function AdminPage() {
       }
     } catch (err: any) {
       toast({ variant: "destructive", title: "Audit Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRunCleanup = async () => {
+    if (!confirm("CRITICAL: This will delete ALL MT5 account nodes except 108582571 and reset all user profiles. This is irreversible. Proceed?")) return;
+    setActionLoading(true);
+    try {
+      const res = await runOneTimeCleanupAction();
+      if (res.success) {
+        toast({ title: "Cleanup Complete", description: `Deleted ${res.deletedIds.length} nodes.` });
+        console.log('Purged IDs:', res.deletedIds);
+        refreshData();
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Cleanup Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -602,11 +619,16 @@ export default function AdminPage() {
 
           {activeTab === 'mt5_nodes' && (
             <div className="space-y-6">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-headline text-white">Institutional Nodes</h2>
+                  <p className="text-sm text-muted-foreground">Registry of all provisioned MetaTrader 5 accounts.</p>
+                </div>
+                <Button variant="destructive" size="sm" className="font-bold border border-destructive/30" onClick={handleRunCleanup} disabled={actionLoading}>
+                   <Trash2 className="w-4 h-4 mr-2" /> One-Time Data Cleanup
+                </Button>
+              </div>
               <Card className="bg-card/30 border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-white">Institutional Nodes</CardTitle>
-                  <CardDescription>Registry of all provisioned MetaTrader 5 accounts.</CardDescription>
-                </CardHeader>
                 <CardContent className="p-0">
                    <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
