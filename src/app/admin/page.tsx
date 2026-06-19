@@ -75,6 +75,7 @@ export default function AdminPage() {
   // Repair/Reset State
   const [isResetOpen, setIsResetOpen] = useState(false);
   const [resetBalance, setResetBalance] = useState('');
+  const [resetPhase, setResetPhase] = useState('funded');
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -155,7 +156,7 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
-      const res = await resetAccountAction(login, Number(resetBalance));
+      const res = await resetAccountAction(login, Number(resetBalance), resetPhase);
       if (res.success) {
         toast({ title: "Account Repaired", description: `Login PF-${login} restored to active status at $${resetBalance}.` });
         setIsResetOpen(false);
@@ -322,7 +323,7 @@ export default function AdminPage() {
                 Provision Next Phase
               </Button>
             )}
-            <Button variant="secondary" size="sm" className="bg-black hover:bg-black/80 text-primary border border-primary font-black h-8" onClick={() => { setResetBalance(targetUser?.accountBalance || ''); setIsResetOpen(true); }}>
+            <Button variant="secondary" size="sm" className="bg-black hover:bg-black/80 text-primary border border-primary font-black h-8" onClick={() => { setResetBalance(targetUser?.accountBalance || ''); setResetPhase(targetUser?.currentPhase || 'funded'); setIsResetOpen(true); }}>
                <Wrench className="w-3 h-3 mr-2" /> Reset/Repair Node
             </Button>
             <Button variant="destructive" size="sm" className="bg-black hover:bg-black/80 text-destructive border border-destructive font-black h-8" onClick={() => setIsForceBreachOpen(true)}>Force Breach Account</Button>
@@ -360,7 +361,7 @@ export default function AdminPage() {
           <DialogContent className="bg-card border-primary/20">
             <DialogHeader>
               <DialogTitle className="text-primary flex items-center gap-2"><Wrench className="w-5 h-5" /> Reset & Repair Node</DialogTitle>
-              <DialogDescription>Manually restore an account to active status and adjust its starting node balance.</DialogDescription>
+              <DialogDescription>Manually restore an account to active status and adjust its parameters.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
@@ -371,7 +372,22 @@ export default function AdminPage() {
                   value={resetBalance} 
                   onChange={e => setResetBalance(e.target.value)} 
                 />
-                <p className="text-[10px] text-muted-foreground uppercase font-bold">This will update both the MT5 node and the user profile to 'Active'.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Reset to Phase</Label>
+                <Select value={resetPhase} onValueChange={setResetPhase}>
+                  <SelectTrigger className="bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="evaluation">Evaluation</SelectItem>
+                    <SelectItem value="phase1">Phase 1</SelectItem>
+                    <SelectItem value="phase2">Phase 2</SelectItem>
+                    <SelectItem value="phase3">Phase 3</SelectItem>
+                    <SelectItem value="funded">Funded Stage</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground uppercase font-bold">This will update both the MT5 node and user profile, clearing any breach metadata.</p>
               </div>
             </div>
             <DialogFooter>

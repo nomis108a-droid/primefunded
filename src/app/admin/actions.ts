@@ -92,7 +92,7 @@ async function sendAdminNotification(
   }
 }
 
-export async function resetAccountAction(login: string, newBalance: number) {
+export async function resetAccountAction(login: string, newBalance: number, phase: string = 'funded') {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
   const loginStr = String(login).trim();
@@ -104,9 +104,13 @@ export async function resetAccountAction(login: string, newBalance: number) {
   const data = accountSnap.data();
   const userId = data?.userId;
 
+  // Restore account to clean active state
   await accountRef.update({
     accountBalance: newBalance,
+    balance: newBalance,
+    equity: newBalance,
     status: 'active',
+    phase: phase,
     breachReason: FieldValue.delete(),
     breachedAt: FieldValue.delete(),
     updatedAt: FieldValue.serverTimestamp()
@@ -117,6 +121,9 @@ export async function resetAccountAction(login: string, newBalance: number) {
     await userRef.update({
       accountStatus: 'active',
       accountBalance: newBalance,
+      liveBalance: newBalance,
+      liveEquity: newBalance,
+      currentPhase: phase,
       breachReason: FieldValue.delete(),
       breachedAt: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp()
@@ -235,9 +242,15 @@ export async function registerMt5AccountAction(data: any) {
   const loginStr = String(data.login).trim();
   const accountRef = db.collection('mt5_accounts').doc(loginStr);
   
+  // CRITICAL: Prevent overwriting existing nodes
+  const existingDoc = await accountRef.get();
+  if (existingDoc.exists) {
+    throw new Error(`Login ID ${loginStr} is already provisioned in the system. Use a unique login number.`);
+  }
+
   // Patch: Instant Funding accounts automatically start in 'funded' phase
   const isInstant = data.plan?.toLowerCase().includes('instant');
-  const finalPhase = isInstant ? 'funded' : data.phase;
+  const finalPhase = isInstant ? 'funded' : (data.phase || 'evaluation');
 
   await accountRef.set({
     userId: data.userId,
@@ -246,6 +259,8 @@ export async function registerMt5AccountAction(data: any) {
     displayLogin: data.displayLogin || `PF-${loginStr}`,
     accountPlan: data.plan,
     accountBalance: data.size,
+    balance: data.size,
+    equity: data.size,
     phase: finalPhase,
     status: 'active',
     createdAt: FieldValue.serverTimestamp(),
