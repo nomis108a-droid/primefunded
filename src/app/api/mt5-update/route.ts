@@ -1,4 +1,3 @@
-
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
@@ -26,7 +25,6 @@ function getAdminDb() {
 
 export async function POST(request: Request) {
   try {
-    // SECURITY: Verify MT5 API Key
     const apiKey = request.headers.get('x-api-key');
     if (apiKey !== process.env.MT5_API_KEY) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
@@ -43,7 +41,6 @@ export async function POST(request: Request) {
 
     const loginStr = String(payload.login || payload.accountId || '').trim();
 
-    // DENYLIST CHECK: Exit immediately for blocked accounts
     if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
@@ -55,27 +52,18 @@ export async function POST(request: Request) {
     const db = getAdminDb();
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
-    
-    // 1. PRIORITY #1: Direct Document ID Lookup (Strict match)
-    const d1 = await accountsRef.doc(loginStr).get();
-    if (d1.exists) {
-      accountDoc = d1;
-    }
 
-    // 2. PRIORITY #2: Field Query (String match)
+    const d1 = await accountsRef.doc(loginStr).get();
+    if (d1.exists) accountDoc = d1;
+
     if (!accountDoc) {
       const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
-      if (!q1.empty) {
-        accountDoc = q1.docs[0];
-      }
+      if (!q1.empty) accountDoc = q1.docs[0];
     }
 
-    // 3. PRIORITY #3: Field Query (Numeric match for legacy)
     if (!accountDoc && !isNaN(Number(loginStr))) {
       const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
-      if (!q2.empty) {
-        accountDoc = q2.docs[0];
-      }
+      if (!q2.empty) accountDoc = q2.docs[0];
     }
 
     if (!accountDoc) {
@@ -132,7 +120,7 @@ export async function POST(request: Request) {
       updates.status = 'breached';
       updates.breachReason = breachReason;
       updates.breachedAt = FieldValue.serverTimestamp();
-      
+
       const userRef = db.collection('users').doc(userId);
       const userSnap = await userRef.get();
       const traderId = userSnap.exists ? (userSnap.data()?.uid || 'N/A') : 'N/A';
@@ -153,7 +141,7 @@ export async function POST(request: Request) {
 
     if (userId) {
       await db.collection('users').doc(userId).update({
-        liveBalance: currBalance, 
+        liveBalance: currBalance,
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp()
       });
@@ -163,9 +151,7 @@ export async function POST(request: Request) {
       try {
         const freshSnap = await accountDoc.ref.get();
         await auditAccount({ id: accountDoc.id, ...freshSnap.data() });
-      } catch (auditErr: any) {
-        // Silently log audit failure to avoid breaking EA sync
-      }
+      } catch (auditErr: any) {}
     }
 
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
