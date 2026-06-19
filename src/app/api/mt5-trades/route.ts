@@ -24,17 +24,20 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
 
-    const db = getAdminDb();
     const payload = await request.json();
-    
+    const loginStr = String(payload.login || payload.accountId || '').trim();
+
+    // HARD BLOCK: Silently ignore deleted legacy account to stop log noise
+    if (loginStr === "757003491") {
+      return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
+    }
+
     // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
     console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
-    const loginStr = String(payload.login || payload.accountId || '');
-    const trades = payload.trades || [];
-
     if (!loginStr) return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
 
+    const db = getAdminDb();
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
@@ -71,6 +74,7 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "OK", note: "Account breached, trade records ignored" }), { status: 200 });
     }
 
+    const trades = payload.trades || [];
     const batch = db.batch();
     for (const trade of trades) {
       const tradeRef = db.collection('users').doc(userId).collection('trades').doc(String(trade.ticket));

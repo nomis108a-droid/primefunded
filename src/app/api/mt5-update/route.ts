@@ -30,7 +30,6 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
 
-    const db = getAdminDb();
     let payload: any = {};
     const contentType = request.headers.get('content-type') || '';
     
@@ -41,14 +40,21 @@ export async function POST(request: Request) {
       payload = Object.fromEntries(formData.entries());
     }
 
+    const loginStr = String(payload.login || payload.accountId || '').trim();
+
+    // HARD BLOCK: Silently ignore deleted legacy account to stop log noise
+    if (loginStr === "757003491") {
+      return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
+    }
+
     // INSTITUTIONAL DEBUG: Log raw payload as requested for diagnostic verification
     console.log("[MT5_DEBUG_RAW_PAYLOAD]", JSON.stringify(payload));
 
-    const loginStr = String(payload.login || payload.accountId || '');
     if (!loginStr || loginStr === 'undefined') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
 
+    const db = getAdminDb();
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
