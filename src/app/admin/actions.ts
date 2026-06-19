@@ -95,43 +95,50 @@ async function sendAdminNotification(
 export async function runOneTimeCleanupAction() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
-  const snap = await db.collection('mt5_accounts').get();
+  
+  // Specific TARGET IDs requested: 5051977398 and 108570666
+  const targetIds = ["5051977398", "108570666"];
   const deletedIds: string[] = [];
   const resetUserIds: string[] = [];
 
-  for (const doc of snap.docs) {
-    // PRESERVE SPECIFIC NODE
-    if (doc.id === '108582571') continue;
+  for (const id of targetIds) {
+    // SAFETY: Explicitly skip and protect 108582571
+    if (id === '108582571') continue;
 
-    const data = doc.data();
-    const userId = data.userId;
+    const accountRef = db.collection('mt5_accounts').doc(id);
+    const accountSnap = await accountRef.get();
+    
+    if (accountSnap.exists) {
+      const data = accountSnap.data();
+      const userId = data?.userId;
 
-    // 1. Delete the account document
-    await doc.ref.delete();
-    deletedIds.push(doc.id);
+      // 1. Delete the primary account node
+      await accountRef.delete();
+      deletedIds.push(id);
 
-    // 2. Reset the user document if linked - Removing all trading traces
-    if (userId) {
-      const userRef = db.collection('users').doc(userId);
-      await userRef.update({
-        mt5Login: FieldValue.delete(),
-        mt5Password: FieldValue.delete(),
-        mt5Server: FieldValue.delete(),
-        accountStatus: FieldValue.delete(),
-        liveBalance: FieldValue.delete(),
-        liveEquity: FieldValue.delete(),
-        lastMT5Update: FieldValue.delete(),
-        breachReason: FieldValue.delete(),
-        breachedAt: FieldValue.delete(),
-        currentPhase: FieldValue.delete(),
-        accountPlan: FieldValue.delete(),
-        accountSize: FieldValue.delete(),
-        accountBalance: FieldValue.delete(),
-        activatedAt: FieldValue.delete(),
-        readyForNextPhase: FieldValue.delete(),
-        readyForPhaseReset: FieldValue.delete()
-      });
-      resetUserIds.push(userId);
+      // 2. Exhaustively reset the user document if linked - Removing all institutional data
+      if (userId) {
+        const userRef = db.collection('users').doc(userId);
+        await userRef.update({
+          mt5Login: FieldValue.delete(),
+          mt5Password: FieldValue.delete(),
+          mt5Server: FieldValue.delete(),
+          accountStatus: FieldValue.delete(),
+          liveBalance: FieldValue.delete(),
+          liveEquity: FieldValue.delete(),
+          lastMT5Update: FieldValue.delete(),
+          breachReason: FieldValue.delete(),
+          breachedAt: FieldValue.delete(),
+          currentPhase: FieldValue.delete(),
+          accountPlan: FieldValue.delete(),
+          accountSize: FieldValue.delete(),
+          accountBalance: FieldValue.delete(),
+          activatedAt: FieldValue.delete(),
+          readyForNextPhase: FieldValue.delete(),
+          readyForPhaseReset: FieldValue.delete()
+        });
+        resetUserIds.push(userId);
+      }
     }
   }
 
