@@ -197,12 +197,14 @@ export async function registerMt5AccountAction(data: any) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   const db = getAdminDb();
   
-  const accountRef = db.collection('mt5_accounts').doc(String(data.login));
+  const loginStr = String(data.login);
+  const accountRef = db.collection('mt5_accounts').doc(loginStr);
+  
   await accountRef.set({
     userId: data.userId,
-    login: data.login,
+    login: loginStr, // FIXED: Guaranteed String type
     password: data.password,
-    displayLogin: data.displayLogin || `PF-${data.login}`,
+    displayLogin: data.displayLogin || `PF-${loginStr}`,
     accountPlan: data.plan,
     accountBalance: data.size,
     phase: data.phase,
@@ -213,7 +215,7 @@ export async function registerMt5AccountAction(data: any) {
 
   const userRef = db.collection('users').doc(data.userId);
   await userRef.update({
-    mt5Login: data.login,
+    mt5Login: loginStr, // FIXED: Guaranteed String type
     mt5Password: data.password,
     mt5Server: "MetaQuotes-Demo",
     accountPlan: data.plan,
@@ -225,9 +227,9 @@ export async function registerMt5AccountAction(data: any) {
     updatedAt: FieldValue.serverTimestamp()
   });
 
-  await sendAdminNotification(db, data.userId, "🚀 Account Provisioned", `Your MetaTrader 5 account PF-${data.login} is now active. View credentials in the terminal.`, "account_provisioned");
+  await sendAdminNotification(db, data.userId, "🚀 Account Provisioned", `Your MetaTrader 5 account PF-${loginStr} is now active. View credentials in the terminal.`, "account_provisioned");
 
-  return { success: true, docId: data.login };
+  return { success: true, docId: loginStr };
 }
 
 export async function updateOrderStatusAction(id: string, status: string) {
@@ -337,7 +339,17 @@ export async function fetchAdminTerminalData() {
   const referrals = referralsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const broadcasts = broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const breaches = breachesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const accounts = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  
+  const accounts = accountsSnap.docs.map(d => {
+    const data = d.data();
+    // MIGRATION: Auto-fix numeric logins to String for strict type matching in queries
+    if (typeof data.login === 'number') {
+      const loginStr = String(data.login);
+      d.ref.update({ login: loginStr }).catch(() => {});
+      return { id: d.id, ...data, login: loginStr };
+    }
+    return { id: d.id, ...data };
+  });
 
   return { 
     users: JSON.parse(JSON.stringify(users)), 
