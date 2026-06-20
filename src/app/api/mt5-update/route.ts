@@ -74,7 +74,7 @@ export async function POST(request: Request) {
     }
 
     if (!accountDoc) {
-      return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+      console.log("ACCOUNT LOOKUP FAILED for:", loginStr); return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
     const accountData = accountDoc.data()!;
