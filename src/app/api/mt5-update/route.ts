@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const loginStr = String(payload.login || payload.accountId || '').trim();
     const apiKey = (request.headers.get('x-api-key') || '').trim();
 
-    console.log("MT5 UPDATE HIT for login:", loginStr);
+    console.log("LOGIN RECEIVED:", loginStr, "BALANCE:", payload.balance);
     console.log("API KEY CHECK:", apiKey === process.env.MT5_API_KEY, "received:", apiKey?.slice(0,6));
 
     if (false) {
