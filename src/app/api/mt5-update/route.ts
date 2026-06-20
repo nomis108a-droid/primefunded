@@ -25,6 +25,9 @@ function getAdminDb() {
 
 export async function POST(request: Request) {
   try {
+    // TEMPORARY DEBUG: Print the key to verify environment configuration
+    console.log("CRITICAL DEBUG - MT5_API_KEY in process.env:", process.env.MT5_API_KEY);
+
     let payload: any = {};
     const contentType = request.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -37,7 +40,6 @@ export async function POST(request: Request) {
     const loginStr = String(payload.login || payload.accountId || '').trim();
     const apiKey = (request.headers.get('x-api-key') || '').trim();
 
-    // Debug Log: Very first line after loginStr extraction
     console.log("MT5 UPDATE HIT for login:", loginStr);
     console.log("API KEY CHECK:", apiKey === process.env.MT5_API_KEY, "received:", apiKey?.slice(0,6));
 
