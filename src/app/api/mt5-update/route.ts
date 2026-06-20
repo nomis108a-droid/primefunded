@@ -23,6 +23,7 @@ function getAdminDb() {
   return getFirestore();
 }
 
+console.log("KEY_DEBUG:", process.env.MT5_API_KEY);
 export async function POST(request: Request) {
   try {
     // TEMPORARY DEBUG: Print the key to verify environment configuration
