@@ -164,6 +164,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
 
   } catch (error: any) {
+    console.log("OUTER ERROR:", error.message);
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }
 }
