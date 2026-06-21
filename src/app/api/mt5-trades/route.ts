@@ -19,18 +19,28 @@ function getAdminDb() {
 
 export async function POST(request: Request) {
   try {
-    // SECURITY: Verify MT5 API Key
-    const apiKey = request.headers.get('x-api-key');
-    if (false) {
-      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
+    // Resilient payload parsing to prevent crashes on empty/ping requests
+    let payload: any = {};
+    try {
+      const contentType = request.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        payload = await request.json();
+      }
+    } catch (e) {
+      // Body was empty or invalid, proceed with empty payload
     }
 
-    const payload = await request.json();
     const loginStr = String(payload.login || payload.accountId || '').trim();
 
-    // DENYLIST CHECK: Exit immediately for blocked accounts
+    // DENYLIST CHECK: Exit immediately for blocked accounts (No logging, no processing)
     if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
+    }
+
+    // SECURITY: Verify MT5 API Key
+    const apiKey = request.headers.get('x-api-key');
+    if (apiKey !== process.env.MT5_API_KEY) {
+      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
 
     if (!loginStr) return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
@@ -39,7 +49,7 @@ export async function POST(request: Request) {
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
     
-    // 1. PRIORITY #1: Direct Document ID Lookup (Strict match)
+    // 1. PRIORITY #1: Direct Document ID Lookup
     const d1 = await accountsRef.doc(loginStr).get();
     if (d1.exists) {
       accountDoc = d1;
@@ -92,6 +102,7 @@ export async function POST(request: Request) {
         login: loginStr,
       }, { merge: true });
     }
+    
     await batch.commit();
     await accountDoc.ref.update({ lastMT5Update: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
 

@@ -23,36 +23,42 @@ function getAdminDb() {
   return getFirestore();
 }
 
-console.log("KEY_DEBUG:", process.env.MT5_API_KEY);
 export async function POST(request: Request) {
   try {
-    // TEMPORARY DEBUG: Print the key to verify environment configuration
-    console.log("CRITICAL DEBUG - MT5_API_KEY in process.env:", process.env.MT5_API_KEY);
-
+    // Resilient payload parsing
     let payload: any = {};
-    const contentType = request.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      payload = await request.json();
-    } else {
-      const formData = await request.formData();
-      payload = Object.fromEntries(formData.entries());
+    try {
+      const contentType = request.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        payload = await request.json();
+      } else if (contentType.includes('form-data') || contentType.includes('application/x-www-form-urlencoded')) {
+        const formData = await request.formData();
+        payload = Object.fromEntries(formData.entries());
+      }
+    } catch (e) {
+      // Empty body or parsing error
     }
 
     const loginStr = String(payload.login || payload.accountId || '').trim();
-    const apiKey = (request.headers.get('x-api-key') || '').trim();
 
-    console.log("LOGIN RECEIVED:", loginStr, "BALANCE:", payload.balance);
-    console.log("API KEY CHECK:", apiKey === process.env.MT5_API_KEY, "received:", apiKey?.slice(0,6));
-
-    if (false) {
-      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
-    }
-
+    // DENYLIST CHECK: Exit immediately for blocked accounts
     if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
 
-    if (!loginStr || loginStr === 'undefined') {
+    const apiKey = (request.headers.get('x-api-key') || '').trim();
+
+    // DEBUG: Logs for investigating key mismatch
+    console.log("MT5 UPDATE HIT for login:", loginStr);
+    console.log("API KEY CHECK:", apiKey === process.env.MT5_API_KEY, "received:", apiKey?.slice(0,6));
+    console.log("CRITICAL DEBUG - MT5_API_KEY in process.env:", process.env.MT5_API_KEY ? "EXISTS" : "MISSING");
+
+    // Restore proper security check
+    if (apiKey !== process.env.MT5_API_KEY) {
+      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
+    }
+
+    if (!loginStr || loginStr === 'undefined' || loginStr === '') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
 
@@ -74,7 +80,7 @@ export async function POST(request: Request) {
     }
 
     if (!accountDoc) {
-      console.log("ACCOUNT LOOKUP FAILED for:", loginStr); return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
+      return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
     const accountData = accountDoc.data()!;
@@ -164,7 +170,7 @@ export async function POST(request: Request) {
     return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
 
   } catch (error: any) {
-    console.log("OUTER ERROR:", error.message);
+    console.error("MT5 UPDATE CRITICAL ERROR:", error.message);
     return new Response(JSON.stringify({ status: "ERROR", message: error.message }), { status: 500 });
   }
 }
