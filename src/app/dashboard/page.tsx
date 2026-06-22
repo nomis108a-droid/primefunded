@@ -251,7 +251,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     const planKey = getPlanKey(activeAccount.accountPlan || '');
     const phase = activeAccount.phase || 'evaluation';
     
-    // 1-Step Pro accounts: 8% target
+    // 1-Step Pro accounts: 8% target in evaluation
     let targetPct = 0;
     if (planKey === '1-step-pro' && phase === 'evaluation') {
       targetPct = 8;
