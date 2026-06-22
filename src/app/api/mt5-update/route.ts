@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
     }
 
-    if (!loginStr || loginStr === 'undefined' || loginStr === '') {
+    console.log("LOGIN CHECK:", JSON.stringify(loginStr)); if (!loginStr || loginStr === 'undefined' || loginStr === '') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
 
