@@ -63,10 +63,10 @@ export async function POST(request: Request) {
     }
 
     console.log("BEFORE DB INIT"); let db; try { db = getAdminDb(); console.log("AFTER DB INIT"); } catch(e: any) { console.log("DB INIT ERROR:", (e as any).message); return new Response(JSON.stringify({status:"ERROR",message:e.message}),{status:500}); }
-    const accountsRef = db.collection('mt5_accounts');
+    console.log("QUERYING FIRESTORE"); const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
 
-    const d1 = await accountsRef.doc(loginStr).get();
+    console.log("DOING DOC LOOKUP"); const d1 = await accountsRef.doc(loginStr).get(); console.log("DOC LOOKUP DONE:", d1.exists);
     if (d1.exists) accountDoc = d1;
 
     if (!accountDoc) {
