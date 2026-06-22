@@ -141,6 +141,14 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     accountConstraints
   );
 
+  // DEBUG LOGS FOR MT5 ACCOUNTS QUERY
+  useEffect(() => {
+    console.log(`[Dashboard] Querying mt5_accounts for userId: ${effectiveUid}`);
+    if (!accountsLoading) {
+      console.log(`[Dashboard] MT5 Accounts result:`, userAccounts);
+    }
+  }, [effectiveUid, userAccounts, accountsLoading]);
+
   // Set default active account if not set
   useEffect(() => {
     if (userAccounts.length > 0 && !activeLogin) {
