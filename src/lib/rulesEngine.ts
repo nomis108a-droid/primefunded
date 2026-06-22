@@ -102,29 +102,29 @@ export async function auditAccount(accountDoc: any) {
     }
   }
 
-  // 1. DAILY DRAWDOWN CHECK (Gross Loss Method)
+  // 1. DAILY DRAWDOWN CHECK (Realized Losses + Floating Loss)
   if (!breachType) {
+    const dailyLimit = initialBalance * 0.03;
     const dailyTradesSnap = await tradesRef
       .where('closeTime', '>=', sessionStart.getTime() / 1000)
       .where('closeTime', '<', sessionEnd.getTime() / 1000)
       .get();
 
-    let dailyGrossLoss = 0;
+    let realizedLossesToday = 0;
     dailyTradesSnap.docs.forEach(d => {
       const t = d.data();
       const pnl = parseFloat(String(t.pnl || t.profit || 0));
-      if (pnl < 0) dailyGrossLoss += Math.abs(pnl);
+      // PROFITS ARE IGNORED COMPLETELY
+      if (pnl < 0) realizedLossesToday += Math.abs(pnl);
     });
 
-    // Add current floating loss
-    if (currEquity < currBalance) {
-      dailyGrossLoss += (currBalance - currEquity);
-    }
+    // Add current floating loss of ALL open trades
+    const currentFloatingLoss = currBalance > currEquity ? (currBalance - currEquity) : 0;
+    const totalDailyLoss = realizedLossesToday + currentFloatingLoss;
 
-    const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
-    if (dailyGrossLoss >= dailyLimit) {
+    if (totalDailyLoss >= dailyLimit) {
       breachType = 'hard';
-      breachReason = `Daily Drawdown: Gross loss $${dailyGrossLoss.toFixed(2)} exceeded limit $${dailyLimit.toFixed(2)}`;
+      breachReason = 'Daily Drawdown Limit Breached';
     }
   }
 
