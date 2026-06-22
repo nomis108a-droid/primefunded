@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
-    const accountData = accountDoc.data()!;
+    console.log("GOT ACCOUNT DATA"); const accountData = accountDoc.data()!; console.log("STATUS:", accountData.status, "USER:", accountData.userId);
     const userId = accountData.userId;
 
     if (accountData.status === 'breached') {
