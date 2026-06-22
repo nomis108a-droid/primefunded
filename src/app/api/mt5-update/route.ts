@@ -70,13 +70,12 @@ export async function POST(request: Request) {
     if (d1.exists) accountDoc = d1;
 
     if (!accountDoc) {
-      const q1 = await accountsRef.where('login', '==', loginStr).limit(1).get();
+      // Single query covering both string and numeric login types (was 2 separate reads)
+      const loginVariants: (string | number)[] = !isNaN(Number(loginStr))
+        ? [loginStr, Number(loginStr)]
+        : [loginStr];
+      const q1 = await accountsRef.where('login', 'in', loginVariants).limit(1).get();
       if (!q1.empty) accountDoc = q1.docs[0];
-    }
-
-    if (!accountDoc && !isNaN(Number(loginStr))) {
-      const q2 = await accountsRef.where('login', '==', Number(loginStr)).limit(1).get();
-      if (!q2.empty) accountDoc = q2.docs[0];
     }
 
     if (!accountDoc) {
@@ -162,8 +161,8 @@ export async function POST(request: Request) {
 
     if (accountData.status !== 'breached' && !breachDetected) {
       try {
-        const freshSnap = await accountDoc.ref.get();
-        await auditAccount({ id: accountDoc.id, ...freshSnap.data() });
+        // Use in-memory data instead of re-reading from Firestore (saves 1 read per call)
+        await auditAccount({ id: accountDoc.id, ...accountData, balance: currBalance, equity: currEquity, dailyClosedLosses });
       } catch (auditErr: any) {}
     }
 
