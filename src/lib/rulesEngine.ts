@@ -75,7 +75,7 @@ export async function auditAccount(accountDoc: any) {
   let breachType: 'hard' | 'soft' | null = null;
   let breachReason = '';
 
-  // Calculate session window: 2:00 AM UTC to next 2:00 AM UTC
+  // Calculate session window: 02:00 AM UTC (7:30 AM IST)
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0);
@@ -86,13 +86,14 @@ export async function auditAccount(accountDoc: any) {
   sessionEnd.setUTCDate(sessionEnd.getUTCDate() + 1);
 
   const tradesRef = db.collection('users').doc(userId).collection('trades');
+  const allTradesSnap = await tradesRef.where('login', '==', String(login)).get();
+  const trades = allTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
   // 0. SINGLE OPEN TRADE FLOATING LOSS CHECK (1% RULE)
   if (!breachType) {
-    const openTradesSnap = await tradesRef.where('closeTime', '==', null).get();
     const floatingLossLimit = initialBalance * 0.01;
-    for (const d of openTradesSnap.docs) {
-      const trade = d.data();
+    const openTrades = trades.filter(t => !t.closeTime);
+    for (const trade of openTrades) {
       const pnl = parseFloat(String(trade.pnl || trade.profit || 0));
       if (pnl < 0 && Math.abs(pnl) >= floatingLossLimit) {
         breachType = 'hard';
@@ -102,181 +103,129 @@ export async function auditAccount(accountDoc: any) {
     }
   }
 
-  // 1. DAILY DRAWDOWN CHECK (Realized Losses + Floating Loss)
+  // 1. DAILY DRAWDOWN CHECK (3% - Realized Losses Today + Combined Floating Loss)
+  const currentFloatingLoss = currBalance > currEquity ? (currBalance - currEquity) : 0;
+  
   if (!breachType) {
     const dailyLimit = initialBalance * 0.03;
-    const dailyTradesSnap = await tradesRef
-      .where('closeTime', '>=', sessionStart.getTime() / 1000)
-      .where('closeTime', '<', sessionEnd.getTime() / 1000)
-      .get();
-
     let realizedLossesToday = 0;
-    dailyTradesSnap.docs.forEach(d => {
-      const t = d.data();
-      const pnl = parseFloat(String(t.pnl || t.profit || 0));
-      // PROFITS ARE IGNORED COMPLETELY
-      if (pnl < 0) realizedLossesToday += Math.abs(pnl);
+    
+    trades.forEach(t => {
+      if (t.closeTime) {
+        const cTime = typeof t.closeTime === 'number' ? t.closeTime * 1000 : new Date(t.closeTime).getTime();
+        if (cTime >= sessionStart.getTime() && cTime < sessionEnd.getTime()) {
+          const pnl = parseFloat(String(t.pnl || t.profit || 0));
+          if (pnl < 0) realizedLossesToday += Math.abs(pnl);
+        }
+      }
     });
 
-    // Add current floating loss of ALL open trades
-    const currentFloatingLoss = currBalance > currEquity ? (currBalance - currEquity) : 0;
     const totalDailyLoss = realizedLossesToday + currentFloatingLoss;
-
     if (totalDailyLoss >= dailyLimit) {
       breachType = 'hard';
       breachReason = 'Daily Drawdown Limit Breached';
     }
   }
 
-  // 2. MAX DRAWDOWN CHECK
+  // 3. MAXIMUM DRAWDOWN CHECK (6% - All-time Realized Losses + Combined Floating Loss)
   if (!breachType) {
-    const maxDrawdownFloor = initialBalance - (initialBalance * (rules.maxDrawdown / 100));
-    if (currEquity <= maxDrawdownFloor) {
+    const maxLimit = initialBalance * 0.06;
+    let realizedLossesAllTime = 0;
+
+    trades.forEach(t => {
+      if (t.closeTime) {
+        const pnl = parseFloat(String(t.pnl || t.profit || 0));
+        if (pnl < 0) realizedLossesAllTime += Math.abs(pnl);
+      }
+    });
+
+    const totalMaxLoss = realizedLossesAllTime + currentFloatingLoss;
+    if (totalMaxLoss >= maxLimit) {
       breachType = 'hard';
-      breachReason = `Max Drawdown: Equity $${currEquity.toLocaleString()} fell below floor $${maxDrawdownFloor.toLocaleString()}`;
+      breachReason = 'Maximum Drawdown Limit Breached';
     }
   }
 
-  // Fetch last 50 closed trades for granular analysis
-  const recentTradesSnap = await tradesRef.orderBy('closeTime', 'desc').limit(50).get();
-  const recentTrades = recentTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // 4. PROFIT TARGET (10% for 1-Step Pro - CLOSED TRADES ONLY)
+  if (!breachType && planKey === '1-step-pro') {
+    let netClosedProfit = 0;
+    trades.forEach(t => {
+      if (t.closeTime) {
+        netClosedProfit += parseFloat(String(t.pnl || t.profit || 0));
+      }
+    });
 
-  // 3. MAX SINGLE TRADE LOSS CHECK
+    const targetAmount = initialBalance * 0.10;
+    if (netClosedProfit >= targetAmount) {
+      await db.collection('mt5_accounts').doc(String(login)).update({ profitTargetReached: true });
+    }
+  }
+
+  // Fetch additional universal rules checks (Duration, Frequency, Martingale)
+  const recentTrades = trades.filter(t => t.closeTime).sort((a: any, b: any) => b.closeTime - a.closeTime).slice(0, 50);
+
+  // 5. MAX SINGLE TRADE LOSS CHECK (3%)
   if (!breachType) {
     const singleLossLimit = initialBalance * (universal.maxSingleTradeLossPct / 100);
     for (const trade of recentTrades) {
       const pnl = parseFloat(String(trade.pnl || trade.profit || 0));
       if (pnl < 0 && Math.abs(pnl) > singleLossLimit) {
         breachType = 'hard';
-        breachReason = `Max Single Trade Loss: Trade #${trade.ticket || trade.id} lost $${Math.abs(pnl).toFixed(2)} exceeded $${singleLossLimit.toFixed(2)} limit`;
+        breachReason = `Max Single Trade Loss: Trade #${trade.ticket || trade.id} exceeded 3% limit`;
         break;
       }
     }
   }
 
-  // 4. MIN TRADE DURATION CHECK
+  // 6. MIN TRADE DURATION CHECK
   if (!breachType) {
     for (const trade of recentTrades) {
       if (trade.closeTime && trade.openTime) {
         const duration = trade.closeTime - trade.openTime;
         if (duration < universal.minTradeDurationSeconds) {
           breachType = 'hard';
-          breachReason = `Min Trade Duration: Trade #${trade.ticket || trade.id} closed in ${duration}s, minimum ${universal.minTradeDurationSeconds}s`;
+          breachReason = `Min Trade Duration violation: Trade closed in ${duration}s`;
           break;
         }
       }
     }
   }
 
-  // 5. MAX EXECUTION FREQUENCY CHECK
+  // 7. MAX EXECUTION FREQUENCY CHECK
   if (!breachType) {
     const sortedOpen = [...recentTrades].sort((a: any, b: any) => a.openTime - b.openTime);
     for (let i = 1; i < sortedOpen.length; i++) {
       const diff = sortedOpen[i].openTime - sortedOpen[i - 1].openTime;
       if (diff > 0 && diff < universal.maxExecutionFrequencySeconds) {
         breachType = 'hard';
-        breachReason = `Max Execution Frequency: Trade opened ${diff}s after previous trade, minimum ${universal.maxExecutionFrequencySeconds}s gap required`;
+        breachReason = `Max Execution Frequency violation: ${diff}s gap between orders`;
         break;
       }
     }
   }
 
-  // 6. MARTINGALE DETECTION CHECK
-  if (!breachType) {
-    const sortedByTime = [...recentTrades].sort((a: any, b: any) => a.openTime - b.openTime);
-    for (let i = 1; i < sortedByTime.length; i++) {
-      const prev = sortedByTime[i - 1];
-      const next = sortedByTime[i];
-      if (prev && next && prev.symbol === next.symbol) {
-        const prevPnl = parseFloat(String(prev.pnl || prev.profit || 0));
-        const prevLots = parseFloat(String(prev.lots || prev.volume || 0));
-        const nextLots = parseFloat(String(next.lots || next.volume || 0));
-        const timeDiff = next.openTime - prev.openTime;
-
-        if (prevPnl < 0 && nextLots > prevLots && timeDiff < 3600) {
-          breachType = 'hard';
-          breachReason = `Martingale Detected: Lot size increased after loss on symbol ${next.symbol}`;
-          break;
-        }
-      }
-    }
-  }
-
-  // 7. MAX FLOATING LOSS CHECK (funded only)
-  if (!breachType && phaseKey === 'funded') {
-    const floatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
-    const floatingLossLimit = initialBalance * (rules.maxFloatingLoss || 1) / 100;
-    if (floatingLoss >= floatingLossLimit) {
-      breachType = 'hard';
-      breachReason = `Max Floating Loss: Floating loss $${floatingLoss.toFixed(2)} exceeded $${floatingLossLimit.toFixed(2)} limit`;
-    }
-  }
-
-  // 8. PROFIT TARGET + MIN TRADING DAYS (evaluation)
-  if (!breachType && rules.profitTarget) {
-    const profitGained = currBalance - initialBalance;
-    const targetAmount = initialBalance * (rules.profitTarget / 100);
+  // Handle Breach Persistence
+  if (breachType === 'hard') {
+    const breachId = `hard_${login}_${Date.now()}`;
+    const batch = db.batch();
     
-    if (profitGained >= targetAmount) {
-      const distinctDays = new Set();
-      recentTrades.forEach((t: any) => {
-        if (t.closeTime) {
-          const date = new Date(t.closeTime * 1000).toISOString().split('T')[0];
-          distinctDays.add(date);
-        }
-      });
-
-      if (distinctDays.size >= (rules.minTradingDays || 1)) {
-        await db.collection('mt5_accounts').doc(String(login)).update({ readyForNextPhase: true });
-      }
-    }
-  }
-
-  // 9. INSTANT FUNDING SPECIAL
-  if (!breachType && planKey === 'instant-funding') {
-    const symbolCounts: Record<string, number> = {};
-    recentTrades.forEach((t: any) => {
-      if (t.symbol) {
-        symbolCounts[t.symbol] = (symbolCounts[t.symbol] || 0) + 1;
-      }
+    batch.update(db.collection('mt5_accounts').doc(String(login)), {
+      status: 'breached',
+      breachedAt: FieldValue.serverTimestamp(),
+      breachReason
+    });
+    
+    batch.update(db.collection('users').doc(userId), {
+      accountStatus: 'breached',
+      breachReason
     });
 
-    for (const [symbol, count] of Object.entries(symbolCounts)) {
-      if (count < 5) {
-        const reason = `Minimum 5 trades required per instrument. Symbol ${symbol} has only ${count} trades.`;
-        const breachId = `soft_${login}_min_trades_${symbol}`;
-        const existing = await db.collection('softBreaches').doc(breachId).get();
-        if (!existing.exists) {
-          await db.collection('softBreaches').doc(breachId).set({
-            login, userId, reason, type: 'soft', createdAt: FieldValue.serverTimestamp()
-          });
-          await db.collection('mt5_accounts').doc(String(login)).update({ readyForPhaseReset: true });
-        }
-      }
-    }
-  }
+    batch.set(db.collection('breaches').doc(breachId), {
+      login, userId, reason: breachReason, type: 'hard', 
+      breachedAt: FieldValue.serverTimestamp(), phase: phaseKey, plan: planKey
+    });
 
-  if (breachType === 'hard') {
-    const breachId = `hard_${login}_${breachReason.substring(0, 20).replace(/[^a-z0-9]/gi, '_')}`;
-    const existing = await db.collection('breaches').doc(breachId).get();
-    
-    if (!existing.exists) {
-      const batch = db.batch();
-      batch.update(db.collection('mt5_accounts').doc(String(login)), {
-        status: 'breached',
-        breachedAt: FieldValue.serverTimestamp(),
-        breachReason
-      });
-      batch.update(db.collection('users').doc(userId), {
-        accountStatus: 'breached',
-        breachReason
-      });
-      batch.set(db.collection('breaches').doc(breachId), {
-        login, userId, reason: breachReason, type: 'hard', 
-        breachedAt: FieldValue.serverTimestamp(), phase: phaseKey, plan: planKey
-      });
-      await batch.commit();
-    }
+    await batch.commit();
     return { breached: true, reason: breachReason };
   }
 
