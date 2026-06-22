@@ -193,7 +193,8 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (lastUpdateMs === 0) return { status: 'awaiting', label: 'Awaiting Data' };
 
     const diffSeconds = Math.floor((Date.now() - lastUpdateMs) / 1000);
-    const isEAOnline = diffSeconds <= 300; // 5 minute threshold (less aggressive)
+    // Updated: Increase heartbeat threshold to 10 minutes (600 seconds)
+    const isEAOnline = diffSeconds <= 600; 
 
     const minutesAgo = Math.floor(diffSeconds / 60);
     const timeLabel = minutesAgo === 0 ? 'Just now' : minutesAgo > 59 ? '>1h ago' : `${minutesAgo}m ago`;
