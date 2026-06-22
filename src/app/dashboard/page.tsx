@@ -63,6 +63,7 @@ import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 const getTradingDayKey = (date: Date) => {
+  // New trading day starts at 7:30 AM IST (02:00 UTC)
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
   return adjusted.toISOString().split('T')[0];
 };
@@ -128,9 +129,8 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const { toast } = useToast();
 
   const [activeLogin, setActiveLogin] = useState<string | null>(null);
-  const [chartPeriod, setChartPeriod] = useState('7D');
 
-  // FETCH ALL ACCOUNTS FOR THIS USER - NO MERGING
+  // FETCH ALL ACCOUNTS FOR THIS USER
   const accountConstraints = useMemo(() => [
     where('userId', '==', effectiveUid || '_none_'),
     orderBy('createdAt', 'desc')
@@ -141,18 +141,8 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     accountConstraints
   );
 
-  // DEBUG LOGS FOR MT5 ACCOUNTS QUERY
-  useEffect(() => {
-    console.log(`[Dashboard] Querying mt5_accounts for userId: ${effectiveUid}`);
-    if (!accountsLoading) {
-      console.log(`[Dashboard] MT5 Accounts result:`, userAccounts);
-    }
-  }, [effectiveUid, userAccounts, accountsLoading]);
-
-  // Set default active account if not set
   useEffect(() => {
     if (userAccounts.length > 0 && !activeLogin) {
-      // Prioritize the login defined in the main user profile if it exists in the accounts list
       const profileLogin = userData?.mt5Login;
       if (profileLogin && userAccounts.find(a => String(a.id) === String(profileLogin))) {
         setActiveLogin(String(profileLogin));
@@ -173,7 +163,8 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (!activeAccount) return { balance: 0, equity: 0, initial: 100000 };
     
     const initial = parseFloat(String(activeAccount.accountBalance || 100000));
-    const balance = parseFloat(String(activeAccount.liveBalance ?? activeAccount.balance ?? initial));
+    // Show balance at start of today's session (7:30 AM IST)
+    const balance = parseFloat(String(activeAccount.dailyStartBalance ?? initial));
     const equity = parseFloat(String(activeAccount.liveEquity ?? activeAccount.equity ?? balance));
     
     return { balance, equity, initial };
@@ -193,7 +184,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (lastUpdateMs === 0) return { status: 'awaiting', label: 'Awaiting Data' };
 
     const diffSeconds = Math.floor((Date.now() - lastUpdateMs) / 1000);
-    // Updated: Increase heartbeat threshold to 10 minutes (600 seconds)
     const isEAOnline = diffSeconds <= 600; 
 
     const minutesAgo = Math.floor(diffSeconds / 60);
@@ -223,46 +213,82 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     return enrichTrades(filteredTrades, activeAccount?.id || 'N/A');
   }, [filteredTrades, activeAccount?.id]);
 
+  // Filter trades for today's session (Closed after 02:00 UTC)
+  const todaysTrades = useMemo(() => {
+    const todayKey = getTradingDayKey(new Date());
+    return enrichedTrades.filter(t => t.closeTime && getTradingDayKey(getTradeDate(t.closeTime)!) === todayKey);
+  }, [enrichedTrades]);
+
   // RISK CALCULATIONS
   const dailyRiskMetrics = useMemo(() => {
-    if (!activeAccount) return { pnl: 0, pnlPct: 0, usage: 0, limit: 3, limitAmount: 0, totalDailyLoss: 0, drawdownPct: 0, isPositive: true };
+    if (!activeAccount) return { pnl: 0, pnlPct: 0, usage: 0, limit: 3, limitAmount: 0, totalDailyLoss: 0, isPositive: true };
     
-    const initialBalance = metrics.initial;
-    const planKey = getPlanKey(activeAccount.accountPlan || '1-Step Pro');
-    const phase = activeAccount.phase || 'evaluation';
-    const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    const initialBalance = parseFloat(String(activeAccount.accountBalance || 100000));
     
-    const limitPct = rules.dailyDrawdown;
+    // realized losses from closed trades today only
+    const realizedLosses = todaysTrades.reduce((acc, t) => t.pnl < 0 ? acc + Math.abs(t.pnl) : acc, 0);
+    const totalDailyPnl = todaysTrades.reduce((acc, t) => acc + t.pnl, 0);
+    
+    const limitPct = 3; 
     const limitAmount = initialBalance * (limitPct / 100);
-    
-    const dailyClosedLosses = activeAccount.dailyGrossLoss ?? 0;
-    const currentFloatingPnL = metrics.equity - metrics.balance;
-    const currentFloatingLoss = currentFloatingPnL < 0 ? Math.abs(currentFloatingPnL) : 0;
-    const totalDailyLoss = dailyClosedLosses + currentFloatingLoss;
-    
-    const usage = Math.min((totalDailyLoss / limitAmount) * 100, 100);
-    const dailyStart = activeAccount.dailyStartBalance || initialBalance;
-    const pnl = metrics.balance - dailyStart;
-    const pnlPct = dailyStart > 0 ? (pnl / dailyStart) * 100 : 0;
+    const usage = Math.min((realizedLosses / limitAmount) * 100, 100);
 
-    return { pnl, pnlPct, usage, limit: limitPct, limitAmount, totalDailyLoss, isPositive: pnl >= 0 };
-  }, [activeAccount, metrics]);
+    return { 
+      pnl: totalDailyPnl, 
+      pnlPct: initialBalance > 0 ? (totalDailyPnl / initialBalance) * 100 : 0, 
+      usage, 
+      limit: limitPct, 
+      limitAmount, 
+      totalDailyLoss: realizedLosses, 
+      isPositive: totalDailyPnl >= 0 
+    };
+  }, [activeAccount, todaysTrades]);
 
   const profitTargetData = useMemo(() => {
     if (!activeAccount) return { targetPct: 0, progress: 0, hasTarget: false };
     
-    const initial = metrics.initial;
+    const initial = parseFloat(String(activeAccount.accountBalance || 100000));
     const planKey = getPlanKey(activeAccount.accountPlan || '');
     const phase = activeAccount.phase || 'evaluation';
-    const rules = RULES_CONFIG.plans[planKey]?.[phase];
     
-    const targetPct = rules?.profitTarget || 0;
+    // 1-Step Pro accounts: 8% target
+    let targetPct = 0;
+    if (planKey === '1-step-pro' && phase === 'evaluation') {
+      targetPct = 8;
+    } else {
+      const rules = RULES_CONFIG.plans[planKey]?.[phase];
+      targetPct = rules?.profitTarget || 0;
+    }
+    
     const targetAmount = initial * (targetPct / 100);
-    const currentProfit = metrics.balance - initial;
+    const targetValue = initial + targetAmount;
+    const currentProfit = (parseFloat(String(activeAccount.liveBalance ?? activeAccount.balance ?? initial)) - initial);
     const progress = targetAmount > 0 ? Math.max(0, Math.min((currentProfit / targetAmount) * 100, 100)) : 0;
     
-    return { targetPct, targetAmount, currentProfit, progress, hasTarget: targetPct > 0 };
-  }, [activeAccount, metrics]);
+    return { targetPct, targetAmount, targetValue, currentProfit, progress, hasTarget: targetPct > 0 };
+  }, [activeAccount]);
+
+  const performanceStats = useMemo(() => {
+    const closedPositions = enrichedTrades.filter(t => t.closeTime);
+    const total = closedPositions.length;
+    if (total === 0) return null;
+
+    const wins = closedPositions.filter(t => t.pnl > 0);
+    const losses = closedPositions.filter(t => t.pnl < 0);
+    const totalPnl = closedPositions.reduce((acc, t) => acc + t.pnl, 0);
+    const best = Math.max(...closedPositions.map(t => t.pnl));
+    const worst = Math.min(...closedPositions.map(t => t.pnl));
+
+    return {
+      total,
+      winRate: (wins.length / total) * 100,
+      avgWin: wins.length > 0 ? wins.reduce((acc, t) => acc + t.pnl, 0) / wins.length : 0,
+      avgLoss: losses.length > 0 ? losses.reduce((acc, t) => acc + t.pnl, 0) / losses.length : 0,
+      totalPnl,
+      best,
+      worst
+    };
+  }, [enrichedTrades]);
 
   const tradingDaysData = useMemo(() => {
     if (!filteredTrades || !activeAccount) return { count: 0, required: 5, progress: 0 };
@@ -284,19 +310,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
 
     return { count, required, progress: Math.min((count / required) * 100, 100) };
-  }, [filteredTrades, activeAccount]);
-
-  const instrumentCheck = useMemo(() => {
-    if (!activeAccount?.accountPlan?.toLowerCase().includes('instant')) return null;
-    const symbolCounts: Record<string, number> = {};
-    filteredTrades.forEach((t: any) => {
-      const sym = t.symbol || 'N/A';
-      symbolCounts[sym] = (symbolCounts[sym] || 0) + 1;
-    });
-    const entries = Object.entries(symbolCounts);
-    const qualified = entries.filter(([_, count]) => count >= 5).length;
-    const progress = entries.length > 0 ? (qualified / entries.length) * 100 : 0;
-    return { qualified, total: entries.length, progress };
   }, [filteredTrades, activeAccount]);
 
   if (authLoading && !adminViewMode) return null;
@@ -329,7 +342,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           </div>
         </header>
 
-        {/* ACCOUNT NODE SELECTOR */}
         <section className="mb-10">
           <div className="flex items-center gap-2 mb-4">
             <Server className="w-4 h-4 text-primary" />
@@ -389,14 +401,12 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               </div>
             )}
 
-            <div className={cn(
-              "grid grid-cols-1 md:grid-cols-2 gap-6 mb-6",
-              instrumentCheck ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"
-            )}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               <MetricCard 
-                title="Current Balance" 
+                title="Session Balance" 
                 value={`$${metrics.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} 
                 icon={<Wallet className="text-primary" />} 
+                footer="Balance at 02:00 UTC start."
                 disabled={isBreached} 
               />
               <MetricCard 
@@ -412,24 +422,13 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 progress={tradingDaysData.progress}
                 progressLabel={`${tradingDaysData.progress.toFixed(0)}% Completed`}
               />
-              {instrumentCheck ? (
-                <MetricCard 
-                  title="Asset Diversity" 
-                  value={`${instrumentCheck.qualified} Qualified`} 
-                  icon={<ShieldCheck className="text-accent" />} 
-                  progress={instrumentCheck.progress}
-                  progressLabel="Min 5 trades per instrument"
-                  footer="Mandatory for payouts."
-                />
-              ) : (
-                <MetricCard 
-                  title="Profit Target" 
-                  value={profitTargetData.hasTarget ? `$${metrics.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Live Node'} 
-                  icon={<Target className="text-amber-500" />} 
-                  progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
-                  progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
-                />
-              )}
+              <MetricCard 
+                title="Profit Target" 
+                value={profitTargetData.hasTarget ? `$${profitTargetData.targetValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Live Node'} 
+                icon={<Target className="text-amber-500" />} 
+                progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
+                progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -443,7 +442,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                     {dailyRiskMetrics.isPositive ? '+' : ''}${dailyRiskMetrics.pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </p>
                   <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
-                    {dailyRiskMetrics.pnlPct.toFixed(2)}% session change
+                    Total realized P&L since 02:00 UTC
                   </p>
                 </CardContent>
               </Card>
@@ -458,12 +457,31 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                   <div className="mt-4 space-y-1.5">
                     <Progress value={dailyRiskMetrics.usage} className="h-1.5" />
                     <p className={cn("text-[9px] font-black uppercase", dailyRiskMetrics.usage > 80 ? 'text-destructive' : 'text-primary')}>
-                      {dailyRiskMetrics.usage.toFixed(1)}% of institutional limit used
+                      Realized losses only. {dailyRiskMetrics.usage.toFixed(1)}% of 3% limit used.
                     </p>
                   </div>
                 </CardContent>
               </Card>
             </div>
+
+            <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm mb-8", isBreached && "opacity-40")}>
+              <CardHeader>
+                <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5 text-accent" /> Institutional Performance Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-6">
+                  <SummaryItem label="Total Trades" value={performanceStats?.total ?? 0} />
+                  <SummaryItem label="Win Rate" value={`${performanceStats?.winRate.toFixed(1) ?? 0}%`} color={performanceStats && performanceStats.winRate >= 50 ? 'text-emerald-500' : 'text-destructive'} />
+                  <SummaryItem label="Avg Win" value={`$${performanceStats?.avgWin.toFixed(2) ?? '0.00'}`} color="text-emerald-500" />
+                  <SummaryItem label="Avg Loss" value={`$${performanceStats?.avgLoss.toFixed(2) ?? '0.00'}`} color="text-destructive" />
+                  <SummaryItem label="Total P&L" value={`$${performanceStats?.totalPnl.toFixed(2) ?? '0.00'}`} color={performanceStats && performanceStats.totalPnl >= 0 ? 'text-emerald-500' : 'text-destructive'} />
+                  <SummaryItem label="Best Trade" value={`$${performanceStats?.best.toFixed(2) ?? '0.00'}`} color="text-emerald-500" />
+                  <SummaryItem label="Worst Trade" value={`$${performanceStats?.worst.toFixed(2) ?? '0.00'}`} color="text-destructive" />
+                </div>
+              </CardContent>
+            </Card>
 
             <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm", isBreached && "opacity-40")}>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -526,6 +544,15 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function SummaryItem({ label, value, color = 'text-white' }: { label: string, value: string | number, color?: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">{label}</p>
+      <p className={cn("text-sm font-bold font-mono", color)}>{value}</p>
     </div>
   );
 }
