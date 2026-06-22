@@ -11,7 +11,7 @@ function getAdminDb() {
   if (!getApps().length) {
     const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    const serviceAccount = JSON.parse(serviceAccountKey);
+    const serviceAccount = JSON.parse(serviceAccountKey.startsWith("'") ? serviceAccountKey.slice(1, -1) : serviceAccountKey);
     initializeApp({ credential: cert(serviceAccount) });
   }
   return getFirestore();
@@ -85,29 +85,47 @@ export async function auditAccount(accountDoc: any) {
   const sessionEnd = new Date(sessionStart);
   sessionEnd.setUTCDate(sessionEnd.getUTCDate() + 1);
 
-  // 1. DAILY DRAWDOWN CHECK (Gross Loss Method)
   const tradesRef = db.collection('users').doc(userId).collection('trades');
-  const dailyTradesSnap = await tradesRef
-    .where('closeTime', '>=', sessionStart.getTime() / 1000)
-    .where('closeTime', '<', sessionEnd.getTime() / 1000)
-    .get();
 
-  let dailyGrossLoss = 0;
-  dailyTradesSnap.docs.forEach(d => {
-    const t = d.data();
-    const pnl = parseFloat(String(t.pnl || t.profit || 0));
-    if (pnl < 0) dailyGrossLoss += Math.abs(pnl);
-  });
-
-  // Add current floating loss
-  if (currEquity < currBalance) {
-    dailyGrossLoss += (currBalance - currEquity);
+  // 0. SINGLE OPEN TRADE FLOATING LOSS CHECK (1% RULE)
+  if (!breachType) {
+    const openTradesSnap = await tradesRef.where('closeTime', '==', null).get();
+    const floatingLossLimit = initialBalance * 0.01;
+    for (const d of openTradesSnap.docs) {
+      const trade = d.data();
+      const pnl = parseFloat(String(trade.pnl || trade.profit || 0));
+      if (pnl < 0 && Math.abs(pnl) >= floatingLossLimit) {
+        breachType = 'hard';
+        breachReason = '1% Max Floating Loss Exceeded';
+        break;
+      }
+    }
   }
 
-  const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
-  if (dailyGrossLoss >= dailyLimit) {
-    breachType = 'hard';
-    breachReason = `Daily Drawdown: Gross loss $${dailyGrossLoss.toFixed(2)} exceeded limit $${dailyLimit.toFixed(2)}`;
+  // 1. DAILY DRAWDOWN CHECK (Gross Loss Method)
+  if (!breachType) {
+    const dailyTradesSnap = await tradesRef
+      .where('closeTime', '>=', sessionStart.getTime() / 1000)
+      .where('closeTime', '<', sessionEnd.getTime() / 1000)
+      .get();
+
+    let dailyGrossLoss = 0;
+    dailyTradesSnap.docs.forEach(d => {
+      const t = d.data();
+      const pnl = parseFloat(String(t.pnl || t.profit || 0));
+      if (pnl < 0) dailyGrossLoss += Math.abs(pnl);
+    });
+
+    // Add current floating loss
+    if (currEquity < currBalance) {
+      dailyGrossLoss += (currBalance - currEquity);
+    }
+
+    const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
+    if (dailyGrossLoss >= dailyLimit) {
+      breachType = 'hard';
+      breachReason = `Daily Drawdown: Gross loss $${dailyGrossLoss.toFixed(2)} exceeded limit $${dailyLimit.toFixed(2)}`;
+    }
   }
 
   // 2. MAX DRAWDOWN CHECK
@@ -169,7 +187,7 @@ export async function auditAccount(accountDoc: any) {
     for (let i = 1; i < sortedByTime.length; i++) {
       const prev = sortedByTime[i - 1];
       const next = sortedByTime[i];
-      if (prev.symbol === next.symbol) {
+      if (prev && next && prev.symbol === next.symbol) {
         const prevPnl = parseFloat(String(prev.pnl || prev.profit || 0));
         const prevLots = parseFloat(String(prev.lots || prev.volume || 0));
         const nextLots = parseFloat(String(next.lots || next.volume || 0));
