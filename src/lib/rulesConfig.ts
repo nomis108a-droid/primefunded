@@ -1,16 +1,15 @@
-
 /**
  * @fileOverview Institutional Rules Configuration
  * Single source of truth for all plan thresholds and risk protocols.
  */
-
 export type PlanPhaseRules = {
   profitTarget?: number;
   dailyDrawdown: number;
   maxDrawdown: number;
   minTradingDays?: number;
   minTradingDaysBeforePayout?: number;
-  maxFloatingLoss?: number;
+  maxFloatingLoss?: number;       // % of initial balance, per SINGLE open trade
+  maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (closed)
 };
 
 export const RULES_CONFIG = {
@@ -20,7 +19,8 @@ export const RULES_CONFIG = {
         profitTarget: 10,
         dailyDrawdown: 3,
         maxDrawdown: 6,
-        minTradingDays: 5
+        minTradingDays: 5,
+        maxFloatingLoss: 1
       },
       funded: {
         dailyDrawdown: 3,
@@ -34,19 +34,22 @@ export const RULES_CONFIG = {
         profitTarget: 8,
         dailyDrawdown: 5,
         maxDrawdown: 10,
-        minTradingDays: 5
+        minTradingDays: 5,
+        maxSingleTradeLoss: 3
       },
       phase2: {
         profitTarget: 5,
         dailyDrawdown: 5,
         maxDrawdown: 10,
-        minTradingDays: 5
+        minTradingDays: 5,
+        maxSingleTradeLoss: 3
       },
       funded: {
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDaysBeforePayout: 5,
-        maxFloatingLoss: 1
+        maxFloatingLoss: 1,
+        maxSingleTradeLoss: 3
       }
     },
     "3-step-classic": {
@@ -54,42 +57,47 @@ export const RULES_CONFIG = {
         profitTarget: 10,
         dailyDrawdown: 4,
         maxDrawdown: 8,
-        minTradingDays: 7
+        minTradingDays: 7,
+        maxSingleTradeLoss: 3
       },
       phase2: {
         profitTarget: 8,
         dailyDrawdown: 4,
         maxDrawdown: 8,
-        minTradingDays: 6
+        minTradingDays: 6,
+        maxSingleTradeLoss: 3
       },
       phase3: {
         profitTarget: 5,
         dailyDrawdown: 4,
         maxDrawdown: 8,
-        minTradingDays: 5
+        minTradingDays: 5,
+        maxSingleTradeLoss: 3
       },
       funded: {
         dailyDrawdown: 4,
         maxDrawdown: 8,
         minTradingDaysBeforePayout: 5,
-        maxFloatingLoss: 1
+        maxFloatingLoss: 1,
+        maxSingleTradeLoss: 3
       }
     },
     "instant-funding": {
       evaluation: {
         dailyDrawdown: 3,
         maxDrawdown: 4,
-        maxFloatingLoss: 1
+        maxFloatingLoss: 1,
+        maxSingleTradeLoss: 3
       },
       funded: {
         dailyDrawdown: 3,
         maxDrawdown: 4,
-        maxFloatingLoss: 1
+        maxFloatingLoss: 1,
+        maxSingleTradeLoss: 3
       }
     }
   } as Record<string, Record<string, PlanPhaseRules>>,
   universal: {
-    maxSingleTradeLossPct: 3,
     minTradeDurationSeconds: 120,
     maxExecutionFrequencySeconds: 180,
     noMartingale: true
