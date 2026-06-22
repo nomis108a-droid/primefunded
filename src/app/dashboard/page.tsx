@@ -424,7 +424,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               />
               <MetricCard 
                 title="Profit Target" 
-                value={profitTargetData.hasTarget ? `$${profitTargetData.targetValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Live Node'} 
+                value={profitTargetData.hasTarget ? `$${(profitTargetData.targetValue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Live Node'} 
                 icon={<Target className="text-amber-500" />} 
                 progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
                 progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
