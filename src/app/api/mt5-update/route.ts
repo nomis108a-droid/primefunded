@@ -8,6 +8,11 @@ export const runtime = 'nodejs';
 
 const BLOCKED_LOGINS = ['757003491'];
 
+const accountCache = new Map<string, { data: any; id: string; ref: any; ts: number }>();
+const CACHE_TTL = 60_000;
+const lastWrite = new Map<string, number>();
+const WRITE_THROTTLE = 30_000;
+
 const getTradingDayKey = (date: Date) => {
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
   return adjusted.toISOString().split('T')[0];
@@ -23,9 +28,30 @@ function getAdminDb() {
   return getFirestore();
 }
 
+async function getCachedAccount(db: any, loginStr: string) {
+  const now = Date.now();
+  const cached = accountCache.get(loginStr);
+  if (cached && (now - cached.ts) < CACHE_TTL) return cached;
+  const accountsRef = db.collection('mt5_accounts');
+  const d1 = await accountsRef.doc(loginStr).get();
+  if (d1.exists) {
+    const entry = { data: d1.data(), id: d1.id, ref: d1.ref, ts: now };
+    accountCache.set(loginStr, entry);
+    return entry;
+  }
+  const loginVariants: (string | number)[] = !isNaN(Number(loginStr)) ? [loginStr, Number(loginStr)] : [loginStr];
+  const q1 = await accountsRef.where('login', 'in', loginVariants).limit(1).get();
+  if (!q1.empty) {
+    const doc = q1.docs[0];
+    const entry = { data: doc.data(), id: doc.id, ref: doc.ref, ts: now };
+    accountCache.set(loginStr, entry);
+    return entry;
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
-    // Resilient payload parsing
     let payload: any = {};
     try {
       const contentType = request.headers.get('content-type') || '';
@@ -35,69 +61,41 @@ export async function POST(request: Request) {
         const formData = await request.formData();
         payload = Object.fromEntries(formData.entries());
       }
-    } catch (e) {
-      // Empty body or parsing error
-    }
+    } catch (e) {}
 
     const loginStr = String(payload.login || payload.accountId || '').trim();
+    if (!loginStr || loginStr === 'undefined') {
+      return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
+    }
 
-    // DENYLIST CHECK: Exit immediately for blocked accounts
     if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
 
-    const apiKey = (request.headers.get('x-api-key') || '').trim();
-
-    // DEBUG: Logs for investigating key mismatch
-    console.log("MT5 UPDATE HIT for login:", loginStr);
-    console.log("API KEY CHECK:", apiKey === process.env.MT5_API_KEY, "received:", apiKey?.slice(0,6));
-    console.log("CRITICAL DEBUG - MT5_API_KEY in process.env:", process.env.MT5_API_KEY ? "EXISTS" : "MISSING");
-
-    // Restore proper security check
-    if (false) {
-      return new Response(JSON.stringify({ status: "UNAUTHORIZED" }), { status: 401 });
+    const now = Date.now();
+    const last = lastWrite.get(loginStr) || 0;
+    if (now - last < WRITE_THROTTLE) {
+      return new Response(JSON.stringify({ status: "OK", note: "Throttled" }), { status: 200 });
     }
 
-    console.log("LOGIN CHECK:", JSON.stringify(loginStr)); if (!loginStr || loginStr === 'undefined' || loginStr === '') {
-      return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
-    }
-
-    console.log("BEFORE DB INIT"); let db; try { db = getAdminDb(); console.log("AFTER DB INIT"); } catch(e: any) { console.log("DB INIT ERROR:", (e as any).message); return new Response(JSON.stringify({status:"ERROR",message:e.message}),{status:500}); }
-    console.log("QUERYING FIRESTORE"); const accountsRef = db.collection('mt5_accounts');
-    let accountDoc = null;
-
-    console.log("DOING DOC LOOKUP"); const d1 = await accountsRef.doc(loginStr).get(); console.log("DOC LOOKUP DONE:", d1.exists);
-    if (d1.exists) accountDoc = d1;
-
-    if (!accountDoc) {
-      // Single query covering both string and numeric login types (was 2 separate reads)
-      const loginVariants: (string | number)[] = !isNaN(Number(loginStr))
-        ? [loginStr, Number(loginStr)]
-        : [loginStr];
-      const q1 = await accountsRef.where('login', 'in', loginVariants).limit(1).get();
-      if (!q1.empty) accountDoc = q1.docs[0];
-    }
-
-    if (!accountDoc) {
+    const db = getAdminDb();
+    const account = await getCachedAccount(db, loginStr);
+    if (!account) {
       return new Response(JSON.stringify({ status: "OK", note: "Account not found" }), { status: 200 });
     }
 
-    console.log("GOT ACCOUNT DATA"); const accountData = accountDoc.data()!; console.log("STATUS:", accountData.status, "USER:", accountData.userId);
+    const { data: accountData, ref: accountRef } = account;
     const userId = accountData.userId;
 
     if (accountData.status === 'breached') {
-      return new Response(JSON.stringify({ status: "OK", note: "Account breached, update ignored" }), { status: 200 });
+      return new Response(JSON.stringify({ status: "OK", note: "Account breached" }), { status: 200 });
     }
 
     const currBalance = Math.max(0, parseFloat(String(payload.balance)) || 0);
     const currEquity = Math.max(0, parseFloat(String(payload.equity)) || 0);
     const initialBalance = parseFloat(String(accountData.accountBalance)) || 100000;
-
     const todayKey = getTradingDayKey(new Date());
-    let dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
-
-    let breachDetected = false;
-    let breachReason = "";
+    const dailyClosedLosses = parseFloat(String(accountData.dailyClosedLosses)) || 0;
 
     const planKey = getPlanKey(accountData.accountPlan || '1-Step Pro');
     const phase = accountData.phase || 'evaluation';
@@ -106,6 +104,9 @@ export async function POST(request: Request) {
     const currentFloatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
     const totalDailyGrossLoss = dailyClosedLosses + currentFloatingLoss;
     const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
+
+    let breachDetected = false;
+    let breachReason = "";
 
     if (totalDailyGrossLoss > dailyLimit) {
       breachDetected = true;
@@ -120,6 +121,15 @@ export async function POST(request: Request) {
         breachReason = `Max Drawdown: Equity $${currEquity.toLocaleString()} fell below floor $${equityFloor.toLocaleString()}`;
       }
     }
+
+    const balanceChanged = Math.abs((accountData.balance || 0) - currBalance) > 0.01;
+    const equityChanged = Math.abs((accountData.equity || 0) - currEquity) > 0.01;
+    if (!balanceChanged && !equityChanged && !breachDetected) {
+      return new Response(JSON.stringify({ status: "OK", note: "No change" }), { status: 200 });
+    }
+
+    lastWrite.set(loginStr, now);
+    accountCache.delete(loginStr);
 
     const updates: any = {
       balance: currBalance,
@@ -149,7 +159,7 @@ export async function POST(request: Request) {
       await userRef.update({ accountStatus: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
     }
 
-    await accountDoc.ref.update(updates);
+    await accountRef.update(updates);
 
     if (userId) {
       await db.collection('users').doc(userId).update({
@@ -159,10 +169,9 @@ export async function POST(request: Request) {
       });
     }
 
-    if (accountData.status !== 'breached' && !breachDetected) {
+    if (!breachDetected) {
       try {
-        // Use in-memory data instead of re-reading from Firestore (saves 1 read per call)
-        await auditAccount({ id: accountDoc.id, ...accountData, balance: currBalance, equity: currEquity, dailyClosedLosses });
+        await auditAccount({ id: account.id, ...accountData, balance: currBalance, equity: currEquity, dailyClosedLosses });
       } catch (auditErr: any) {}
     }
 
