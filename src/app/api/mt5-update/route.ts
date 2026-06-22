@@ -62,7 +62,7 @@ export async function POST(request: Request) {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
 
-    let db; try { db = getAdminDb(); } catch(e) { console.log("DB INIT ERROR:", e.message); return new Response(JSON.stringify({status:"ERROR",message:e.message}),{status:500}); }
+    let db; try { db = getAdminDb(); } catch(e: any) { console.log("DB INIT ERROR:", (e as any).message); return new Response(JSON.stringify({status:"ERROR",message:e.message}),{status:500}); }
     const accountsRef = db.collection('mt5_accounts');
     let accountDoc = null;
 
