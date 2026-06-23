@@ -1,13 +1,12 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { auditAccount } from '@/lib/rulesEngine';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const BLOCKED_LOGINS = ['757003491'];
+const CACHE_TTL = 120_000; // 2 minutes
 const accountCache = new Map<string, { data: any; id: string; ref: any; ts: number }>();
-const CACHE_TTL = 60_000;
 
 function getAdminDb() {
   if (!getApps().length) {
@@ -68,6 +67,7 @@ export async function POST(request: Request) {
     if (!userId) return new Response(JSON.stringify({ status: "OK", note: "No user linked" }), { status: 200 });
     if (accountData.status === 'breached') return new Response(JSON.stringify({ status: "OK", note: "Breached" }), { status: 200 });
 
+    // ── Batch write all trades ───────────────────────────────
     const batch = db.batch();
     for (const trade of trades) {
       const tradeRef = db.collection('users').doc(userId).collection('trades').doc(String(trade.ticket));
@@ -78,11 +78,20 @@ export async function POST(request: Request) {
         date: new Date(trade.time * 1000), createdAt: FieldValue.serverTimestamp(), login: loginStr,
       }, { merge: true });
     }
-
+    batch.update(accountRef, { lastMT5Update: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     await batch.commit();
-    await accountRef.update({ lastMT5Update: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
 
-    try { await auditAccount({ id: account.id, ...accountData }); } catch (e) {}
+    // ── Store daily closed losses for fast drawdown check ────
+    const closedPnl = trades
+      .filter((t: any) => t.time)
+      .reduce((sum: number, t: any) => sum + (parseFloat(t.profit) || 0), 0);
+
+    if (closedPnl < 0) {
+      await accountRef.update({
+        dailyClosedLosses: FieldValue.increment(Math.abs(closedPnl))
+      });
+      accountCache.delete(loginStr);
+    }
 
     return new Response(JSON.stringify({ status: "OK", saved: trades.length }), { status: 200 });
   } catch (error: any) {

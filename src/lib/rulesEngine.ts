@@ -2,11 +2,6 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
-/**
- * @fileOverview Institutional Risk Rules Engine
- * Evaluates MT5 accounts against plan-specific and universal risk protocols.
- */
-
 type TradeRecord = {
   id: string;
   closeTime?: number;
@@ -15,6 +10,18 @@ type TradeRecord = {
   profit?: number | string;
   ticket?: string | number;
   [key: string]: any;
+};
+
+// ── Audit rate limit: once per 5 minutes per account ────────
+const lastAudit = new Map<string, number>();
+const AUDIT_TTL = 5 * 60 * 1000;
+
+// ── Phase progression ────────────────────────────────────────
+const NEXT_PHASE: Record<string, Record<string, string>> = {
+  '1-step-pro':      { evaluation: 'funded' },
+  '2-step-classic':  { phase1: 'phase2', phase2: 'funded' },
+  '3-step-classic':  { phase1: 'phase2', phase2: 'phase3', phase3: 'funded' },
+  'instant-funding': { evaluation: 'funded' },
 };
 
 function getAdminDb() {
@@ -27,49 +34,40 @@ function getAdminDb() {
   return getFirestore();
 }
 
-/**
- * Executes an audit on all active MT5 accounts in the system.
- */
 export async function runGlobalAudit() {
   const db = getAdminDb();
   const snapshot = await db.collection('mt5_accounts').where('status', '==', 'active').get();
+  const results = { totalChecked: snapshot.size, breachesDetected: 0, passed: 0, errors: 0, details: [] as any[] };
+  const BATCH_SIZE = 50;
+  const docs = snapshot.docs;
 
-  const results = {
-    totalChecked: snapshot.size,
-    breachesDetected: 0,
-    errors: 0,
-    details: [] as any[]
-  };
-
-  for (const doc of snapshot.docs) {
-    try {
-      const res = await auditAccount({ id: doc.id, ...doc.data() });
-      if (res?.breached) {
-        results.breachesDetected++;
-        results.details.push({ login: doc.id, status: 'breached', reason: res.reason });
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    await Promise.all(docs.slice(i, i + BATCH_SIZE).map(async (doc) => {
+      try {
+        const res = await auditAccount({ id: doc.id, ...doc.data() }, true);
+        if (res?.breached) { results.breachesDetected++; results.details.push({ login: doc.id, status: 'breached', reason: res.reason }); }
+        else if (res?.passed) { results.passed++; results.details.push({ login: doc.id, status: 'passed' }); }
+      } catch (err: any) {
+        results.errors++;
+        results.details.push({ login: doc.id, status: 'error', message: err.message });
       }
-    } catch (err: any) {
-      results.errors++;
-      results.details.push({ login: doc.id, status: 'error', message: err.message });
-    }
+    }));
   }
-
   return results;
 }
 
-export async function auditAccount(accountDoc: any) {
+export async function auditAccount(accountDoc: any, forceRun = false) {
+  const loginKey = String(accountDoc.login || accountDoc.id);
+
+  // ── Rate limit ───────────────────────────────────────────────
+  if (!forceRun) {
+    const last = lastAudit.get(loginKey) || 0;
+    if (Date.now() - last < AUDIT_TTL) return { breached: false, reason: null, skipped: true };
+  }
+  lastAudit.set(loginKey, Date.now());
+
   const db = getAdminDb();
-  const {
-    login,
-    userId,
-    accountPlan,
-    accountBalance,
-    balance,
-    equity,
-    phase,
-    liveBalance,
-    liveEquity
-  } = accountDoc;
+  const { login, userId, accountPlan, accountBalance, balance, equity, phase, liveBalance, liveEquity } = accountDoc;
 
   const planKey = getPlanKey(accountPlan || '');
   const phaseKey = phase || 'evaluation';
@@ -82,164 +80,133 @@ export async function auditAccount(accountDoc: any) {
   const currBalance = parseFloat(String(balance || liveBalance || initialBalance));
   const currEquity = parseFloat(String(equity || liveEquity || currBalance));
 
-  let breachType: 'hard' | 'soft' | null = null;
+  let breachType: 'hard' | null = null;
   let breachReason = '';
 
-  // Calculate session window: 02:00 AM UTC daily reset
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0);
-  if (now.getUTCHours() < 2) {
-    sessionStart.setUTCDate(sessionStart.getUTCDate() - 1);
-  }
+  if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1);
   const sessionEnd = new Date(sessionStart);
   sessionEnd.setUTCDate(sessionEnd.getUTCDate() + 1);
 
+  // ── Single read for all trades ───────────────────────────────
   const tradesRef = db.collection('users').doc(userId).collection('trades');
   const allTradesSnap = await tradesRef.where('login', '==', String(login)).get();
   const trades: TradeRecord[] = allTradesSnap.docs.map(d => ({ id: d.id, ...d.data() } as TradeRecord));
+  const closedTrades = trades.filter(t => t.closeTime);
+  const openTrades = trades.filter(t => !t.closeTime);
+  const recentTrades = [...closedTrades].sort((a, b) => Number(b.closeTime) - Number(a.closeTime)).slice(0, 50);
+  const currentFloatingLoss = currBalance > currEquity ? currBalance - currEquity : 0;
 
-  // 1. SINGLE OPEN TRADE FLOATING LOSS CHECK (per-plan %, only if plan defines it)
+  // 1. FLOATING LOSS CHECK
   if (!breachType && rules.maxFloatingLoss) {
-    const floatingLossLimit = initialBalance * (rules.maxFloatingLoss / 100);
-    const openTrades = trades.filter(t => !t.closeTime);
-    for (const trade of openTrades) {
-      const pnl = parseFloat(String(trade.pnl ?? trade.profit ?? 0));
-      if (pnl < 0 && Math.abs(pnl) >= floatingLossLimit) {
-        breachType = 'hard';
-        breachReason = '1% Max Floating Loss Exceeded';
-        break;
-      }
+    const limit = initialBalance * (rules.maxFloatingLoss / 100);
+    for (const t of openTrades) {
+      const pnl = parseFloat(String(t.pnl ?? t.profit ?? 0));
+      if (pnl < 0 && Math.abs(pnl) >= limit) { breachType = 'hard'; breachReason = '1% Max Floating Loss Exceeded'; break; }
     }
   }
 
-  // 2. DAILY DRAWDOWN CHECK (plan-specific % - Realized Losses Today + Combined Floating Loss)
-  const currentFloatingLoss = currBalance > currEquity ? (currBalance - currEquity) : 0;
-
+  // 2. DAILY DRAWDOWN CHECK
   if (!breachType) {
     const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
     let realizedLossesToday = 0;
-
-    trades.forEach(t => {
-      if (t.closeTime) {
-        const cTime = typeof t.closeTime === 'number' ? t.closeTime * 1000 : new Date(t.closeTime).getTime();
-        if (cTime >= sessionStart.getTime() && cTime < sessionEnd.getTime()) {
-          const pnl = parseFloat(String(t.pnl ?? t.profit ?? 0));
-          if (pnl < 0) realizedLossesToday += Math.abs(pnl);
-        }
+    closedTrades.forEach(t => {
+      const cTime = typeof t.closeTime === 'number' ? t.closeTime * 1000 : new Date(t.closeTime as any).getTime();
+      if (cTime >= sessionStart.getTime() && cTime < sessionEnd.getTime()) {
+        const pnl = parseFloat(String(t.pnl ?? t.profit ?? 0));
+        if (pnl < 0) realizedLossesToday += Math.abs(pnl);
       }
     });
-
-    const totalDailyLoss = realizedLossesToday + currentFloatingLoss;
-    if (totalDailyLoss >= dailyLimit) {
-      breachType = 'hard';
-      breachReason = 'Daily Drawdown Limit Breached';
-    }
+    if (realizedLossesToday + currentFloatingLoss >= dailyLimit) { breachType = 'hard'; breachReason = 'Daily Drawdown Limit Breached'; }
   }
 
-  // 3. MAXIMUM DRAWDOWN CHECK (plan-specific % - All-time Realized Losses + Combined Floating Loss)
+  // 3. MAX DRAWDOWN CHECK
   if (!breachType) {
     const maxLimit = initialBalance * (rules.maxDrawdown / 100);
-    let realizedLossesAllTime = 0;
-
-    trades.forEach(t => {
-      if (t.closeTime) {
-        const pnl = parseFloat(String(t.pnl ?? t.profit ?? 0));
-        if (pnl < 0) realizedLossesAllTime += Math.abs(pnl);
-      }
-    });
-
-    const totalMaxLoss = realizedLossesAllTime + currentFloatingLoss;
-    if (totalMaxLoss >= maxLimit) {
-      breachType = 'hard';
-      breachReason = 'Maximum Drawdown Limit Breached';
-    }
+    let realizedAllTime = 0;
+    closedTrades.forEach(t => { const pnl = parseFloat(String(t.pnl ?? t.profit ?? 0)); if (pnl < 0) realizedAllTime += Math.abs(pnl); });
+    if (realizedAllTime + currentFloatingLoss >= maxLimit) { breachType = 'hard'; breachReason = 'Maximum Drawdown Limit Breached'; }
   }
 
-  // 4. PROFIT TARGET (plan-specific % - CLOSED TRADES ONLY, not a breach)
-  if (rules.profitTarget) {
-    let netClosedProfit = 0;
-    trades.forEach(t => {
-      if (t.closeTime) {
-        netClosedProfit += parseFloat(String(t.pnl ?? t.profit ?? 0));
-      }
-    });
-
-    const targetAmount = initialBalance * (rules.profitTarget / 100);
-    if (netClosedProfit >= targetAmount) {
-      await db.collection('mt5_accounts').doc(String(login)).update({ profitTargetReached: true });
-    }
-  }
-
-  const recentTrades = trades
-    .filter(t => t.closeTime)
-    .sort((a, b) => Number(b.closeTime) - Number(a.closeTime))
-    .slice(0, 50);
-
-  // 5. MAX SINGLE TRADE LOSS CHECK (plan-specific %, only if plan defines it)
+  // 4. MAX SINGLE TRADE LOSS CHECK
   if (!breachType && rules.maxSingleTradeLoss) {
-    const singleLossLimit = initialBalance * (rules.maxSingleTradeLoss / 100);
-    for (const trade of recentTrades) {
-      const pnl = parseFloat(String(trade.pnl ?? trade.profit ?? 0));
-      if (pnl < 0 && Math.abs(pnl) > singleLossLimit) {
-        breachType = 'hard';
-        breachReason = '3% Max Single Trade Loss Exceeded';
-        break;
-      }
+    const limit = initialBalance * (rules.maxSingleTradeLoss / 100);
+    for (const t of recentTrades) {
+      const pnl = parseFloat(String(t.pnl ?? t.profit ?? 0));
+      if (pnl < 0 && Math.abs(pnl) > limit) { breachType = 'hard'; breachReason = '3% Max Single Trade Loss Exceeded'; break; }
     }
   }
 
-  // 6. MIN TRADE DURATION CHECK (universal - applies to all plans)
+  // 5. MIN TRADE DURATION CHECK
   if (!breachType) {
-    for (const trade of recentTrades) {
-      if (trade.closeTime && trade.openTime) {
-        const duration = Number(trade.closeTime) - Number(trade.openTime);
-        if (duration < universal.minTradeDurationSeconds) {
-          breachType = 'hard';
-          breachReason = 'Trade Duration Violation - Closed Before 2 Minutes';
-          break;
-        }
+    for (const t of recentTrades) {
+      if (t.closeTime && t.openTime) {
+        const duration = Number(t.closeTime) - Number(t.openTime);
+        if (duration < universal.minTradeDurationSeconds) { breachType = 'hard'; breachReason = 'Trade Duration Violation - Closed Before 2 Minutes'; break; }
       }
     }
   }
 
-  // 7. MAX EXECUTION FREQUENCY CHECK (universal - applies to all plans)
+  // 6. EXECUTION FREQUENCY CHECK
   if (!breachType) {
-    const sortedOpen = [...recentTrades].sort((a, b) => Number(a.openTime) - Number(b.openTime));
-    for (let i = 1; i < sortedOpen.length; i++) {
-      const diff = Number(sortedOpen[i].openTime) - Number(sortedOpen[i - 1].openTime);
-      if (diff > 0 && diff < universal.maxExecutionFrequencySeconds) {
-        breachType = 'hard';
-        breachReason = 'Execution Frequency Violation - Less Than 3 Minutes Between Trades';
-        break;
-      }
+    const sorted = [...recentTrades].sort((a, b) => Number(a.openTime) - Number(b.openTime));
+    for (let i = 1; i < sorted.length; i++) {
+      const diff = Number(sorted[i].openTime) - Number(sorted[i - 1].openTime);
+      if (diff > 0 && diff < universal.maxExecutionFrequencySeconds) { breachType = 'hard'; breachReason = 'Execution Frequency Violation - Less Than 3 Minutes Between Trades'; break; }
     }
   }
 
-  // Handle Breach Persistence
+  // ── Handle Breach ────────────────────────────────────────────
   if (breachType === 'hard') {
     const breachId = `hard_${login}_${Date.now()}`;
     const batch = db.batch();
-
-    batch.update(db.collection('mt5_accounts').doc(String(login)), {
-      status: 'breached',
-      breachedAt: FieldValue.serverTimestamp(),
-      breachReason
-    });
-
-    batch.update(db.collection('users').doc(userId), {
-      accountStatus: 'breached',
-      breachReason
-    });
-
-    batch.set(db.collection('breaches').doc(breachId), {
-      login, userId, reason: breachReason, type: 'hard',
-      breachedAt: FieldValue.serverTimestamp(), phase: phaseKey, plan: planKey
-    });
-
+    batch.update(db.collection('mt5_accounts').doc(String(login)), { status: 'breached', breachedAt: FieldValue.serverTimestamp(), breachReason });
+    batch.update(db.collection('users').doc(userId), { accountStatus: 'breached', breachReason });
+    batch.set(db.collection('breaches').doc(breachId), { login, userId, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), phase: phaseKey, plan: planKey });
+    batch.set(db.collection('notifications').doc(`${userId}_breach_${Date.now()}`), { userId, type: 'account_breached', title: '❌ Account Breached', message: `Your account has been breached: ${breachReason}`, read: false, createdAt: FieldValue.serverTimestamp() });
     await batch.commit();
     return { breached: true, reason: breachReason };
   }
 
-  return { breached: false, reason: null };
+  // ── Auto-Pass Check ──────────────────────────────────────────
+  if (rules.profitTarget) {
+    let netClosedProfit = 0;
+    const tradingDays = new Set<string>();
+    closedTrades.forEach(t => {
+      netClosedProfit += parseFloat(String(t.pnl ?? t.profit ?? 0));
+      if (t.closeTime) {
+        const d = new Date(typeof t.closeTime === 'number' ? t.closeTime * 1000 : t.closeTime as any);
+        tradingDays.add(d.toISOString().split('T')[0]);
+      }
+    });
+
+    const targetAmount = initialBalance * (rules.profitTarget / 100);
+    const minDays = rules.minTradingDays || 1;
+    const nextPhase = NEXT_PHASE[planKey]?.[phaseKey];
+    const passed = netClosedProfit >= targetAmount && tradingDays.size >= minDays;
+
+    if (passed && nextPhase) {
+      const isFunded = nextPhase === 'funded';
+      const batch = db.batch();
+      batch.update(db.collection('mt5_accounts').doc(String(login)), {
+        phase: nextPhase, status: isFunded ? 'funded' : 'active',
+        passedAt: FieldValue.serverTimestamp(), profitTargetReached: true, previousPhase: phaseKey,
+      });
+      batch.update(db.collection('users').doc(userId), { accountStatus: isFunded ? 'funded' : 'active', phase: nextPhase, passedAt: FieldValue.serverTimestamp() });
+      batch.set(db.collection('passes').doc(`pass_${login}_${phaseKey}`), { login, userId, planKey, phaseKey, nextPhase, isFunded, netClosedProfit, tradingDays: tradingDays.size, passedAt: FieldValue.serverTimestamp() });
+      batch.set(db.collection('notifications').doc(`${userId}_pass_${phaseKey}`), {
+        userId, type: isFunded ? 'account_funded' : 'phase_passed',
+        title: isFunded ? '🎉 Account Funded!' : `✅ ${phaseKey} Passed!`,
+        message: isFunded ? `Congratulations! Your account is now funded. Profit: $${netClosedProfit.toFixed(2)}` : `You passed ${phaseKey}! Moving to ${nextPhase}.`,
+        read: false, createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      await batch.commit();
+      console.log(`AUTO-PASS: ${login} ${phaseKey} → ${nextPhase}`);
+      return { breached: false, reason: null, passed: true, nextPhase };
+    }
+  }
+
+  return { breached: false, reason: null, passed: false };
 }

@@ -1,17 +1,18 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
-import { auditAccount } from '@/lib/rulesEngine';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const BLOCKED_LOGINS = ['757003491'];
 
+// ── Cache: 2 minutes (free plan = 69 accounts, change to 60_000 after Blaze)
+const CACHE_TTL = 120_000; // 2 minutes → change to 60_000 for 30s updates on Blaze
+const WRITE_THROTTLE = 120_000; // match cache TTL
+
 const accountCache = new Map<string, { data: any; id: string; ref: any; ts: number }>();
-const CACHE_TTL = 60_000;
 const lastWrite = new Map<string, number>();
-const WRITE_THROTTLE = 30_000;
 
 const getTradingDayKey = (date: Date) => {
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
@@ -67,11 +68,11 @@ export async function POST(request: Request) {
     if (!loginStr || loginStr === 'undefined') {
       return new Response(JSON.stringify({ status: "ERROR", message: "Missing login" }), { status: 400 });
     }
-
     if (BLOCKED_LOGINS.includes(loginStr)) {
       return new Response(JSON.stringify({ status: "OK" }), { status: 200 });
     }
 
+    // ── Throttle: skip if called too recently ────────────────
     const now = Date.now();
     const last = lastWrite.get(loginStr) || 0;
     if (now - last < WRITE_THROTTLE) {
@@ -122,6 +123,7 @@ export async function POST(request: Request) {
       }
     }
 
+    // ── Skip write if nothing changed ────────────────────────
     const balanceChanged = Math.abs((accountData.balance || 0) - currBalance) > 0.01;
     const equityChanged = Math.abs((accountData.equity || 0) - currEquity) > 0.01;
     if (!balanceChanged && !equityChanged && !breachDetected) {
@@ -145,37 +147,41 @@ export async function POST(request: Request) {
 
       const userRef = db.collection('users').doc(userId);
       const userSnap = await userRef.get();
-      const traderId = userSnap.exists ? (userSnap.data()?.uid || 'N/A') : 'N/A';
       const breachKey = `update_hard_${loginStr}_${todayKey}`;
 
-      await db.collection('breaches').doc(breachKey).set({
-        userId, traderId, login: loginStr,
+      const batchWrite = db.batch();
+      batchWrite.set(db.collection('breaches').doc(breachKey), {
+        userId, login: loginStr,
         userName: userSnap.data()?.name || 'N/A',
         userEmail: userSnap.data()?.email || 'N/A',
         breachReason, breachType: 'hard',
         breachedAt: FieldValue.serverTimestamp()
       }, { merge: true });
-
-      await userRef.update({ accountStatus: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
+      batchWrite.update(userRef, { accountStatus: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
+      batchWrite.update(accountRef, updates);
+      batchWrite.set(db.collection('notifications').doc(`${userId}_breach_${todayKey}`), {
+        userId, type: 'account_breached',
+        title: '❌ Account Breached',
+        message: `Your account has been breached: ${breachReason}`,
+        read: false, createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      await batchWrite.commit();
+      return new Response(JSON.stringify({ status: "OK", breach: true }), { status: 200 });
     }
 
-    await accountRef.update(updates);
-
+    // ── Normal update — batch writes ─────────────────────────
+    const batchWrite = db.batch();
+    batchWrite.update(accountRef, updates);
     if (userId) {
-      await db.collection('users').doc(userId).update({
+      batchWrite.update(db.collection('users').doc(userId), {
         liveBalance: currBalance,
         liveEquity: currEquity,
         lastMT5Update: FieldValue.serverTimestamp()
       });
     }
+    await batchWrite.commit();
 
-    if (!breachDetected) {
-      try {
-        await auditAccount({ id: account.id, ...accountData, balance: currBalance, equity: currEquity, dailyClosedLosses });
-      } catch (auditErr: any) {}
-    }
-
-    return new Response(JSON.stringify({ status: "OK", breach: breachDetected }), { status: 200 });
+    return new Response(JSON.stringify({ status: "OK", breach: false }), { status: 200 });
 
   } catch (error: any) {
     console.error("MT5 UPDATE CRITICAL ERROR:", error.message);
