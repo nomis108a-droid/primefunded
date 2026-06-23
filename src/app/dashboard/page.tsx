@@ -63,7 +63,6 @@ import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 const getTradingDayKey = (date: Date) => {
-  // New trading day starts at 7:30 AM IST (02:00 UTC)
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
   return adjusted.toISOString().split('T')[0];
 };
@@ -129,6 +128,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const { toast } = useToast();
 
   const [activeLogin, setActiveLogin] = useState<string | null>(null);
+  const [liveAccountData, setLiveAccountData] = useState<any>(null);
 
   // FETCH ALL ACCOUNTS FOR THIS USER
   const accountConstraints = useMemo(() => [
@@ -152,21 +152,33 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     }
   }, [userAccounts, userData?.mt5Login, activeLogin]);
 
-  const activeAccount = useMemo(() => 
-    userAccounts.find(a => String(a.id) === String(activeLogin)) || userAccounts[0]
-  , [userAccounts, activeLogin]);
+  // ── Persistent real-time listener for active account ─────────
+  useEffect(() => {
+    if (!activeLogin || !db) {
+      setLiveAccountData(null);
+      return;
+    }
+    const ref = doc(db, 'mt5_accounts', activeLogin);
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        setLiveAccountData({ id: snap.id, ...snap.data() });
+      }
+    });
+    return () => unsub();
+  }, [activeLogin, db]);
+
+  const activeAccount = useMemo(() =>
+    liveAccountData || userAccounts.find(a => String(a.id) === String(activeLogin)) || userAccounts[0]
+  , [liveAccountData, userAccounts, activeLogin]);
 
   const isBreached = activeAccount?.status === 'breached';
 
   // DERIVE METRICS EXCLUSIVELY FROM ACTIVE ACCOUNT DOCUMENT
   const metrics = useMemo(() => {
     if (!activeAccount) return { balance: 0, equity: 0, initial: 100000 };
-    
     const initial = parseFloat(String(activeAccount.accountBalance || 100000));
-    // Show balance at start of today's session (7:30 AM IST)
     const balance = parseFloat(String(activeAccount.dailyStartBalance ?? initial));
     const equity = parseFloat(String(activeAccount.liveEquity ?? activeAccount.equity ?? balance));
-    
     return { balance, equity, initial };
   }, [activeAccount]);
 
@@ -184,8 +196,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     if (lastUpdateMs === 0) return { status: 'awaiting', label: 'Awaiting Data' };
 
     const diffSeconds = Math.floor((Date.now() - lastUpdateMs) / 1000);
-    const isEAOnline = diffSeconds <= 600; 
-
+    const isEAOnline = diffSeconds <= 600;
     const minutesAgo = Math.floor(diffSeconds / 60);
     const timeLabel = minutesAgo === 0 ? 'Just now' : minutesAgo > 59 ? '>1h ago' : `${minutesAgo}m ago`;
 
@@ -213,7 +224,6 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     return enrichTrades(filteredTrades, activeAccount?.id || 'N/A');
   }, [filteredTrades, activeAccount?.id]);
 
-  // Filter trades for today's session (Closed after 02:00 UTC)
   const todaysTrades = useMemo(() => {
     const todayKey = getTradingDayKey(new Date());
     return enrichedTrades.filter(t => t.closeTime && getTradingDayKey(getTradeDate(t.closeTime)!) === todayKey);
@@ -222,36 +232,20 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   // RISK CALCULATIONS
   const dailyRiskMetrics = useMemo(() => {
     if (!activeAccount) return { pnl: 0, pnlPct: 0, usage: 0, limit: 3, limitAmount: 0, totalDailyLoss: 0, isPositive: true };
-    
     const initialBalance = parseFloat(String(activeAccount.accountBalance || 100000));
-    
-    // realized losses from closed trades today only
     const realizedLosses = todaysTrades.reduce((acc, t) => t.pnl < 0 ? acc + Math.abs(t.pnl) : acc, 0);
     const totalDailyPnl = todaysTrades.reduce((acc, t) => acc + t.pnl, 0);
-    
-    const limitPct = 3; 
+    const limitPct = 3;
     const limitAmount = initialBalance * (limitPct / 100);
     const usage = Math.min((realizedLosses / limitAmount) * 100, 100);
-
-    return { 
-      pnl: totalDailyPnl, 
-      pnlPct: initialBalance > 0 ? (totalDailyPnl / initialBalance) * 100 : 0, 
-      usage, 
-      limit: limitPct, 
-      limitAmount, 
-      totalDailyLoss: realizedLosses, 
-      isPositive: totalDailyPnl >= 0 
-    };
+    return { pnl: totalDailyPnl, pnlPct: initialBalance > 0 ? (totalDailyPnl / initialBalance) * 100 : 0, usage, limit: limitPct, limitAmount, totalDailyLoss: realizedLosses, isPositive: totalDailyPnl >= 0 };
   }, [activeAccount, todaysTrades]);
 
   const profitTargetData = useMemo(() => {
     if (!activeAccount) return { targetPct: 0, progress: 0, hasTarget: false };
-    
     const initial = parseFloat(String(activeAccount.accountBalance || 100000));
     const planKey = getPlanKey(activeAccount.accountPlan || '');
     const phase = activeAccount.phase || 'evaluation';
-    
-    // 1-Step Pro accounts: 8% target in evaluation
     let targetPct = 0;
     if (planKey === '1-step-pro' && phase === 'evaluation') {
       targetPct = 8;
@@ -259,12 +253,10 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       const rules = RULES_CONFIG.plans[planKey]?.[phase];
       targetPct = rules?.profitTarget || 0;
     }
-    
     const targetAmount = initial * (targetPct / 100);
     const targetValue = initial + targetAmount;
     const currentProfit = (parseFloat(String(activeAccount.liveBalance ?? activeAccount.balance ?? initial)) - initial);
     const progress = targetAmount > 0 ? Math.max(0, Math.min((currentProfit / targetAmount) * 100, 100)) : 0;
-    
     return { targetPct, targetAmount, targetValue, currentProfit, progress, hasTarget: targetPct > 0 };
   }, [activeAccount]);
 
@@ -272,22 +264,12 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
     const closedPositions = enrichedTrades.filter(t => t.closeTime);
     const total = closedPositions.length;
     if (total === 0) return null;
-
     const wins = closedPositions.filter(t => t.pnl > 0);
     const losses = closedPositions.filter(t => t.pnl < 0);
     const totalPnl = closedPositions.reduce((acc, t) => acc + t.pnl, 0);
     const best = Math.max(...closedPositions.map(t => t.pnl));
     const worst = Math.min(...closedPositions.map(t => t.pnl));
-
-    return {
-      total,
-      winRate: (wins.length / total) * 100,
-      avgWin: wins.length > 0 ? wins.reduce((acc, t) => acc + t.pnl, 0) / wins.length : 0,
-      avgLoss: losses.length > 0 ? losses.reduce((acc, t) => acc + t.pnl, 0) / losses.length : 0,
-      totalPnl,
-      best,
-      worst
-    };
+    return { total, winRate: (wins.length / total) * 100, avgWin: wins.length > 0 ? wins.reduce((acc, t) => acc + t.pnl, 0) / wins.length : 0, avgLoss: losses.length > 0 ? losses.reduce((acc, t) => acc + t.pnl, 0) / losses.length : 0, totalPnl, best, worst };
   }, [enrichedTrades]);
 
   const tradingDaysData = useMemo(() => {
@@ -297,20 +279,24 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
       const date = getTradeDate(t.time || t.date);
       if (date && isValid(date)) days.add(getTradingDayKey(date));
     });
-
     const count = days.size;
     const plan = activeAccount.accountPlan?.toLowerCase() || '';
     const phase = activeAccount.phase || 'evaluation';
-    
     let required = 5;
     if (plan.includes('3-step')) {
       required = phase === 'phase1' ? 7 : phase === 'phase2' ? 6 : 5;
     } else if (plan.includes('instant')) {
       required = 1;
     }
-
     return { count, required, progress: Math.min((count / required) * 100, 100) };
   }, [filteredTrades, activeAccount]);
+
+  // ── Live clock for connectivity badge ───────────────────────
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   if (authLoading && !adminViewMode) return null;
 
@@ -361,7 +347,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               userAccounts.map((acc: any) => (
                 <Card 
                   key={acc.id} 
-                  onClick={() => setActiveLogin(acc.id)}
+                  onClick={() => { setActiveLogin(acc.id); setLiveAccountData(null); }}
                   className={cn(
                     "cursor-pointer transition-all duration-300 relative overflow-hidden group",
                     activeLogin === acc.id ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(17,179,245,0.1)]" : "bg-card/40 border-border/50 hover:border-primary/30"
