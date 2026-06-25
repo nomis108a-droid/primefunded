@@ -1,52 +1,38 @@
-
 'use server';
 
-import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
-import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { cookies } from 'next/headers';
+import { adminAuth, adminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 
 /**
- * SECURITY HELPER: Verify Admin Password server-side
+ * SECURITY HELPER: Verify Admin custom claims via session cookie
  */
-async function verifyAdminAuth() {
-  const masterKey = "93463962569392846256";
-  return process.env.ADMIN_PASSWORD === masterKey; 
-}
-
-function getAdminApp(): App {
-  const existingApps = getApps();
-  const adminApp = existingApps.find(app => app.name === 'pf-admin');
-  if (adminApp) return adminApp;
-
-  let serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-
+export async function verifyAdminAuth() {
   try {
-    const serviceAccount = JSON.parse(serviceAccountKey.startsWith("'") ? serviceAccountKey.slice(1, -1) : serviceAccountKey);
-    return initializeApp({
-      credential: cert(serviceAccount),
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
-    }, 'pf-admin');
-  } catch (e: any) {
-    throw new Error(`Admin SDK Config Error: ${e.message}`);
+    const cookieStore = await cookies();
+    const token = cookieStore.get('session')?.value;
+    if (!token) return false;
+    
+    const decoded = await adminAuth.verifySessionCookie(token, true);
+    const user = await adminAuth.getUser(decoded.uid);
+    
+    return user.customClaims?.admin === true;
+  } catch (error) {
+    return false;
   }
-}
-
-function getAdminDb(): Firestore {
-  return getFirestore(getAdminApp());
 }
 
 /**
  * Admin-side Notification & Email Helper
  */
 async function sendAdminNotification(
-  db: Firestore,
   userId: string,
   title: string,
   message: string,
   type: string
 ) {
   try {
-    const userRef = db.collection('users').doc(userId);
+    const userRef = adminDb.collection('users').doc(userId);
     const userSnap = await userRef.get();
     const email = userSnap.data()?.email;
 
@@ -60,7 +46,7 @@ async function sendAdminNotification(
     });
 
     if (email) {
-      await db.collection('mail').add({
+      await adminDb.collection('mail').add({
         to: email,
         message: {
           subject: `PrimeFunded: ${title}`,
@@ -94,7 +80,6 @@ async function sendAdminNotification(
 
 export async function runOneTimeCleanupAction() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   
   // Specific TARGET IDs requested: 5051977398 and 108570666
   const targetIds = ["5051977398", "108570666"];
@@ -105,7 +90,7 @@ export async function runOneTimeCleanupAction() {
     // SAFETY: Explicitly skip and protect 108582571
     if (id === '108582571') continue;
 
-    const accountRef = db.collection('mt5_accounts').doc(id);
+    const accountRef = adminDb.collection('mt5_accounts').doc(id);
     const accountSnap = await accountRef.get();
     
     if (accountSnap.exists) {
@@ -118,7 +103,7 @@ export async function runOneTimeCleanupAction() {
 
       // 2. Exhaustively reset the user document if linked - Removing all institutional data
       if (userId) {
-        const userRef = db.collection('users').doc(userId);
+        const userRef = adminDb.collection('users').doc(userId);
         await userRef.update({
           mt5Login: FieldValue.delete(),
           mt5Password: FieldValue.delete(),
@@ -147,9 +132,8 @@ export async function runOneTimeCleanupAction() {
 
 export async function resetAccountAction(login: string, newBalance: number, phase: string = 'funded') {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   const loginStr = String(login).trim();
-  const accountRef = db.collection('mt5_accounts').doc(loginStr);
+  const accountRef = adminDb.collection('mt5_accounts').doc(loginStr);
   
   const accountSnap = await accountRef.get();
   if (!accountSnap.exists) throw new Error("Account not found");
@@ -170,7 +154,7 @@ export async function resetAccountAction(login: string, newBalance: number, phas
   });
 
   if (userId) {
-    const userRef = db.collection('users').doc(userId);
+    const userRef = adminDb.collection('users').doc(userId);
     await userRef.update({
       accountStatus: 'active',
       accountBalance: newBalance,
@@ -188,9 +172,8 @@ export async function resetAccountAction(login: string, newBalance: number, phas
 
 export async function deleteMt5AccountAction(login: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   const loginStr = String(login).trim();
-  const accountRef = db.collection('mt5_accounts').doc(loginStr);
+  const accountRef = adminDb.collection('mt5_accounts').doc(loginStr);
   
   const accountSnap = await accountRef.get();
   if (!accountSnap.exists) return { success: true };
@@ -203,17 +186,17 @@ export async function deleteMt5AccountAction(login: string) {
 
   // 2. Delete associated trades from the user's profile
   if (userId) {
-    const tradesRef = db.collection('users').doc(userId).collection('trades');
+    const tradesRef = adminDb.collection('users').doc(userId).collection('trades');
     const tradesSnap = await tradesRef.where('login', '==', loginStr).get();
     
     if (!tradesSnap.empty) {
-      const batch = db.batch();
+      const batch = adminDb.batch();
       tradesSnap.docs.forEach(doc => batch.delete(doc.ref));
       await batch.commit();
     }
 
     // 3. Clear mirroring fields on the user profile if this was their active node
-    const userRef = db.collection('users').doc(userId);
+    const userRef = adminDb.collection('users').doc(userId);
     const userSnap = await userRef.get();
     const userData = userSnap.data();
     
@@ -241,9 +224,8 @@ export async function deleteMt5AccountAction(login: string) {
 
 export async function sendGlobalBroadcastAction(data: { title: string, message: string, type: string }) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   
-  await db.collection('broadcasts').add({
+  await adminDb.collection('broadcasts').add({
     ...data,
     sentAt: FieldValue.serverTimestamp(),
     sentBy: 'admin'
@@ -255,8 +237,7 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 export async function runRetroactiveRiskAuditAction() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   
-  const db = getAdminDb();
-  const snap = await db.collection('mt5_accounts').get();
+  const snap = await adminDb.collection('mt5_accounts').get();
   let breachCount = 0;
   const auditData: any[] = [];
 
@@ -271,7 +252,7 @@ export async function runRetroactiveRiskAuditAction() {
       continue;
     }
 
-    const userRef = db.collection('users').doc(userId);
+    const userRef = adminDb.collection('users').doc(userId);
     const userSnap = await userRef.get();
     const userData = userSnap.data();
     const traderId = userData?.uid || 'N/A';
@@ -295,13 +276,13 @@ export async function runRetroactiveRiskAuditAction() {
 
     if (breached) {
       const breachKey = `audit_hard_${login}_${violatingTicket}`;
-      const existingBreach = await db.collection('breaches').doc(breachKey).get();
+      const existingBreach = await adminDb.collection('breaches').doc(breachKey).get();
       if (!existingBreach.exists) {
         breachCount++;
         await doc.ref.update({ status: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
         await userRef.update({ accountStatus: 'breached', breachReason: reason, breachedAt: FieldValue.serverTimestamp() });
         
-        await db.collection('breaches').doc(breachKey).set({
+        await adminDb.collection('breaches').doc(breachKey).set({
           userId, traderId, login,
           userName: userData?.name || 'N/A',
           userEmail: userData?.email || 'N/A',
@@ -309,7 +290,7 @@ export async function runRetroactiveRiskAuditAction() {
           breachedAt: FieldValue.serverTimestamp()
         }, { merge: true });
 
-        await sendAdminNotification(db, userId, "🚫 Account Liquidated (Audit)", reason, "challenge_failed");
+        await sendAdminNotification(userId, "🚫 Account Liquidated (Audit)", reason, "challenge_failed");
         auditData.push({ login, breached: true, reason });
       } else {
         auditData.push({ login, skipped: true, reason: "Breach already recorded" });
@@ -324,8 +305,7 @@ export async function runRetroactiveRiskAuditAction() {
 
 export async function advanceTraderPhaseAction(userId: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
-  const userRef = db.collection('users').doc(userId);
+  const userRef = adminDb.collection('users').doc(userId);
   const userSnap = await userRef.get();
   const userData = userSnap.data();
   const currentPhase = userData?.currentPhase || 'evaluation';
@@ -336,17 +316,16 @@ export async function advanceTraderPhaseAction(userId: string) {
   }
   
   await userRef.update({ currentPhase: nextPhase, updatedAt: FieldValue.serverTimestamp(), readyForNextPhase: false });
-  await sendAdminNotification(db, userId, "🎯 Phase Advanced", `Congratulations! You have been advanced to the ${nextPhase.toUpperCase()} phase.`, "challenge_passed");
+  await sendAdminNotification(userId, "🎯 Phase Advanced", `Congratulations! You have been advanced to the ${nextPhase.toUpperCase()} phase.`, "challenge_passed");
   
   return { success: true, nextPhase };
 }
 
 export async function registerMt5AccountAction(data: any) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   
   const loginStr = String(data.login).trim();
-  const accountRef = db.collection('mt5_accounts').doc(loginStr);
+  const accountRef = adminDb.collection('mt5_accounts').doc(loginStr);
   
   // CRITICAL: Prevent overwriting existing nodes
   const existingDoc = await accountRef.get();
@@ -373,7 +352,7 @@ export async function registerMt5AccountAction(data: any) {
     updatedAt: FieldValue.serverTimestamp()
   });
 
-  const userRef = db.collection('users').doc(data.userId);
+  const userRef = adminDb.collection('users').doc(data.userId);
   await userRef.update({
     mt5Login: loginStr,
     mt5Password: data.password,
@@ -387,14 +366,13 @@ export async function registerMt5AccountAction(data: any) {
     updatedAt: FieldValue.serverTimestamp()
   });
 
-  await sendAdminNotification(db, data.userId, "🚀 Account Provisioned", `Your MetaTrader 5 account PF-${loginStr} is now active. View credentials in the terminal.`, "account_provisioned");
+  await sendAdminNotification(data.userId, "🚀 Account Provisioned", `Your MetaTrader 5 account PF-${loginStr} is now active. View credentials in the terminal.`, "account_provisioned");
 
   return { success: true, docId: loginStr };
 }
 
 export async function updateOrderStatusAction(id: string, status: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
   
   if (status === 'approved') {
@@ -402,14 +380,14 @@ export async function updateOrderStatusAction(id: string, status: string) {
     updates.approvedBy = "admin";
   }
   
-  const orderRef = db.collection('orders').doc(id);
+  const orderRef = adminDb.collection('orders').doc(id);
   const orderSnap = await orderRef.get();
   const orderData = orderSnap.data();
   
   await orderRef.update(updates);
 
   if (status === 'approved' && orderData?.userId) {
-    await sendAdminNotification(db, orderData.userId, "✅ Order Approved", "Your payment has been verified. Your challenge node is being prepared.", "order_approved");
+    await sendAdminNotification(orderData.userId, "✅ Order Approved", "Your payment has been verified. Your challenge node is being prepared.", "order_approved");
   }
 
   return { success: true };
@@ -417,16 +395,15 @@ export async function updateOrderStatusAction(id: string, status: string) {
 
 export async function updatePayoutStatusAction(id: string, status: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   
-  const payoutRef = db.collection('payouts').doc(id);
+  const payoutRef = adminDb.collection('payouts').doc(id);
   const payoutSnap = await payoutRef.get();
   const payoutData = payoutSnap.data();
 
   await payoutRef.update({ status, updatedAt: FieldValue.serverTimestamp() });
 
   if (status === 'done' && payoutData?.userId) {
-    await sendAdminNotification(db, payoutData.userId, "💸 Payout Processed", `Your withdrawal for $${payoutData.amount} has been processed successfully.`, "payout_processed");
+    await sendAdminNotification(payoutData.userId, "💸 Payout Processed", `Your withdrawal for $${payoutData.amount} has been processed successfully.`, "payout_processed");
   }
 
   return { success: true };
@@ -434,16 +411,15 @@ export async function updatePayoutStatusAction(id: string, status: string) {
 
 export async function processKycAction(id: string, status: string, reason?: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   const updates: any = { kycStatus: status, kycVerified: status === 'verified', updatedAt: FieldValue.serverTimestamp() };
   if (reason) updates.kycRejectionReason = reason;
   
-  await db.collection('users').doc(id).update(updates);
+  await adminDb.collection('users').doc(id).update(updates);
 
   if (status === 'verified') {
-    await sendAdminNotification(db, id, "🛡️ KYC Verified", "Your identity verification is complete. Payouts are now unlocked.", "kyc_approved");
+    await sendAdminNotification(id, "🛡️ KYC Verified", "Your identity verification is complete. Payouts are now unlocked.", "kyc_approved");
   } else if (status === 'rejected') {
-    await sendAdminNotification(db, id, "❌ KYC Rejected", `Your documents were rejected: ${reason}`, "kyc_rejected");
+    await sendAdminNotification(id, "❌ KYC Rejected", `Your documents were rejected: ${reason}`, "kyc_rejected");
   }
 
   return { success: true };
@@ -451,46 +427,44 @@ export async function processKycAction(id: string, status: string, reason?: stri
 
 export async function forceBreachAccountAction(userId: string, login: string, reason: string) {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   const fullReason = `Manual Admin Breach: ${reason}`;
   
-  const userRef = db.collection('users').doc(userId);
+  const userRef = adminDb.collection('users').doc(userId);
   const userSnap = await userRef.get();
   const userData = userSnap.data();
 
-  const batch = db.batch();
+  const batch = adminDb.batch();
 
   if (login && login !== 'undefined' && login !== 'N/A') {
-    const accountRef = db.collection('mt5_accounts').doc(String(login));
+    const accountRef = adminDb.collection('mt5_accounts').doc(String(login));
     batch.update(accountRef, { status: 'breached', breachedAt: FieldValue.serverTimestamp(), breachReason: fullReason });
   }
 
   batch.update(userRef, { accountStatus: 'breached', breachReason: fullReason, breachedAt: FieldValue.serverTimestamp() });
 
   const breachId = `manual_${login}_${Date.now()}`;
-  batch.set(db.collection('breaches').doc(breachId), {
+  batch.set(adminDb.collection('breaches').doc(breachId), {
     login, userId, traderId: userData?.uid || 'N/A', userName: userData?.name || 'N/A', userEmail: userData?.email || 'N/A',
     reason: fullReason, breachReason: fullReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(),
     phase: userData?.currentPhase || 'N/A', plan: userData?.accountPlan || 'N/A', manualBreach: true, adminAction: true
   });
 
   await batch.commit();
-  await sendAdminNotification(db, userId, "🚫 Account Liquidated", `Your account has been terminated due to an institutional risk breach: ${reason}.`, "challenge_failed");
+  await sendAdminNotification(userId, "🚫 Account Liquidated", `Your account has been terminated due to an institutional risk breach: ${reason}.`, "challenge_failed");
   
   return { success: true };
 }
 
 export async function fetchAdminTerminalData() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const db = getAdminDb();
   const [usersSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap, accountsSnap] = await Promise.all([
-    db.collection('users').get(),
-    db.collection('orders').get(),
-    db.collection('payouts').get(),
-    db.collection('referrals').get(),
-    db.collection('broadcasts').get(),
-    db.collection('breaches').get(),
-    db.collection('mt5_accounts').get(),
+    adminDb.collection('users').get(),
+    adminDb.collection('orders').get(),
+    adminDb.collection('payouts').get(),
+    adminDb.collection('referrals').get(),
+    adminDb.collection('broadcasts').get(),
+    adminDb.collection('breaches').get(),
+    adminDb.collection('mt5_accounts').get(),
   ]);
 
   const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
