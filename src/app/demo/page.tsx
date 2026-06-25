@@ -7,40 +7,24 @@ import { useAuth } from '@/context/AuthContext';
 import { useCollection, useFirestore } from '@/firebase';
 import { 
   collection, 
-  addDoc, 
-  serverTimestamp, 
   where, 
   orderBy, 
-  doc, 
-  updateDoc, 
-  deleteDoc,
   query,
   onSnapshot
 } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Play, 
-  TrendingUp, 
-  TrendingDown, 
-  Trash2, 
-  Plus, 
   Activity, 
   Wallet, 
   History,
   AlertCircle,
-  CheckCircle2,
   XCircle,
-  Loader2,
-  ArrowUpRight,
-  ArrowDownRight
+  Plus
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 const PLANS = [
@@ -82,47 +66,36 @@ export default function DemoPage() {
     tradeConstraints
   );
 
-  // Simulated Price Engine
+  // Institutional Price Feed Listener
   useEffect(() => {
-    const intervals = SYMBOLS.map(symbol => {
-      let basePrice = symbol === 'XAUUSD' ? 2000 : symbol === 'BTCUSD' ? 60000 : 1.1;
-      return setInterval(() => {
-        const change = (Math.random() - 0.5) * (basePrice * 0.0005);
-        const newPrice = basePrice + change;
-        setPrices(prev => ({
-          ...prev,
-          [symbol]: {
-            symbol,
-            price: newPrice,
-            bid: newPrice - (newPrice * 0.0001),
-            ask: newPrice + (newPrice * 0.0001),
-            updatedAt: new Date()
-          }
-        }));
-        basePrice = newPrice;
-      }, 2000);
+    if (!db) return;
+    const q = query(collection(db, 'livePrices'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const newPrices: Record<string, any> = {};
+      snapshot.docs.forEach(doc => {
+        newPrices[doc.id] = doc.data();
+      });
+      setPrices(newPrices);
     });
-
-    return () => intervals.forEach(i => clearInterval(i));
-  }, []);
+    return () => unsubscribe();
+  }, [db]);
 
   const handleCreateAccount = async (plan: any) => {
-    if (!user || !db) return;
+    if (!user) return;
     setLoading(true);
     try {
-      const docRef = await addDoc(collection(db, 'demoAccounts'), {
-        userId: user.uid,
-        plan: plan.id,
-        label: plan.label,
-        balance: plan.size,
-        equity: plan.size,
-        startBalance: plan.size,
-        maxLoss: plan.size * 0.06,
-        dailyLoss: plan.size * 0.03,
-        profitTarget: plan.size * 0.10,
-        status: 'active',
-        createdAt: serverTimestamp()
+      const token = await user.getIdToken();
+      const res = await fetch('/api/terminal/accounts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ plan: plan.id })
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Provisioning failed');
+      
       toast({ title: "Account Provisioned", description: `Demo account ${plan.label} is live.` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Creation Failed", description: err.message });
@@ -132,26 +105,26 @@ export default function DemoPage() {
   };
 
   const handleOpenTrade = async (symbol: string, type: 'buy' | 'sell', lots: number) => {
-    if (!activeAccount || !db || !prices[symbol]) return;
-    
-    const price = type === 'buy' ? prices[symbol].ask : prices[symbol].bid;
+    if (!activeAccount || !user) return;
     
     try {
-      await addDoc(collection(db, 'demoTrades'), {
-        userId: user?.uid,
-        accountId: activeAccount.id,
-        symbol,
-        type,
-        lots,
-        openPrice: price,
-        sl: null,
-        tp: null,
-        status: 'open',
-        pnl: 0,
-        openedAt: serverTimestamp(),
-        closedAt: null,
-        closePrice: null
+      const token = await user.getIdToken();
+      const res = await fetch('/api/terminal/trades', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          accountId: activeAccount.id,
+          symbol,
+          type,
+          lots
+        })
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Execution failed');
+
       toast({ title: "Position Executed", description: `${type.toUpperCase()} ${lots} lot ${symbol}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Execution Error", description: err.message });
@@ -159,35 +132,26 @@ export default function DemoPage() {
   };
 
   const handleCloseTrade = async (trade: any) => {
-    if (!db || !prices[trade.symbol]) return;
-    
-    const currentPrice = trade.type === 'buy' ? prices[trade.symbol].bid : prices[trade.symbol].ask;
-    const pnl = trade.type === 'buy' 
-      ? (currentPrice - trade.openPrice) * 100000 * trade.lots
-      : (trade.openPrice - currentPrice) * 100000 * trade.lots;
+    if (!user) return;
 
     try {
-      // 1. Close the trade
-      await updateDoc(doc(db, 'demoTrades', trade.id), {
-        status: 'closed',
-        closedAt: serverTimestamp(),
-        closePrice: currentPrice,
-        pnl: pnl
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/terminal/trades/${trade.id}/close`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Closure failed');
 
-      // 2. Update account balance
-      await updateDoc(doc(db, 'demoAccounts', trade.accountId), {
-        balance: activeAccount.balance + pnl,
-        equity: activeAccount.balance + pnl
-      });
-
-      toast({ title: "Position Closed", description: `Realized P&L: $${pnl.toFixed(2)}` });
+      toast({ title: "Position Closed", description: `Realized P&L: $${data.pnl.toFixed(2)}` });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to close position." });
+      toast({ variant: "destructive", title: "Error", description: err.message });
     }
   };
 
-  // Real-time Equity Calculator
+  // Real-time Equity Calculator (Display Only)
   const accountMetrics = useMemo(() => {
     if (!activeAccount) return { equity: 0, floatingPnl: 0 };
     let floatingPnl = 0;
@@ -195,9 +159,10 @@ export default function DemoPage() {
       const price = prices[trade.symbol];
       if (price) {
         const currentPrice = trade.type === 'buy' ? price.bid : price.ask;
+        const contractSize = symbolToContractSize(trade.symbol);
         floatingPnl += trade.type === 'buy' 
-          ? (currentPrice - trade.openPrice) * 100000 * trade.lots
-          : (trade.openPrice - currentPrice) * 100000 * trade.lots;
+          ? (currentPrice - trade.openPrice) * contractSize * trade.lots
+          : (trade.openPrice - currentPrice) * contractSize * trade.lots;
       }
     });
     return { 
@@ -205,6 +170,12 @@ export default function DemoPage() {
       floatingPnl 
     };
   }, [activeAccount, openTrades, prices]);
+
+  function symbolToContractSize(symbol: string) {
+    if (symbol === 'XAUUSD') return 100;
+    if (symbol === 'BTCUSD') return 1;
+    return 100000;
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -221,7 +192,7 @@ export default function DemoPage() {
                 key={plan.id} 
                 variant="outline" 
                 size="sm" 
-                className="font-bold border-primary/20 hover:bg-primary/10"
+                className="font-bold border-primary/20 hover:bg-primary/10 cursor-pointer"
                 onClick={() => handleCreateAccount(plan)}
                 disabled={loading}
               >
@@ -232,7 +203,6 @@ export default function DemoPage() {
         </header>
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-          {/* Left Sidebar: Account List */}
           <div className="space-y-6">
             <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
               <Wallet className="w-3.5 h-3.5" /> Virtual Nodes
@@ -257,7 +227,7 @@ export default function DemoPage() {
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start mb-2">
                         <Badge variant="outline" className="text-[9px] font-black uppercase">{acc.plan}</Badge>
-                        <Badge className={cn("text-[9px]", acc.status === 'active' ? 'bg-emerald-500' : 'bg-destructive')}>
+                        <Badge className={cn("text-[9px] uppercase font-black", acc.status === 'active' ? 'bg-emerald-500' : 'bg-destructive')}>
                           {acc.status}
                         </Badge>
                       </div>
@@ -270,11 +240,9 @@ export default function DemoPage() {
             </div>
           </div>
 
-          {/* Main Terminal Area */}
           <div className="xl:col-span-3 space-y-8">
             {activeAccount ? (
               <>
-                {/* Real-time Metrics */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <MetricSmall label="Virtual Balance" value={`$${activeAccount.balance.toLocaleString()}`} icon={<Wallet className="text-primary" />} />
                   <MetricSmall 
@@ -284,10 +252,9 @@ export default function DemoPage() {
                     subValue={`${accountMetrics.floatingPnl >= 0 ? '+' : ''}$${accountMetrics.floatingPnl.toFixed(2)} Floating`}
                     subColor={accountMetrics.floatingPnl >= 0 ? 'text-emerald-500' : 'text-destructive'}
                   />
-                  <MetricSmall label="Risk Remaining" value={`$${(activeAccount.maxLoss).toLocaleString()}`} icon={<AlertCircle className="text-destructive" />} />
+                  <MetricSmall label="Max Loss Limit" value={`$${(activeAccount.maxLoss).toLocaleString()}`} icon={<AlertCircle className="text-destructive" />} />
                 </div>
 
-                {/* Trading Desk */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <Card className="bg-card/40 border-border/50">
                     <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Play className="w-5 h-5 text-primary" /> Execution Desk</CardTitle></CardHeader>
@@ -313,8 +280,8 @@ export default function DemoPage() {
                                </div>
                             </div>
                             <div className="flex gap-2">
-                               <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px]" onClick={() => handleOpenTrade(symbol, 'buy', 1)}>BUY</Button>
-                               <Button size="sm" variant="destructive" className="font-black text-[10px]" onClick={() => handleOpenTrade(symbol, 'sell', 1)}>SELL</Button>
+                               <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[10px] cursor-pointer" onClick={() => handleOpenTrade(symbol, 'buy', 1)} disabled={activeAccount.status !== 'active'}>BUY</Button>
+                               <Button size="sm" variant="destructive" className="font-black text-[10px] cursor-pointer" onClick={() => handleOpenTrade(symbol, 'sell', 1)} disabled={activeAccount.status !== 'active'}>SELL</Button>
                             </div>
                           </div>
                         );
@@ -343,9 +310,10 @@ export default function DemoPage() {
                               let pnl = 0;
                               if (price) {
                                 const currentPrice = trade.type === 'buy' ? price.bid : price.ask;
+                                const contractSize = symbolToContractSize(trade.symbol);
                                 pnl = trade.type === 'buy' 
-                                  ? (currentPrice - trade.openPrice) * 100000 * trade.lots
-                                  : (trade.openPrice - currentPrice) * 100000 * trade.lots;
+                                  ? (currentPrice - trade.openPrice) * contractSize * trade.lots
+                                  : (trade.openPrice - currentPrice) * contractSize * trade.lots;
                               }
 
                               return (
@@ -360,7 +328,7 @@ export default function DemoPage() {
                                     {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)}
                                   </td>
                                   <td className="py-3 px-4 text-right">
-                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => handleCloseTrade(trade)}>
+                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive hover:bg-destructive/10 cursor-pointer" onClick={() => handleCloseTrade(trade)}>
                                       <XCircle className="w-4 h-4" />
                                     </Button>
                                   </td>

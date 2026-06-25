@@ -1,0 +1,87 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getApps, initializeApp, cert } from 'firebase-admin/app';
+import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
+
+const CONTRACT_SIZE: Record<string, number> = {
+  XAUUSD: 100, BTCUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+};
+
+function getAdminDb() {
+  if (!getApps().length) {
+    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
+    try {
+      const serviceAccount = JSON.parse(
+        serviceAccountKey.startsWith("'") 
+          ? serviceAccountKey.slice(1, -1) 
+          : serviceAccountKey
+      );
+      initializeApp({
+        credential: cert(serviceAccount),
+      });
+    } catch (e: any) {
+      throw new Error(`Admin SDK Init Error: ${e.message}`);
+    }
+  }
+  return getFirestore();
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const authHeader = req.headers.get("authorization") || "";
+    const token = authHeader.replace("Bearer ", "");
+    if (!token) return NextResponse.json({ error: "No auth token" }, { status: 401 });
+
+    let uid: string;
+    try {
+      const decoded = await getAuth().verifyIdToken(token);
+      uid = decoded.uid;
+    } catch {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    const { accountId, symbol, type, lots, sl, tp } = await req.json();
+
+    const db = getAdminDb();
+    const accSnap = await db.collection("demoAccounts").doc(accountId).get();
+    if (!accSnap.exists) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    const account = accSnap.data()!;
+    if (account.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (account.status !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
+
+    const priceSnap = await db.collection("livePrices").doc(symbol).get();
+    if (!priceSnap.exists) return NextResponse.json({ error: "No price for symbol" }, { status: 400 });
+    const priceData = priceSnap.data()!;
+
+    // reject if price is stale (>5 min old)
+    const updatedAt = priceData.updatedAt?.toMillis?.() || 0;
+    const ageMs = Date.now() - updatedAt;
+    if (ageMs > 5 * 60 * 1000) {
+      return NextResponse.json({ error: "Price feed stale" }, { status: 503 });
+    }
+
+    const openPrice = type === "buy" ? priceData.ask : priceData.bid;
+
+    const tradeRef = await db.collection("demoTrades").add({
+      userId: uid,
+      accountId,
+      symbol,
+      type,
+      lots,
+      openPrice,
+      sl: sl || null,
+      tp: tp || null,
+      status: "open",
+      pnl: 0,
+      openedAt: Timestamp.now(),
+      closedAt: null,
+      closePrice: null,
+    });
+
+    return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice });
+  } catch (error: any) {
+    console.error('[Open-Trade-API] Error:', error);
+    return NextResponse.json({ error: "Internal Server Error", details: error.message }, { status: 500 });
+  }
+}

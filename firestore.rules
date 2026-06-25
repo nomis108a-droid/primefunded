@@ -49,20 +49,18 @@ service cloud.firestore {
 
     // Demo System Rules
     match /demoAccounts/{accountId} {
-      allow read, create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow write: if isAdmin();
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow write: if false; // only Admin SDK
     }
 
     match /demoTrades/{tradeId} {
-      allow read, create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow write: if isAdmin();
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow write: if false; // only Admin SDK
     }
 
     match /livePrices/{symbol} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if false; // only Admin SDK via price-feed route
     }
     
     // Orders: Users can create and read their own. Admin manages.
