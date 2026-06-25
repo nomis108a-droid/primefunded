@@ -361,7 +361,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                        )}>
                          {acc.status || 'Active'}
                        </Badge>
-                       <span className="font-mono text-[10px] text-muted-foreground">PF-{acc.login}</span>
+                       <span className="font-mono text-[10px] text-muted-foreground">{acc.login}</span>
                     </div>
                     <p className="text-sm font-bold text-white mb-0.5">{acc.accountPlan}</p>
                     <p className="text-lg font-black text-primary font-headline">${(parseFloat(acc.accountBalance || 100000) / 1000).toFixed(0)}k Node</p>
@@ -474,7 +474,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                 <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
                   <History className="w-5 h-5 text-primary" /> Position Journal (Isolated)
                 </CardTitle>
-                <Badge variant="outline" className="text-[9px] font-black uppercase">PF-{activeAccount.login}</Badge>
+                <Badge variant="outline" className="text-[9px] font-black uppercase">Node {activeAccount.login}</Badge>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -511,7 +511,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                           </tr>
                         ))
                       ) : (
-                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">No executions recorded for node PF-{activeAccount.login}.</td></tr>
+                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">No executions recorded for node {activeAccount.login}.</td></tr>
                       )}
                     </tbody>
                   </table>

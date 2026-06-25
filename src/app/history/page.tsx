@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect } from 'react';
@@ -61,8 +60,6 @@ export default function HistoryPage() {
 
   // Use SHARED logic for positioning matching
   const enrichedPositions = useMemo(() => {
-    // Trades are stored per-account in mt5_accounts subcollection via EA sync
-    // Currently showing all trades across all accounts for this user
     return enrichTrades(trades, userData?.mt5Login || 'N/A');
   }, [trades, userData?.mt5Login]);
 
@@ -122,12 +119,6 @@ export default function HistoryPage() {
     document.body.removeChild(link);
   };
 
-  const maskLogin = (login: string) => {
-    if (!login) return 'N/A';
-    const s = String(login);
-    return s.slice(-4).padStart(s.length, '•');
-  };
-
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
@@ -184,7 +175,7 @@ export default function HistoryPage() {
                           </div>
                           <div>
                              <p className="text-xs font-bold text-white">{acc.accountSize || ('$' + (acc.accountBalance/1000).toFixed(0) + 'k')} Account</p>
-                             <p className="text-[10px] text-muted-foreground font-mono">MT5: {maskLogin(acc.login)}</p>
+                             <p className="text-[10px] text-muted-foreground font-mono">Node ID: {acc.login || '---'}</p>
                           </div>
                           
                           <div className="space-y-2 pt-1">
@@ -205,11 +196,6 @@ export default function HistoryPage() {
                                  {isBreached ? 'TERMINATED' : isActive ? 'ACTIVE STATUS' : 'PHASE PASSED'}
                                </span>
                             </div>
-                            {isBreached && acc.breachReason && (
-                              <p className="text-[8px] text-destructive/70 leading-tight italic line-clamp-2">
-                                Reason: {acc.breachReason}
-                              </p>
-                            )}
                           </div>
                        </CardContent>
                     </Card>
@@ -332,7 +318,7 @@ export default function HistoryPage() {
                           <div>
                             <h3 className="text-xl font-bold text-white mb-2">No positions found</h3>
                             <p className="text-muted-foreground text-sm leading-relaxed">
-                              No historical position data matches your current filters. Live executions from MT5 will appear here instantly.
+                              No historical position data matches your current filters. Live executions will appear here instantly.
                             </p>
                           </div>
                         </div>

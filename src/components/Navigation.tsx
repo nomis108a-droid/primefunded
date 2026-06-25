@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from 'next/link';
@@ -35,7 +34,6 @@ const navItems = [
   { name: 'Referral', href: '/referral', icon: Users },
   { name: 'Giveaway', href: '/giveaway', icon: Gift },
   { name: 'Accounts', href: '/accounts', icon: ShieldCheck },
-  { name: 'MT5 Credentials', href: '/mt5-account', icon: Terminal },
   { name: 'Payouts', href: '/payouts', icon: Wallet },
   { name: 'Certificates', href: '/certificates', icon: Award },
   { name: 'History', href: '/history', icon: History },
@@ -102,8 +100,7 @@ export const Navigation = memo(function Navigation() {
       '/referral',
       '/profile',
       '/payouts',
-      '/accounts',
-      '/mt5-account'
+      '/accounts'
     ];
     routesToPrefetch.forEach(route => {
       router.prefetch(route);

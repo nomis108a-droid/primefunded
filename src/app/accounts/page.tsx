@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { ShieldCheck, Plus, Copy, SearchX, Terminal, Activity, Skull } from 'lucide-react';
+import { ShieldCheck, Plus, Copy, SearchX, Activity, Skull, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -39,7 +39,7 @@ export default function AccountsPage() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast({ title: "Copied", description: "Account detail copied to clipboard." });
+    toast({ title: "Copied", description: "Account ID copied to clipboard." });
   };
 
   const handleSetActive = async (acc: any) => {
@@ -47,8 +47,6 @@ export default function AccountsPage() {
     try {
       await updateDoc(doc(db, "users", user.uid), {
         mt5Login: acc.login,
-        mt5Password: acc.password,
-        mt5Server: acc.mt5Server || 'MetaQuotes-Demo',
         accountPlan: acc.accountPlan,
         accountSize: acc.accountSize || ('$' + (acc.accountBalance/1000).toFixed(0) + 'k'),
         accountBalance: acc.accountBalance,
@@ -56,7 +54,7 @@ export default function AccountsPage() {
         currentPhase: acc.phase,
         updatedAt: serverTimestamp()
       });
-      toast({ title: "Account set as active", description: `Terminal now synced with PF-${acc.login}` });
+      toast({ title: "Node set as active", description: `Dashboard now synced with Node ${acc.login}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Error", description: "Failed to set active account." });
     }
@@ -175,7 +173,14 @@ function AccountCard({
             <CardTitle className="text-xl font-headline font-bold text-white">
               {acc.accountBalance ? `$${(acc.accountBalance / 1000).toFixed(0)}k` : 'Standard'} {acc.accountPlan || 'Account'}
             </CardTitle>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account ID: PF-{acc.login || 'PENDING'}</p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Account ID: {acc.login || 'PENDING'}</p>
+              {acc.login && (
+                <button onClick={() => onCopy(acc.login)} className="text-muted-foreground hover:text-primary transition-colors cursor-pointer">
+                  <Copy className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -191,37 +196,17 @@ function AccountCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 mb-8 p-6 bg-background/40 rounded-2xl border border-border/30">
-          <CredentialItem label="Platform" value="MetaTrader 5" />
-          <CredentialItem label="Server" value={acc.mt5Server || 'MetaQuotes-Demo'} />
-          
-          {isActiveSection && (
-            <>
-              <CredentialItem 
-                label="Login" 
-                value={acc.login || 'Generating...'} 
-                onCopy={acc.login ? () => onCopy(acc.login) : undefined} 
-              />
-              <CredentialItem 
-                label="Password" 
-                value={acc.password ? "••••••••" : "Pending"} 
-                onCopy={acc.password ? () => onCopy(acc.password) : undefined} 
-              />
-            </>
-          )}
-        </div>
-        
         <div className="flex flex-col sm:flex-row gap-3">
           {isActiveSection ? (
             <>
               <Button variant="outline" size="sm" className="h-10 px-6 rounded-xl font-bold border-border/50 hover:bg-secondary cursor-pointer" asChild>
-                <Link href="/mt5-account">
-                  <Terminal className="w-4 h-4 mr-2" /> Live Metrics
+                <Link href="/dashboard">
+                  <Activity className="w-4 h-4 mr-2" /> View Terminal
                 </Link>
               </Button>
               {!isCurrentActive && (
                 <Button variant="secondary" size="sm" className="h-10 px-6 rounded-xl font-bold cursor-pointer" onClick={() => onSetActive(acc)}>
-                   <Activity className="w-4 h-4 mr-2" /> Set as Active
+                   Set as Active Node
                 </Button>
               )}
             </>
@@ -235,21 +220,3 @@ function AccountCard({
     </Card>
   );
 }
-
-function CredentialItem({ label, value, onCopy }: { label: string, value: string, onCopy?: () => void }) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[9px] uppercase font-black text-muted-foreground tracking-[0.2em]">{label}</p>
-      <div className="flex items-center gap-2">
-        <p className="font-mono text-sm font-bold text-white truncate">{value}</p>
-        {onCopy && (
-          <button onClick={onCopy} className="text-muted-foreground hover:text-primary transition-colors cursor-pointer p-1">
-            <Copy className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-import { AlertCircle } from 'lucide-react';
