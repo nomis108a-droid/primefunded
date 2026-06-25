@@ -7,24 +7,26 @@ import { getAuth } from 'firebase-admin/auth';
  * Ensures a single instance of the Admin SDK is used across all server-side routes.
  */
 
-const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-
 function getAdminApp(): App {
   const existingApps = getApps();
   const adminApp = existingApps.find(app => app.name === 'pf-admin');
   if (adminApp) return adminApp;
 
+  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!serviceAccountKey) {
     throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is missing from environment variables.');
   }
 
+  let serviceAccount;
   try {
-    const serviceAccount = JSON.parse(
-      serviceAccountKey.startsWith("'") 
-        ? serviceAccountKey.slice(1, -1) 
-        : serviceAccountKey
-    );
-    
+    // Safely handle keys wrapped in quotes from .env files
+    const cleaned = serviceAccountKey.replace(/^['"]|['"]$/g, '').trim();
+    serviceAccount = JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON. Check your .env file.');
+  }
+
+  try {
     return initializeApp({
       credential: cert(serviceAccount),
       storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
