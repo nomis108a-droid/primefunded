@@ -1,9 +1,10 @@
+
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
-import { useFirestore } from "@/firebase";
+import { useFirestore, useCollection } from "@/firebase";
 import { createChart, CrosshairMode, IChartApi, ISeriesApi } from "lightweight-charts";
 import { Navigation } from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,19 +23,15 @@ export default function TerminalPage() {
   const db = useFirestore();
   const { toast } = useToast();
 
-  const [accounts, setAccounts] = useState<any[]>([]);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [prices, setPrices] = useState<Record<string, any>>({});
-  const [openTrades, setOpenTrades] = useState<any[]>([]);
-  const [symbol, setSymbol] = useState("EURUSD");
-  const [lots, setLots] = useState(0.10);
   const [actionLoading, setActionLoading] = useState(false);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
-  // 1. Price Feed Listener
+  // 1. Price Feed Listener (Public)
   useEffect(() => {
     if (!db) return;
     const unsub = onSnapshot(collection(db, "livePrices"), (snap) => {
@@ -45,38 +42,38 @@ export default function TerminalPage() {
     return unsub;
   }, [db]);
 
-  // 2. Accounts Listener
-  useEffect(() => {
-    if (!user || !db) return;
-    const q = query(collection(db, "demoAccounts"), where("userId", "==", user.uid));
-    const unsub = onSnapshot(q, (snap) => {
-      const accs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setAccounts(accs);
-      if (accs.length > 0 && !currentAccountId) {
-        setCurrentAccountId(accs[0].id);
-      }
-    });
-    return unsub;
-  }, [user, db, currentAccountId]);
+  // 2. Accounts Listener (Memoized with mandatory userId filter)
+  const accountConstraints = useMemo(() => {
+    if (!user?.uid) return [];
+    return [where("userId", "==", user.uid)];
+  }, [user?.uid]);
 
-  // 3. Open Trades Listener
+  const { data: accounts } = useCollection<any>(
+    user?.uid ? "demoAccounts" : null,
+    accountConstraints
+  );
+
   useEffect(() => {
-    if (!user || !db || !currentAccountId) {
-        setOpenTrades([]);
-        return;
+    if (accounts.length > 0 && !currentAccountId) {
+      setCurrentAccountId(accounts[0].id);
     }
-    const q = query(
-      collection(db, "demoTrades"),
+  }, [accounts, currentAccountId]);
+
+  // 3. Open Trades Listener (Memoized with strict userId and accountId filters)
+  const tradeConstraints = useMemo(() => {
+    if (!user?.uid || !currentAccountId) return [];
+    return [
       where("userId", "==", user.uid),
       where("accountId", "==", currentAccountId),
       where("status", "==", "open"),
       orderBy("openedAt", "desc")
-    );
-    const unsub = onSnapshot(q, (snap) => {
-      setOpenTrades(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
-    return unsub;
-  }, [user, db, currentAccountId]);
+    ];
+  }, [user?.uid, currentAccountId]);
+
+  const { data: openTrades } = useCollection<any>(
+    (user?.uid && currentAccountId) ? "demoTrades" : null,
+    tradeConstraints
+  );
 
   // 4. Chart Initialization
   useEffect(() => {
@@ -130,6 +127,9 @@ export default function TerminalPage() {
     };
   }, []);
 
+  const [symbol, setSymbol] = useState("EURUSD");
+  const [lots, setLots] = useState(0.10);
+
   // 5. Update Chart with Live Ticks
   useEffect(() => {
     const p = prices[symbol];
@@ -144,9 +144,7 @@ export default function TerminalPage() {
         low: p.price,
         close: p.price,
       });
-    } catch (e) {
-      // lightweight-charts requires strictly incremental time
-    }
+    } catch (e) {}
   }, [prices, symbol]);
 
   async function placeTrade(type: "buy" | "sell") {

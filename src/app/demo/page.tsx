@@ -44,25 +44,32 @@ export default function DemoPage() {
   const [loading, setLoading] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
   
-  // Fetch user demo accounts
-  const accountConstraints = useMemo(() => [
-    where('userId', '==', user?.uid || '_none_'),
-    orderBy('createdAt', 'desc')
-  ], [user?.uid]);
+  // Fetch user demo accounts with strict userId filter
+  const accountConstraints = useMemo(() => {
+    if (!user?.uid) return [];
+    return [
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    ];
+  }, [user?.uid]);
 
   const { data: accounts, loading: accountsLoading } = useCollection<any>(
-    user ? 'demoAccounts' : null,
+    user?.uid ? 'demoAccounts' : null,
     accountConstraints
   );
 
-  // Fetch open trades for active account
-  const tradeConstraints = useMemo(() => [
-    where('accountId', '==', activeAccount?.id || '_none_'),
-    where('status', '==', 'open')
-  ], [activeAccount?.id]);
+  // Fetch open trades for active account with strict userId and accountId filters
+  const tradeConstraints = useMemo(() => {
+    if (!user?.uid || !activeAccount?.id) return [];
+    return [
+      where('userId', '==', user.uid),
+      where('accountId', '==', activeAccount.id),
+      where('status', '==', 'open')
+    ];
+  }, [user?.uid, activeAccount?.id]);
 
   const { data: openTrades } = useCollection<any>(
-    activeAccount ? 'demoTrades' : null,
+    (user?.uid && activeAccount?.id) ? 'demoTrades' : null,
     tradeConstraints
   );
 
