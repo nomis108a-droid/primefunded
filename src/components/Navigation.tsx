@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -19,7 +20,8 @@ import {
   BookOpen,
   Gift,
   Users,
-  ArrowRight
+  ArrowRight,
+  Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -28,6 +30,7 @@ import { useBrandSettings } from '@/hooks/use-brand-settings';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Demo Terminal', href: '/demo', icon: Activity },
   { name: 'Challenges', href: '/challenges', icon: Trophy },
   { name: 'Referral', href: '/referral', icon: Users },
   { name: 'Giveaway', href: '/giveaway', icon: Gift },
@@ -94,6 +97,7 @@ export const Navigation = memo(function Navigation() {
   useEffect(() => {
     const routesToPrefetch = [
       '/dashboard',
+      '/demo',
       '/challenges',
       '/referral',
       '/profile',

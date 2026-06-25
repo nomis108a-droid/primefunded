@@ -55,6 +55,56 @@
         "tradingDays": { "type": "number" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "DemoAccount": {
+      "title": "Demo Account",
+      "description": "Virtual trading account for practice.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "plan": { "type": "string", "enum": ["10k", "25k", "50k"] },
+        "label": { "type": "string" },
+        "balance": { "type": "number" },
+        "equity": { "type": "number" },
+        "startBalance": { "type": "number" },
+        "maxLoss": { "type": "number" },
+        "dailyLoss": { "type": "number" },
+        "profitTarget": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "blown", "passed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "DemoTrade": {
+      "title": "Demo Trade",
+      "description": "A single trade execution in the demo environment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "accountId": { "type": "string" },
+        "symbol": { "type": "string" },
+        "type": { "type": "string", "enum": ["buy", "sell"] },
+        "lots": { "type": "number" },
+        "openPrice": { "type": "number" },
+        "sl": { "type": ["number", "null"] },
+        "tp": { "type": ["number", "null"] },
+        "status": { "type": "string", "enum": ["open", "closed"] },
+        "pnl": { "type": "number" },
+        "openedAt": { "type": "string", "format": "date-time" },
+        "closedAt": { "type": ["string", "null"], "format": "date-time" },
+        "closePrice": { "type": ["number", "null"] }
+      }
+    },
+    "LivePrice": {
+      "title": "Live Price",
+      "description": "Real-time asset pricing for the demo environment.",
+      "type": "object",
+      "properties": {
+        "pair": { "type": "string" },
+        "price": { "type": "number" },
+        "bid": { "type": "number" },
+        "ask": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "auth": {
@@ -68,6 +118,18 @@
     "/mt5_accounts/{accountId}": {
       "schema": { "$ref": "#/backend/entities/Mt5Account" },
       "description": "Real-time terminal metrics and compliance tracking."
+    },
+    "/demoAccounts/{accountId}": {
+      "schema": { "$ref": "#/backend/entities/DemoAccount" },
+      "description": "User demo accounts."
+    },
+    "/demoTrades/{tradeId}": {
+      "schema": { "$ref": "#/backend/entities/DemoTrade" },
+      "description": "Trades within demo accounts."
+    },
+    "/livePrices/{symbol}": {
+      "schema": { "$ref": "#/backend/entities/LivePrice" },
+      "description": "Real-time price feeds for demo environment."
     }
   }
 }
