@@ -19,7 +19,10 @@ function getAdminApp(): App {
 
   let serviceAccount;
   try {
-    const cleaned = serviceAccountKey.replace(/^['"]|['"]$/g, '').trim();
+    // Strip leading/trailing single quotes, double quotes, or backticks
+    const cleaned = serviceAccountKey
+      .replace(/^['"`]|['"`]$/g, '')
+      .trim();
     serviceAccount = JSON.parse(cleaned);
   } catch (e) {
     throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON. Check your .env file.');
