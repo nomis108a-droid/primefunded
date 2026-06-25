@@ -19,7 +19,6 @@ function getAdminApp(): App {
 
   let serviceAccount;
   try {
-    // Safely handle keys wrapped in quotes from .env files
     const cleaned = serviceAccountKey.replace(/^['"]|['"]$/g, '').trim();
     serviceAccount = JSON.parse(cleaned);
   } catch (e) {
