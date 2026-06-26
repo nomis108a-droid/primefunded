@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useFirestore, useCollection } from "@/firebase";
-import { createChart, CrosshairMode, IChartApi, ISeriesApi } from "lightweight-charts";
 import { Navigation } from "@/components/Navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,15 +24,16 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
 import { useLivePrices } from "@/hooks/useLivePrice";
+import Script from "next/script";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
-const INTERVALS = [
-  { label: "1m", value: "1m" },
-  { label: "5m", value: "5m" },
-  { label: "15m", value: "15m" },
-  { label: "1h", value: "1h" },
-  { label: "1D", value: "1d" },
-];
+const TV_SYMBOL_MAP: Record<string, string> = {
+  "XAUUSD": "OANDA:XAUUSD",
+  "BTCUSD": "BINANCE:BTCUSDT",
+  "EURUSD": "OANDA:EURUSD",
+  "GBPUSD": "OANDA:GBPUSD",
+  "USDJPY": "OANDA:USDJPY"
+};
 
 export default function DemoPage() {
   const { user } = useAuth();
@@ -42,15 +42,9 @@ export default function DemoPage() {
 
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [symbol, setSymbol] = useState("EURUSD");
-  const [interval, setInterval] = useState("1m");
+  const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
-
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  
-  const fetchedKeys = useRef<Set<string>>(new Set());
+  const widgetRef = useRef<any>(null);
 
   // 1. Live Price Hook
   const prices = useLivePrices(SYMBOLS);
@@ -87,101 +81,43 @@ export default function DemoPage() {
     tradeConstraints
   );
 
-  // 4. Chart Initialization
+  // 4. TradingView Widget Initialization
   useEffect(() => {
-    if (!chartContainerRef.current) return;
-
-    chartRef.current = createChart(chartContainerRef.current, {
-      layout: {
-        background: { color: "#0f1117" },
-        textColor: "#94a3b8",
-      },
-      grid: {
-        vertLines: { color: "#1f2937" },
-        horzLines: { color: "#1f2937" },
-      },
-      crosshair: { mode: CrosshairMode.Normal },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: true,
-      },
-    });
-
-    seriesRef.current = chartRef.current.addCandlestickSeries({
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      borderVisible: false,
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
-      priceFormat: {
-        type: 'price',
-        precision: 5,
-        minMove: 0.00001,
-      },
-    });
-
-    const handleResize = () => {
-      if (chartRef.current && chartContainerRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
+    const initWidget = () => {
+      if (typeof window !== "undefined" && (window as any).TradingView) {
+        new (window as any).TradingView.widget({
+          container_id: "tv_chart_container",
+          symbol: TV_SYMBOL_MAP[symbol] || `OANDA:${symbol}`,
+          interval: "1",
+          theme: "dark",
+          style: "1",
+          locale: "en",
+          toolbar_bg: "#0f1117",
+          enable_publishing: false,
+          hide_side_toolbar: false,
+          allow_symbol_change: false,
+          details: true,
+          hotlist: true,
+          calendar: true,
+          height: "100%",
+          width: "100%",
+          autosize: true,
         });
       }
     };
 
-    window.addEventListener('resize', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-      }
-    };
-  }, []);
-
-  // 5. Fetch History
-  useEffect(() => {
-    async function fetchHistory() {
-      if (!seriesRef.current || !chartRef.current) return;
-      
-      const key = `${symbol}_${interval}`;
-      if (fetchedKeys.current.has(key)) return;
-      
-      try {
-        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
-        const candles = await res.json();
-        if (Array.isArray(candles) && candles.length > 0) {
-          seriesRef.current.setData(candles);
-          chartRef.current.timeScale().fitContent();
-          fetchedKeys.current.add(key);
+    if ((window as any).TradingView) {
+      initWidget();
+    } else {
+      const checkInterval = setInterval(() => {
+        if ((window as any).TradingView) {
+          initWidget();
+          clearInterval(checkInterval);
         }
-      } catch (e: any) {
-        console.warn("[Terminal] History fetch failed:", e.message);
-      }
+      }, 500);
+      return () => clearInterval(checkInterval);
     }
-    fetchHistory();
-  }, [symbol, interval]);
-
-  // 6. Update Chart with Live Ticks
-  useEffect(() => {
-    const p = prices[symbol];
-    if (!p || !seriesRef.current || !p.price) return;
-    
-    try {
-      const time = Math.floor(Date.now() / 1000);
-      seriesRef.current.update({
-        time: time as any,
-        open: p.price,
-        high: p.price,
-        low: p.price,
-        close: p.price,
-      });
-    } catch (e) {}
-  }, [prices[symbol]?.price, symbol]);
+  }, [symbol]);
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   
@@ -242,6 +178,7 @@ export default function DemoPage() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
+      <Script src="https://s3.tradingview.com/tv.js" strategy="lazyOnload" />
       <Navigation />
       
       <main className="flex-1 flex flex-col min-w-0">
@@ -267,25 +204,14 @@ export default function DemoPage() {
             })}
           </div>
 
-          <div className="flex items-center gap-1 bg-secondary/30 p-1 rounded-lg border border-border">
-            {INTERVALS.map((i) => (
-              <button
-                key={i.value}
-                onClick={() => { setInterval(i.value); fetchedKeys.current.clear(); }}
-                className={cn(
-                  "px-2 py-1 rounded text-[10px] font-black uppercase transition-all",
-                  interval === i.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
-                )}
-              >
-                {i.label}
-              </button>
-            ))}
-          </div>
+          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
+            TradingView Advanced Chart
+          </Badge>
         </div>
 
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col min-w-0">
-            <div ref={chartContainerRef} className="flex-1 bg-background relative" />
+            <div id="tv_chart_container" className="flex-1 bg-background" />
             
             <div className="h-[250px] border-t border-border bg-card/30 overflow-hidden flex flex-col shrink-0">
                <div className="px-4 py-2 border-b border-border flex justify-between items-center bg-secondary/20">
@@ -444,10 +370,10 @@ export default function DemoPage() {
              <div className="mt-auto p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="flex items-center gap-2 mb-2">
                    <Terminal className="w-3 h-3 text-primary" />
-                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Real-time Bridge</span>
+                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Institutional Node</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Free Feed: Crypto via Binance, Forex via Stooq CSV.
+                  Full TradingView analysis tools enabled. Executions occur on internal demo nodes.
                 </p>
              </div>
           </aside>
