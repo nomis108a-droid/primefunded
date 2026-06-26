@@ -1,6 +1,11 @@
 
-const WebSocket = require('ws');
 const admin = require('firebase-admin');
+
+/**
+ * @fileOverview Price Bridge Node
+ * Synchronizes real-time market data from Binance (Crypto) and Twelve Data (FX/Metals)
+ * into Firestore for the proprietary trading terminal.
+ */
 
 // Initialize Firebase Admin
 const serviceAccountKeyB64 = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
@@ -20,13 +25,13 @@ const db = admin.firestore();
 // Configurations
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY;
 const FX_SYMBOLS = 'EUR/USD,GBP/USD,USD/JPY,XAU/USD,XAG/USD,AUD/USD,USD/CHF';
-const BINANCE_STREAMS = 'btcusdt@trade/ethusdt@trade/xrpusdt@trade/solusdt@trade/bnbusdt@trade/dogeusdt@trade';
+const CRYPTO_SYMBOLS = '["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
 
 let priceBuffer = new Map();
 let isProcessing = false;
 
 /**
- * Flush buffer to Firestore
+ * Flush buffer to Firestore using atomic batch writes
  */
 async function flushBuffer() {
   if (isProcessing || priceBuffer.size === 0) return;
@@ -36,7 +41,7 @@ async function flushBuffer() {
   const entries = Array.from(priceBuffer.entries());
   priceBuffer.clear();
 
-  console.log(`Flushing ${entries.length} price updates...`);
+  console.log(`[Bridge] Flushing ${entries.length} price updates...`);
 
   entries.forEach(([symbol, data]) => {
     const docRef = db.collection('livePrices').doc(symbol);
@@ -49,62 +54,58 @@ async function flushBuffer() {
   try {
     await batch.commit();
   } catch (err) {
-    console.error('Batch commit failed:', err);
+    console.error('[Bridge] Batch commit failed:', err);
   } finally {
     isProcessing = false;
   }
 }
 
-// Periodically flush updates (every 500ms)
+// Flush updates every 500ms to keep Firestore overhead low while maintaining real-time feel
 setInterval(flushBuffer, 500);
 
 /**
- * Binance WebSocket Connection
+ * Binance Crypto REST Polling
+ * Frequency: Every 2 seconds
  */
-function connectBinance() {
-  console.log('Connecting to Binance WebSocket...');
-  const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${BINANCE_STREAMS}`);
+async function pollBinanceCrypto() {
+  try {
+    const url = `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(CRYPTO_SYMBOLS)}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    
+    const data = await response.json();
 
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-      if (msg.data && msg.data.s) {
-        const binanceSymbol = msg.data.s; // e.g. BTCUSDT
-        const price = parseFloat(msg.data.p);
-        const symbol = binanceSymbol.replace('USDT', 'USD');
+    if (Array.isArray(data)) {
+      data.forEach(item => {
+        const price = parseFloat(item.price);
+        const symbol = item.symbol.replace('USDT', 'USD');
         
-        // Use tight crypto spreads
-        const spread = 0.0001; 
+        // Institutional crypto spreads (approx 0.01%)
+        const bid = price * 0.9999;
+        const ask = price * 1.0001;
+
         priceBuffer.set(symbol, {
           symbol,
           pair: symbol,
           price,
-          bid: price - (price * spread),
-          ask: price + (price * spread),
+          bid,
+          ask,
           source: 'binance'
         });
-      }
-    } catch (e) {
-      console.error('Binance parse error:', e);
+      });
     }
-  });
-
-  ws.on('ping', () => ws.pong());
-  
-  ws.on('error', (err) => console.error('Binance WS Error:', err));
-  
-  ws.on('close', () => {
-    console.log('Binance WS closed. Reconnecting in 3s...');
-    setTimeout(connectBinance, 3000);
-  });
+  } catch (err) {
+    console.error('[Bridge] Binance Polling Failed:', err.message);
+  }
 }
 
 /**
- * Twelve Data Polling
+ * Twelve Data FX/Metals Polling
+ * Frequency: Every 5 seconds
  */
 async function pollTwelveData() {
   if (!TWELVE_DATA_API_KEY) {
-    console.warn('TWELVE_DATA_API_KEY missing. Skipping FX/Metals polling.');
+    console.warn('[Bridge] TWELVE_DATA_API_KEY missing. Skipping FX/Metals.');
     return;
   }
 
@@ -114,7 +115,7 @@ async function pollTwelveData() {
     const data = await response.json();
 
     if (data.status === 'error') {
-      console.error('Twelve Data Error:', data.message);
+      console.error('[Bridge] Twelve Data Error:', data.message);
       return;
     }
 
@@ -124,6 +125,8 @@ async function pollTwelveData() {
 
       const symbol = rawSymbol.replace('/', ''); // EUR/USD -> EURUSD
       const isMetal = symbol.includes('XAU') || symbol.includes('XAG');
+      
+      // Tight institutional spreads
       const spreadFactor = isMetal ? 0.001 : 0.00005;
 
       priceBuffer.set(symbol, {
@@ -136,13 +139,16 @@ async function pollTwelveData() {
       });
     });
   } catch (err) {
-    console.error('Twelve Data Polling Failed:', err);
+    console.error('[Bridge] Twelve Data Polling Failed:', err.message);
   }
 }
 
-// Initialize feeds
-connectBinance();
+// Start polling loops
+setInterval(pollBinanceCrypto, 2000);
 setInterval(pollTwelveData, 5000);
+
+// Initial execution
+pollBinanceCrypto();
 pollTwelveData();
 
-console.log('Price Bridge Node Initialized.');
+console.log('[Bridge] Institutional Price Bridge Initialized (REST Mode).');
