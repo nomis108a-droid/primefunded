@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
-const CONTRACT_SIZE: Record<string, number> = {
-  XAUUSD: 100, BTCUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+const YAHOO_MAP: Record<string, string> = {
+  'XAUUSD': 'GC=F',
+  'BTCUSD': 'BTC-USD',
+  'ETHUSD': 'ETH-USD',
+  'EURUSD': 'EURUSD=X',
+  'GBPUSD': 'GBPUSD=X',
+  'USDJPY': 'JPY=X',
 };
 
 export async function POST(req: NextRequest) {
@@ -30,13 +35,32 @@ export async function POST(req: NextRequest) {
     if (account.status !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
 
     /**
-     * ARCHITECTURE SIMPLIFICATION:
-     * Trusting the client-provided price for the demo environment to ensure zero latency issues.
-     * We no longer enforce a strict Firestore-based staleness check here.
+     * SERVER-SIDE PRICE VALIDATION (1% THRESHOLD)
+     * We fetch fresh data from Yahoo to prevent spoofing.
      */
-    const openPrice = parseFloat(String(clientPrice));
-    if (isNaN(openPrice) || openPrice <= 0) {
-      return NextResponse.json({ error: "Invalid execution price" }, { status: 400 });
+    const yahooSymbol = YAHOO_MAP[symbol];
+    if (!yahooSymbol) return NextResponse.json({ error: "Unsupported symbol" }, { status: 400 });
+
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(yahooSymbol)}&range=1d&interval=1m`;
+      const res = await fetch(url, { cache: 'no-store' });
+      const data = await res.json();
+      const serverPrice = data.spark?.result?.[0]?.response?.[0]?.meta?.regularMarketPrice;
+
+      if (!serverPrice) throw new Error("Price feed unavailable");
+
+      const executionPrice = parseFloat(String(clientPrice));
+      const diff = Math.abs(executionPrice - serverPrice) / serverPrice;
+
+      if (diff > 0.01) { // 1% mismatch tolerance
+        return NextResponse.json({ 
+          error: "Price mismatch", 
+          details: `Client: ${executionPrice}, Server: ${serverPrice}. Mismatch: ${(diff * 100).toFixed(2)}%` 
+        }, { status: 400 });
+      }
+    } catch (e: any) {
+      console.error("[Price-Validation-Error]", e.message);
+      // Fallback: If price feed fails during check, we allow the trade but log it
     }
 
     const tradeRef = await db.collection("demoTrades").add({
@@ -45,7 +69,7 @@ export async function POST(req: NextRequest) {
       symbol,
       type,
       lots,
-      openPrice,
+      openPrice: parseFloat(String(clientPrice)),
       sl: sl || null,
       tp: tp || null,
       status: "open",
@@ -55,7 +79,7 @@ export async function POST(req: NextRequest) {
       closePrice: null,
     });
 
-    return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice });
+    return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: clientPrice });
   } catch (error: any) {
     console.error('[Open-Trade-API] Error:', error);
     return NextResponse.json({ error: "Internal Server Error", details: error.message }, { status: 500 });

@@ -24,15 +24,6 @@ import { where } from "firebase/firestore";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY"];
 
-const YAHOO_SYMBOLS: Record<string, string> = {
-  'GC=F': 'XAUUSD',
-  'BTC-USD': 'BTCUSD',
-  'ETH-USD': 'ETHUSD',
-  'EURUSD=X': 'EURUSD',
-  'GBPUSD=X': 'GBPUSD',
-  'JPY=X': 'USDJPY',
-};
-
 const TV_SYMBOL_MAP: Record<string, string> = {
   "XAUUSD": "OANDA:XAUUSD",
   "BTCUSD": "BINANCE:BTCUSDT",
@@ -53,49 +44,25 @@ export default function DemoPage() {
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
 
-  // Unified Yahoo Finance Price State
+  // Unified Server-Side Proxy Price State
   const [prices, setPrices] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    const fetchYahooPrices = async () => {
+    const fetchLivePrices = async () => {
       try {
-        const symbolList = Object.keys(YAHOO_SYMBOLS).join(',');
-        const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/spark?symbols=${symbolList}&range=1d&interval=1m`);
+        const res = await fetch('/api/terminal/live-prices');
+        if (!res.ok) throw new Error('Proxy error');
         const data = await res.json();
-        
-        const results = data.spark?.result || [];
-        const updated: Record<string, any> = {};
-
-        results.forEach((item: any) => {
-          const yahooSym = item.symbol;
-          const pfSym = YAHOO_SYMBOLS[yahooSym];
-          const meta = item.response?.[0]?.meta;
-          
-          if (pfSym && meta?.regularMarketPrice) {
-            const price = meta.regularMarketPrice;
-            const isForex = pfSym.endsWith('USD') && !['XAUUSD', 'BTCUSD', 'ETHUSD'].includes(pfSym);
-            const spreadFactor = isForex ? 0.0002 : 0.0005;
-            
-            updated[pfSym] = {
-              symbol: pfSym,
-              price,
-              bid: price - (price * spreadFactor),
-              ask: price + (price * spreadFactor),
-              updatedAt: new Date()
-            };
-          }
-        });
-
-        if (Object.keys(updated).length > 0) {
-          setPrices(prev => ({ ...prev, ...updated }));
+        if (data && !data.error) {
+          setPrices(data);
         }
       } catch (e) {
-        console.warn(`[Yahoo-Feed] Batch fetch failed:`, e);
+        console.warn(`[Price-Feed] Polling failed:`, e);
       }
     };
 
-    fetchYahooPrices();
-    const interval = setInterval(fetchYahooPrices, 3000); // Polling every 3 seconds
+    fetchLivePrices();
+    const interval = setInterval(fetchLivePrices, 3000); // Poll every 3 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -140,7 +107,6 @@ export default function DemoPage() {
       if (typeof window !== "undefined" && (window as any).TradingView) {
         setIsChartLoading(true);
         
-        // Safety fallback to hide loader if callback never fires
         const fallbackTimeout = setTimeout(() => setIsChartLoading(false), 5000);
 
         new (window as any).TradingView.widget({
@@ -191,7 +157,7 @@ export default function DemoPage() {
       const priceData = prices[trade.symbol];
       if (priceData) {
         const cp = trade.type === 'buy' ? priceData.bid : priceData.ask;
-        const contractSize = trade.symbol === 'XAUUSD' ? 100 : trade.symbol === 'BTCUSD' ? 1 : 100000;
+        const contractSize = trade.symbol === 'XAUUSD' ? 100 : trade.symbol === 'BTCUSD' ? 1 : trade.symbol === 'ETHUSD' ? 1 : 100000;
         floating += trade.type === 'buy' 
           ? (cp - trade.openPrice) * contractSize * trade.lots
           : (trade.openPrice - cp) * contractSize * trade.lots;
@@ -290,7 +256,7 @@ export default function DemoPage() {
                 >
                   <span className="font-bold text-xs">{s}</span>
                   <span className="font-mono text-[11px] tabular-nums text-white">
-                    {p?.price ? p.price.toFixed(5) : "—"}
+                    {p?.price ? p.price.toFixed(s === "BTCUSD" || s === "ETHUSD" ? 2 : 5) : "—"}
                   </span>
                 </button>
               );
@@ -298,7 +264,7 @@ export default function DemoPage() {
           </div>
 
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            Yahoo Finance Spark Feed
+            FEED: TradingView / Yahoo Finance — Live market data
           </Badge>
         </div>
 
@@ -346,7 +312,7 @@ export default function DemoPage() {
                         let pnl = 0;
                         if (priceData) {
                            const cp = t.type === 'buy' ? priceData.bid : priceData.ask;
-                           const contractSize = t.symbol === 'XAUUSD' ? 100 : t.symbol === 'BTCUSD' ? 1 : 100000;
+                           const contractSize = t.symbol === 'XAUUSD' ? 100 : t.symbol === 'BTCUSD' ? 1 : t.symbol === 'ETHUSD' ? 1 : 100000;
                            pnl = t.type === 'buy' 
                              ? (cp - t.openPrice) * contractSize * t.lots
                              : (t.openPrice - cp) * contractSize * t.lots;
@@ -362,7 +328,7 @@ export default function DemoPage() {
                               )}>{t.type}</Badge>
                             </td>
                             <td className="py-2 px-2 font-mono text-zinc-300">{t.lots.toFixed(2)}</td>
-                            <td className="py-2 px-4 font-mono text-muted-foreground">{t.openPrice.toFixed(5)}</td>
+                            <td className="py-2 px-4 font-mono text-muted-foreground">{t.openPrice.toFixed(t.symbol === "BTCUSD" || t.symbol === "ETHUSD" ? 2 : 5)}</td>
                             <td className={cn(
                               "py-2 px-4 text-right font-mono font-bold tabular-nums",
                               pnl >= 0 ? "text-emerald-500" : "text-destructive"
@@ -426,14 +392,14 @@ export default function DemoPage() {
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
-                        {currentPrice && currentPrice.bid > 0 ? currentPrice.bid.toFixed(5) : "—"}
+                        {currentPrice && currentPrice.bid > 0 ? currentPrice.bid.toFixed(symbol === "BTCUSD" || symbol === "ETHUSD" ? 2 : 5) : "—"}
                       </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">
-                        {currentPrice && currentPrice.ask > 0 ? currentPrice.ask.toFixed(5) : "—"}
+                        {currentPrice && currentPrice.ask > 0 ? currentPrice.ask.toFixed(symbol === "BTCUSD" || symbol === "ETHUSD" ? 2 : 5) : "—"}
                       </p>
                    </div>
                 </div>
