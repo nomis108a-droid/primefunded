@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -24,7 +25,6 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
 import { useLivePrices } from "@/hooks/useLivePrice";
-import Script from "next/script";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
 const TV_SYMBOL_MAP: Record<string, string> = {
@@ -42,9 +42,9 @@ export default function DemoPage() {
 
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [isChartLoading, setIsChartLoading] = useState(true);
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
-  const widgetRef = useRef<any>(null);
 
   // 1. Live Price Hook
   const prices = useLivePrices(SYMBOLS);
@@ -83,8 +83,12 @@ export default function DemoPage() {
 
   // 4. TradingView Widget Initialization
   useEffect(() => {
+    const scriptId = "tradingview-widget-script";
+    let script = document.getElementById(scriptId) as HTMLScriptElement;
+
     const initWidget = () => {
       if (typeof window !== "undefined" && (window as any).TradingView) {
+        setIsChartLoading(true);
         new (window as any).TradingView.widget({
           container_id: "tv_chart_container",
           symbol: TV_SYMBOL_MAP[symbol] || `OANDA:${symbol}`,
@@ -102,20 +106,22 @@ export default function DemoPage() {
           height: "100%",
           width: "100%",
           autosize: true,
+          onChartReady: () => {
+            setIsChartLoading(false);
+          }
         });
       }
     };
 
-    if ((window as any).TradingView) {
-      initWidget();
+    if (!script) {
+      script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://s3.tradingview.com/tv.js";
+      script.async = true;
+      script.onload = initWidget;
+      document.body.appendChild(script);
     } else {
-      const checkInterval = setInterval(() => {
-        if ((window as any).TradingView) {
-          initWidget();
-          clearInterval(checkInterval);
-        }
-      }, 500);
-      return () => clearInterval(checkInterval);
+      initWidget();
     }
   }, [symbol]);
 
@@ -178,7 +184,6 @@ export default function DemoPage() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <Script src="https://s3.tradingview.com/tv.js" strategy="lazyOnload" />
       <Navigation />
       
       <main className="flex-1 flex flex-col min-w-0">
@@ -211,7 +216,15 @@ export default function DemoPage() {
 
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col min-w-0">
-            <div id="tv_chart_container" className="flex-1 bg-background" />
+            <div className="flex-1 relative bg-background">
+              {isChartLoading && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p>
+                </div>
+              )}
+              <div id="tv_chart_container" style={{ height: '500px', width: '100%' }} />
+            </div>
             
             <div className="h-[250px] border-t border-border bg-card/30 overflow-hidden flex flex-col shrink-0">
                <div className="px-4 py-2 border-b border-border flex justify-between items-center bg-secondary/20">
