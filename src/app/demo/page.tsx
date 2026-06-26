@@ -123,6 +123,11 @@ export default function DemoPage() {
       borderVisible: false,
       wickUpColor: "#22c55e",
       wickDownColor: "#ef4444",
+      priceFormat: {
+        type: 'price',
+        precision: 5,
+        minMove: 0.00001,
+      },
     });
 
     window.addEventListener('resize', handleResize);
@@ -141,40 +146,47 @@ export default function DemoPage() {
       if (!seriesRef.current || !chartRef.current) return;
       
       try {
+        console.log(`[Terminal] Syncing history for ${symbol}...`);
         const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
         const res = await fetch(url);
         
-        if (!res.ok) return;
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error(`[Terminal] History Fetch Failed (${res.status}):`, errorText);
+          return;
+        }
+
         const data = await res.json();
         
         if (Array.isArray(data) && data.length > 0) {
           seriesRef.current.setData(data);
           chartRef.current.timeScale().fitContent();
         }
-      } catch (e) {}
+      } catch (e: any) {
+        console.error("[Terminal] Candle synchronization error:", e.message);
+      }
     }
     fetchHistory();
   }, [symbol, interval]);
 
-  // 5. Update Chart with Tick-by-Tick Live Ticks
+  // 5. Update Chart with Live Ticks
   useEffect(() => {
     const p = prices[symbol];
-    if (!p || !seriesRef.current) return;
+    if (!p || !seriesRef.current || !p.price) return;
     
-    const selectedInterval = INTERVALS.find(i => i.value === interval);
-    const step = selectedInterval?.seconds || 60;
-    const snappedTime = Math.floor(Date.now() / 1000 / step) * step;
-
     try {
+      // Use current second as timestamp for the tick
+      const time = Math.floor(Date.now() / 1000);
+
       seriesRef.current.update({
-        time: snappedTime as any,
+        time: time as any,
         open: p.price,
         high: p.price,
         low: p.price,
         close: p.price,
       });
     } catch (e) {}
-  }, [prices[symbol]?.price, symbol, interval]);
+  }, [prices[symbol]?.price, symbol]);
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   
@@ -253,7 +265,7 @@ export default function DemoPage() {
                 >
                   <span className="font-bold text-xs">{s}</span>
                   <span className="font-mono text-[11px] tabular-nums text-white">
-                    {p?.price?.toFixed(5) ?? "—"}
+                    {p?.price ? p.price.toFixed(5) : "—"}
                   </span>
                 </button>
               );
@@ -391,12 +403,16 @@ export default function DemoPage() {
                 <div className="flex items-center justify-between p-4 bg-background/50 rounded-xl border border-border">
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
-                      <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">{currentPrice?.bid?.toFixed(5) ?? "—"}</p>
+                      <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
+                        {currentPrice && currentPrice.bid > 0 ? currentPrice.bid.toFixed(5) : "—"}
+                      </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
-                      <p className="font-mono text-sm font-bold text-destructive tabular-nums">{currentPrice?.ask?.toFixed(5) ?? "—"}</p>
+                      <p className="font-mono text-sm font-bold text-destructive tabular-nums">
+                        {currentPrice && currentPrice.ask > 0 ? currentPrice.ask.toFixed(5) : "—"}
+                      </p>
                    </div>
                 </div>
 
