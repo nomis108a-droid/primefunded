@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminServices } from '@/lib/firebase-admin';
+import { getAdminDb } from '@/lib/firebase-admin';
 import { Timestamp } from "firebase-admin/firestore";
 
 /**
@@ -34,18 +34,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Invalid symbol" }, { status: 400 });
     }
 
-    const { adminDb, success, error: adminError } = getAdminServices();
-    if (!success || !adminDb) {
+    let db;
+    try {
+      db = getAdminDb();
+    } catch (adminError: any) {
       console.error('[Candle-API] Firebase Admin Initialization Failed:', adminError);
       return NextResponse.json({ 
         error: "Database connection failed", 
-        details: adminError,
-        help: "Check FIREBASE_SERVICE_ACCOUNT_KEY in .env"
+        details: adminError.message 
       }, { status: 500 });
     }
 
     const cacheKey = `${symbol}_${interval}`;
-    const cacheRef = adminDb.collection("candles").doc(cacheKey);
+    const cacheRef = db.collection("candles").doc(cacheKey);
     
     // 1. Check Firestore Cache
     try {
@@ -100,7 +101,7 @@ export async function GET(req: NextRequest) {
       close: parseFloat(v.close),
     })).sort((a: any, b: any) => a.time - b.time);
 
-    // 4. Cache asynchronously (don't block the response)
+    // 4. Cache asynchronously
     cacheRef.set({
       symbol,
       interval,
@@ -114,8 +115,7 @@ export async function GET(req: NextRequest) {
     console.error('[Candle-API] Fatal Route Error:', error);
     return NextResponse.json({ 
       error: "Internal server error", 
-      message: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: error.message
     }, { status: 500 });
   }
 }

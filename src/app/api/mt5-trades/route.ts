@@ -1,5 +1,5 @@
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -7,16 +7,6 @@ export const runtime = 'nodejs';
 const BLOCKED_LOGINS = ['757003491'];
 const CACHE_TTL = 120_000; // 2 minutes
 const accountCache = new Map<string, { data: any; id: string; ref: any; ts: number }>();
-
-function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    const serviceAccount = JSON.parse(serviceAccountKey.startsWith("'") ? serviceAccountKey.slice(1, -1) : serviceAccountKey);
-    initializeApp({ credential: cert(serviceAccount) });
-  }
-  return getFirestore();
-}
 
 async function getCachedAccount(db: any, loginStr: string) {
   const now = Date.now();

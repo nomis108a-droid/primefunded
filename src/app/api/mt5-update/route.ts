@@ -1,5 +1,5 @@
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 export const dynamic = 'force-dynamic';
@@ -18,16 +18,6 @@ const getTradingDayKey = (date: Date) => {
   const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
   return adjusted.toISOString().split('T')[0];
 };
-
-function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    const serviceAccount = JSON.parse(serviceAccountKey.startsWith("'") ? serviceAccountKey.slice(1, -1) : serviceAccountKey);
-    initializeApp({ credential: cert(serviceAccount) });
-  }
-  return getFirestore();
-}
 
 async function getCachedAccount(db: any, loginStr: string) {
   const now = Date.now();

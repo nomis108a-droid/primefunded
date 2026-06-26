@@ -1,6 +1,6 @@
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
+import { getAdminDb } from '@/lib/firebase-admin';
 
 type TradeRecord = {
   id: string;
@@ -21,16 +21,6 @@ const NEXT_PHASE: Record<string, Record<string, string>> = {
   '3-step-classic':  { phase1: 'phase2', phase2: 'phase3', phase3: 'funded' },
   'instant-funding': { evaluation: 'funded' },
 };
-
-function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    const serviceAccount = JSON.parse(serviceAccountKey.startsWith("'") ? serviceAccountKey.slice(1, -1) : serviceAccountKey);
-    initializeApp({ credential: cert(serviceAccount) });
-  }
-  return getFirestore();
-}
 
 export async function runGlobalAudit() {
   const db = getAdminDb();

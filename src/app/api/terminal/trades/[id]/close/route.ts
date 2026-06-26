@@ -1,31 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
+import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { Timestamp } from 'firebase-admin/firestore';
 
 const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
 };
-
-function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    try {
-      const serviceAccount = JSON.parse(
-        serviceAccountKey.startsWith("'") 
-          ? serviceAccountKey.slice(1, -1) 
-          : serviceAccountKey
-      );
-      initializeApp({
-        credential: cert(serviceAccount),
-      });
-    } catch (e: any) {
-      throw new Error(`Admin SDK Init Error: ${e.message}`);
-    }
-  }
-  return getFirestore();
-}
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -36,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     let uid: string;
     try {
-      const decoded = await getAuth().verifyIdToken(token);
+      const decoded = await getAdminAuth().verifyIdToken(token);
       uid = decoded.uid;
     } catch {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });

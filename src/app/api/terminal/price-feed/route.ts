@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { Timestamp } from 'firebase-admin/firestore';
 
 /**
  * @fileOverview Institutional Price Server
@@ -23,25 +23,6 @@ const SPREADS: Record<string, number> = {
   XAUUSD: 0.30, 
   BTCUSD: 8,
 };
-
-function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    
-    try {
-      const serviceAccount = JSON.parse(
-        serviceAccountKey.startsWith("'") 
-          ? serviceAccountKey.slice(1, -1) 
-          : serviceAccountKey
-      );
-      initializeApp({ credential: cert(serviceAccount) });
-    } catch (e: any) {
-      throw new Error(`Admin SDK Init Error: ${e.message}`);
-    }
-  }
-  return getFirestore();
-}
 
 export async function GET(req: NextRequest) {
   const apiKey = req.headers.get("x-api-key");

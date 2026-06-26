@@ -5,30 +5,28 @@ import { getAuth } from 'firebase-admin/auth';
 /**
  * @fileOverview Centralized Firebase Admin SDK Initialization
  * Ensures a single instance of the Admin SDK is used across all server-side routes.
+ * Decodes base64-encoded service account keys for enhanced environment security.
  */
+
+function getServiceAccount() {
+  const serviceAccountKeyB64 = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
+  if (!serviceAccountKeyB64) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY_B64 is missing from environment variables.');
+  }
+  try {
+    const decoded = Buffer.from(serviceAccountKeyB64, 'base64').toString('utf-8');
+    return JSON.parse(decoded);
+  } catch (e) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY_B64 is not a valid base64-encoded JSON string.');
+  }
+}
 
 function getAdminApp(): App {
   const existingApps = getApps();
   const adminApp = existingApps.find(app => app.name === 'pf-admin');
   if (adminApp) return adminApp;
 
-  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!serviceAccountKey) {
-    console.error('[AdminSDK] CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is missing.');
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is missing.');
-  }
-
-  let serviceAccount;
-  try {
-    // Strip leading/trailing single quotes, double quotes, or backticks
-    const cleaned = serviceAccountKey
-      .replace(/^['"`]|['"`]$/g, '')
-      .trim();
-    serviceAccount = JSON.parse(cleaned);
-  } catch (e) {
-    console.error('[AdminSDK] FATAL: FIREBASE_SERVICE_ACCOUNT_KEY parsing failed. Ensure it is valid JSON.');
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON.');
-  }
+  const serviceAccount = getServiceAccount();
 
   try {
     return initializeApp({
@@ -63,7 +61,25 @@ export function getAdminServices() {
   }
 }
 
-// Keep legacy exports for compatibility, but prefer getAdminServices() inside routes
+/**
+ * Direct shorthand for Firestore Admin
+ */
+export function getAdminDb() {
+  const { adminDb, success, error } = getAdminServices();
+  if (!success || !adminDb) throw new Error(`Admin DB Unavailable: ${error}`);
+  return adminDb;
+}
+
+/**
+ * Direct shorthand for Auth Admin
+ */
+export function getAdminAuth() {
+  const { adminAuth, success, error } = getAdminServices();
+  if (!success || !adminAuth) throw new Error(`Admin Auth Unavailable: ${error}`);
+  return adminAuth;
+}
+
+// Legacy exports for compatibility
 export const adminApp = getApps().find(a => a.name === 'pf-admin') || null;
 export const adminDb = adminApp ? getFirestore(adminApp) : null as any;
 export const adminAuth = adminApp ? getAuth(adminApp) : null as any;

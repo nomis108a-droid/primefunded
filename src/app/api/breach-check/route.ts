@@ -1,20 +1,10 @@
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { FieldValue } from 'firebase-admin/firestore';
 
 /**
  * @fileOverview Institutional Breach Detection Engine
  * Algorithmic evaluation of MT5 metrics against plan-specific prop firm rules.
  */
-
-function getAdminDb() {
-  if (!getApps().length) {
-    const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-    if (!serviceAccountKey) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_KEY');
-    const serviceAccount = JSON.parse(serviceAccountKey);
-    initializeApp({ credential: cert(serviceAccount) });
-  }
-  return getFirestore();
-}
 
 /**
  * Helper to calculate unique trading days based on 7:30 AM IST (2:00 AM UTC) boundary.
