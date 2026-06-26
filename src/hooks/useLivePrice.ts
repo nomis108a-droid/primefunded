@@ -61,7 +61,10 @@ export function useLivePrices(symbols: string[]) {
     if (!db || !symbols.length) return;
 
     const unsub = onSnapshot(collection(db, 'livePrices'), (snap) => {
-      const next: Record<string, LivePrice> = {};
+      // Diagnostic log to confirm Firestore connectivity
+      console.log(`[useLivePrices] Feed update received at ${new Date().toLocaleTimeString()}. Docs in snapshot: ${snap.docs.length}`);
+      
+      const next: Record<string, LivePrice> = { ...prices };
       snap.docs.forEach((d) => {
         if (symbols.includes(d.id)) {
           const data = d.data();
@@ -74,9 +77,10 @@ export function useLivePrices(symbols: string[]) {
           };
         }
       });
-      // Replace state entirely to ensure React triggers a clean re-render for all tabs
-      setPrices(next);
+      // Replace state with a fresh object to trigger React re-render
+      setPrices({ ...next });
     }, (err) => {
+      console.error('[useLivePrices] Subscription error:', err);
       if (err.code === 'permission-denied') {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
           path: 'livePrices',

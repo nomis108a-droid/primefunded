@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useFirestore, useCollection } from "@/firebase";
 import { Navigation } from "@/components/Navigation";
@@ -14,10 +15,8 @@ import {
   Activity, 
   Wallet, 
   History, 
-  Plus, 
   XCircle, 
   Terminal,
-  Clock,
   Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -45,10 +44,10 @@ export default function DemoPage() {
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
 
-  // 1. Unified Price Hook - Feeds both top bar and sidebar
+  // Unified Price Feed
   const prices = useLivePrices(SYMBOLS);
 
-  // 2. Accounts Listener
+  // Accounts Listener
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -65,7 +64,7 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener
+  // Open Trades Listener
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -80,7 +79,7 @@ export default function DemoPage() {
     tradeConstraints
   );
 
-  // 4. TradingView Widget Initialization
+  // TradingView Widget Initialization
   useEffect(() => {
     const scriptId = "tradingview-widget-script";
     let script = document.getElementById(scriptId) as HTMLScriptElement;
@@ -89,10 +88,7 @@ export default function DemoPage() {
       if (typeof window !== "undefined" && (window as any).TradingView) {
         setIsChartLoading(true);
         
-        // Safety timeout: Ensure the loader disappears after 5s even if TradingView callback misses
-        const fallbackTimeout = setTimeout(() => {
-          setIsChartLoading(false);
-        }, 5000);
+        const fallbackTimeout = setTimeout(() => setIsChartLoading(false), 5000);
 
         new (window as any).TradingView.widget({
           container_id: "tv_chart_container",
@@ -133,6 +129,8 @@ export default function DemoPage() {
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   
+  const currentPrice = prices[symbol];
+
   const metrics = useMemo(() => {
     if (!currentAccount) return { equity: 0, floatingPnL: 0 };
     let floating = 0;
@@ -155,17 +153,51 @@ export default function DemoPage() {
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId) return;
     setActionLoading(true);
+    
     try {
+      // 1. Get current Auth Token
       const token = await user.getIdToken();
+      
+      // 2. Execute POST request
       const res = await fetch("/api/terminal/trades", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots }),
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${token}` 
+        },
+        body: JSON.stringify({ 
+          accountId: currentAccountId, 
+          symbol, 
+          type, 
+          lots 
+        }),
       });
-      if (!res.ok) throw new Error("Trade failed");
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol}` });
+
+      // 3. Detailed Error Analysis
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMessage = errorData.error || errorData.details || res.statusText;
+        
+        console.error(`[Trade-Failure] Status: ${res.status}, Reason: ${errorMessage}`, errorData);
+        
+        // Specific feedback for stale prices
+        if (res.status === 503) {
+          throw new Error("Price feed is currently offline or stale. Please wait for reconnection.");
+        }
+        
+        throw new Error(errorMessage || "Network response was not OK");
+      }
+
+      const data = await res.json();
+      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice}` });
+      
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Execution Error", description: err.message });
+      console.error("[Execution-Error]", err);
+      toast({ 
+        variant: "destructive", 
+        title: "Execution Error", 
+        description: err.message || "Failed to transmit order to terminal." 
+      });
     } finally {
       setActionLoading(false);
     }
@@ -179,14 +211,18 @@ export default function DemoPage() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Closure failed");
+      }
+
       const data = await res.json();
       toast({ title: "Position Closed", description: `PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Closure Error" });
+      toast({ variant: "destructive", title: "Closure Error", description: err.message });
     }
   }
-
-  const currentPrice = prices[symbol];
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -229,7 +265,7 @@ export default function DemoPage() {
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p>
                 </div>
               )}
-              <div id="tv_chart_container" className="h-full w-full" />
+              <div id="tv_chart_container" className="h-full w-full" style={{ height: '100%', width: '100%' }} />
             </div>
             
             <div className="h-[250px] border-t border-border bg-card/30 overflow-hidden flex flex-col shrink-0">
