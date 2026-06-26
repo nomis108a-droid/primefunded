@@ -28,12 +28,11 @@ import { useLivePrices } from "@/hooks/useLivePrice";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
 const INTERVALS = [
-  { label: "1m", value: "1m", seconds: 60 },
-  { label: "5m", value: "5m", seconds: 300 },
-  { label: "15m", value: "15m", seconds: 900 },
-  { label: "1h", value: "1h", seconds: 3600 },
-  { label: "4h", value: "4h", seconds: 14400 },
-  { label: "1D", value: "1d", seconds: 86400 },
+  { label: "1m", value: "1m" },
+  { label: "5m", value: "5m" },
+  { label: "15m", value: "15m" },
+  { label: "1h", value: "1h" },
+  { label: "1D", value: "1d" },
 ];
 
 export default function DemoPage() {
@@ -51,13 +50,12 @@ export default function DemoPage() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   
-  // Credit protection: ensure we only fetch history once per symbol per session
-  const fetchedSymbols = useRef<Set<string>>(new Set());
+  const fetchedKeys = useRef<Set<string>>(new Set());
 
   // 1. Live Price Hook
   const prices = useLivePrices(SYMBOLS);
 
-  // 2. Accounts Listener - Strictly auth-guarded and filtered
+  // 2. Accounts Listener
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -74,7 +72,7 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener - Strictly auth-guarded and filtered
+  // 3. Open Trades Listener
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -92,15 +90,6 @@ export default function DemoPage() {
   // 4. Chart Initialization
   useEffect(() => {
     if (!chartContainerRef.current) return;
-
-    const handleResize = () => {
-      if (chartRef.current && chartContainerRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
-        });
-      }
-    };
 
     chartRef.current = createChart(chartContainerRef.current, {
       layout: {
@@ -133,6 +122,15 @@ export default function DemoPage() {
       },
     });
 
+    const handleResize = () => {
+      if (chartRef.current && chartContainerRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight,
+        });
+      }
+    };
+
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
@@ -143,32 +141,26 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data with Session-Level Guard
+  // 5. Fetch History
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
       
       const key = `${symbol}_${interval}`;
-      if (fetchedSymbols.current.has(key)) return;
+      if (fetchedKeys.current.has(key)) return;
       
       try {
-        const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
-        const res = await fetch(url);
+        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         
-        if (!res.ok) {
-          console.warn(`[Terminal] Emergency history deferral (${res.status}).`);
-          return;
-        }
-
-        const data = await res.json();
-        
-        if (Array.isArray(data) && data.length > 0) {
-          seriesRef.current.setData(data);
+        const candles = await res.json();
+        if (Array.isArray(candles) && candles.length > 0) {
+          seriesRef.current.setData(candles);
           chartRef.current.timeScale().fitContent();
-          fetchedSymbols.current.add(key);
+          fetchedKeys.current.add(key);
         }
       } catch (e: any) {
-        console.warn("[Terminal] Background history deferred:", e.message);
+        console.warn("[Terminal] History fetch failed:", e.message);
       }
     }
     fetchHistory();
@@ -279,7 +271,7 @@ export default function DemoPage() {
             {INTERVALS.map((i) => (
               <button
                 key={i.value}
-                onClick={() => setInterval(i.value)}
+                onClick={() => { setInterval(i.value); fetchedKeys.current.clear(); }}
                 className={cn(
                   "px-2 py-1 rounded text-[10px] font-black uppercase transition-all",
                   interval === i.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
@@ -455,7 +447,7 @@ export default function DemoPage() {
                    <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Real-time Bridge</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Emergency Mode: Crypto via Binance, Forex Cache-Only.
+                  Free Feed: Crypto via Binance, Forex via Stooq CSV.
                 </p>
              </div>
           </aside>
