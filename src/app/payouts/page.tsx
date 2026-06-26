@@ -56,16 +56,23 @@ export default function PayoutsPage() {
     return profit > 0 ? profit : 0;
   }, [userData]);
 
+  // FIXED: Strictly auth-guarded constraints and path
   const payoutConstraints = useMemo(() => {
     if (!user?.uid) return [];
-    return [where('userId', '==', user.uid), limit(20)];
+    return [
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(20)
+    ];
   }, [user?.uid]);
 
-  const { data: payouts, loading } = useCollection<any>('payouts', payoutConstraints);
+  const { data: payouts, loading } = useCollection<any>(
+    user?.uid ? 'payouts' : null, 
+    payoutConstraints
+  );
 
-  // Added: Query trades to verify instrument diversity for Instant Funding plans
   const { data: trades } = useCollection<any>(
-    user && userData?.accountPlan?.toLowerCase().includes('instant') 
+    (user?.uid && userData?.accountPlan?.toLowerCase().includes('instant'))
       ? `users/${user.uid}/trades` 
       : null
   );
@@ -91,8 +98,9 @@ export default function PayoutsPage() {
   }, [trades, userData?.accountPlan]);
 
   const stats = useMemo(() => {
-    const totalPaid = payouts?.filter(p => p.status === 'done').reduce((acc, p) => acc + parseFloat(p.amount || 0), 0) || 0;
-    const pending = payouts?.filter(p => p.status === 'pending' || p.status === 'approved').reduce((acc, p) => acc + parseFloat(p.amount || 0), 0) || 0;
+    const data = payouts || [];
+    const totalPaid = data.filter(p => p.status === 'done').reduce((acc, p) => acc + parseFloat(p.amount || 0), 0);
+    const pending = data.filter(p => p.status === 'pending' || p.status === 'approved').reduce((acc, p) => acc + parseFloat(p.amount || 0), 0);
     return { totalPaid, pending };
   }, [payouts]);
 

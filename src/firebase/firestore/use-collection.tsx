@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -6,26 +5,31 @@ import {
   collection,
   onSnapshot,
   query,
-  type Query,
   type DocumentData,
   type QueryConstraint,
 } from 'firebase/firestore';
-import { useFirestore, useAuth } from '../provider';
+import { useFirestore } from '../provider';
 import { errorEmitter } from '../error-emitter';
 import { FirestorePermissionError, type SecurityRuleContext } from '../errors';
 
+/**
+ * useCollection Hook
+ * Fetches a collection in real-time.
+ * path: The collection path, or null if the query should not be established yet.
+ * constraints: Firestore QueryConstraints (must be memoized for stability).
+ */
 export function useCollection<T = DocumentData>(
   path: string | null,
   constraints: QueryConstraint[] = []
 ) {
   const db = useFirestore();
-  const auth = useAuth();
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
-    // Ensure path and db exist. Security rules handle authentication requirements.
+    // FIXED: Return early if path is null or db is not initialized.
+    // components should pass null if user authentication is not yet confirmed.
     if (!path || !db) {
       setLoading(false);
       return;
@@ -33,6 +37,10 @@ export function useCollection<T = DocumentData>(
 
     try {
       const collectionRef = collection(db, path);
+      
+      // If path is sensitive (like demoAccounts), and constraints are empty,
+      // it may trigger a permission error. The calling component is responsible
+      // for providing correct filters before enabling the path.
       const q = query(collectionRef, ...constraints);
 
       const unsubscribe = onSnapshot(
@@ -42,9 +50,9 @@ export function useCollection<T = DocumentData>(
             snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T))
           );
           setLoading(false);
+          setError(null);
         },
         async (serverError: any) => {
-          // Handle Permission Denied and other Firestore errors
           const permissionError = new FirestorePermissionError({
             path: collectionRef.path,
             operation: 'list',
@@ -61,11 +69,11 @@ export function useCollection<T = DocumentData>(
 
       return () => unsubscribe();
     } catch (err: any) {
-      console.error('[useCollection] Initialization Error:', err);
+      console.error('[useCollection] Critical Initialization Error:', err);
       setError(err);
       setLoading(false);
     }
-  }, [db, path, JSON.stringify(constraints)]);
+  }, [db, path, constraints]); // FIXED: Removed JSON.stringify(constraints) for stability with class instances
 
   return { data, loading, error };
 }

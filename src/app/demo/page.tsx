@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -44,7 +43,7 @@ export default function DemoPage() {
   const [loading, setLoading] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
   
-  // Fetch user demo accounts with strict userId filter
+  // FIXED: Strictly memoized and auth-guarded account query
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [
@@ -58,7 +57,7 @@ export default function DemoPage() {
     accountConstraints
   );
 
-  // Fetch open trades for active account with strict userId and accountId filters
+  // FIXED: Strictly memoized and auth-guarded trades query
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !activeAccount?.id) return [];
     return [

@@ -53,7 +53,7 @@ export default function TerminalPage() {
     return unsub;
   }, [db]);
 
-  // 2. Accounts Listener
+  // 2. Accounts Listener - FIXED: Strict userId filter and auth guard
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -70,7 +70,7 @@ export default function TerminalPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener
+  // 3. Open Trades Listener - FIXED: Strict userId and accountId filters
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -161,7 +161,6 @@ export default function TerminalPage() {
     const p = prices[symbol];
     if (!p || !seriesRef.current) return;
     
-    // Snap live tick to timeframe boundary to update/append candle
     const selectedInterval = INTERVALS.find(i => i.value === interval);
     const step = selectedInterval?.seconds || 60;
     const snappedTime = Math.floor(Date.now() / 1000 / step) * step;
