@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useFirestore, useCollection } from "@/firebase";
 import { Navigation } from "@/components/Navigation";
@@ -46,7 +46,7 @@ export default function DemoPage() {
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
 
-  // 1. Live Price Hook
+  // 1. Unified Price Hook - Feeds both top bar and sidebar
   const prices = useLivePrices(SYMBOLS);
 
   // 2. Accounts Listener
@@ -89,7 +89,13 @@ export default function DemoPage() {
     const initWidget = () => {
       if (typeof window !== "undefined" && (window as any).TradingView) {
         setIsChartLoading(true);
-        new (window as any).TradingView.widget({
+        
+        // Safety timeout: Ensure the loader disappears after 4s even if TradingView callback misses
+        const fallbackTimeout = setTimeout(() => {
+          setIsChartLoading(false);
+        }, 4000);
+
+        const widget = new (window as any).TradingView.widget({
           container_id: "tv_chart_container",
           symbol: TV_SYMBOL_MAP[symbol] || `OANDA:${symbol}`,
           interval: "1",
@@ -106,9 +112,12 @@ export default function DemoPage() {
           height: "100%",
           width: "100%",
           autosize: true,
-          onChartReady: () => {
-            setIsChartLoading(false);
-          }
+        });
+
+        // Hide loader only when chart is fully rendered
+        widget.onChartReady(() => {
+          setIsChartLoading(false);
+          clearTimeout(fallbackTimeout);
         });
       }
     };
@@ -223,7 +232,7 @@ export default function DemoPage() {
                   <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p>
                 </div>
               )}
-              <div id="tv_chart_container" style={{ height: '500px', width: '100%' }} />
+              <div id="tv_chart_container" className="h-full w-full" />
             </div>
             
             <div className="h-[250px] border-t border-border bg-card/30 overflow-hidden flex flex-col shrink-0">

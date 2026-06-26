@@ -4,6 +4,8 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, collection } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
 export interface LivePrice {
   symbol: string;
@@ -27,11 +29,18 @@ export function useLivePrice(symbol: string) {
         const d = snap.data();
         setData({
           symbol: d.symbol || symbol,
-          price: d.price || 0,
-          bid: d.bid || d.price || 0,
-          ask: d.ask || d.price || 0,
+          price: Number(d.price) || 0,
+          bid: Number(d.bid) || Number(d.price) || 0,
+          ask: Number(d.ask) || Number(d.price) || 0,
           updatedAt: d.updatedAt?.toDate() || null
         });
+      }
+    }, (err) => {
+      if (err.code === 'permission-denied') {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({
+          path: `livePrices/${symbol}`,
+          operation: 'get'
+        } satisfies SecurityRuleContext));
       }
     });
 
@@ -43,6 +52,7 @@ export function useLivePrice(symbol: string) {
 
 /**
  * Hook for multiple symbols subscription
+ * Listens to all symbols in the provided list simultaneously.
  */
 export function useLivePrices(symbols: string[]) {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
@@ -50,22 +60,29 @@ export function useLivePrices(symbols: string[]) {
   useEffect(() => {
     if (!db || !symbols.length) return;
 
-    // We listen to the whole collection but filter locally to avoid complex query overhead for the bridge
     const unsub = onSnapshot(collection(db, 'livePrices'), (snap) => {
       const next: Record<string, LivePrice> = {};
       snap.docs.forEach((d) => {
-        const data = d.data();
         if (symbols.includes(d.id)) {
+          const data = d.data();
           next[d.id] = {
             symbol: d.id,
-            price: data.price || 0,
-            bid: data.bid || data.price || 0,
-            ask: data.ask || data.price || 0,
+            price: Number(data.price) || 0,
+            bid: Number(data.bid) || Number(data.price) || 0,
+            ask: Number(data.ask) || Number(data.price) || 0,
             updatedAt: data.updatedAt?.toDate() || null
           };
         }
       });
-      setPrices(prev => ({ ...prev, ...next }));
+      // Replace state entirely to ensure React triggers a clean re-render for all tabs
+      setPrices(next);
+    }, (err) => {
+      if (err.code === 'permission-denied') {
+        errorEmitter.emit('permission-error', new FirestorePermissionError({
+          path: 'livePrices',
+          operation: 'list'
+        } satisfies SecurityRuleContext));
+      }
     });
 
     return () => unsub();
