@@ -1,10 +1,12 @@
+
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import {
   collection,
   onSnapshot,
   query,
+  where,
   type DocumentData,
   type QueryConstraint,
 } from 'firebase/firestore';
@@ -14,7 +16,7 @@ import { FirestorePermissionError, type SecurityRuleContext } from '../errors';
 
 /**
  * useCollection Hook
- * Fetches a collection in real-time with optimized query stability.
+ * Fetches a collection in real-time with optimized query stability and security enforcement.
  */
 export function useCollection<T = DocumentData>(
   path: string | null,
@@ -24,10 +26,6 @@ export function useCollection<T = DocumentData>(
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-
-  // Stability Check: Prevents infinite loops caused by non-memoized constraint arrays
-  const constraintHash = useRef<string>("");
-  const stableConstraints = useRef<QueryConstraint[]>([]);
 
   useEffect(() => {
     // Return early if path is null or db is not initialized
@@ -39,10 +37,13 @@ export function useCollection<T = DocumentData>(
     try {
       const collectionRef = collection(db, path);
       
-      // Mandatory Filter Guard: Critical security collections MUST have filters
-      // This prevents accidental broad queries that fail Firestore security rules
-      if ((path === "demoAccounts" || path === "demoTrades" || path === "payouts") && constraints.length === 0) {
-        console.warn(`[useCollection] Attempted broad query on sensitive path: ${path}. Blocked for security.`);
+      // CRITICAL SECURITY GUARD: Verify that sensitive collections have a mandatory filter
+      // This prevents permission errors triggered by accidental broad queries before auth state resolves.
+      const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders"];
+      const isSensitive = SENSITIVE_COLLECTIONS.includes(path);
+      
+      if (isSensitive && constraints.length === 0) {
+        console.warn(`[useCollection] Security Guard: Path "${path}" requires filtering. Query blocked.`);
         setLoading(false);
         return;
       }
@@ -63,6 +64,10 @@ export function useCollection<T = DocumentData>(
             const permissionError = new FirestorePermissionError({
               path: collectionRef.path,
               operation: 'list',
+              requestResourceData: { 
+                note: "Permission denied on collection fetch. Ensure query filters match security rules.",
+                collection: path
+              }
             } satisfies SecurityRuleContext);
             errorEmitter.emit('permission-error', permissionError);
             setError(permissionError);
@@ -75,11 +80,11 @@ export function useCollection<T = DocumentData>(
 
       return () => unsubscribe();
     } catch (err: any) {
-      console.error('[useCollection] Initialization Error:', err);
+      console.error('[useCollection] Execution Error:', err);
       setError(err);
       setLoading(false);
     }
-  }, [db, path, constraints]); 
+  }, [db, path, JSON.stringify(constraints)]); // Serialize constraints for effect stability
 
   return { data, loading, error };
 }

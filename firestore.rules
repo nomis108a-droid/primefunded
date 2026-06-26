@@ -49,38 +49,38 @@ service cloud.firestore {
 
     // Demo System Rules
     match /demoAccounts/{accountId} {
-      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow write: if false; // only Admin SDK
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin(); // only Admin SDK and local repair
     }
 
     match /demoTrades/{tradeId} {
-      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow write: if false; // only Admin SDK
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow write: if isAdmin(); // only Admin SDK
     }
 
     match /livePrices/{symbol} {
       allow read: if true;
-      allow write: if false; // only Admin SDK via price-feed route
+      allow write: if isAdmin(); // only Admin SDK via price-feed route
     }
     
     // Orders: Users can create and read their own. Admin manages.
     match /orders/{orderId} {
       allow create: if request.auth != null 
         && request.resource.data.userId == request.auth.uid;
-      allow read: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
     
     // Payouts: Users can create and read their own. Admin manages.
     match /payouts/{payoutId} {
-      allow create: if request.auth != null;
-      allow read: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
 
     // Breach Ledger: Read-only for owners. Write-only for Admin.
     match /breaches/{breachId} {
-      allow read: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if isAdmin();
     }
 
@@ -91,7 +91,7 @@ service cloud.firestore {
     }
     
     match /referrals/{refId} {
-      allow read: if isAdmin() || (request.auth != null && request.resource.data.referrerId == request.auth.uid);
+      allow read: if isAdmin() || (request.auth != null && resource.data.referrerId == request.auth.uid);
       allow write: if isAdmin();
     }
 
