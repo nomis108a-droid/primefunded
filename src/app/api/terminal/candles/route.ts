@@ -34,9 +34,10 @@ export async function GET(req: NextRequest) {
   }
 
   const cacheKey = `${symbol}_${interval}`;
-  const cacheRef = adminDb.collection("candles").doc(cacheKey);
-
+  
   try {
+    const cacheRef = adminDb.collection("candles").doc(cacheKey);
+    
     // 1. Check Firestore Cache
     const cacheSnap = await cacheRef.get();
     if (cacheSnap.exists) {
@@ -56,11 +57,16 @@ export async function GET(req: NextRequest) {
     const apiKey = process.env.TWELVE_DATA_API_KEY;
 
     if (!apiKey) {
-      throw new Error("Missing TWELVE_DATA_API_KEY");
+      return NextResponse.json({ error: "Twelve Data API key not configured on server" }, { status: 500 });
     }
 
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSymbol)}&interval=${tdInterval}&outputsize=200&apikey=${apiKey}`;
     const res = await fetch(url);
+    
+    if (!res.ok) {
+       return NextResponse.json({ error: `Twelve Data API returned ${res.status}` }, { status: 502 });
+    }
+
     const data = await res.json();
 
     if (data.status === 'error') {
@@ -73,7 +79,6 @@ export async function GET(req: NextRequest) {
     }
 
     // 3. Transform to Lightweight Charts format
-    // Twelve Data returns newest first, we need oldest first
     const candles = data.values.map((v: any) => ({
       time: Math.floor(new Date(v.datetime).getTime() / 1000),
       open: parseFloat(v.open),
@@ -94,6 +99,7 @@ export async function GET(req: NextRequest) {
 
   } catch (error: any) {
     console.error('[Candle-API] Fatal Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // CRITICAL: Ensure we return JSON, not HTML, even on fatal crashes
+    return NextResponse.json({ error: "Internal server error during candle generation", details: error.message }, { status: 500 });
   }
 }

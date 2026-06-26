@@ -150,19 +150,35 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data
+  // 5. Fetch Historical Data with Defensive Logic
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
+        
+        // Safety: Verify response before parsing JSON
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.error(`[Candle-API] HTTP ${res.status}: ${errorText.slice(0, 100)}`);
+          return;
+        }
+
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          console.error(`[Candle-API] Received non-JSON response from server.`);
+          return;
+        }
+
         const candles = await res.json();
         if (Array.isArray(candles)) {
           seriesRef.current.setData(candles);
           chartRef.current.timeScale().fitContent();
+        } else if (candles.error) {
+          console.warn(`[Candle-API] Server Error: ${candles.error}`);
         }
       } catch (e) {
-        console.error("Failed to load historical candles", e);
+        console.error("[Candle-API] Fetch failed:", e);
       }
     }
     fetchHistory();
@@ -223,8 +239,13 @@ export default function DemoPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Trade failed");
+      
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch(e) {}
+
+      if (!res.ok) throw new Error(data.error || "Trade execution failed");
+      
       toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Execution Error", description: err.message });
@@ -241,9 +262,13 @@ export default function DemoPage() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
+      
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch(e) {}
+
       if (!res.ok) throw new Error(data.error || "Close failed");
-      toast({ title: "Position Closed", description: `Realized P&L: $${data.pnl.toFixed(2)}` });
+      toast({ title: "Position Closed", description: `Realized P&L: $${data.pnl?.toFixed(2) || '0.00'}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Closure Error", description: err.message });
     }
@@ -259,7 +284,11 @@ export default function DemoPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ plan }),
       });
-      const data = await res.json();
+      
+      const text = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(text); } catch(e) {}
+
       if (!res.ok) throw new Error(data.error || "Creation failed");
       toast({ title: "Account Provisioned", description: `Demo account ${plan} is live.` });
     } catch (err: any) {
