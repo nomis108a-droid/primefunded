@@ -17,6 +17,14 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
+const INTERVALS = [
+  { label: "1m", value: "1m", seconds: 60 },
+  { label: "5m", value: "5m", seconds: 300 },
+  { label: "15m", value: "15m", seconds: 900 },
+  { label: "1h", value: "1h", seconds: 3600 },
+  { label: "4h", value: "4h", seconds: 14400 },
+  { label: "1D", value: "1d", seconds: 86400 },
+];
 
 export default function TerminalPage() {
   const { user } = useAuth();
@@ -26,6 +34,9 @@ export default function TerminalPage() {
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [prices, setPrices] = useState<Record<string, any>>({});
   const [actionLoading, setActionLoading] = useState(false);
+  const [symbol, setSymbol] = useState("EURUSD");
+  const [interval, setInterval] = useState("1m");
+  const [lots, setLots] = useState(0.10);
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -42,7 +53,7 @@ export default function TerminalPage() {
     return unsub;
   }, [db]);
 
-  // 2. Accounts Listener (Memoized with mandatory userId filter)
+  // 2. Accounts Listener
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -59,7 +70,7 @@ export default function TerminalPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener (Memoized with strict userId and accountId filters)
+  // 3. Open Trades Listener
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -90,12 +101,12 @@ export default function TerminalPage() {
 
     chartRef.current = createChart(chartContainerRef.current, {
       layout: {
-        background: { color: "#020817" },
+        background: { color: "#0f1117" },
         textColor: "#94a3b8",
       },
       grid: {
-        vertLines: { color: "#1e293b" },
-        horzLines: { color: "#1e293b" },
+        vertLines: { color: "#1f2937" },
+        horzLines: { color: "#1f2937" },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -109,10 +120,10 @@ export default function TerminalPage() {
     });
 
     seriesRef.current = chartRef.current.addCandlestickSeries({
-      upColor: "#10b981",
+      upColor: "#22c55e",
       downColor: "#ef4444",
       borderVisible: false,
-      wickUpColor: "#10b981",
+      wickUpColor: "#22c55e",
       wickDownColor: "#ef4444",
     });
 
@@ -127,25 +138,44 @@ export default function TerminalPage() {
     };
   }, []);
 
-  const [symbol, setSymbol] = useState("EURUSD");
-  const [lots, setLots] = useState(0.10);
+  // 5. Fetch Historical Data
+  useEffect(() => {
+    async function fetchHistory() {
+      if (!seriesRef.current || !chartRef.current) return;
+      try {
+        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
+        const candles = await res.json();
+        if (Array.isArray(candles)) {
+          seriesRef.current.setData(candles);
+          chartRef.current.timeScale().fitContent();
+        }
+      } catch (e) {
+        console.error("Failed to load historical candles", e);
+      }
+    }
+    fetchHistory();
+  }, [symbol, interval]);
 
-  // 5. Update Chart with Live Ticks
+  // 6. Update Chart with Live Ticks
   useEffect(() => {
     const p = prices[symbol];
     if (!p || !seriesRef.current) return;
     
-    const now = Math.floor(Date.now() / 1000);
+    // Snap live tick to timeframe boundary to update/append candle
+    const selectedInterval = INTERVALS.find(i => i.value === interval);
+    const step = selectedInterval?.seconds || 60;
+    const snappedTime = Math.floor(Date.now() / 1000 / step) * step;
+
     try {
       seriesRef.current.update({
-        time: now as any,
+        time: snappedTime as any,
         open: p.price,
         high: p.price,
         low: p.price,
         close: p.price,
       });
     } catch (e) {}
-  }, [prices, symbol]);
+  }, [prices, symbol, interval]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId) {
@@ -226,25 +256,42 @@ export default function TerminalPage() {
       <Navigation />
       
       <main className="flex-1 flex flex-col min-w-0">
-        <div className="h-14 border-b border-border flex items-center px-4 gap-2 bg-card/30 overflow-x-auto no-scrollbar shrink-0">
-          {SYMBOLS.map((s) => {
-            const p = prices[s];
-            return (
-              <button 
-                key={s} 
-                onClick={() => setSymbol(s)}
+        <div className="h-14 border-b border-border flex items-center px-4 gap-2 bg-card/30 overflow-x-auto no-scrollbar shrink-0 justify-between">
+          <div className="flex items-center gap-2">
+            {SYMBOLS.map((s) => {
+              const p = prices[s];
+              return (
+                <button 
+                  key={s} 
+                  onClick={() => setSymbol(s)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg border transition-all flex items-center gap-3 shrink-0",
+                    s === symbol ? "bg-primary/10 border-primary text-primary" : "bg-secondary/50 border-border text-muted-foreground hover:border-muted-foreground/30"
+                  )}
+                >
+                  <span className="font-bold text-xs">{s}</span>
+                  <span className="font-mono text-[11px] tabular-nums text-white">
+                    {p?.price?.toFixed(5) ?? "—"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-1 bg-secondary/30 p-1 rounded-lg border border-border">
+            {INTERVALS.map((i) => (
+              <button
+                key={i.value}
+                onClick={() => setInterval(i.value)}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg border transition-all flex items-center gap-3 shrink-0",
-                  s === symbol ? "bg-primary/10 border-primary text-primary" : "bg-secondary/50 border-border text-muted-foreground hover:border-muted-foreground/30"
+                  "px-2 py-1 rounded text-[10px] font-black uppercase transition-all",
+                  interval === i.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
                 )}
               >
-                <span className="font-bold text-xs">{s}</span>
-                <span className="font-mono text-[11px] tabular-nums text-white">
-                  {p?.price?.toFixed(5) ?? "—"}
-                </span>
+                {i.label}
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
 
         <div className="flex-1 flex min-h-0">
