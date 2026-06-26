@@ -1,0 +1,14 @@
+
+{
+  "name": "primefunded-price-bridge",
+  "version": "1.0.0",
+  "description": "Real-time price feed bridge for PrimeFunded",
+  "main": "bridge.js",
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "firebase-admin": "^12.0.0"
+  }
+}

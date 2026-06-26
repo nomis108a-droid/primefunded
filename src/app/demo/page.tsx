@@ -1,7 +1,7 @@
+
 'use client';
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useFirestore, useCollection } from "@/firebase";
 import { createChart, CrosshairMode, IChartApi, ISeriesApi } from "lightweight-charts";
@@ -18,18 +18,14 @@ import {
   History, 
   Plus, 
   XCircle, 
-  TrendingUp, 
-  TrendingDown, 
-  Clock, 
-  Loader2, 
   Terminal,
-  Play,
-  AlertCircle
+  Clock,
+  Loader2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
+import { where } from "firebase/firestore";
+import { useLivePrices } from "@/hooks/useLivePrice";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
 const INTERVALS = [
@@ -47,7 +43,6 @@ export default function DemoPage() {
   const { toast } = useToast();
 
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
-  const [prices, setPrices] = useState<Record<string, any>>({});
   const [actionLoading, setActionLoading] = useState(false);
   const [symbol, setSymbol] = useState("EURUSD");
   const [interval, setInterval] = useState("1m");
@@ -57,31 +52,10 @@ export default function DemoPage() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
-  // 1. Price Feed Listener (Public)
-  useEffect(() => {
-    if (!db) return;
-    
-    const unsub = onSnapshot(
-      collection(db, "livePrices"), 
-      (snap) => {
-        const next: Record<string, any> = {};
-        snap.docs.forEach((d) => (next[d.id] = d.data()));
-        setPrices(next);
-      },
-      async (serverError) => {
-        if (serverError.code === 'permission-denied') {
-          const permissionError = new FirestorePermissionError({
-            path: 'livePrices',
-            operation: 'list',
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        }
-      }
-    );
-    return unsub;
-  }, [db]);
+  // 1. Live Price Hook
+  const prices = useLivePrices(SYMBOLS);
 
-  // 2. Accounts Listener - Strictly auth-guarded and filtered
+  // 2. Accounts & Trades Listeners
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -98,7 +72,6 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener - Strictly auth-guarded and filtered
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -113,7 +86,7 @@ export default function DemoPage() {
     tradeConstraints
   );
 
-  // 4. Chart Initialization
+  // 3. Chart Initialization
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -135,9 +108,7 @@ export default function DemoPage() {
         vertLines: { color: "#1f2937" },
         horzLines: { color: "#1f2937" },
       },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-      },
+      crosshair: { mode: CrosshairMode.Normal },
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
       timeScale: {
@@ -155,7 +126,6 @@ export default function DemoPage() {
     });
 
     window.addEventListener('resize', handleResize);
-
     return () => {
       window.removeEventListener('resize', handleResize);
       if (chartRef.current) {
@@ -165,7 +135,7 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data with Detailed Error Reporting
+  // 4. Fetch Historical Data
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
@@ -174,37 +144,19 @@ export default function DemoPage() {
         const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
         const res = await fetch(url);
         
-        if (!res.ok) {
-          const errorText = await res.text();
-          console.error(`[Candle-API] HTTP ${res.status} error:`, errorText);
-          return;
-        }
-
-        const contentType = res.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-          const body = await res.text();
-          console.error("[Candle-API] Non-JSON response received:", body.slice(0, 500));
-          return;
-        }
-
+        if (!res.ok) return;
         const data = await res.json();
-        const candles = Array.isArray(data) ? data : data.candles;
-
-        if (Array.isArray(candles) && candles.length > 0) {
-          seriesRef.current.setData(candles);
+        
+        if (Array.isArray(data) && data.length > 0) {
+          seriesRef.current.setData(data);
           chartRef.current.timeScale().fitContent();
-        } else {
-          console.warn("[Candle-API] No candles returned for", symbol);
         }
-      } catch (e: any) {
-        console.error("[Candle-API] Fetch failed:", e.message);
-      }
+      } catch (e) {}
     }
-    
     fetchHistory();
   }, [symbol, interval]);
 
-  // 6. Update Chart with Live Ticks
+  // 5. Update Chart with Tick-by-Tick Live Ticks
   useEffect(() => {
     const p = prices[symbol];
     if (!p || !seriesRef.current) return;
@@ -222,7 +174,7 @@ export default function DemoPage() {
         close: p.price,
       });
     } catch (e) {}
-  }, [prices, symbol, interval]);
+  }, [prices[symbol]?.price, symbol, interval]);
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   
@@ -246,10 +198,7 @@ export default function DemoPage() {
   }, [currentAccount, openTrades, prices]);
 
   async function placeTrade(type: "buy" | "sell") {
-    if (!user || !currentAccountId) {
-      toast({ variant: "destructive", title: "Error", description: "Select an account to trade." });
-      return;
-    }
+    if (!user || !currentAccountId) return;
     setActionLoading(true);
     try {
       const token = await user.getIdToken();
@@ -258,12 +207,7 @@ export default function DemoPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots }),
       });
-      
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Trade execution failed");
-      }
-      
+      if (!res.ok) throw new Error("Trade failed");
       toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Execution Error", description: err.message });
@@ -280,40 +224,10 @@ export default function DemoPage() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Close failed");
-      }
-
       const data = await res.json();
-      toast({ title: "Position Closed", description: `Realized P&L: $${data.pnl?.toFixed(2) || '0.00'}` });
+      toast({ title: "Position Closed", description: `PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Closure Error", description: err.message });
-    }
-  }
-
-  async function createAccount(plan: string) {
-    if (!user) return;
-    setActionLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/terminal/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plan }),
-      });
-      
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Creation failed");
-      }
-      
-      toast({ title: "Account Provisioned", description: `Demo account ${plan} is live.` });
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Creation Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
+      toast({ variant: "destructive", title: "Closure Error" });
     }
   }
 
@@ -451,24 +365,12 @@ export default function DemoPage() {
                         {a.label} (${a.balance.toLocaleString()})
                       </SelectItem>
                     ))}
-                    {accounts.length === 0 && (
-                      <SelectItem value="_none" disabled>No nodes available</SelectItem>
-                    )}
                   </SelectContent>
                 </Select>
-                <Button 
-                  variant="outline" 
-                  className="w-full text-[10px] font-black uppercase tracking-widest h-9 border-primary/20 text-primary hover:bg-primary/10 transition-colors"
-                  onClick={() => createAccount("10k")}
-                  disabled={actionLoading}
-                >
-                  <Plus className="w-3 h-3 mr-2" /> New $10k Account
-                </Button>
              </div>
 
              {currentAccount && (
                <div className="p-5 rounded-2xl bg-background/50 border border-border space-y-4 relative overflow-hidden group">
-                  <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 blur-2xl group-hover:bg-primary/10 transition-colors" />
                   <div className="flex justify-between items-start">
                      <div>
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Status</p>
@@ -478,18 +380,8 @@ export default function DemoPage() {
                         )}>{currentAccount.status}</Badge>
                      </div>
                      <div className="text-right">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Current Equity</p>
-                        <p className="font-bold text-lg text-white font-headline">${metrics.equity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
-                     <div>
-                        <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Balance</p>
-                        <p className="font-bold text-xs text-zinc-300">${currentAccount.balance.toLocaleString()}</p>
-                     </div>
-                     <div className="text-right">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss</p>
-                        <p className="font-bold text-xs text-destructive">-${currentAccount.maxLoss.toLocaleString()}</p>
+                        <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Equity</p>
+                        <p className="font-bold text-lg text-white font-headline">${metrics.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                      </div>
                   </div>
                </div>
@@ -497,12 +389,12 @@ export default function DemoPage() {
 
              <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-background/50 rounded-xl border border-border">
-                   <div className="text-center">
+                   <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">{currentPrice?.bid?.toFixed(5) ?? "—"}</p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
-                   <div className="text-center">
+                   <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">{currentPrice?.ask?.toFixed(5) ?? "—"}</p>
                    </div>
@@ -520,7 +412,7 @@ export default function DemoPage() {
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <Button 
-                      className="h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                      className="h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
                       onClick={() => placeTrade("buy")}
                       disabled={actionLoading || !currentAccount || currentAccount.status !== 'active'}
                     >
@@ -528,7 +420,7 @@ export default function DemoPage() {
                     </Button>
                     <Button 
                       variant="destructive" 
-                      className="h-14 font-black text-sm transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                      className="h-14 font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
                       onClick={() => placeTrade("sell")}
                       disabled={actionLoading || !currentAccount || currentAccount.status !== 'active'}
                     >
@@ -541,10 +433,10 @@ export default function DemoPage() {
              <div className="mt-auto p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="flex items-center gap-2 mb-2">
                    <Terminal className="w-3 h-3 text-primary" />
-                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Protocol Active</span>
+                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Real-time Bridge</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Institutional rules are active. Demo nodes follow hard-breach rules: liquidation on max loss or daily drawdown breach.
+                  Live tick updates via Binance/Twelve Data bridge. 
                 </p>
              </div>
           </aside>
