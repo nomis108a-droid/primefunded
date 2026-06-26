@@ -1,4 +1,3 @@
-
 const admin = require('firebase-admin');
 
 /**
@@ -65,7 +64,7 @@ setInterval(flushBuffer, 500);
 
 /**
  * Binance Crypto REST Polling
- * Frequency: Every 2 seconds
+ * Frequency: Every 2 seconds (FREE - Keep)
  */
 async function pollBinanceCrypto() {
   try {
@@ -101,7 +100,7 @@ async function pollBinanceCrypto() {
 
 /**
  * Twelve Data FX/Metals Polling
- * Frequency: Every 5 seconds
+ * Frequency: Emergency Throttled to 60 seconds (Save Credits)
  */
 async function pollTwelveData() {
   if (!TWELVE_DATA_API_KEY) {
@@ -110,6 +109,7 @@ async function pollTwelveData() {
   }
 
   try {
+    console.log('[Bridge] Polling Twelve Data (Throttled Mode)...');
     const url = `https://api.twelvedata.com/price?symbol=${FX_SYMBOLS}&apikey=${TWELVE_DATA_API_KEY}`;
     const response = await fetch(url);
     const data = await response.json();
@@ -145,10 +145,11 @@ async function pollTwelveData() {
 
 // Start polling loops
 setInterval(pollBinanceCrypto, 2000);
-setInterval(pollTwelveData, 5000);
+// EMERGENCY: Poll Forex only once per minute to save credits
+setInterval(pollTwelveData, 60000);
 
 // Initial execution
 pollBinanceCrypto();
 pollTwelveData();
 
-console.log('[Bridge] Institutional Price Bridge Initialized (REST Mode).');
+console.log('[Bridge] Institutional Price Bridge Initialized (EMERGENCY CREDIT MODE).');

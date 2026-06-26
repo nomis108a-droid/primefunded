@@ -3,25 +3,20 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { Timestamp } from "firebase-admin/firestore";
 
 /**
- * @fileOverview Institutional Candle Server
- * Hardened to ensure JSON responses and detailed error reporting.
+ * @fileOverview Emergency Credit-Saving Candle Server
+ * Switched to Binance for crypto (FREE) and Cache-Only for Forex/Metals.
  */
 
-const SYMBOL_MAP: Record<string, string> = {
-  XAUUSD: "XAU/USD",
-  BTCUSD: "BTC/USD",
-  EURUSD: "EUR/USD",
-  GBPUSD: "GBP/USD",
-  USDJPY: "USD/JPY",
-};
+const CRYPTO_SYMBOLS = ["BTCUSD", "ETHUSD", "XRPUSD", "SOLUSD", "BNBUSD", "DOGEUSD", "ADAUSD"];
 
+// Binance kline intervals: 1m, 5m, 15m, 1h, 4h, 1d
 const INTERVAL_MAP: Record<string, string> = {
-  "1m": "1min",
-  "5m": "5min",
-  "15m": "15min",
+  "1m": "1m",
+  "5m": "5m",
+  "15m": "15m",
   "1h": "1h",
   "4h": "4h",
-  "1d": "1day",
+  "1d": "1d",
 };
 
 export async function GET(req: NextRequest) {
@@ -30,25 +25,15 @@ export async function GET(req: NextRequest) {
     const symbol = searchParams.get("symbol");
     const interval = searchParams.get("interval") || "1m";
 
-    if (!symbol || !SYMBOL_MAP[symbol]) {
+    if (!symbol) {
       return NextResponse.json({ error: "Invalid symbol" }, { status: 400 });
     }
 
-    let db;
-    try {
-      db = getAdminDb();
-    } catch (adminError: any) {
-      console.error('[Candle-API] Firebase Admin Initialization Failed:', adminError);
-      return NextResponse.json({ 
-        error: "Database connection failed", 
-        details: adminError.message 
-      }, { status: 500 });
-    }
-
+    const db = getAdminDb();
     const cacheKey = `${symbol}_${interval}`;
     const cacheRef = db.collection("candles").doc(cacheKey);
-    
-    // 1. Check Firestore Cache
+
+    // 1. Check Firestore Cache (Used for all symbols, but mandatory for Forex)
     try {
       const cacheSnap = await cacheRef.get();
       if (cacheSnap.exists) {
@@ -56,60 +41,52 @@ export async function GET(req: NextRequest) {
         const updatedAt = data?.updatedAt?.toMillis() || 0;
         const ageSeconds = (Date.now() - updatedAt) / 1000;
 
-        // Return cached if younger than 300 seconds (5 minutes) to respect rate limits
-        if (ageSeconds < 300) {
+        // Emergency Protocol: Use 1-hour cache for everything to save credits
+        if (ageSeconds < 3600) {
           return NextResponse.json(data?.candles || []);
         }
       }
     } catch (e) {
-      console.warn('[Candle-API] Cache read failed (skipping to live fetch):', e);
+      console.warn('[Candle-API] Cache read failed:', e);
     }
 
-    // 2. Fetch from Twelve Data
-    const tdSymbol = SYMBOL_MAP[symbol];
-    const tdInterval = INTERVAL_MAP[interval] || "1min";
-    const apiKey = process.env.TWELVE_DATA_API_KEY;
+    // 2. CRYPTO: Fetch from Binance (FREE)
+    if (CRYPTO_SYMBOLS.includes(symbol)) {
+      try {
+        const binanceSymbol = symbol.replace("USD", "USDT");
+        const bInterval = INTERVAL_MAP[interval] || "1m";
+        const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${bInterval}&limit=100`;
+        
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Binance returned ${res.status}`);
+        
+        const data = await res.json();
+        const candles = data.map((v: any) => ({
+          time: Math.floor(v[0] / 1000),
+          open: parseFloat(v[1]),
+          high: parseFloat(v[2]),
+          low: parseFloat(v[3]),
+          close: parseFloat(v[4]),
+        }));
 
-    if (!apiKey) {
-      return NextResponse.json({ error: "Twelve Data API key missing" }, { status: 500 });
+        // Cache crypto data
+        cacheRef.set({
+          symbol,
+          interval,
+          candles,
+          updatedAt: Timestamp.now()
+        }).catch(() => {});
+
+        return NextResponse.json(candles);
+      } catch (err: any) {
+        console.error('[Candle-API] Binance fetch failed:', err.message);
+        return NextResponse.json([]);
+      }
     }
 
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSymbol)}&interval=${tdInterval}&outputsize=200&apikey=${apiKey}`;
-    const res = await fetch(url);
-    
-    if (!res.ok) {
-       return NextResponse.json({ error: `Provider returned HTTP ${res.status}` }, { status: 502 });
-    }
-
-    const data = await res.json();
-
-    if (data.status === 'error') {
-      console.error('[Candle-API] Provider Error:', data.message);
-      return NextResponse.json({ error: data.message }, { status: 400 });
-    }
-
-    if (!data.values || !Array.isArray(data.values)) {
-      return NextResponse.json([]);
-    }
-
-    // 3. Transform format
-    const candles = data.values.map((v: any) => ({
-      time: Math.floor(new Date(v.datetime).getTime() / 1000),
-      open: parseFloat(v.open),
-      high: parseFloat(v.high),
-      low: parseFloat(v.low),
-      close: parseFloat(v.close),
-    })).sort((a: any, b: any) => a.time - b.time);
-
-    // 4. Cache asynchronously
-    cacheRef.set({
-      symbol,
-      interval,
-      candles,
-      updatedAt: Timestamp.now()
-    }).catch(e => console.error('[Candle-API] Cache write failed:', e));
-
-    return NextResponse.json(candles);
+    // 3. FOREX/METALS: Return empty if no valid cache (Twelve Data is disabled)
+    console.warn(`[Candle-API] Twelve Data disabled. No valid cache for ${symbol}. Returning empty.`);
+    return NextResponse.json([]);
 
   } catch (error: any) {
     console.error('[Candle-API] Fatal Route Error:', error);

@@ -51,13 +51,13 @@ export default function DemoPage() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   
-  // Rate limit tracking for candle fetches
-  const lastFetchMap = useRef<Record<string, number>>({});
+  // Credit protection: ensure we only fetch history once per symbol per session
+  const fetchedSymbols = useRef<Set<string>>(new Set());
 
   // 1. Live Price Hook
   const prices = useLivePrices(SYMBOLS);
 
-  // 2. Accounts Listener
+  // 2. Accounts Listener - Strictly auth-guarded and filtered
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -74,7 +74,7 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener
+  // 3. Open Trades Listener - Strictly auth-guarded and filtered
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -143,32 +143,20 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data with Throttle & Error Resilience
+  // 5. Fetch Historical Data with Session-Level Guard
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
       
       const key = `${symbol}_${interval}`;
-      const now = Date.now();
-      const lastFetch = lastFetchMap.current[key] || 0;
-      
-      // Throttle: don't fetch more than once every 30s per symbol/interval combination
-      if (now - lastFetch < 30000) {
-        return;
-      }
+      if (fetchedSymbols.current.has(key)) return;
       
       try {
         const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
         const res = await fetch(url);
         
         if (!res.ok) {
-          // Gracefully handle rate limits or gateway errors from provider
-          if (res.status === 429 || res.status === 502 || res.status === 500) {
-            console.warn(`[Terminal] Data source constrained (${res.status}). Retaining existing chart data.`);
-            return;
-          }
-          const errorText = await res.text();
-          console.error(`[Terminal] History sync failed (${res.status}):`, errorText);
+          console.warn(`[Terminal] Emergency history deferral (${res.status}).`);
           return;
         }
 
@@ -177,11 +165,10 @@ export default function DemoPage() {
         if (Array.isArray(data) && data.length > 0) {
           seriesRef.current.setData(data);
           chartRef.current.timeScale().fitContent();
-          lastFetchMap.current[key] = now;
+          fetchedSymbols.current.add(key);
         }
       } catch (e: any) {
-        // Log warning for network issues and wait for next manual trigger or sym change
-        console.warn("[Terminal] Background candle fetch deferred:", e.message);
+        console.warn("[Terminal] Background history deferred:", e.message);
       }
     }
     fetchHistory();
@@ -220,7 +207,7 @@ export default function DemoPage() {
       }
     });
     return { 
-      equity: currentAccount.balance + floating, 
+      equity: (currentAccount.balance || 0) + floating, 
       floatingPnL: floating 
     };
   }, [currentAccount, openTrades, prices]);
@@ -468,7 +455,7 @@ export default function DemoPage() {
                    <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Real-time Bridge</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Live tick updates via Binance/Twelve Data bridge. 
+                  Emergency Mode: Crypto via Binance, Forex Cache-Only.
                 </p>
              </div>
           </aside>
