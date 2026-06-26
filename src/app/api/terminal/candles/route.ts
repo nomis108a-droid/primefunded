@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from '@/lib/firebase-admin';
+import { getAdminServices } from '@/lib/firebase-admin';
 import { Timestamp } from "firebase-admin/firestore";
 
 /**
  * @fileOverview Institutional Candle Server
- * Fetches and caches historical candlestick data from Twelve Data.
+ * Hardened to ensure JSON responses and detailed error reporting.
  */
 
 const SYMBOL_MAP: Record<string, string> = {
@@ -25,52 +25,65 @@ const INTERVAL_MAP: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const symbol = searchParams.get("symbol");
-  const interval = searchParams.get("interval") || "1m";
-
-  if (!symbol || !SYMBOL_MAP[symbol]) {
-    return NextResponse.json({ error: "Invalid symbol" }, { status: 400 });
-  }
-
-  const cacheKey = `${symbol}_${interval}`;
-  
   try {
+    const { searchParams } = new URL(req.url);
+    const symbol = searchParams.get("symbol");
+    const interval = searchParams.get("interval") || "1m";
+
+    if (!symbol || !SYMBOL_MAP[symbol]) {
+      return NextResponse.json({ error: "Invalid symbol" }, { status: 400 });
+    }
+
+    const { adminDb, success, error: adminError } = getAdminServices();
+    if (!success || !adminDb) {
+      console.error('[Candle-API] Firebase Admin Initialization Failed:', adminError);
+      return NextResponse.json({ 
+        error: "Database connection failed", 
+        details: adminError,
+        help: "Check FIREBASE_SERVICE_ACCOUNT_KEY in .env"
+      }, { status: 500 });
+    }
+
+    const cacheKey = `${symbol}_${interval}`;
     const cacheRef = adminDb.collection("candles").doc(cacheKey);
     
     // 1. Check Firestore Cache
-    const cacheSnap = await cacheRef.get();
-    if (cacheSnap.exists) {
-      const data = cacheSnap.data();
-      const updatedAt = data?.updatedAt?.toMillis() || 0;
-      const ageSeconds = (Date.now() - updatedAt) / 1000;
+    try {
+      const cacheSnap = await cacheRef.get();
+      if (cacheSnap.exists) {
+        const data = cacheSnap.data();
+        const updatedAt = data?.updatedAt?.toMillis() || 0;
+        const ageSeconds = (Date.now() - updatedAt) / 1000;
 
-      // Return cached if younger than 60 seconds
-      if (ageSeconds < 60) {
-        return NextResponse.json(data?.candles || []);
+        // Return cached if younger than 60 seconds
+        if (ageSeconds < 60) {
+          return NextResponse.json(data?.candles || []);
+        }
       }
+    } catch (e) {
+      console.warn('[Candle-API] Cache read failed (skipping to live fetch):', e);
     }
 
-    // 2. Fetch from Twelve Data if stale or missing
+    // 2. Fetch from Twelve Data
     const tdSymbol = SYMBOL_MAP[symbol];
     const tdInterval = INTERVAL_MAP[interval] || "1min";
     const apiKey = process.env.TWELVE_DATA_API_KEY;
 
     if (!apiKey) {
-      return NextResponse.json({ error: "Twelve Data API key not configured on server" }, { status: 500 });
+      return NextResponse.json({ error: "Twelve Data API key missing" }, { status: 500 });
     }
 
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSymbol)}&interval=${tdInterval}&outputsize=200&apikey=${apiKey}`;
     const res = await fetch(url);
     
     if (!res.ok) {
-       return NextResponse.json({ error: `Twelve Data API returned ${res.status}` }, { status: 502 });
+       return NextResponse.json({ error: `Provider returned HTTP ${res.status}` }, { status: 502 });
     }
 
     const data = await res.json();
 
     if (data.status === 'error') {
-      console.error('[Candle-API] Twelve Data Error:', data.message);
+      console.error('[Candle-API] Provider Error:', data.message);
       return NextResponse.json({ error: data.message }, { status: 400 });
     }
 
@@ -78,7 +91,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json([]);
     }
 
-    // 3. Transform to Lightweight Charts format
+    // 3. Transform format
     const candles = data.values.map((v: any) => ({
       time: Math.floor(new Date(v.datetime).getTime() / 1000),
       open: parseFloat(v.open),
@@ -87,19 +100,22 @@ export async function GET(req: NextRequest) {
       close: parseFloat(v.close),
     })).sort((a: any, b: any) => a.time - b.time);
 
-    // 4. Cache to Firestore
-    await cacheRef.set({
+    // 4. Cache asynchronously (don't block the response)
+    cacheRef.set({
       symbol,
       interval,
       candles,
       updatedAt: Timestamp.now()
-    });
+    }).catch(e => console.error('[Candle-API] Cache write failed:', e));
 
     return NextResponse.json(candles);
 
   } catch (error: any) {
-    console.error('[Candle-API] Fatal Error:', error);
-    // CRITICAL: Ensure we return JSON, not HTML, even on fatal crashes
-    return NextResponse.json({ error: "Internal server error during candle generation", details: error.message }, { status: 500 });
+    console.error('[Candle-API] Fatal Route Error:', error);
+    return NextResponse.json({ 
+      error: "Internal server error", 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: 500 });
   }
 }

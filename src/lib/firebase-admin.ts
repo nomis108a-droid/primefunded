@@ -14,7 +14,8 @@ function getAdminApp(): App {
 
   const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!serviceAccountKey) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is missing from environment variables.');
+    console.error('[AdminSDK] CRITICAL: FIREBASE_SERVICE_ACCOUNT_KEY is missing.');
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is missing.');
   }
 
   let serviceAccount;
@@ -25,7 +26,8 @@ function getAdminApp(): App {
       .trim();
     serviceAccount = JSON.parse(cleaned);
   } catch (e) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON. Check your .env file.');
+    console.error('[AdminSDK] FATAL: FIREBASE_SERVICE_ACCOUNT_KEY parsing failed. Ensure it is valid JSON.');
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY is not valid JSON.');
   }
 
   try {
@@ -34,10 +36,34 @@ function getAdminApp(): App {
       storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
     }, 'pf-admin');
   } catch (e: any) {
-    throw new Error(`Admin SDK Config Error: ${e.message}`);
+    console.error('[AdminSDK] FATAL: initializeApp failed:', e.message);
+    throw e;
   }
 }
 
-export const adminApp = getAdminApp();
-export const adminDb = getFirestore(adminApp);
-export const adminAuth = getAuth(adminApp);
+/**
+ * Helper to get Admin Services safely.
+ * Returns null if initialization fails, allowing handlers to catch and report errors as JSON.
+ */
+export function getAdminServices() {
+  try {
+    const app = getAdminApp();
+    return {
+      adminDb: getFirestore(app),
+      adminAuth: getAuth(app),
+      success: true
+    };
+  } catch (err: any) {
+    return {
+      adminDb: null,
+      adminAuth: null,
+      success: false,
+      error: err.message
+    };
+  }
+}
+
+// Keep legacy exports for compatibility, but prefer getAdminServices() inside routes
+export const adminApp = getApps().find(a => a.name === 'pf-admin') || null;
+export const adminDb = adminApp ? getFirestore(adminApp) : null as any;
+export const adminAuth = adminApp ? getAuth(adminApp) : null as any;
