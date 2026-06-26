@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -64,21 +63,22 @@ export function useLivePrices(symbols: string[]) {
       // Diagnostic log to confirm Firestore connectivity
       console.log(`[useLivePrices] Feed update received at ${new Date().toLocaleTimeString()}. Docs in snapshot: ${snap.docs.length}`);
       
-      const next: Record<string, LivePrice> = { ...prices };
-      snap.docs.forEach((d) => {
-        if (symbols.includes(d.id)) {
-          const data = d.data();
-          next[d.id] = {
-            symbol: d.id,
-            price: Number(data.price) || 0,
-            bid: Number(data.bid) || Number(data.price) || 0,
-            ask: Number(data.ask) || Number(data.price) || 0,
-            updatedAt: data.updatedAt?.toDate() || null
-          };
-        }
+      setPrices((prev) => {
+        const next = { ...prev };
+        snap.docs.forEach((d) => {
+          if (symbols.includes(d.id)) {
+            const data = d.data();
+            next[d.id] = {
+              symbol: d.id,
+              price: Number(data.price) || 0,
+              bid: Number(data.bid) || Number(data.price) || 0,
+              ask: Number(data.ask) || Number(data.price) || 0,
+              updatedAt: data.updatedAt?.toDate() || null
+            };
+          }
+        });
+        return next;
       });
-      // Replace state with a fresh object to trigger React re-render
-      setPrices({ ...next });
     }, (err) => {
       console.error('[useLivePrices] Subscription error:', err);
       if (err.code === 'permission-denied') {

@@ -33,10 +33,11 @@ export async function POST(req: NextRequest) {
     if (!priceSnap.exists) return NextResponse.json({ error: "No price for symbol" }, { status: 400 });
     const priceData = priceSnap.data()!;
 
-    // reject if price is stale (>5 min old)
+    // ── Price Freshness Check ─────────────────────────────────
+    // Increased threshold to 120s to account for bridge intervals
     const updatedAt = priceData.updatedAt?.toMillis?.() || 0;
     const ageMs = Date.now() - updatedAt;
-    if (ageMs > 5 * 60 * 1000) {
+    if (ageMs > 120 * 1000) {
       return NextResponse.json({ error: "Price feed stale" }, { status: 503 });
     }
 
