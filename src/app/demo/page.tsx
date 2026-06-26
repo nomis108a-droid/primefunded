@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { errorEmitter } from '@/firebase/error-emitter';
+import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
 const INTERVALS = [
@@ -58,11 +60,24 @@ export default function DemoPage() {
   // 1. Price Feed Listener (Public)
   useEffect(() => {
     if (!db) return;
-    const unsub = onSnapshot(collection(db, "livePrices"), (snap) => {
-      const next: Record<string, any> = {};
-      snap.docs.forEach((d) => (next[d.id] = d.data()));
-      setPrices(next);
-    });
+    
+    const unsub = onSnapshot(
+      collection(db, "livePrices"), 
+      (snap) => {
+        const next: Record<string, any> = {};
+        snap.docs.forEach((d) => (next[d.id] = d.data()));
+        setPrices(next);
+      },
+      async (serverError) => {
+        if (serverError.code === 'permission-denied') {
+          const permissionError = new FirestorePermissionError({
+            path: 'livePrices',
+            operation: 'list',
+          } satisfies SecurityRuleContext);
+          errorEmitter.emit('permission-error', permissionError);
+        }
+      }
+    );
     return unsub;
   }, [db]);
 
@@ -150,32 +165,42 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data with Content-Type safety
+  // 5. Fetch Historical Data with Detailed Error Reporting
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
+      
       try {
-        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
+        const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
+        const res = await fetch(url);
         
         if (!res.ok) {
-          console.warn(`[Candle-API] HTTP ${res.status} returned.`);
+          const errorText = await res.text();
+          console.error(`[Candle-API] HTTP ${res.status} error:`, errorText);
           return;
         }
 
         const contentType = res.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
+          const body = await res.text();
+          console.error("[Candle-API] Non-JSON response received:", body.slice(0, 500));
           return;
         }
 
-        const candles = await res.json();
-        if (Array.isArray(candles)) {
+        const data = await res.json();
+        const candles = Array.isArray(data) ? data : data.candles;
+
+        if (Array.isArray(candles) && candles.length > 0) {
           seriesRef.current.setData(candles);
           chartRef.current.timeScale().fitContent();
+        } else {
+          console.warn("[Candle-API] No candles returned for", symbol);
         }
-      } catch (e) {
-        console.error("[Candle-API] Fetch failed:", e);
+      } catch (e: any) {
+        console.error("[Candle-API] Fetch failed:", e.message);
       }
     }
+    
     fetchHistory();
   }, [symbol, interval]);
 
