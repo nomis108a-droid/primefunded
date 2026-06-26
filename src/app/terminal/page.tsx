@@ -1,11 +1,11 @@
-"use client";
+'use client';
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 /**
- * @fileOverview Terminal Route (DEPRECATED)
- * This page has been consolidated into the /demo route to provide a single source of truth.
+ * @fileOverview Terminal Route (DELETED)
+ * Consolidated into /demo to maintain a single source of truth for trading logic.
  */
 
 export default function TerminalPage() {
@@ -15,11 +15,5 @@ export default function TerminalPage() {
     router.replace('/demo');
   }, [router]);
 
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="animate-pulse text-muted-foreground text-xs uppercase font-black tracking-widest">
-        Redirecting to demo terminal...
-      </div>
-    </div>
-  );
+  return null;
 }

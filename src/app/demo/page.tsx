@@ -66,7 +66,7 @@ export default function DemoPage() {
     return unsub;
   }, [db]);
 
-  // 2. Accounts Listener - Guarded by auth and filtered by userId
+  // 2. Accounts Listener - Strictly auth-guarded and filtered
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -83,7 +83,7 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener - Guarded and filtered
+  // 3. Open Trades Listener - Strictly auth-guarded and filtered
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -150,23 +150,20 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data with Defensive Logic
+  // 5. Fetch Historical Data with Content-Type safety
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
         
-        // Safety: Verify response before parsing JSON
         if (!res.ok) {
-          const errorText = await res.text();
-          console.error(`[Candle-API] HTTP ${res.status}: ${errorText.slice(0, 100)}`);
+          console.warn(`[Candle-API] HTTP ${res.status} returned.`);
           return;
         }
 
         const contentType = res.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
-          console.error(`[Candle-API] Received non-JSON response from server.`);
           return;
         }
 
@@ -174,8 +171,6 @@ export default function DemoPage() {
         if (Array.isArray(candles)) {
           seriesRef.current.setData(candles);
           chartRef.current.timeScale().fitContent();
-        } else if (candles.error) {
-          console.warn(`[Candle-API] Server Error: ${candles.error}`);
         }
       } catch (e) {
         console.error("[Candle-API] Fetch failed:", e);
@@ -204,7 +199,6 @@ export default function DemoPage() {
     } catch (e) {}
   }, [prices, symbol, interval]);
 
-  // 7. Live Metrics Calculation (Equity and Floating P&L)
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   
   const metrics = useMemo(() => {
@@ -240,11 +234,10 @@ export default function DemoPage() {
         body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots }),
       });
       
-      const text = await res.text();
-      let data: any = {};
-      try { data = JSON.parse(text); } catch(e) {}
-
-      if (!res.ok) throw new Error(data.error || "Trade execution failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Trade execution failed");
+      }
       
       toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol}` });
     } catch (err: any) {
@@ -263,11 +256,12 @@ export default function DemoPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      const text = await res.text();
-      let data: any = {};
-      try { data = JSON.parse(text); } catch(e) {}
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Close failed");
+      }
 
-      if (!res.ok) throw new Error(data.error || "Close failed");
+      const data = await res.json();
       toast({ title: "Position Closed", description: `Realized P&L: $${data.pnl?.toFixed(2) || '0.00'}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Closure Error", description: err.message });
@@ -285,11 +279,11 @@ export default function DemoPage() {
         body: JSON.stringify({ plan }),
       });
       
-      const text = await res.text();
-      let data: any = {};
-      try { data = JSON.parse(text); } catch(e) {}
-
-      if (!res.ok) throw new Error(data.error || "Creation failed");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Creation failed");
+      }
+      
       toast({ title: "Account Provisioned", description: `Demo account ${plan} is live.` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Creation Failed", description: err.message });
