@@ -50,11 +50,14 @@ export default function DemoPage() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  
+  // Rate limit tracking for candle fetches
+  const lastFetchMap = useRef<Record<string, number>>({});
 
   // 1. Live Price Hook
   const prices = useLivePrices(SYMBOLS);
 
-  // 2. Accounts Listener - Rule A: where("userId", "==", user.uid), Rule B: Guarded by user.uid
+  // 2. Accounts Listener
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -71,7 +74,7 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
-  // 3. Open Trades Listener - Rule A: where("userId", "==", user.uid), Rule B: Guarded by user.uid
+  // 3. Open Trades Listener
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -140,18 +143,32 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 5. Fetch Historical Data
+  // 5. Fetch Historical Data with Throttle & Error Resilience
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
+      
+      const key = `${symbol}_${interval}`;
+      const now = Date.now();
+      const lastFetch = lastFetchMap.current[key] || 0;
+      
+      // Throttle: don't fetch more than once every 30s per symbol/interval combination
+      if (now - lastFetch < 30000) {
+        return;
+      }
       
       try {
         const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
         const res = await fetch(url);
         
         if (!res.ok) {
+          // Gracefully handle rate limits or gateway errors from provider
+          if (res.status === 429 || res.status === 502 || res.status === 500) {
+            console.warn(`[Terminal] Data source constrained (${res.status}). Retaining existing chart data.`);
+            return;
+          }
           const errorText = await res.text();
-          console.error(`[Terminal] History Fetch Failed (${res.status}):`, errorText);
+          console.error(`[Terminal] History sync failed (${res.status}):`, errorText);
           return;
         }
 
@@ -160,9 +177,11 @@ export default function DemoPage() {
         if (Array.isArray(data) && data.length > 0) {
           seriesRef.current.setData(data);
           chartRef.current.timeScale().fitContent();
+          lastFetchMap.current[key] = now;
         }
       } catch (e: any) {
-        console.error("[Terminal] Candle synchronization error:", e.message);
+        // Log warning for network issues and wait for next manual trigger or sym change
+        console.warn("[Terminal] Background candle fetch deferred:", e.message);
       }
     }
     fetchHistory();

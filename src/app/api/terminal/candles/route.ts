@@ -56,8 +56,8 @@ export async function GET(req: NextRequest) {
         const updatedAt = data?.updatedAt?.toMillis() || 0;
         const ageSeconds = (Date.now() - updatedAt) / 1000;
 
-        // Return cached if younger than 60 seconds
-        if (ageSeconds < 60) {
+        // Return cached if younger than 300 seconds (5 minutes) to respect rate limits
+        if (ageSeconds < 300) {
           return NextResponse.json(data?.candles || []);
         }
       }
