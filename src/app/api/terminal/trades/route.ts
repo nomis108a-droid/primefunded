@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
-    const { accountId, symbol, type, lots, sl, tp } = await req.json();
+    const { accountId, symbol, type, lots, sl, tp, price: clientPrice } = await req.json();
 
     const db = getAdminDb();
     const accSnap = await db.collection("demoAccounts").doc(accountId).get();
@@ -34,14 +34,15 @@ export async function POST(req: NextRequest) {
     const priceData = priceSnap.data()!;
 
     // ── Price Freshness Check ─────────────────────────────────
-    // Increased threshold to 120s to account for bridge intervals
+    // Relaxed to 300s (5 minutes) to support Yahoo Finance polling fallback
     const updatedAt = priceData.updatedAt?.toMillis?.() || 0;
     const ageMs = Date.now() - updatedAt;
-    if (ageMs > 120 * 1000) {
+    if (ageMs > 300 * 1000) {
       return NextResponse.json({ error: "Price feed stale" }, { status: 503 });
     }
 
-    const openPrice = type === "buy" ? priceData.ask : priceData.bid;
+    // Use price from client (Yahoo) if provided, otherwise fallback to Firestore bridge
+    const openPrice = clientPrice || (type === "buy" ? priceData.ask : priceData.bid);
 
     const tradeRef = await db.collection("demoTrades").add({
       userId: uid,

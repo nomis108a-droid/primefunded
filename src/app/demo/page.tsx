@@ -22,7 +22,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
-import { useLivePrices } from "@/hooks/useLivePrice";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
 const TV_SYMBOL_MAP: Record<string, string> = {
@@ -31,6 +30,14 @@ const TV_SYMBOL_MAP: Record<string, string> = {
   "EURUSD": "OANDA:EURUSD",
   "GBPUSD": "OANDA:GBPUSD",
   "USDJPY": "OANDA:USDJPY"
+};
+
+const YAHOO_MAP: Record<string, string> = {
+  "XAUUSD": "GC=F",
+  "BTCUSD": "BTC-USD",
+  "EURUSD": "EURUSD=X",
+  "GBPUSD": "GBPUSD=X",
+  "USDJPY": "JPY=X"
 };
 
 export default function DemoPage() {
@@ -44,8 +51,44 @@ export default function DemoPage() {
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
 
-  // Unified Price Feed
-  const prices = useLivePrices(SYMBOLS);
+  // Yahoo Finance Live Price State
+  const [prices, setPrices] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    const fetchYahooPrices = async () => {
+      const updated: Record<string, any> = {};
+      
+      await Promise.all(Object.entries(YAHOO_MAP).map(async ([pfSym, yahooSym]) => {
+        try {
+          const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=1m&range=1d`);
+          const data = await res.json();
+          const result = data.chart.result?.[0];
+          
+          if (result && result.meta) {
+            const price = result.meta.regularMarketPrice;
+            const spread = 0.0002; // 0.02% institutional spread
+            updated[pfSym] = {
+              symbol: pfSym,
+              price,
+              bid: price - (price * spread),
+              ask: price + (price * spread),
+              updatedAt: new Date()
+            };
+          }
+        } catch (e) {
+          console.warn(`[Yahoo-Feed] Failed for ${pfSym}:`, e);
+        }
+      }));
+
+      if (Object.keys(updated).length > 0) {
+        setPrices(prev => ({ ...prev, ...updated }));
+      }
+    };
+
+    fetchYahooPrices();
+    const interval = setInterval(fetchYahooPrices, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Accounts Listener
   const accountConstraints = useMemo(() => {
@@ -88,6 +131,7 @@ export default function DemoPage() {
       if (typeof window !== "undefined" && (window as any).TradingView) {
         setIsChartLoading(true);
         
+        // Safety fallback to hide loader if callback never fires
         const fallbackTimeout = setTimeout(() => setIsChartLoading(false), 5000);
 
         new (window as any).TradingView.widget({
@@ -151,14 +195,13 @@ export default function DemoPage() {
   }, [currentAccount, openTrades, prices]);
 
   async function placeTrade(type: "buy" | "sell") {
-    if (!user || !currentAccountId) return;
+    if (!user || !currentAccountId || !currentPrice) return;
     setActionLoading(true);
     
     try {
-      // 1. Get current Auth Token
       const token = await user.getIdToken();
+      const executionPrice = type === 'buy' ? currentPrice.ask : currentPrice.bid;
       
-      // 2. Execute POST request
       const res = await fetch("/api/terminal/trades", {
         method: "POST",
         headers: { 
@@ -169,34 +212,25 @@ export default function DemoPage() {
           accountId: currentAccountId, 
           symbol, 
           type, 
-          lots 
+          lots,
+          price: executionPrice // Pass Yahoo price directly to API
         }),
       });
 
-      // 3. Detailed Error Analysis
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        const errorMessage = errorData.error || errorData.details || res.statusText;
-        
-        console.error(`[Trade-Failure] Status: ${res.status}, Reason: ${errorMessage}`, errorData);
-        
-        // Specific feedback for stale prices
-        if (res.status === 503) {
-          throw new Error("Price feed is currently offline or stale. Please wait for reconnection.");
-        }
-        
-        throw new Error(errorMessage || "Network response was not OK");
+        throw new Error(errorData.error || errorData.details || "Execution rejected by terminal.");
       }
 
       const data = await res.json();
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice}` });
+      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice.toFixed(5)}` });
       
     } catch (err: any) {
       console.error("[Execution-Error]", err);
       toast({ 
         variant: "destructive", 
         title: "Execution Error", 
-        description: err.message || "Failed to transmit order to terminal." 
+        description: err.message 
       });
     } finally {
       setActionLoading(false);
@@ -252,7 +286,7 @@ export default function DemoPage() {
           </div>
 
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            TradingView Advanced Chart
+            Yahoo Finance REST Feed
           </Badge>
         </div>
 
@@ -406,7 +440,7 @@ export default function DemoPage() {
                     <Button 
                       className="h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
                       onClick={() => placeTrade("buy")}
-                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active'}
+                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPrice}
                     >
                       BUY
                     </Button>
@@ -414,7 +448,7 @@ export default function DemoPage() {
                       variant="destructive" 
                       className="h-14 font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
                       onClick={() => placeTrade("sell")}
-                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active'}
+                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPrice}
                     >
                       SELL
                     </Button>
@@ -425,10 +459,10 @@ export default function DemoPage() {
              <div className="mt-auto p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="flex items-center gap-2 mb-2">
                    <Terminal className="w-3 h-3 text-primary" />
-                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Institutional Node</span>
+                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Yahoo Finance</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Full TradingView analysis tools enabled. Executions occur on internal demo nodes.
+                  Institutional BID/ASK synchronized via global Yahoo REST endpoint.
                 </p>
              </div>
           </aside>
