@@ -131,10 +131,13 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const [liveAccountData, setLiveAccountData] = useState<any>(null);
 
   // FETCH ALL ACCOUNTS FOR THIS USER
-  const accountConstraints = useMemo(() => [
-    where('userId', '==', effectiveUid || '_none_'),
-    orderBy('createdAt', 'desc')
-  ], [effectiveUid]);
+  const accountConstraints = useMemo(() => {
+    if (!effectiveUid) return [];
+    return [
+      where('userId', '==', effectiveUid),
+      orderBy('createdAt', 'desc')
+    ];
+  }, [effectiveUid]);
 
   const { data: userAccounts, loading: accountsLoading } = useCollection<any>(
     effectiveUid ? 'mt5_accounts' : null,
@@ -350,7 +353,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                   onClick={() => { setActiveLogin(acc.id); setLiveAccountData(null); }}
                   className={cn(
                     "cursor-pointer transition-all duration-300 relative overflow-hidden group",
-                    activeLogin === acc.id ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(17,179,245,0.1)]" : "bg-card/40 border-border/50 hover:border-primary/30"
+                    activeLogin === acc.id ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(17,179,245,0.15)]" : "bg-card/40 border-border/50 hover:border-primary/30"
                   )}
                 >
                   <CardContent className="p-5">

@@ -46,15 +46,15 @@ service cloud.firestore {
       allow write: if isAdmin(); 
     }
 
-    // Demo System Rules: Strictly owner-read, no client-side writes.
-    match /demoAccounts/{accountId} {
+    // Demo System Rules
+    match /demoAccounts/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow write: if false; 
+      allow write: if false;
     }
 
-    match /demoTrades/{tradeId} {
+    match /demoTrades/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow write: if false; 
+      allow write: if false;
     }
 
     match /livePrices/{symbol} {
@@ -65,7 +65,7 @@ service cloud.firestore {
     // Orders: Users can create and read their own. Admin manages.
     match /orders/{orderId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
       allow update, delete: if isAdmin();
     }
     
