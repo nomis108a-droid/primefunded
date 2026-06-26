@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -23,21 +22,24 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
 
-const SYMBOLS = ["XAUUSD", "BTCUSD", "EURUSD", "GBPUSD", "USDJPY"];
+const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY"];
+
+const YAHOO_SYMBOLS: Record<string, string> = {
+  'GC=F': 'XAUUSD',
+  'BTC-USD': 'BTCUSD',
+  'ETH-USD': 'ETHUSD',
+  'EURUSD=X': 'EURUSD',
+  'GBPUSD=X': 'GBPUSD',
+  'JPY=X': 'USDJPY',
+};
+
 const TV_SYMBOL_MAP: Record<string, string> = {
   "XAUUSD": "OANDA:XAUUSD",
   "BTCUSD": "BINANCE:BTCUSDT",
+  "ETHUSD": "BINANCE:ETHUSDT",
   "EURUSD": "OANDA:EURUSD",
   "GBPUSD": "OANDA:GBPUSD",
   "USDJPY": "OANDA:USDJPY"
-};
-
-const YAHOO_MAP: Record<string, string> = {
-  "XAUUSD": "GC=F",
-  "BTCUSD": "BTC-USD",
-  "EURUSD": "EURUSD=X",
-  "GBPUSD": "GBPUSD=X",
-  "USDJPY": "JPY=X"
 };
 
 export default function DemoPage() {
@@ -51,42 +53,49 @@ export default function DemoPage() {
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
 
-  // Yahoo Finance Live Price State
+  // Unified Yahoo Finance Price State
   const [prices, setPrices] = useState<Record<string, any>>({});
 
   useEffect(() => {
     const fetchYahooPrices = async () => {
-      const updated: Record<string, any> = {};
-      
-      await Promise.all(Object.entries(YAHOO_MAP).map(async ([pfSym, yahooSym]) => {
-        try {
-          const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${yahooSym}?interval=1m&range=1d`);
-          const data = await res.json();
-          const result = data.chart.result?.[0];
+      try {
+        const symbolList = Object.keys(YAHOO_SYMBOLS).join(',');
+        const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/spark?symbols=${symbolList}&range=1d&interval=1m`);
+        const data = await res.json();
+        
+        const results = data.spark?.result || [];
+        const updated: Record<string, any> = {};
+
+        results.forEach((item: any) => {
+          const yahooSym = item.symbol;
+          const pfSym = YAHOO_SYMBOLS[yahooSym];
+          const meta = item.response?.[0]?.meta;
           
-          if (result && result.meta) {
-            const price = result.meta.regularMarketPrice;
-            const spread = 0.0002; // 0.02% institutional spread
+          if (pfSym && meta?.regularMarketPrice) {
+            const price = meta.regularMarketPrice;
+            const isForex = pfSym.endsWith('USD') && !['XAUUSD', 'BTCUSD', 'ETHUSD'].includes(pfSym);
+            const spreadFactor = isForex ? 0.0002 : 0.0005;
+            
             updated[pfSym] = {
               symbol: pfSym,
               price,
-              bid: price - (price * spread),
-              ask: price + (price * spread),
+              bid: price - (price * spreadFactor),
+              ask: price + (price * spreadFactor),
               updatedAt: new Date()
             };
           }
-        } catch (e) {
-          console.warn(`[Yahoo-Feed] Failed for ${pfSym}:`, e);
-        }
-      }));
+        });
 
-      if (Object.keys(updated).length > 0) {
-        setPrices(prev => ({ ...prev, ...updated }));
+        if (Object.keys(updated).length > 0) {
+          setPrices(prev => ({ ...prev, ...updated }));
+        }
+      } catch (e) {
+        console.warn(`[Yahoo-Feed] Batch fetch failed:`, e);
       }
     };
 
     fetchYahooPrices();
-    const interval = setInterval(fetchYahooPrices, 5000);
+    const interval = setInterval(fetchYahooPrices, 3000); // Polling every 3 seconds
     return () => clearInterval(interval);
   }, []);
 
@@ -179,9 +188,9 @@ export default function DemoPage() {
     if (!currentAccount) return { equity: 0, floatingPnL: 0 };
     let floating = 0;
     openTrades.forEach(trade => {
-      const price = prices[trade.symbol];
-      if (price) {
-        const cp = trade.type === 'buy' ? price.bid : price.ask;
+      const priceData = prices[trade.symbol];
+      if (priceData) {
+        const cp = trade.type === 'buy' ? priceData.bid : priceData.ask;
         const contractSize = trade.symbol === 'XAUUSD' ? 100 : trade.symbol === 'BTCUSD' ? 1 : 100000;
         floating += trade.type === 'buy' 
           ? (cp - trade.openPrice) * contractSize * trade.lots
@@ -195,7 +204,10 @@ export default function DemoPage() {
   }, [currentAccount, openTrades, prices]);
 
   async function placeTrade(type: "buy" | "sell") {
-    if (!user || !currentAccountId || !currentPrice) return;
+    if (!user || !currentAccountId || !currentPrice) {
+      toast({ variant: "destructive", title: "Execution Blocked", description: "Pricing data unavailable or no account selected." });
+      return;
+    }
     setActionLoading(true);
     
     try {
@@ -213,7 +225,7 @@ export default function DemoPage() {
           symbol, 
           type, 
           lots,
-          price: executionPrice // Pass Yahoo price directly to API
+          price: executionPrice
         }),
       });
 
@@ -286,7 +298,7 @@ export default function DemoPage() {
           </div>
 
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            Yahoo Finance REST Feed
+            Yahoo Finance Spark Feed
           </Badge>
         </div>
 
@@ -330,10 +342,10 @@ export default function DemoPage() {
                       {openTrades.length === 0 ? (
                         <tr><td colSpan={6} className="py-12 text-center italic text-muted-foreground opacity-50">No active positions.</td></tr>
                       ) : openTrades.map((t) => {
-                        const price = prices[t.symbol];
+                        const priceData = prices[t.symbol];
                         let pnl = 0;
-                        if (price) {
-                           const cp = t.type === 'buy' ? price.bid : price.ask;
+                        if (priceData) {
+                           const cp = t.type === 'buy' ? priceData.bid : priceData.ask;
                            const contractSize = t.symbol === 'XAUUSD' ? 100 : t.symbol === 'BTCUSD' ? 1 : 100000;
                            pnl = t.type === 'buy' 
                              ? (cp - t.openPrice) * contractSize * t.lots
@@ -459,10 +471,10 @@ export default function DemoPage() {
              <div className="mt-auto p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="flex items-center gap-2 mb-2">
                    <Terminal className="w-3 h-3 text-primary" />
-                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Feed: Yahoo Finance</span>
+                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">FEED: TradingView / Yahoo Finance — Live market data</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Institutional BID/ASK synchronized via global Yahoo REST endpoint.
+                  Institutional BID/ASK synchronized via global Yahoo Spark REST endpoint.
                 </p>
              </div>
           </aside>

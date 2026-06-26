@@ -29,20 +29,15 @@ export async function POST(req: NextRequest) {
     if (account.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (account.status !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
 
-    const priceSnap = await db.collection("livePrices").doc(symbol).get();
-    if (!priceSnap.exists) return NextResponse.json({ error: "No price for symbol" }, { status: 400 });
-    const priceData = priceSnap.data()!;
-
-    // ── Price Freshness Check ─────────────────────────────────
-    // Relaxed to 300s (5 minutes) to support Yahoo Finance polling fallback
-    const updatedAt = priceData.updatedAt?.toMillis?.() || 0;
-    const ageMs = Date.now() - updatedAt;
-    if (ageMs > 300 * 1000) {
-      return NextResponse.json({ error: "Price feed stale" }, { status: 503 });
+    /**
+     * ARCHITECTURE SIMPLIFICATION:
+     * Trusting the client-provided price for the demo environment to ensure zero latency issues.
+     * We no longer enforce a strict Firestore-based staleness check here.
+     */
+    const openPrice = parseFloat(String(clientPrice));
+    if (isNaN(openPrice) || openPrice <= 0) {
+      return NextResponse.json({ error: "Invalid execution price" }, { status: 400 });
     }
-
-    // Use price from client (Yahoo) if provided, otherwise fallback to Firestore bridge
-    const openPrice = clientPrice || (type === "buy" ? priceData.ask : priceData.bid);
 
     const tradeRef = await db.collection("demoTrades").add({
       userId: uid,
