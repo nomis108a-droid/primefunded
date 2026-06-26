@@ -1,12 +1,10 @@
-
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   collection,
   onSnapshot,
   query,
-  where,
   type DocumentData,
   type QueryConstraint,
 } from 'firebase/firestore';
@@ -16,7 +14,7 @@ import { FirestorePermissionError, type SecurityRuleContext } from '../errors';
 
 /**
  * useCollection Hook
- * Fetches a collection in real-time with optimized query stability and security enforcement.
+ * Fetches a collection in real-time with optimized query stability and security guards.
  */
 export function useCollection<T = DocumentData>(
   path: string | null,
@@ -27,8 +25,11 @@ export function useCollection<T = DocumentData>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
+  // Security collections that MUST have a where("userId", "==", ...) filter
+  const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders"];
+
   useEffect(() => {
-    // Return early if path is null or db is not initialized
+    // Rule B Guard: Do not execute if path is null or db is not initialized
     if (!path || !db) {
       setLoading(false);
       return;
@@ -37,13 +38,10 @@ export function useCollection<T = DocumentData>(
     try {
       const collectionRef = collection(db, path);
       
-      // CRITICAL SECURITY GUARD: Verify that sensitive collections have a mandatory filter
-      // This prevents permission errors triggered by accidental broad queries before auth state resolves.
-      const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders"];
-      const isSensitive = SENSITIVE_COLLECTIONS.includes(path);
-      
-      if (isSensitive && constraints.length === 0) {
-        console.warn(`[useCollection] Security Guard: Path "${path}" requires filtering. Query blocked.`);
+      // Rule A Guard: Enforce mandatory filtering on sensitive collections
+      // This prevents permission-denied errors from broad collection scans
+      if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
+        console.warn(`[useCollection] Security Guard: Query on "${path}" blocked. Missing required filters.`);
         setLoading(false);
         return;
       }
@@ -65,8 +63,8 @@ export function useCollection<T = DocumentData>(
               path: collectionRef.path,
               operation: 'list',
               requestResourceData: { 
-                note: "Permission denied on collection fetch. Ensure query filters match security rules.",
-                collection: path
+                note: "Permission denied. Ensure query filters match collection security rules.",
+                path 
               }
             } satisfies SecurityRuleContext);
             errorEmitter.emit('permission-error', permissionError);
@@ -84,7 +82,7 @@ export function useCollection<T = DocumentData>(
       setError(err);
       setLoading(false);
     }
-  }, [db, path, JSON.stringify(constraints)]); // Serialize constraints for effect stability
+  }, [db, path, JSON.stringify(constraints)]); // Use stringified constraints for stability
 
   return { data, loading, error };
 }

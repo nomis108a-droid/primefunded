@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useRef, useState, useMemo } from "react";
@@ -55,7 +54,7 @@ export default function DemoPage() {
   // 1. Live Price Hook
   const prices = useLivePrices(SYMBOLS);
 
-  // 2. Accounts & Trades Listeners
+  // 2. Accounts Listener - Rule A: where("userId", "==", user.uid), Rule B: Guarded by user.uid
   const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid)];
@@ -72,6 +71,7 @@ export default function DemoPage() {
     }
   }, [accounts, currentAccountId]);
 
+  // 3. Open Trades Listener - Rule A: where("userId", "==", user.uid), Rule B: Guarded by user.uid
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -86,7 +86,7 @@ export default function DemoPage() {
     tradeConstraints
   );
 
-  // 3. Chart Initialization
+  // 4. Chart Initialization
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -140,13 +140,12 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 4. Fetch Historical Data
+  // 5. Fetch Historical Data
   useEffect(() => {
     async function fetchHistory() {
       if (!seriesRef.current || !chartRef.current) return;
       
       try {
-        console.log(`[Terminal] Syncing history for ${symbol}...`);
         const url = `/api/terminal/candles?symbol=${symbol}&interval=${interval}`;
         const res = await fetch(url);
         
@@ -169,15 +168,13 @@ export default function DemoPage() {
     fetchHistory();
   }, [symbol, interval]);
 
-  // 5. Update Chart with Live Ticks
+  // 6. Update Chart with Live Ticks
   useEffect(() => {
     const p = prices[symbol];
     if (!p || !seriesRef.current || !p.price) return;
     
     try {
-      // Use current second as timestamp for the tick
       const time = Math.floor(Date.now() / 1000);
-
       seriesRef.current.update({
         time: time as any,
         open: p.price,
