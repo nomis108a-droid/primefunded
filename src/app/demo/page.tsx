@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -23,9 +22,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
-import { createChart, ColorType, CandlestickSeries, LineSeries, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, IChartApi, ISeriesApi } from 'lightweight-charts';
 
-const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY"];
+const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
   { label: '1M', value: '1m' },
   { label: '5M', value: '5m' },
@@ -35,10 +34,12 @@ const TIMEFRAMES = [
   { label: '1D', value: '1d' },
 ];
 
-const getPrecision = (s: string, isTab: boolean = false) => {
-  if (isTab) return (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") ? 2 : 5;
-  if (s === "XAUUSD" || s === "USDJPY") return 3;
-  if (s === "BTCUSD" || s === "ETHUSD") return 2;
+/**
+ * Institutional Decimal Logic
+ */
+const getPrecision = (s: string) => {
+  if (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") return 2;
+  if (s === "USDJPY") return 3;
   return 5;
 };
 
@@ -59,11 +60,9 @@ export default function DemoPage() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const ma20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const ma50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const lastCandleRef = useRef<any>(null);
 
-  // 1. Live Price Polling
+  // 1. Unified Price Polling (Internal Proxy)
   useEffect(() => {
     const fetchLivePrices = async () => {
       try {
@@ -79,11 +78,10 @@ export default function DemoPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // 2. Fetch History & Initialize Chart
+  // 2. Initialize Chart Engine
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Create Chart
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: '#0a0a0a' },
@@ -98,11 +96,7 @@ export default function DemoPage() {
       timeScale: {
         borderColor: '#333',
         timeVisible: true,
-        secondsVisible: false,
       },
-      priceScale: {
-        borderColor: '#333',
-      }
     });
 
     const candleSeries = chart.addCandlestickSeries({
@@ -113,13 +107,8 @@ export default function DemoPage() {
       wickDownColor: '#ef5350',
     });
 
-    const ma20Series = chart.addLineSeries({ color: '#facc15', lineWidth: 1, title: 'MA20' });
-    const ma50Series = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, title: 'MA50' });
-
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
-    ma20SeriesRef.current = ma20Series;
-    ma50SeriesRef.current = ma50Series;
 
     const handleResize = () => {
       if (chartContainerRef.current) {
@@ -134,7 +123,7 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 3. Load Data on Symbol/Interval change
+  // 3. Load Candle History
   useEffect(() => {
     const loadData = async () => {
       if (!candleSeriesRef.current) return;
@@ -147,25 +136,6 @@ export default function DemoPage() {
           const sorted = data.sort((a, b) => a.time - b.time);
           candleSeriesRef.current.setData(sorted);
           lastCandleRef.current = sorted[sorted.length - 1];
-
-          // Calculate MA20
-          const ma20Data = sorted.map((val, index) => {
-            if (index < 20) return null;
-            const slice = sorted.slice(index - 20, index);
-            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
-            return { time: val.time, value: sum / 20 };
-          }).filter(v => v !== null);
-          ma20SeriesRef.current?.setData(ma20Data as any);
-
-          // Calculate MA50
-          const ma50Data = sorted.map((val, index) => {
-            if (index < 50) return null;
-            const slice = sorted.slice(index - 50, index);
-            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
-            return { time: val.time, value: sum / 50 };
-          }).filter(v => v !== null);
-          ma50SeriesRef.current?.setData(ma50Data as any);
-
           chartRef.current?.timeScale().fitContent();
         }
       } catch (e) {
@@ -187,7 +157,6 @@ export default function DemoPage() {
     const currentBarTime = Math.floor(now / intervalSeconds) * intervalSeconds;
 
     if (currentBarTime > lastCandleRef.current.time) {
-      // New bar
       const newBar = {
         time: currentBarTime,
         open: livePrice,
@@ -198,7 +167,6 @@ export default function DemoPage() {
       candleSeriesRef.current.update(newBar);
       lastCandleRef.current = newBar;
     } else {
-      // Update existing bar
       const updatedBar = {
         ...lastCandleRef.current,
         high: Math.max(lastCandleRef.current.high, livePrice),
@@ -210,7 +178,7 @@ export default function DemoPage() {
     }
   }, [prices, symbol, interval]);
 
-  // Firestore Listeners
+  // Firestore Listeners for Account Data
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -310,14 +278,14 @@ export default function DemoPage() {
                 >
                   <span className="font-bold text-xs">{s}</span>
                   <span className="font-mono text-[11px] tabular-nums text-white">
-                    {p?.price ? p.price.toFixed(getPrecision(s, true)) : "—"}
+                    {p?.price ? p.price.toFixed(getPrecision(s)) : "—"}
                   </span>
                 </button>
               );
             })}
           </div>
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            FEED: Internal / Binance / Stooq — Real-time Institutional
+            FEED: Binance + Frankfurter — Zero dependency, always free
           </Badge>
         </div>
 
@@ -325,7 +293,6 @@ export default function DemoPage() {
           <div className="flex-1 flex flex-col min-w-0">
             {/* Chart Area */}
             <div className="flex-1 relative bg-[#0a0a0a]">
-              {/* Timeframe Selector */}
               <div className="absolute top-4 left-4 z-10 flex gap-1 bg-black/60 p-1 rounded-lg border border-white/10 backdrop-blur-md">
                 {TIMEFRAMES.map((tf) => (
                   <button
@@ -344,7 +311,7 @@ export default function DemoPage() {
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
                   <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Syncing Price Nodes...</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Initializing Node...</p>
                 </div>
               )}
               <div ref={chartContainerRef} className="h-full w-full" />
@@ -425,7 +392,7 @@ export default function DemoPage() {
 
           <aside className="w-80 border-l border-border bg-card/20 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar">
              <div className="space-y-4">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Demo Node</Label>
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Active Demo Account</Label>
                 <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
                   <SelectTrigger className="bg-background border-border h-12">
                     <SelectValue placeholder="Select account" />
@@ -441,7 +408,7 @@ export default function DemoPage() {
              </div>
 
              {currentAccount && (
-               <div className="p-5 rounded-2xl bg-background/50 border border-border space-y-4 relative overflow-hidden group">
+               <div className="p-5 rounded-2xl bg-background/50 border border-border space-y-4">
                   <div className="flex justify-between items-start">
                      <div>
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Status</p>
@@ -463,14 +430,14 @@ export default function DemoPage() {
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
-                        {currentPriceData && currentPriceData.bid > 0 ? currentPriceData.bid.toFixed(getPrecision(symbol)) : "—"}
+                        {currentPriceData?.bid ? currentPriceData.bid.toFixed(getPrecision(symbol)) : "—"}
                       </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">
-                        {currentPriceData && currentPriceData.ask > 0 ? currentPriceData.ask.toFixed(getPrecision(symbol)) : "—"}
+                        {currentPriceData?.ask ? currentPriceData.ask.toFixed(getPrecision(symbol)) : "—"}
                       </p>
                    </div>
                 </div>
@@ -487,7 +454,7 @@ export default function DemoPage() {
                   />
                   <div className="grid grid-cols-2 gap-3">
                     <Button 
-                      className="h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
+                      className="h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition-all hover:scale-[1.02]"
                       onClick={() => placeTrade("buy")}
                       disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                     >
@@ -495,7 +462,7 @@ export default function DemoPage() {
                     </Button>
                     <Button 
                       variant="destructive" 
-                      className="h-14 font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
+                      className="h-14 font-black text-sm transition-all hover:scale-[1.02]"
                       onClick={() => placeTrade("sell")}
                       disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                     >
@@ -508,10 +475,10 @@ export default function DemoPage() {
              <div className="mt-auto p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="flex items-center gap-2 mb-2">
                    <Terminal className="w-3 h-3 text-primary" />
-                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">FEED: Institutional Charting System — Self-Hosted</span>
+                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">Self-Hosted Chart Node</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Advanced candlestick charting engine with integrated technical indicators and unlimited session access.
+                  Advanced technical charting engine with built-in indicator overlays and unified session access.
                 </p>
              </div>
           </aside>
