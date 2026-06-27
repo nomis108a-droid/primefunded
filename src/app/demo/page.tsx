@@ -1,10 +1,11 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useFirestore, useCollection } from "@/firebase";
 import { Navigation } from "@/components/Navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,34 +17,29 @@ import {
   History, 
   XCircle, 
   Terminal,
-  Loader2
+  Loader2,
+  Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
+import { createChart, ColorType, CandlestickSeries, LineSeries, IChartApi, ISeriesApi } from 'lightweight-charts';
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY"];
+const TIMEFRAMES = [
+  { label: '1M', value: '1m' },
+  { label: '5M', value: '5m' },
+  { label: '15M', value: '15m' },
+  { label: '1H', value: '1h' },
+  { label: '4H', value: '4h' },
+  { label: '1D', value: '1d' },
+];
 
-const TV_SYMBOL_MAP: Record<string, string> = {
-  "XAUUSD": "OANDA:XAUUSD",
-  "BTCUSD": "BINANCE:BTCUSDT",
-  "ETHUSD": "BINANCE:ETHUSDT",
-  "EURUSD": "OANDA:EURUSD",
-  "GBPUSD": "OANDA:GBPUSD",
-  "USDJPY": "OANDA:USDJPY"
-};
-
-/**
- * Institutional Formatting Helper
- * Precision varies based on asset class.
- */
 const getPrecision = (s: string, isTab: boolean = false) => {
-  if (isTab) {
-    return (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") ? 2 : 5;
-  }
+  if (isTab) return (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") ? 2 : 5;
   if (s === "XAUUSD" || s === "USDJPY") return 3;
   if (s === "BTCUSD" || s === "ETHUSD") return 2;
-  return 5; // Default Forex
+  return 5;
 };
 
 export default function DemoPage() {
@@ -55,48 +51,173 @@ export default function DemoPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
   const [symbol, setSymbol] = useState("XAUUSD");
+  const [interval, setInterval] = useState("1m");
   const [lots, setLots] = useState(0.10);
-
-  // Price state for the polling loop
   const [prices, setPrices] = useState<Record<string, any>>({});
 
+  // Chart Refs
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const ma20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const ma50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const lastCandleRef = useRef<any>(null);
+
+  // 1. Live Price Polling
   useEffect(() => {
     const fetchLivePrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
-        if (!res.ok) throw new Error('Proxy error');
         const data = await res.json();
-        if (data && !data.error) {
-          setPrices(data);
-        }
+        if (data && !data.error) setPrices(data);
       } catch (e) {
         console.warn(`[Price-Feed] Polling failed:`, e);
       }
     };
-
     fetchLivePrices();
-    const interval = setInterval(fetchLivePrices, 3000);
-    return () => clearInterval(interval);
+    const timer = window.setInterval(fetchLivePrices, 3000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  // Accounts Listener
-  const accountConstraints = useMemo(() => {
-    if (!user?.uid) return [];
-    return [where("userId", "==", user.uid)];
-  }, [user?.uid]);
+  // 2. Fetch History & Initialize Chart
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
 
-  const { data: accounts, loading: accountsLoading } = useCollection<any>(
-    user?.uid ? "demoAccounts" : null,
-    accountConstraints
-  );
+    // Create Chart
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#0a0a0a' },
+        textColor: '#e0e0e0',
+      },
+      grid: {
+        vertLines: { color: '#1a1a1a' },
+        horzLines: { color: '#1a1a1a' },
+      },
+      width: chartContainerRef.current.clientWidth,
+      height: 500,
+      timeScale: {
+        borderColor: '#333',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      priceScale: {
+        borderColor: '#333',
+      }
+    });
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    });
+
+    const ma20Series = chart.addLineSeries({ color: '#facc15', lineWidth: 1, title: 'MA20' });
+    const ma50Series = chart.addLineSeries({ color: '#3b82f6', lineWidth: 1, title: 'MA50' });
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    ma20SeriesRef.current = ma20Series;
+    ma50SeriesRef.current = ma50Series;
+
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      }
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, []);
+
+  // 3. Load Data on Symbol/Interval change
+  useEffect(() => {
+    const loadData = async () => {
+      if (!candleSeriesRef.current) return;
+      setIsChartLoading(true);
+      try {
+        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
+        const data = await res.json();
+        
+        if (Array.isArray(data) && data.length > 0) {
+          const sorted = data.sort((a, b) => a.time - b.time);
+          candleSeriesRef.current.setData(sorted);
+          lastCandleRef.current = sorted[sorted.length - 1];
+
+          // Calculate MA20
+          const ma20Data = sorted.map((val, index) => {
+            if (index < 20) return null;
+            const slice = sorted.slice(index - 20, index);
+            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+            return { time: val.time, value: sum / 20 };
+          }).filter(v => v !== null);
+          ma20SeriesRef.current?.setData(ma20Data as any);
+
+          // Calculate MA50
+          const ma50Data = sorted.map((val, index) => {
+            if (index < 50) return null;
+            const slice = sorted.slice(index - 50, index);
+            const sum = slice.reduce((acc, curr) => acc + curr.close, 0);
+            return { time: val.time, value: sum / 50 };
+          }).filter(v => v !== null);
+          ma50SeriesRef.current?.setData(ma50Data as any);
+
+          chartRef.current?.timeScale().fitContent();
+        }
+      } catch (e) {
+        console.error("Failed to load candles:", e);
+      } finally {
+        setIsChartLoading(false);
+      }
+    };
+    loadData();
+  }, [symbol, interval]);
+
+  // 4. Update Current Candle from Live Prices
+  useEffect(() => {
+    const livePrice = prices[symbol]?.price;
+    if (!livePrice || !candleSeriesRef.current || !lastCandleRef.current) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    const intervalSeconds = interval.includes('m') ? parseInt(interval) * 60 : interval.includes('h') ? parseInt(interval) * 3600 : 86400;
+    const currentBarTime = Math.floor(now / intervalSeconds) * intervalSeconds;
+
+    if (currentBarTime > lastCandleRef.current.time) {
+      // New bar
+      const newBar = {
+        time: currentBarTime,
+        open: livePrice,
+        high: livePrice,
+        low: livePrice,
+        close: livePrice
+      };
+      candleSeriesRef.current.update(newBar);
+      lastCandleRef.current = newBar;
+    } else {
+      // Update existing bar
+      const updatedBar = {
+        ...lastCandleRef.current,
+        high: Math.max(lastCandleRef.current.high, livePrice),
+        low: Math.min(lastCandleRef.current.low, livePrice),
+        close: livePrice
+      };
+      candleSeriesRef.current.update(updatedBar);
+      lastCandleRef.current = updatedBar;
+    }
+  }, [prices, symbol, interval]);
+
+  // Firestore Listeners
+  const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
+  const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
   useEffect(() => {
-    if (accounts.length > 0 && !currentAccountId) {
-      setCurrentAccountId(accounts[0].id);
-    }
+    if (accounts.length > 0 && !currentAccountId) setCurrentAccountId(accounts[0].id);
   }, [accounts, currentAccountId]);
 
-  // Open Trades Listener
   const tradeConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
     return [
@@ -106,62 +227,10 @@ export default function DemoPage() {
     ];
   }, [user?.uid, currentAccountId]);
 
-  const { data: openTrades } = useCollection<any>(
-    (user?.uid && currentAccountId) ? "demoTrades" : null,
-    tradeConstraints
-  );
-
-  // TradingView Widget Initialization
-  useEffect(() => {
-    const scriptId = "tradingview-widget-script";
-    let script = document.getElementById(scriptId) as HTMLScriptElement;
-
-    const initWidget = () => {
-      if (typeof window !== "undefined" && (window as any).TradingView) {
-        setIsChartLoading(true);
-        
-        const fallbackTimeout = setTimeout(() => setIsChartLoading(false), 5000);
-
-        new (window as any).TradingView.widget({
-          container_id: "tv_chart_container",
-          symbol: TV_SYMBOL_MAP[symbol] || `OANDA:${symbol}`,
-          interval: "1",
-          theme: "dark",
-          style: "1",
-          locale: "en",
-          toolbar_bg: "#0f1117",
-          enable_publishing: false,
-          hide_side_toolbar: false,
-          allow_symbol_change: false,
-          details: true,
-          hotlist: true,
-          calendar: true,
-          height: "100%",
-          width: "100%",
-          autosize: true,
-          onChartReady: () => {
-            setIsChartLoading(false);
-            clearTimeout(fallbackTimeout);
-          }
-        });
-      }
-    };
-
-    if (!script) {
-      script = document.createElement("script");
-      script.id = scriptId;
-      script.src = "https://s3.tradingview.com/tv.js";
-      script.async = true;
-      script.onload = initWidget;
-      document.body.appendChild(script);
-    } else {
-      initWidget();
-    }
-  }, [symbol]);
+  const { data: openTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, tradeConstraints);
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
-  
-  const currentPrice = prices[symbol];
+  const currentPriceData = prices[symbol];
 
   const metrics = useMemo(() => {
     if (!currentAccount) return { equity: 0, floatingPnL: 0 };
@@ -176,53 +245,31 @@ export default function DemoPage() {
           : (trade.openPrice - cp) * contractSize * trade.lots;
       }
     });
-    return { 
-      equity: (currentAccount.balance || 0) + floating, 
-      floatingPnL: floating 
-    };
+    return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
   }, [currentAccount, openTrades, prices]);
 
   async function placeTrade(type: "buy" | "sell") {
-    if (!user || !currentAccountId || !currentPrice) {
+    if (!user || !currentAccountId || !currentPriceData) {
       toast({ variant: "destructive", title: "Execution Blocked", description: "Pricing data unavailable or no account selected." });
       return;
     }
     setActionLoading(true);
-    
     try {
       const token = await user.getIdToken();
-      const executionPrice = type === 'buy' ? currentPrice.ask : currentPrice.bid;
-      
+      const executionPrice = type === 'buy' ? currentPriceData.ask : currentPriceData.bid;
       const res = await fetch("/api/terminal/trades", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${token}` 
-        },
-        body: JSON.stringify({ 
-          accountId: currentAccountId, 
-          symbol, 
-          type, 
-          lots,
-          price: executionPrice
-        }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots, price: executionPrice }),
       });
-
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.details || "Execution rejected by terminal.");
+        throw new Error(errorData.error || errorData.details || "Execution rejected.");
       }
-
       const data = await res.json();
       toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice.toFixed(getPrecision(symbol))}` });
-      
     } catch (err: any) {
-      console.error("[Execution-Error]", err);
-      toast({ 
-        variant: "destructive", 
-        title: "Execution Error", 
-        description: err.message 
-      });
+      toast({ variant: "destructive", title: "Execution Error", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -236,12 +283,6 @@ export default function DemoPage() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Closure failed");
-      }
-
       const data = await res.json();
       toast({ title: "Position Closed", description: `PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
     } catch (err: any) {
@@ -252,8 +293,8 @@ export default function DemoPage() {
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       <Navigation />
-      
       <main className="flex-1 flex flex-col min-w-0">
+        {/* Symbol Bar */}
         <div className="h-14 border-b border-border flex items-center px-4 gap-2 bg-card/30 overflow-x-auto no-scrollbar shrink-0 justify-between">
           <div className="flex items-center gap-2">
             {SYMBOLS.map((s) => {
@@ -275,24 +316,41 @@ export default function DemoPage() {
               );
             })}
           </div>
-
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            FEED: TradingView / Yahoo Finance — Live market data
+            FEED: Internal / Binance / Stooq — Real-time Institutional
           </Badge>
         </div>
 
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col min-w-0">
-            <div className="flex-1 relative bg-background">
+            {/* Chart Area */}
+            <div className="flex-1 relative bg-[#0a0a0a]">
+              {/* Timeframe Selector */}
+              <div className="absolute top-4 left-4 z-10 flex gap-1 bg-black/60 p-1 rounded-lg border border-white/10 backdrop-blur-md">
+                {TIMEFRAMES.map((tf) => (
+                  <button
+                    key={tf.value}
+                    onClick={() => setInterval(tf.value)}
+                    className={cn(
+                      "px-3 py-1 rounded text-[10px] font-black uppercase transition-all",
+                      interval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
+                    )}
+                  >
+                    {tf.label}
+                  </button>
+                ))}
+              </div>
+
               {isChartLoading && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
                   <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Syncing Price Nodes...</p>
                 </div>
               )}
-              <div id="tv_chart_container" className="h-full w-full" style={{ height: '100%', width: '100%' }} />
+              <div ref={chartContainerRef} className="h-full w-full" />
             </div>
             
+            {/* Positions Table */}
             <div className="h-[250px] border-t border-border bg-card/30 overflow-hidden flex flex-col shrink-0">
                <div className="px-4 py-2 border-b border-border flex justify-between items-center bg-secondary/20">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -405,14 +463,14 @@ export default function DemoPage() {
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
-                        {currentPrice && currentPrice.bid > 0 ? currentPrice.bid.toFixed(getPrecision(symbol)) : "—"}
+                        {currentPriceData && currentPriceData.bid > 0 ? currentPriceData.bid.toFixed(getPrecision(symbol)) : "—"}
                       </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">
-                        {currentPrice && currentPrice.ask > 0 ? currentPrice.ask.toFixed(getPrecision(symbol)) : "—"}
+                        {currentPriceData && currentPriceData.ask > 0 ? currentPriceData.ask.toFixed(getPrecision(symbol)) : "—"}
                       </p>
                    </div>
                 </div>
@@ -431,7 +489,7 @@ export default function DemoPage() {
                     <Button 
                       className="h-14 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
                       onClick={() => placeTrade("buy")}
-                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPrice}
+                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                     >
                       BUY
                     </Button>
@@ -439,7 +497,7 @@ export default function DemoPage() {
                       variant="destructive" 
                       className="h-14 font-black text-sm transition-all hover:scale-[1.02] cursor-pointer"
                       onClick={() => placeTrade("sell")}
-                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPrice}
+                      disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                     >
                       SELL
                     </Button>
@@ -450,10 +508,10 @@ export default function DemoPage() {
              <div className="mt-auto p-4 rounded-xl bg-primary/5 border border-primary/10">
                 <div className="flex items-center gap-2 mb-2">
                    <Terminal className="w-3 h-3 text-primary" />
-                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">FEED: TradingView / Yahoo Finance — Live market data</span>
+                   <span className="text-[9px] font-black uppercase text-primary tracking-widest">FEED: Institutional Charting System — Self-Hosted</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Institutional BID/ASK synchronized via global Yahoo Spark REST endpoint.
+                  Advanced candlestick charting engine with integrated technical indicators and unlimited session access.
                 </p>
              </div>
           </aside>
