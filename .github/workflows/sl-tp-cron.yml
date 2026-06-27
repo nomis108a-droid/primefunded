@@ -1,0 +1,15 @@
+name: SL/TP Auto-Close
+on:
+  schedule:
+    - cron: '* * * * *'  # Run every 1 minute
+  workflow_dispatch:
+
+jobs:
+  check-risk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Risk Engine
+        run: |
+          curl -s -X GET \
+            -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
+            https://primefunded.fund/api/terminal/trades/check-sl-tp
