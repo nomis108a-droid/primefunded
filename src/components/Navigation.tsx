@@ -20,12 +20,14 @@ import {
   Gift,
   Users,
   ArrowRight,
-  Activity
+  Activity,
+  ShieldAlert
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
+import { ADMIN_EMAILS } from '@/lib/admin';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -86,11 +88,13 @@ function DiscordIcon(props: any) {
 export const Navigation = memo(function Navigation() {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout, userData } = useAuth();
+  const { logout, userData, user } = useAuth();
   const branding = useBrandSettings();
 
   const [clickCount, setClickCount] = useState(0);
   const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
+
+  const isAdmin = user && ADMIN_EMAILS.includes(user.email || "");
 
   useEffect(() => {
     const routesToPrefetch = [
@@ -138,6 +142,21 @@ export const Navigation = memo(function Navigation() {
       </div>
 
       <nav className="flex-1 space-y-1">
+        {isAdmin && (
+          <Link
+            href="/admin/demo"
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-black uppercase tracking-tighter transition-all cursor-pointer border border-primary/20 mb-4 bg-primary/5",
+              pathname === '/admin/demo' 
+                ? "bg-primary text-black border-primary" 
+                : "text-primary hover:bg-primary/20"
+            )}
+          >
+            <ShieldAlert className="w-5 h-5" />
+            Admin Monitor
+          </Link>
+        )}
+
         {navItems.map((item) => (
           <Link
             key={item.name}
