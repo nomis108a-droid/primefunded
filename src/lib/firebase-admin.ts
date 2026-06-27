@@ -3,25 +3,34 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 function getServiceAccount() {
-  const serviceAccountKeyB64 = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
+  // Read from either the Base64 variable or a JSON variable
+  const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64 || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   
-  if (!serviceAccountKeyB64) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY_B64 is missing from environment variables.');
+  if (!key) {
+    return null; // Return null during build phase so it doesn't crash
   }
   
   try {
-    const decoded = Buffer.from(serviceAccountKeyB64, 'base64').toString('utf-8');
+    // If it starts with '{', it's raw JSON
+    if (key.trim().startsWith('{')) {
+      return JSON.parse(key);
+    }
+    // Otherwise, decode Base64
+    const decoded = Buffer.from(key, 'base64').toString('utf-8');
     return JSON.parse(decoded);
   } catch (e) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY_B64 is not a valid base64-encoded JSON string.');
+    console.error("Failed to parse Firebase Service Account Key. Make sure it's valid JSON or Base64.");
+    return null;
   }
 }
 
+const serviceAccount = getServiceAccount();
+
 // Initialize Firebase Admin only once
-const adminApp: App = getApps().find(a => a.name === 'pf-admin') || initializeApp({
-  credential: cert(getServiceAccount()),
-  databaseURL: "https://studio-8383940162-6976e-default-rtdb.asia-southeast1.firebasedatabase.app"
-}, 'pf-admin');
+const adminApp: App = getApps().find(a => a.name === 'pf-admin') || initializeApp(
+  serviceAccount ? { credential: cert(serviceAccount) } : {}, 
+  'pf-admin'
+);
 
 export const adminDb = getFirestore(adminApp);
 export const adminAuth = getAuth(adminApp);
