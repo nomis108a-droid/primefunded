@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -29,7 +30,8 @@ import {
   Zap,
   Eraser,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  ShoppingBag
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -746,23 +748,41 @@ export default function DemoPage() {
               </div>
 
               <div className="space-y-4">
-                <button 
-                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
-                  onClick={() => placeTrade("buy")}
-                  disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
-                >
-                  <span className="font-black text-sm tracking-widest">BUY BY MARKET</span>
-                  <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.ask, selectedSymbol)}</span>
-                </button>
+                {!currentAccount ? (
+                  <Button asChild className="w-full h-16 rounded-xl cyan-box-glow font-black text-sm uppercase tracking-widest">
+                    <Link href="/challenges">
+                      <ShoppingBag className="w-5 h-5 mr-2" /> Start Challenge
+                    </Link>
+                  </Button>
+                ) : (
+                  <>
+                    <button 
+                      className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
+                      onClick={() => placeTrade("buy")}
+                      disabled={actionLoading || currentAccount.status !== 'active' || !currentPriceData}
+                    >
+                      <span className="font-black text-sm tracking-widest">
+                        {!currentPriceData ? "PRICING OFFLINE" : currentAccount.status !== 'active' ? "ACCOUNT LOCKED" : "BUY BY MARKET"}
+                      </span>
+                      {currentPriceData && currentAccount.status === 'active' && (
+                        <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.ask, selectedSymbol)}</span>
+                      )}
+                    </button>
 
-                <button 
-                  className="w-full h-16 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
-                  onClick={() => placeTrade("sell")}
-                  disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
-                >
-                  <span className="font-black text-sm tracking-widest">SELL BY MARKET</span>
-                  <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.bid, selectedSymbol)}</span>
-                </button>
+                    <button 
+                      className="w-full h-16 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
+                      onClick={() => placeTrade("sell")}
+                      disabled={actionLoading || currentAccount.status !== 'active' || !currentPriceData}
+                    >
+                      <span className="font-black text-sm tracking-widest">
+                        {!currentPriceData ? "PRICING OFFLINE" : currentAccount.status !== 'active' ? "ACCOUNT LOCKED" : "SELL BY MARKET"}
+                      </span>
+                      {currentPriceData && currentAccount.status === 'active' && (
+                        <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.bid, selectedSymbol)}</span>
+                      )}
+                    </button>
+                  </>
+                )}
               </div>
 
               <div className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 space-y-3">
