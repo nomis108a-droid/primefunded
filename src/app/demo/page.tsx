@@ -11,13 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { 
-  Activity, 
-  Wallet, 
-  History, 
   XCircle, 
-  Terminal,
   Loader2,
-  Clock,
   ArrowLeft,
   ChevronDown,
   LineChart,
@@ -30,17 +25,15 @@ import {
   Layers,
   Search,
   LayoutGrid,
-  Info,
-  TrendingUp,
-  Eraser,
   Magnet,
   Zap,
-  Target,
+  Eraser,
+  TrendingUp,
   AlertTriangle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { where, orderBy, limit, doc, onSnapshot } from "firebase/firestore";
+import { where, orderBy, limit } from "firebase/firestore";
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -70,7 +63,7 @@ const formatPrice = (price: number | undefined, symbol: string) => {
 };
 
 export default function DemoPage() {
-  const { user, userData } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
   const db = useFirestore();
   const { toast } = useToast();
   const branding = useBrandSettings();
@@ -101,6 +94,7 @@ export default function DemoPage() {
   const currentCandleRef = useRef<{time:number, open:number, high:number, low:number, close:number} | null>(null);
   const indicatorSeriesRef = useRef<any[]>([]);
 
+  // Fixed Price Polling
   useEffect(() => {
     let isMounted = true;
     const fetchPrices = async () => {
@@ -123,6 +117,7 @@ export default function DemoPage() {
     }
   }, []);
 
+  // Initialize Chart
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -174,6 +169,7 @@ export default function DemoPage() {
     };
   }, []);
 
+  // Fetch and Sync Candle Data
   useEffect(() => {
     if (!candleSeriesRef.current || !chartInstanceRef.current) return;
     
@@ -253,6 +249,7 @@ export default function DemoPage() {
     return () => { isMounted = false; };
   }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50, indicators.bb]);
 
+  // Real-time Tick Sync
   useEffect(() => {
     if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
@@ -427,6 +424,15 @@ export default function DemoPage() {
     }
   }
 
+  if (authLoading) {
+    return (
+      <div className="fixed inset-0 bg-[#09090b] flex flex-col items-center justify-center text-white">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 animate-pulse">Initializing Trading Protocol...</p>
+      </div>
+    );
+  }
+
   if (!user) return null;
 
   return (
@@ -570,10 +576,8 @@ export default function DemoPage() {
               </div>
             )}
 
-            <div ref={chartContainerRef} className="h-full w-full relative" style={{ position: 'relative' }}>
+            <div ref={chartContainerRef} className="h-full w-full relative">
               <div className="absolute inset-0 z-[5] pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10 pointer-events-none" />
-              <div className="absolute bottom-2 left-2 w-20 h-6 bg-transparent z-20 pointer-events-auto" />
             </div>
           </div>
           
@@ -742,23 +746,23 @@ export default function DemoPage() {
               </div>
 
               <div className="space-y-4">
-                <Button 
-                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
+                <button 
+                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
                   onClick={() => placeTrade("buy")}
                   disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                 >
                   <span className="font-black text-sm tracking-widest">BUY BY MARKET</span>
                   <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.ask, selectedSymbol)}</span>
-                </Button>
+                </button>
 
-                <Button 
-                  className="w-full h-16 bg-red-600 hover:bg-red-700 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
+                <button 
+                  className="w-full h-16 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
                   onClick={() => placeTrade("sell")}
                   disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                 >
                   <span className="font-black text-sm tracking-widest">SELL BY MARKET</span>
                   <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.bid, selectedSymbol)}</span>
-                </Button>
+                </button>
               </div>
 
               <div className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 space-y-3">

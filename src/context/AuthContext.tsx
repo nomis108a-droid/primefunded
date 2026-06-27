@@ -34,8 +34,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
-      setUser(user);
+      // FIX: Use the 'u' parameter from the callback, not the 'user' state variable
+      setUser(u);
       
+      // If no user is logged in, we are no longer loading
       if (!u) {
         setUserData(null);
         setLoading(false);
@@ -52,9 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userRef = doc(db, 'users', user.uid);
       unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
         if (snapshot.exists()) {
-          const data = snapshot.data();
-          setUserData(data);
+          setUserData(snapshot.data());
         }
+        // Once we have (or fail to have) user data, we are done loading
         setLoading(false);
       }, (err) => {
         console.error("Error fetching user data:", err);

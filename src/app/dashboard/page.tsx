@@ -12,16 +12,9 @@ import {
   Terminal,
   TrendingUp,
   TrendingDown,
-  BarChart3,
-  Calendar,
   Zap,
   ArrowRight,
-  Clock,
-  PieChart,
   Award,
-  Target,
-  ChevronRight,
-  ShieldAlert,
   Loader2,
   XCircle
 } from 'lucide-react';
@@ -31,7 +24,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFirestore, useCollection } from '@/firebase';
-import { where, orderBy, onSnapshot, doc, limit } from 'firebase/firestore';
+import { where, orderBy } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { NotificationBell } from '@/components/NotificationBell';
@@ -77,7 +70,6 @@ const MetricCard = memo(function MetricCard({
 
 export default function DashboardPage() {
   const { user, userData, loading: authLoading } = useAuth();
-  const db = useFirestore();
   const { toast } = useToast();
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
 
@@ -115,10 +107,11 @@ export default function DashboardPage() {
 
   // 4. Live Prices for Open Trade P&L Calculation
   useEffect(() => {
+    let isMounted = true;
     const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
-        if (res.ok) {
+        if (res.ok && isMounted) {
           const data = await res.json();
           setLivePrices(data);
         }
@@ -126,7 +119,10 @@ export default function DashboardPage() {
     };
     fetchPrices();
     const interval = setInterval(fetchPrices, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // 5. Compute Stats from Closed History
@@ -172,7 +168,15 @@ export default function DashboardPage() {
     }
   };
 
-  if (authLoading) return null;
+  // Proper loading state to prevent blank screen
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Syncing Terminal Node...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -205,7 +209,7 @@ export default function DashboardPage() {
             ) : accounts.length === 0 ? (
               <Card className="col-span-full border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6">
                  <Terminal className="w-16 h-16 text-muted-foreground opacity-20" />
-                 <div className="max-sm">
+                 <div className="max-w-sm">
                    <h3 className="text-xl font-bold text-white mb-2">No active challenges</h3>
                    <p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p>
                  </div>
@@ -389,26 +393,29 @@ export default function DashboardPage() {
                     ) : closedTrades.length === 0 ? (
                       <tr><td colSpan={7} className="py-20 text-center text-muted-foreground italic text-sm">No historical records found.</td></tr>
                     ) : (
-                      closedTrades.slice(0, 50).map((t: any) => (
-                        <tr key={t.id} className="hover:bg-primary/5 transition-colors">
-                          <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
-                          <td className="py-4 px-4">
-                            <Badge variant="outline" className={cn(
-                              "text-[9px] font-black uppercase",
-                              t.type === 'buy' ? 'text-emerald-500 border-emerald-500/30' : 'text-destructive border-destructive/30'
-                            )}>{t.type}</Badge>
-                          </td>
-                          <td className="py-4 px-4 font-mono text-zinc-400">{t.lots}</td>
-                          <td className="py-4 px-4 font-mono text-xs text-muted-foreground">${t.openPrice.toLocaleString()}</td>
-                          <td className="py-4 px-4 font-mono text-xs text-white">${t.closePrice?.toLocaleString()}</td>
-                          <td className="py-4 px-4 text-xs text-muted-foreground">
-                             {t.closedAt ? format(getTradeDate(t.closedAt)!, 'MMM d, HH:mm') : '—'}
-                          </td>
-                          <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                            {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      ))
+                      closedTrades.slice(0, 50).map((t: any) => {
+                        const closedDate = getTradeDate(t.closedAt);
+                        return (
+                          <tr key={t.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
+                            <td className="py-4 px-4">
+                              <Badge variant="outline" className={cn(
+                                "text-[9px] font-black uppercase",
+                                t.type === 'buy' ? 'text-emerald-500 border-emerald-500/30' : 'text-destructive border-destructive/30'
+                              )}>{t.type}</Badge>
+                            </td>
+                            <td className="py-4 px-4 font-mono text-zinc-400">{t.lots}</td>
+                            <td className="py-4 px-4 font-mono text-xs text-muted-foreground">${t.openPrice.toLocaleString()}</td>
+                            <td className="py-4 px-4 font-mono text-xs text-white">${t.closePrice?.toLocaleString()}</td>
+                            <td className="py-4 px-4 text-xs text-muted-foreground">
+                               {closedDate && isValid(closedDate) ? format(closedDate, 'MMM d, HH:mm') : '—'}
+                            </td>
+                            <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                              {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
