@@ -168,14 +168,16 @@ export default function DemoPage() {
 
   // 3. Load Data & Calculate Indicators
   useEffect(() => {
-    if (!candleSeriesRef.current) return;
+    if (!candleSeriesRef.current || !chartInstanceRef.current) return;
     currentCandleRef.current = null;
+    
     const load = async () => {
       setIsChartLoading(true);
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
-        if (!res.ok) return;
+        if (!res.ok) throw new Error('Fetch failed');
         const candles = await res.json();
+        
         if (Array.isArray(candles) && candles.length > 0) {
           candleSeriesRef.current?.setData(candles);
           
@@ -250,7 +252,7 @@ export default function DemoPage() {
     } as any);
   }, [livePrices, selectedSymbol, selectedInterval]);
 
-  // Firestore Listeners - Hardened guards
+  // Firestore Listeners
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -292,7 +294,7 @@ export default function DemoPage() {
       const priceData = livePrices[trade.symbol];
       if (priceData) {
         const cp = trade.type === 'buy' ? priceData.bid : priceData.ask;
-        const contractSize = trade.symbol === 'XAUUSD' ? 100 : trade.symbol === 'BTCUSD' ? 1 : trade.symbol === 'ETHUSD' ? 1 : 100000;
+        const contractSize = trade.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol) ? 1 : 100000;
         floating += trade.type === 'buy' 
           ? (cp - trade.openPrice) * contractSize * trade.lots
           : (trade.openPrice - cp) * contractSize * trade.lots;
@@ -300,6 +302,33 @@ export default function DemoPage() {
     });
     return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
   }, [currentAccount, openTrades, livePrices]);
+
+  // Order Panel Metrics Fix
+  const contractSize = useMemo(() => {
+    const crypto = ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'];
+    if (crypto.includes(selectedSymbol)) return 1;
+    if (selectedSymbol === 'XAUUSD') return 100;
+    return 100000;
+  }, [selectedSymbol]);
+
+  const spread = useMemo(() => {
+    if (!currentPriceData) return 0;
+    return Math.max(0, currentPriceData.ask - currentPriceData.bid);
+  }, [currentPriceData]);
+
+  const spreadCost = useMemo(() => {
+    return spread * lots * contractSize;
+  }, [spread, lots, contractSize]);
+
+  const marginRequired = useMemo(() => {
+    const price = currentPriceData?.price || 0;
+    return (lots * contractSize * price) / 100;
+  }, [lots, contractSize, currentPriceData]);
+
+  const lotValue = useMemo(() => {
+    const price = currentPriceData?.price || 0;
+    return lots * contractSize * price;
+  }, [lots, contractSize, currentPriceData]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId || !currentPriceData) {
@@ -352,11 +381,6 @@ export default function DemoPage() {
     }
   }
 
-  const spread = useMemo(() => {
-    if (!currentPriceData) return 0;
-    return Math.abs(currentPriceData.ask - currentPriceData.bid);
-  }, [currentPriceData]);
-
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
       {/* 1. TOP BAR */}
@@ -407,7 +431,7 @@ export default function DemoPage() {
       </header>
 
       <div className="flex-1 flex min-h-0 relative">
-        {/* 2. LEFT TOOLBAR (VERTICAL) */}
+        {/* 2. LEFT TOOLBAR */}
         <aside className="w-12 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-4 gap-4 shrink-0">
           <ToolIcon icon={<MousePointer2 />} active />
           <ToolIcon icon={<LayoutGrid />} />
@@ -423,7 +447,6 @@ export default function DemoPage() {
           </div>
         </aside>
 
-        {/* 3. MAIN AREA (SYMBOL BAR + CHART + BOTTOM PANEL) */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
           {/* SYMBOL BAR */}
           <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
@@ -497,17 +520,15 @@ export default function DemoPage() {
               </div>
             )}
             <div ref={chartContainerRef} className="h-full w-full relative" style={{ position: 'relative' }}>
-              {/* Security Overlay to block TradingView links */}
               <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10" />
             </div>
           </div>
           
-          {/* BOTTOM PANEL (EXECUTION LEDGER) */}
+          {/* BOTTOM PANEL */}
           <Tabs value={activeBottomTab} onValueChange={setActiveBottomTab} className="h-[280px] border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
              <div className="px-4 h-10 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50">
                 <TabsList className="bg-transparent h-full p-0 gap-6">
                   <TabsTrigger value="positions" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Open Positions ({openTrades.length})</TabsTrigger>
-                  <TabsTrigger value="pending" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Pending Orders (0)</TabsTrigger>
                   <TabsTrigger value="history" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Trade History</TabsTrigger>
                   <TabsTrigger value="account" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Account Info</TabsTrigger>
                 </TabsList>
@@ -543,18 +564,17 @@ export default function DemoPage() {
                     </thead>
                     <tbody className="divide-y divide-zinc-900">
                       {openTrades.length === 0 ? (
-                        <tr><td colSpan={8} className="py-20 text-center italic text-zinc-600">No active positions. Open the Order Panel to execute.</td></tr>
+                        <tr><td colSpan={8} className="py-20 text-center italic text-zinc-600">No active positions.</td></tr>
                       ) : openTrades.map((t) => {
                         const priceData = livePrices[t.symbol];
                         let pnl = 0;
                         if (priceData) {
                            const cp = t.type === 'buy' ? priceData.bid : priceData.ask;
-                           const contractSize = t.symbol === 'XAUUSD' ? 100 : t.symbol === 'BTCUSD' ? 1 : t.symbol === 'ETHUSD' ? 1 : 100000;
+                           const contractSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
                            pnl = t.type === 'buy' 
                              ? (cp - t.openPrice) * contractSize * t.lots
                              : (t.openPrice - cp) * contractSize * t.lots;
                         }
-
                         return (
                           <tr key={t.id} className="hover:bg-white/5 group transition-colors">
                             <td className="py-2 px-4 font-bold text-white">{t.symbol}</td>
@@ -621,8 +641,8 @@ export default function DemoPage() {
                    <div className="grid grid-cols-5 gap-8">
                       <AccountMetric label="Balance" value={`$${currentAccount?.balance?.toLocaleString()}`} />
                       <AccountMetric label="Equity" value={`$${metrics.equity.toLocaleString()}`} />
-                      <AccountMetric label="Margin" value="$0.00" />
-                      <AccountMetric label="Free Margin" value={`$${metrics.equity.toLocaleString()}`} />
+                      <AccountMetric label="Margin" value={`$${marginRequired.toLocaleString()}`} />
+                      <AccountMetric label="Free Margin" value={`$${(metrics.equity - marginRequired).toLocaleString()}`} />
                       <AccountMetric label="Margin Level" value="100.00%" />
                    </div>
                 </TabsContent>
@@ -630,7 +650,7 @@ export default function DemoPage() {
           </Tabs>
         </div>
 
-        {/* 4. ORDER PANEL (RIGHT SIDE) */}
+        {/* 4. ORDER PANEL */}
         <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
              <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">
@@ -643,7 +663,7 @@ export default function DemoPage() {
               <div className="flex flex-col gap-2">
                  <div className="flex justify-between items-center">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Order Volume (Lots)</Label>
-                    <span className="text-[9px] font-bold text-primary">Max: 10.00</span>
+                    <span className="text-[9px] font-bold text-primary">Institutional Limits</span>
                  </div>
                  <div className="flex items-center gap-2">
                     <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center rounded-lg border border-zinc-800 transition-colors"><Minus className="w-4 h-4" /></button>
@@ -662,29 +682,17 @@ export default function DemoPage() {
               <div className="grid grid-cols-2 gap-4">
                  <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Stop Loss</Label>
-                    <Input 
-                      placeholder="0.00000"
-                      value={sl}
-                      onChange={(e) => setSl(e.target.value)}
-                      className="h-11 bg-zinc-900/50 border-zinc-800 font-mono text-center text-sm"
-                    />
+                    <Input placeholder="0.00000" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50 border-zinc-800 font-mono text-center text-sm" />
                  </div>
                  <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Take Profit</Label>
-                    <Input 
-                      placeholder="0.00000"
-                      value={tp}
-                      onChange={(e) => setTp(e.target.value)}
-                      className="h-11 bg-zinc-900/50 border-zinc-800 font-mono text-center text-sm"
-                    />
+                    <Input placeholder="0.00000" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50 border-zinc-800 font-mono text-center text-sm" />
                  </div>
               </div>
 
-              <div className="h-px bg-zinc-900" />
-
               <div className="space-y-4">
                 <Button 
-                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 group transition-all active:scale-95"
+                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
                   onClick={() => placeTrade("buy")}
                   disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                 >
@@ -693,7 +701,7 @@ export default function DemoPage() {
                 </Button>
 
                 <Button 
-                  className="w-full h-16 bg-red-600 hover:bg-red-700 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 group transition-all active:scale-95"
+                  className="w-full h-16 bg-red-600 hover:bg-red-700 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
                   onClick={() => placeTrade("sell")}
                   disabled={actionLoading || !currentAccount || currentAccount.status !== 'active' || !currentPriceData}
                 >
@@ -705,15 +713,15 @@ export default function DemoPage() {
               <div className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 space-y-3">
                  <div className="flex justify-between items-center text-[10px] font-bold">
                     <span className="text-zinc-500 uppercase">Margin Required</span>
-                    <span className="text-white">$0.00</span>
+                    <span className="text-white">${marginRequired.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                  </div>
                  <div className="flex justify-between items-center text-[10px] font-bold">
                     <span className="text-zinc-500 uppercase">Spread Cost</span>
-                    <span className="text-white">~ ${((spread || 0) * lots * (selectedSymbol === 'XAUUSD' ? 100 : 100000)).toFixed(2)}</span>
+                    <span className="text-white">${spreadCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                  </div>
                  <div className="flex justify-between items-center text-[10px] font-bold">
                     <span className="text-zinc-500 uppercase">Lot Value</span>
-                    <span className="text-white">${((currentPriceData?.price || 0) * lots * (selectedSymbol === 'XAUUSD' ? 100 : 1)).toLocaleString()}</span>
+                    <span className="text-white">${lotValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                  </div>
               </div>
            </div>
@@ -721,11 +729,7 @@ export default function DemoPage() {
            <div className="mt-auto space-y-4">
               <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/10 rounded-lg">
                  <Zap className="w-3.5 h-3.5 text-primary" />
-                 <p className="text-[10px] text-primary/80 font-bold leading-tight">One-click execution enabled for institutional speed.</p>
-              </div>
-              <div className="flex items-center justify-between text-[9px] font-black uppercase text-zinc-600 tracking-tighter">
-                 <span>Feed: Binance + Frankfurter</span>
-                 <span>Free forever, MIT license</span>
+                 <p className="text-[10px] text-primary/80 font-bold leading-tight">Institutional execution enabled. Leverage: 1:100</p>
               </div>
            </div>
         </aside>
