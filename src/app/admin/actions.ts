@@ -12,16 +12,15 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
+    
+    // Check master password cookie (set by 5-click login)
+    const masterToken = cookieStore.get('admin_master')?.value;
+    if (masterToken === '93463962569392846256') return true;
+    
+    // Fallback: check Firebase session cookie
     const token = cookieStore.get('session')?.value;
-    
-    // If no session cookie is found, fallback to check if we are in development 
-    // or if the user is authenticated via other means. 
-    // In production, we strictly require the session cookie for server actions.
     if (!token) return false;
-    
     const decoded = await adminAuth.verifySessionCookie(token, true);
-    
-    // Check if the identity in the session cookie is authorized
     return !!(decoded.email && ADMIN_EMAILS.includes(decoded.email));
   } catch (error) {
     console.error('[AdminAuth] Verification failed:', error);

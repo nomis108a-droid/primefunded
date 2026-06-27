@@ -105,6 +105,7 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       setShowAdminModal(false);
       localStorage.setItem('adminVerified', 'true');
+      document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       toast({ title: "Admin Access Granted" });
     } else {
       setAdminError("❌ Access Denied");
