@@ -21,7 +21,8 @@ import {
   Users,
   ArrowRight,
   Activity,
-  ShieldAlert
+  ShieldAlert,
+  TrendingUp
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -31,7 +32,7 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Demo Terminal', href: '/demo', icon: Activity },
+  { name: 'Trade', href: '/demo', icon: TrendingUp },
   { name: 'Challenges', href: '/challenges', icon: Trophy },
   { name: 'Referral', href: '/referral', icon: Users },
   { name: 'Giveaway', href: '/giveaway', icon: Gift },
