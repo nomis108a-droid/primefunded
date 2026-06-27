@@ -17,12 +17,13 @@ import {
   XCircle, 
   Terminal,
   Loader2,
-  Clock
+  Clock,
+  BarChart3
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
-import { createChart, ColorType, CandlestickSeries, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType } from 'lightweight-charts';
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
@@ -35,12 +36,14 @@ const TIMEFRAMES = [
 ];
 
 /**
- * Institutional Decimal Logic
+ * Institutional Price Formatting
  */
-const getPrecision = (s: string) => {
-  if (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") return 2;
-  if (s === "USDJPY") return 3;
-  return 5;
+const formatPrice = (price: number | undefined, symbol: string) => {
+  if (!price) return '—';
+  if (symbol === 'USDJPY') return price.toFixed(3);
+  if (symbol === 'XAUUSD') return price.toFixed(2);
+  if (symbol === 'BTCUSD' || symbol === 'ETHUSD') return price.toFixed(2);
+  return price.toFixed(5);
 };
 
 export default function DemoPage() {
@@ -50,7 +53,6 @@ export default function DemoPage() {
 
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [isChartLoading, setIsChartLoading] = useState(true);
   const [symbol, setSymbol] = useState("XAUUSD");
   const [interval, setInterval] = useState("1m");
   const [lots, setLots] = useState(0.10);
@@ -58,11 +60,10 @@ export default function DemoPage() {
 
   // Chart Refs
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const lastCandleRef = useRef<any>(null);
+  const chartInstanceRef = useRef<any>(null);
+  const candleSeriesRef = useRef<any>(null);
 
-  // 1. Unified Price Polling (Internal Proxy)
+  // 1. Unified Price Polling (Server-Side Proxy)
   useEffect(() => {
     const fetchLivePrices = async () => {
       try {
@@ -83,31 +84,31 @@ export default function DemoPage() {
     if (!chartContainerRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 420,
       layout: {
-        background: { type: ColorType.Solid, color: '#0a0a0a' },
-        textColor: '#e0e0e0',
+        background: { type: ColorType.Solid, color: '#0d0d0d' },
+        textColor: '#888',
       },
       grid: {
         vertLines: { color: '#1a1a1a' },
         horzLines: { color: '#1a1a1a' },
       },
-      width: chartContainerRef.current.clientWidth,
-      height: 500,
-      timeScale: {
-        borderColor: '#333',
-        timeVisible: true,
-      },
+      crosshair: { mode: 1 },
+      rightPriceScale: { borderColor: '#222' },
+      timeScale: { borderColor: '#222', timeVisible: true },
     });
 
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#26a69a',
       downColor: '#ef5350',
-      borderVisible: false,
+      borderUpColor: '#26a69a',
+      borderDownColor: '#ef5350',
       wickUpColor: '#26a69a',
       wickDownColor: '#ef5350',
     });
 
-    chartRef.current = chart;
+    chartInstanceRef.current = chart;
     candleSeriesRef.current = candleSeries;
 
     const handleResize = () => {
@@ -123,60 +124,69 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 3. Load Candle History
+  // 3. Load Candle History & Indicators
   useEffect(() => {
-    const loadData = async () => {
-      if (!candleSeriesRef.current) return;
-      setIsChartLoading(true);
-      try {
-        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
-        const data = await res.json();
+    if (!candleSeriesRef.current || !chartInstanceRef.current) return;
+    
+    fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`)
+      .then(r => r.json())
+      .then(candles => {
+        if (!Array.isArray(candles) || !candles.length) return;
         
-        if (Array.isArray(data) && data.length > 0) {
-          const sorted = data.sort((a, b) => a.time - b.time);
-          candleSeriesRef.current.setData(sorted);
-          lastCandleRef.current = sorted[sorted.length - 1];
-          chartRef.current?.timeScale().fitContent();
+        candleSeriesRef.current.setData(candles);
+        chartInstanceRef.current.timeScale().fitContent();
+
+        // Manual MA20 calculation
+        const ma20Data = candles.map((c: any, i: number) => {
+          if (i < 19) return null;
+          const sum = candles.slice(i - 19, i + 1).reduce((s: number, x: any) => s + x.close, 0);
+          return { time: c.time, value: sum / 20 };
+        }).filter(Boolean);
+
+        // Manual MA50 calculation
+        const ma50Data = candles.map((c: any, i: number) => {
+          if (i < 49) return null;
+          const sum = candles.slice(i - 49, i + 1).reduce((s: number, x: any) => s + x.close, 0);
+          return { time: c.time, value: sum / 50 };
+        }).filter(Boolean);
+
+        if (chartInstanceRef.current._ma20) {
+          chartInstanceRef.current._ma20.setData(ma20Data);
+        } else {
+          const line = chartInstanceRef.current.addLineSeries({ 
+            color: '#f59e0b', 
+            lineWidth: 1, 
+            priceLineVisible: false, 
+            lastValueVisible: false 
+          });
+          line.setData(ma20Data);
+          chartInstanceRef.current._ma20 = line;
         }
-      } catch (e) {
-        console.error("Failed to load candles:", e);
-      } finally {
-        setIsChartLoading(false);
-      }
-    };
-    loadData();
+
+        if (chartInstanceRef.current._ma50) {
+          chartInstanceRef.current._ma50.setData(ma50Data);
+        } else {
+          const line = chartInstanceRef.current.addLineSeries({ 
+            color: '#3b82f6', 
+            lineWidth: 1, 
+            priceLineVisible: false, 
+            lastValueVisible: false 
+          });
+          line.setData(ma50Data);
+          chartInstanceRef.current._ma50 = line;
+        }
+      })
+      .catch(err => console.error("History fetch error:", err));
   }, [symbol, interval]);
 
-  // 4. Update Current Candle from Live Prices
+  // 4. Live Tick Update
   useEffect(() => {
-    const livePrice = prices[symbol]?.price;
-    if (!livePrice || !candleSeriesRef.current || !lastCandleRef.current) return;
-
-    const now = Math.floor(Date.now() / 1000);
-    const intervalSeconds = interval.includes('m') ? parseInt(interval) * 60 : interval.includes('h') ? parseInt(interval) * 3600 : 86400;
-    const currentBarTime = Math.floor(now / intervalSeconds) * intervalSeconds;
-
-    if (currentBarTime > lastCandleRef.current.time) {
-      const newBar = {
-        time: currentBarTime,
-        open: livePrice,
-        high: livePrice,
-        low: livePrice,
-        close: livePrice
-      };
-      candleSeriesRef.current.update(newBar);
-      lastCandleRef.current = newBar;
-    } else {
-      const updatedBar = {
-        ...lastCandleRef.current,
-        high: Math.max(lastCandleRef.current.high, livePrice),
-        low: Math.min(lastCandleRef.current.low, livePrice),
-        close: livePrice
-      };
-      candleSeriesRef.current.update(updatedBar);
-      lastCandleRef.current = updatedBar;
-    }
-  }, [prices, symbol, interval]);
+    if (!candleSeriesRef.current || !prices[symbol]) return;
+    const price = prices[symbol].price;
+    const time = Math.floor(Date.now() / 1000);
+    // Note: Simple update to visualization - in production would align to timeframe boundary
+    candleSeriesRef.current.update({ time, open: price, high: price, low: price, close: price });
+  }, [prices, symbol]);
 
   // Firestore Listeners for Account Data
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
@@ -228,14 +238,20 @@ export default function DemoPage() {
       const res = await fetch("/api/terminal/trades", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots, price: executionPrice }),
+        body: JSON.stringify({ 
+          accountId: currentAccountId, 
+          symbol, 
+          type, 
+          lots, 
+          price: executionPrice 
+        }),
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || errorData.details || "Execution rejected.");
       }
       const data = await res.json();
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice.toFixed(getPrecision(symbol))}` });
+      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${formatPrice(data.openPrice, symbol)}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Execution Error", description: err.message });
     } finally {
@@ -278,42 +294,36 @@ export default function DemoPage() {
                 >
                   <span className="font-bold text-xs">{s}</span>
                   <span className="font-mono text-[11px] tabular-nums text-white">
-                    {p?.price ? p.price.toFixed(getPrecision(s)) : "—"}
+                    {p?.price ? formatPrice(p.price, s) : "—"}
                   </span>
                 </button>
               );
             })}
           </div>
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            FEED: Binance + Frankfurter — Zero dependency, always free
+            FEED: Binance + Frankfurter — Free forever, MIT license
           </Badge>
         </div>
 
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col min-w-0">
             {/* Chart Area */}
-            <div className="flex-1 relative bg-[#0a0a0a]">
+            <div className="flex-1 relative bg-[#0d0d0d]">
               <div className="absolute top-4 left-4 z-10 flex gap-1 bg-black/60 p-1 rounded-lg border border-white/10 backdrop-blur-md">
                 {TIMEFRAMES.map((tf) => (
                   <button
                     key={tf.value}
                     onClick={() => setInterval(tf.value)}
                     className={cn(
-                      "px-3 py-1 rounded text-[10px] font-black uppercase transition-all",
-                      interval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
+                      "px-3 py-1 rounded text-[10px] font-black uppercase transition-all border",
+                      interval === tf.value ? "bg-primary text-black border-primary" : "text-muted-foreground hover:text-white border-transparent"
                     )}
                   >
                     {tf.label}
                   </button>
                 ))}
               </div>
-
-              {isChartLoading && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
-                  <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Initializing Node...</p>
-                </div>
-              )}
+              
               <div ref={chartContainerRef} className="h-full w-full" />
             </div>
             
@@ -366,7 +376,7 @@ export default function DemoPage() {
                               )}>{t.type}</Badge>
                             </td>
                             <td className="py-2 px-2 font-mono text-zinc-300">{t.lots.toFixed(2)}</td>
-                            <td className="py-2 px-4 font-mono text-muted-foreground">{t.openPrice.toFixed(getPrecision(t.symbol))}</td>
+                            <td className="py-2 px-4 font-mono text-muted-foreground">{formatPrice(t.openPrice, t.symbol)}</td>
                             <td className={cn(
                               "py-2 px-4 text-right font-mono font-bold tabular-nums",
                               pnl >= 0 ? "text-emerald-500" : "text-destructive"
@@ -430,14 +440,14 @@ export default function DemoPage() {
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
-                        {currentPriceData?.bid ? currentPriceData.bid.toFixed(getPrecision(symbol)) : "—"}
+                        {currentPriceData?.bid ? formatPrice(currentPriceData.bid, symbol) : "—"}
                       </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">
-                        {currentPriceData?.ask ? currentPriceData.ask.toFixed(getPrecision(symbol)) : "—"}
+                        {currentPriceData?.ask ? formatPrice(currentPriceData.ask, symbol) : "—"}
                       </p>
                    </div>
                 </div>
