@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -40,7 +41,9 @@ export async function POST(req: NextRequest) {
     if (!accSnap.exists) return NextResponse.json({ error: "Account not found" }, { status: 404 });
     const account = accSnap.data()!;
     if (account.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    if (account.status !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
+    
+    // Case-insensitive status check
+    if (account.status?.toLowerCase() !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
 
     // LOT SIZE VALIDATION (ANTI-CHEAT)
     const plan = account.plan || '10k';

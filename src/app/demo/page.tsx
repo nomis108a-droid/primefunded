@@ -437,6 +437,8 @@ export default function DemoPage() {
 
   if (!user) return null;
 
+  const isAccountActive = currentAccount?.status?.toLowerCase() === 'active';
+
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950 shrink-0 z-50">
@@ -459,7 +461,7 @@ export default function DemoPage() {
               </div>
               <Badge className={cn(
                 "text-[10px] font-black uppercase h-5 px-3 border-none",
-                currentAccount.status === 'active' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                isAccountActive ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
               )}>{currentAccount.status}</Badge>
             </div>
           )}
@@ -757,27 +759,29 @@ export default function DemoPage() {
                 ) : (
                   <>
                     <button 
+                      type="button"
                       className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
                       onClick={() => placeTrade("buy")}
-                      disabled={actionLoading || currentAccount.status !== 'active' || !currentPriceData}
+                      disabled={actionLoading || !isAccountActive || !currentPriceData}
                     >
                       <span className="font-black text-sm tracking-widest">
-                        {!currentPriceData ? "PRICING OFFLINE" : currentAccount.status !== 'active' ? "ACCOUNT LOCKED" : "BUY BY MARKET"}
+                        {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : !isAccountActive ? "ACCOUNT LOCKED" : "BUY BY MARKET"}
                       </span>
-                      {currentPriceData && currentAccount.status === 'active' && (
+                      {currentPriceData && isAccountActive && !actionLoading && (
                         <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.ask, selectedSymbol)}</span>
                       )}
                     </button>
 
                     <button 
+                      type="button"
                       className="w-full h-16 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
                       onClick={() => placeTrade("sell")}
-                      disabled={actionLoading || currentAccount.status !== 'active' || !currentPriceData}
+                      disabled={actionLoading || !isAccountActive || !currentPriceData}
                     >
                       <span className="font-black text-sm tracking-widest">
-                        {!currentPriceData ? "PRICING OFFLINE" : currentAccount.status !== 'active' ? "ACCOUNT LOCKED" : "SELL BY MARKET"}
+                        {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : !isAccountActive ? "ACCOUNT LOCKED" : "SELL BY MARKET"}
                       </span>
-                      {currentPriceData && currentAccount.status === 'active' && (
+                      {currentPriceData && isAccountActive && !actionLoading && (
                         <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.bid, selectedSymbol)}</span>
                       )}
                     </button>
