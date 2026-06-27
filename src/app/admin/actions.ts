@@ -3,21 +3,28 @@
 import { cookies } from 'next/headers';
 import { adminAuth, adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { ADMIN_EMAILS } from '@/lib/admin';
 
 /**
- * SECURITY HELPER: Verify Admin custom claims via session cookie
+ * SECURITY HELPER: Verify Admin credentials
+ * Checks for a valid session cookie and ensures the user's email is in the authorized ADMIN_EMAILS list.
  */
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get('session')?.value;
+    
+    // If no session cookie is found, fallback to check if we are in development 
+    // or if the user is authenticated via other means. 
+    // In production, we strictly require the session cookie for server actions.
     if (!token) return false;
     
     const decoded = await adminAuth.verifySessionCookie(token, true);
-    const user = await adminAuth.getUser(decoded.uid);
     
-    return user.customClaims?.admin === true;
+    // Check if the identity in the session cookie is authorized
+    return !!(decoded.email && ADMIN_EMAILS.includes(decoded.email));
   } catch (error) {
+    console.error('[AdminAuth] Verification failed:', error);
     return false;
   }
 }
