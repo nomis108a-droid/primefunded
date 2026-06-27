@@ -41,7 +41,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where, orderBy, limit, doc, onSnapshot } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, ISeriesApi as Series } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
@@ -100,6 +100,7 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const currentCandleRef = useRef<{time:number, open:number, high:number, low:number, close:number} | null>(null);
+  const indicatorSeriesRef = useRef<any[]>([]);
 
   useEffect(() => {
     const fetchPrices = async () => {
@@ -170,7 +171,18 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!candleSeriesRef.current || !chartInstanceRef.current) return;
+    
+    // Reset state for new symbol/timeframe
     currentCandleRef.current = null;
+    candleSeriesRef.current.setData([]);
+    
+    // Clear old indicator series to fix Y-axis scaling conflicts
+    indicatorSeriesRef.current.forEach(s => {
+      try {
+        chartInstanceRef.current?.removeSeries(s);
+      } catch (e) {}
+    });
+    indicatorSeriesRef.current = [];
     
     const load = async () => {
       setIsChartLoading(true);
@@ -187,6 +199,7 @@ export default function DemoPage() {
           
           const closes = candles.map((c: any) => c.close);
 
+          // Indicator Management
           if (indicators.ma20) {
             const ma20Data = candles.map((c: any, i: number) => {
               if (i < 19) return null;
@@ -194,7 +207,10 @@ export default function DemoPage() {
               return { time: c.time, value: avg };
             }).filter(Boolean);
             const line = chartInstanceRef.current?.addLineSeries({ color: '#eab308', lineWidth: 1, priceLineVisible: false });
-            line?.setData(ma20Data as any);
+            if (line) {
+              line.setData(ma20Data as any);
+              indicatorSeriesRef.current.push(line);
+            }
           }
 
           if (indicators.ma50) {
@@ -204,15 +220,21 @@ export default function DemoPage() {
               return { time: c.time, value: avg };
             }).filter(Boolean);
             const line = chartInstanceRef.current?.addLineSeries({ color: '#3b82f6', lineWidth: 1, priceLineVisible: false });
-            line?.setData(ma50Data as any);
+            if (line) {
+              line.setData(ma50Data as any);
+              indicatorSeriesRef.current.push(line);
+            }
           }
 
           if (indicators.bb) {
             const bb = BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
             const bbUpper = chartInstanceRef.current?.addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, priceLineVisible: false });
             const bbLower = chartInstanceRef.current?.addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, priceLineVisible: false });
-            bbUpper?.setData(bb.map((b, i) => ({ time: candles[i + 19].time, value: b.upper })));
-            bbLower?.setData(bb.map((b, i) => ({ time: candles[i + 19].time, value: b.lower })));
+            if (bbUpper && bbLower) {
+              bbUpper.setData(bb.map((b, i) => ({ time: candles[i + 19].time, value: b.upper })));
+              bbLower.setData(bb.map((b, i) => ({ time: candles[i + 19].time, value: b.lower })));
+              indicatorSeriesRef.current.push(bbUpper, bbLower);
+            }
           }
 
           chartInstanceRef.current?.timeScale().fitContent();
@@ -499,8 +521,8 @@ export default function DemoPage() {
                 <ChevronDown className="w-3 h-3 text-zinc-500" />
               </button>
               <button 
-                onClick={() => setIndicators(prev => ({...prev, rsi: !prev.rsi}))}
-                className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all", indicators.rsi ? "bg-primary/10 text-primary" : "hover:bg-zinc-800")}
+                onClick={() => setIndicators(prev => ({...prev, ma20: !prev.ma20}))}
+                className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all", indicators.ma20 ? "bg-primary/10 text-primary" : "hover:bg-zinc-800")}
               >
                 <Layers className="w-4 h-4" />
                 <span>Indicators</span>
