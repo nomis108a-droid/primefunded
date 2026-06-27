@@ -19,10 +19,10 @@ export default function AccountsPage() {
   const db = useFirestore();
   const { toast } = useToast();
 
-  const constraints = useMemo(() => [
-    where('userId', '==', user?.uid || '_none_'),
+  const constraints = useMemo(() => user?.uid ? [
+    where('userId', '==', user.uid),
     limit(20)
-  ], [user?.uid]);
+  ] : [], [user?.uid]);
 
   const { data: accounts, loading } = useCollection<any>(
     user ? 'mt5_accounts' : null,

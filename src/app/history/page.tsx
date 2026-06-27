@@ -47,11 +47,11 @@ export default function HistoryPage() {
     [orderBy('date', 'desc'), limit(500)]
   );
 
-  const accountConstraints = useMemo(() => [
-    where('userId', '==', user?.uid || '_none_'),
+  const accountConstraints = useMemo(() => user?.uid ? [
+    where('userId', '==', user.uid),
     orderBy('createdAt', 'desc'),
     limit(20)
-  ], [user?.uid]);
+  ] : [], [user?.uid]);
 
   const { data: accountHistory, loading: accountsLoading } = useCollection<any>(
     user ? 'mt5_accounts' : null,
