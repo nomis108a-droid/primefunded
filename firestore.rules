@@ -27,15 +27,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /mt5_accounts/{id} {
+    match /referrals/{id} {
       allow read: if request.auth != null && (
         resource.data.userId == request.auth.uid ||
-        request.auth.uid != null
+        resource.data.referrerId == request.auth.uid ||
+        resource.data.referredUserId == request.auth.uid
       );
       allow write: if false;
     }
 
-    match /mt5_trades/{id} {
+    match /payouts/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow write: if false;
     }
@@ -45,13 +46,33 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /payouts/{id} {
+    match /breaches/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow write: if false;
     }
 
-    match /breaches/{id} {
+    match /certificates/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /notifications/{id} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /mt5_accounts/{id} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /mt5_trades/{id} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /referralCodes/{code} {
+      allow read: if true;
       allow write: if false;
     }
 
@@ -64,21 +85,6 @@ service cloud.firestore {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if request.auth != null && request.auth.uid == userId;
       }
-    }
-
-    match /notifications/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow write: if false;
-    }
-
-    // Support for referral system
-    match /referrals/{id} {
-      allow read: if request.auth != null && (resource.data.referrerId == request.auth.uid || resource.data.referredUserId == request.auth.uid);
-      allow write: if false;
-    }
-    match /referralCodes/{code} {
-      allow read: if true;
-      allow write: if false;
     }
   }
 }
