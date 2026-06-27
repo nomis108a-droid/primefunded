@@ -26,7 +26,7 @@ export function useCollection<T = DocumentData>(
   const [error, setError] = useState<Error | null>(null);
 
   // Security collections that MUST have a where("userId", "==", ...) filter
-  const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders"];
+  const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "mt5_accounts", "mt5_trades"];
 
   useEffect(() => {
     // Rule B Guard: Do not execute if path is null or db is not initialized

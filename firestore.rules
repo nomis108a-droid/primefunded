@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Publicly readable market data
     match /livePrices/{symbol} {
       allow read: if true;
       allow write: if false;
@@ -18,7 +17,6 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // User-specific Demo Data
     match /demoAccounts/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow write: if false;
@@ -29,9 +27,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // User-specific Institutional Data
     match /mt5_accounts/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && (
+        resource.data.userId == request.auth.uid ||
+        request.auth.uid != null
+      );
       allow write: if false;
     }
 
@@ -39,35 +39,39 @@ service cloud.firestore {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow write: if false;
     }
-    
-    // Main User Profiles and sub-collections
-    match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow create: if request.auth != null;
-      allow update: if request.auth != null && request.auth.uid == userId;
-      
-      match /notifications/{id} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-      
-      match /trades/{id} {
-        allow read: if request.auth != null && request.auth.uid == userId;
-      }
-    }
 
-    // General app collections with auth checks
-    match /payouts/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow write: if false;
-    }
     match /orders/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow write: if false;
     }
+
+    match /payouts/{id} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
     match /breaches/{id} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
       allow write: if false;
     }
+
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == userId;
+
+      match /{subcollection=**} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    match /notifications/{id} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Support for referral system
     match /referrals/{id} {
       allow read: if request.auth != null && (resource.data.referrerId == request.auth.uid || resource.data.referredUserId == request.auth.uid);
       allow write: if false;
