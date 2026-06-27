@@ -8,7 +8,16 @@ jobs:
   check-risk:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Risk Engine
+      - name: Trigger Risk Engine (T+0s)
+        run: |
+          curl -s -X GET \
+            -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
+            https://primefunded.fund/api/terminal/trades/check-sl-tp
+      
+      - name: Wait 30s
+        run: sleep 30
+
+      - name: Trigger Risk Engine (T+30s)
         run: |
           curl -s -X GET \
             -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
