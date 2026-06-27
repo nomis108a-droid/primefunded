@@ -65,17 +65,20 @@ export default function DemoPage() {
 
   // 1. Unified Price Polling (Server-Side Proxy)
   useEffect(() => {
-    const fetchLivePrices = async () => {
+    const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
+        if (!res.ok) return;
         const data = await res.json();
-        if (data && !data.error) setPrices(data);
-      } catch (e) {
-        console.warn(`[Price-Feed] Polling failed:`, e);
+        if (data && typeof data === 'object' && !data.error) {
+          setPrices(data);
+        }
+      } catch (e: any) {
+        console.warn('[Prices] fetch failed:', e.message);
       }
     };
-    fetchLivePrices();
-    const timer = window.setInterval(fetchLivePrices, 3000);
+    fetchPrices();
+    const timer = window.setInterval(fetchPrices, 3000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -112,8 +115,8 @@ export default function DemoPage() {
     candleSeriesRef.current = candleSeries;
 
     const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      if (chartContainerRef.current && chartInstanceRef.current) {
+        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
     window.addEventListener('resize', handleResize);
@@ -126,15 +129,17 @@ export default function DemoPage() {
 
   // 3. Load Candle History & Indicators
   useEffect(() => {
-    if (!candleSeriesRef.current || !chartInstanceRef.current) return;
+    if (!candleSeriesRef.current) return;
     
-    fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`)
-      .then(r => r.json())
-      .then(candles => {
-        if (!Array.isArray(candles) || !candles.length) return;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
+        if (!res.ok) return;
+        const candles = await res.json();
+        if (!Array.isArray(candles) || candles.length === 0) return;
         
         candleSeriesRef.current.setData(candles);
-        chartInstanceRef.current.timeScale().fitContent();
+        chartInstanceRef.current?.timeScale().fitContent();
 
         // Manual MA20 calculation
         const ma20Data = candles.map((c: any, i: number) => {
@@ -150,33 +155,38 @@ export default function DemoPage() {
           return { time: c.time, value: sum / 50 };
         }).filter(Boolean);
 
-        if (chartInstanceRef.current._ma20) {
-          chartInstanceRef.current._ma20.setData(ma20Data);
-        } else {
-          const line = chartInstanceRef.current.addLineSeries({ 
-            color: '#f59e0b', 
-            lineWidth: 1, 
-            priceLineVisible: false, 
-            lastValueVisible: false 
-          });
-          line.setData(ma20Data);
-          chartInstanceRef.current._ma20 = line;
-        }
+        if (chartInstanceRef.current) {
+          if (chartInstanceRef.current._ma20) {
+            chartInstanceRef.current._ma20.setData(ma20Data);
+          } else {
+            const line = chartInstanceRef.current.addLineSeries({ 
+              color: '#f59e0b', 
+              lineWidth: 1, 
+              priceLineVisible: false, 
+              lastValueVisible: false 
+            });
+            line.setData(ma20Data);
+            chartInstanceRef.current._ma20 = line;
+          }
 
-        if (chartInstanceRef.current._ma50) {
-          chartInstanceRef.current._ma50.setData(ma50Data);
-        } else {
-          const line = chartInstanceRef.current.addLineSeries({ 
-            color: '#3b82f6', 
-            lineWidth: 1, 
-            priceLineVisible: false, 
-            lastValueVisible: false 
-          });
-          line.setData(ma50Data);
-          chartInstanceRef.current._ma50 = line;
+          if (chartInstanceRef.current._ma50) {
+            chartInstanceRef.current._ma50.setData(ma50Data);
+          } else {
+            const line = chartInstanceRef.current.addLineSeries({ 
+              color: '#3b82f6', 
+              lineWidth: 1, 
+              priceLineVisible: false, 
+              lastValueVisible: false 
+            });
+            line.setData(ma50Data);
+            chartInstanceRef.current._ma50 = line;
+          }
         }
-      })
-      .catch(err => console.error("History fetch error:", err));
+      } catch (e: any) {
+        console.warn('[Chart] Candles fetch failed, skipping:', e.message);
+      }
+    };
+    load();
   }, [symbol, interval]);
 
   // 4. Live Tick Update
@@ -184,7 +194,6 @@ export default function DemoPage() {
     if (!candleSeriesRef.current || !prices[symbol]) return;
     const price = prices[symbol].price;
     const time = Math.floor(Date.now() / 1000);
-    // Note: Simple update to visualization - in production would align to timeframe boundary
     candleSeriesRef.current.update({ time, open: price, high: price, low: price, close: price });
   }, [prices, symbol]);
 
