@@ -101,7 +101,6 @@ export default function DemoPage() {
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const currentCandleRef = useRef<{time:number, open:number, high:number, low:number, close:number} | null>(null);
 
-  // 1. Unified Price Polling
   useEffect(() => {
     const fetchPrices = async () => {
       try {
@@ -118,7 +117,6 @@ export default function DemoPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // 2. Initialize Charts
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -170,7 +168,6 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 3. Load Data & Calculate Indicators
   useEffect(() => {
     if (!candleSeriesRef.current || !chartInstanceRef.current) return;
     currentCandleRef.current = null;
@@ -229,7 +226,6 @@ export default function DemoPage() {
     load();
   }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50, indicators.bb]);
 
-  // 4. Live Tick Update (Corrected logic)
   useEffect(() => {
     if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
@@ -245,12 +241,10 @@ export default function DemoPage() {
     const cur = currentCandleRef.current;
 
     if (!cur || cur.time !== candleTime) {
-      // New candle period started
       const newCandle = { time: candleTime, open: price, high: price, low: price, close: price };
       currentCandleRef.current = newCandle;
       candleSeriesRef.current.update(newCandle as any);
     } else {
-      // Update existing candle
       cur.high = Math.max(cur.high, price);
       cur.low = Math.min(cur.low, price);
       cur.close = price;
@@ -264,7 +258,6 @@ export default function DemoPage() {
     }
   }, [livePrices, selectedSymbol, selectedInterval]);
 
-  // Firestore Listeners with strict guards
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -315,7 +308,6 @@ export default function DemoPage() {
     return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
   }, [currentAccount, openTrades, livePrices]);
 
-  // Institutional Calculations
   const contractSize = useMemo(() => {
     const crypto = ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'];
     if (crypto.includes(selectedSymbol)) return 1;
@@ -399,7 +391,6 @@ export default function DemoPage() {
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
-      {/* 1. TOP BAR */}
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
@@ -447,7 +438,6 @@ export default function DemoPage() {
       </header>
 
       <div className="flex-1 flex min-h-0 relative">
-        {/* 2. LEFT TOOLBAR */}
         <aside className="w-12 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-4 gap-4 shrink-0">
           <ToolIcon icon={<MousePointer2 />} active />
           <ToolIcon icon={<LayoutGrid />} />
@@ -464,7 +454,6 @@ export default function DemoPage() {
         </aside>
 
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
-          {/* SYMBOL BAR */}
           <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
             {SYMBOLS.map((s) => {
               const p = livePrices[s];
@@ -487,7 +476,6 @@ export default function DemoPage() {
             <button className="p-2 hover:bg-white/10 rounded-md ml-2"><Plus className="w-4 h-4 text-zinc-500" /></button>
           </div>
 
-          {/* CHART TOOLBAR */}
           <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950/30 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 bg-zinc-900/50 p-0.5 rounded-lg border border-zinc-800">
@@ -527,7 +515,6 @@ export default function DemoPage() {
             </div>
           </div>
 
-          {/* THE CHART PANEL */}
           <div className="flex-1 relative min-h-0 bg-[#09090b]">
             {isChartLoading && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
@@ -545,14 +532,11 @@ export default function DemoPage() {
 
             <div ref={chartContainerRef} className="h-full w-full relative" style={{ position: 'relative' }}>
               <div className="absolute inset-0 z-[5] pointer-events-none" />
-              {/* This overlay covers the TV attribution to prevent misclicks */}
               <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10 pointer-events-none" />
-              {/* Transparent click shield for TradingView watermark */}
               <div className="absolute bottom-2 left-2 w-20 h-6 bg-transparent z-20 pointer-events-auto" />
             </div>
           </div>
           
-          {/* BOTTOM PANEL */}
           <Tabs value={activeBottomTab} onValueChange={setActiveBottomTab} className="h-[280px] border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
              <div className="px-4 h-10 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50">
                 <TabsList className="bg-transparent h-full p-0 gap-6">
@@ -678,7 +662,6 @@ export default function DemoPage() {
           </Tabs>
         </div>
 
-        {/* 4. ORDER PANEL */}
         <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
              <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">

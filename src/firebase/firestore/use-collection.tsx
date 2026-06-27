@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import {
   collection,
   onSnapshot,
@@ -39,7 +39,6 @@ export function useCollection<T = DocumentData>(
       const collectionRef = collection(db, path);
       
       // Rule A Guard: Enforce mandatory filtering on sensitive collections
-      // This prevents permission-denied errors from broad collection scans
       if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
         console.warn(`[useCollection] Security Guard: Query on "${path}" blocked. Missing required filters.`);
         setLoading(false);
@@ -58,8 +57,9 @@ export function useCollection<T = DocumentData>(
           setError(null);
         },
         async (serverError: any) => {
-          console.error('[useCollection] Permission denied on path:', path, 'constraints:', constraints.length);
+          // FIXED: Do not log "Permission denied" blindly. Log the actual error.
           if (serverError.code === 'permission-denied') {
+            console.error(`[useCollection] Permission denied on path: ${path}. Ensure query filters match rules.`);
             const permissionError = new FirestorePermissionError({
               path: collectionRef.path,
               operation: 'list',
@@ -71,6 +71,8 @@ export function useCollection<T = DocumentData>(
             errorEmitter.emit('permission-error', permissionError);
             setError(permissionError);
           } else {
+            // This will now correctly log "The query requires an index" if that is the case
+            console.error(`[useCollection] Error on path: ${path} (${serverError.code}):`, serverError.message);
             setError(serverError);
           }
           setLoading(false);
@@ -83,7 +85,7 @@ export function useCollection<T = DocumentData>(
       setError(err);
       setLoading(false);
     }
-  }, [db, path, JSON.stringify(constraints)]); // Use stringified constraints for stability
+  }, [db, path, JSON.stringify(constraints)]);
 
   return { data, loading, error };
 }
