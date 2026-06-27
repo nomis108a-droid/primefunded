@@ -22,25 +22,27 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where } from "firebase/firestore";
-import { createChart, ColorType, CandlestickSeries, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
-  { label: '1M', value: '1m' },
-  { label: '5M', value: '5m' },
-  { label: '15M', value: '15m' },
+  { label: '1M', value: '1min' },
+  { label: '5M', value: '5min' },
+  { label: '15M', value: '15min' },
   { label: '1H', value: '1h' },
   { label: '4H', value: '4h' },
-  { label: '1D', value: '1d' },
+  { label: '1D', value: '1day' },
 ];
 
-/**
- * Institutional Decimal Logic
- */
 const getPrecision = (s: string) => {
-  if (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") return 2;
   if (s === "USDJPY") return 3;
+  if (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") return 2;
   return 5;
+};
+
+const formatPrice = (price: number | undefined, symbol: string) => {
+  if (!price) return '—';
+  return price.toFixed(getPrecision(symbol));
 };
 
 export default function DemoPage() {
@@ -51,52 +53,56 @@ export default function DemoPage() {
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
-  const [symbol, setSymbol] = useState("XAUUSD");
-  const [interval, setInterval] = useState("1m");
+  const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
+  const [selectedInterval, setSelectedInterval] = useState("1min");
   const [lots, setLots] = useState(0.10);
-  const [prices, setPrices] = useState<Record<string, any>>({});
+  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
 
-  // Chart Refs
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const chartInstanceRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const lastCandleRef = useRef<any>(null);
+  const currentCandleRef = useRef<{time:number, open:number, high:number, low:number} | null>(null);
 
-  // 1. Unified Price Polling (Internal Proxy)
+  // 1. Unified Price Polling
   useEffect(() => {
-    const fetchLivePrices = async () => {
+    const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
+        if (!res.ok) return;
         const data = await res.json();
-        if (data && !data.error) setPrices(data);
-      } catch (e) {
-        console.warn(`[Price-Feed] Polling failed:`, e);
+        if (data && typeof data === 'object' && !data.error) setLivePrices(data);
+      } catch (e: any) {
+        console.warn('[Prices] fetch failed:', e.message);
       }
     };
-    fetchLivePrices();
-    const timer = window.setInterval(fetchLivePrices, 3000);
+    fetchPrices();
+    const timer = window.setInterval(fetchPrices, 3000);
     return () => window.clearInterval(timer);
   }, []);
 
-  // 2. Initialize Chart Engine
+  // 2. Initialize Chart
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: '#0a0a0a' },
-        textColor: '#e0e0e0',
+        textColor: '#888',
       },
       grid: {
         vertLines: { color: '#1a1a1a' },
         horzLines: { color: '#1a1a1a' },
       },
       width: chartContainerRef.current.clientWidth,
-      height: 500,
+      height: 420,
       timeScale: {
-        borderColor: '#333',
+        borderColor: '#222',
         timeVisible: true,
       },
+      rightPriceScale: {
+        borderColor: '#222',
+      },
+      watermark: { visible: false }
     });
 
     const candleSeries = chart.addCandlestickSeries({
@@ -107,7 +113,7 @@ export default function DemoPage() {
       wickDownColor: '#ef5350',
     });
 
-    chartRef.current = chart;
+    chartInstanceRef.current = chart;
     candleSeriesRef.current = candleSeries;
 
     const handleResize = () => {
@@ -123,62 +129,60 @@ export default function DemoPage() {
     };
   }, []);
 
-  // 3. Load Candle History
+  // 3. Load Data
   useEffect(() => {
-    const loadData = async () => {
-      if (!candleSeriesRef.current) return;
+    if (!candleSeriesRef.current) return;
+    currentCandleRef.current = null;
+    const load = async () => {
       setIsChartLoading(true);
       try {
-        const res = await fetch(`/api/terminal/candles?symbol=${symbol}&interval=${interval}`);
-        const data = await res.json();
-        
-        if (Array.isArray(data) && data.length > 0) {
-          const sorted = data.sort((a, b) => a.time - b.time);
-          candleSeriesRef.current.setData(sorted);
-          lastCandleRef.current = sorted[sorted.length - 1];
-          chartRef.current?.timeScale().fitContent();
+        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
+        if (!res.ok) return;
+        const candles = await res.json();
+        if (Array.isArray(candles) && candles.length > 0) {
+          candleSeriesRef.current?.setData(candles);
+          chartInstanceRef.current?.timeScale().fitContent();
         }
-      } catch (e) {
-        console.error("Failed to load candles:", e);
+      } catch (e: any) {
+        console.warn('[Chart] Candles fetch failed:', e.message);
       } finally {
         setIsChartLoading(false);
       }
     };
-    loadData();
-  }, [symbol, interval]);
+    load();
+  }, [selectedSymbol, selectedInterval]);
 
-  // 4. Update Current Candle from Live Prices
+  // 4. Live Tick Update - Fixed Persistent Logic
   useEffect(() => {
-    const livePrice = prices[symbol]?.price;
-    if (!livePrice || !candleSeriesRef.current || !lastCandleRef.current) return;
+    if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
+    const price = livePrices[selectedSymbol].price;
+    if (!price || price <= 0) return;
 
-    const now = Math.floor(Date.now() / 1000);
-    const intervalSeconds = interval.includes('m') ? parseInt(interval) * 60 : interval.includes('h') ? parseInt(interval) * 3600 : 86400;
-    const currentBarTime = Math.floor(now / intervalSeconds) * intervalSeconds;
+    const intervalMap: Record<string, number> = {
+      '1min': 60, '5min': 300, '15min': 900, '1h': 3600, '4h': 14400, '1day': 86400
+    };
+    const secs = intervalMap[selectedInterval] || 300;
+    const candleTime = Math.floor(Math.floor(Date.now() / 1000) / secs) * secs;
+    const cur = currentCandleRef.current;
 
-    if (currentBarTime > lastCandleRef.current.time) {
-      const newBar = {
-        time: currentBarTime,
-        open: livePrice,
-        high: livePrice,
-        low: livePrice,
-        close: livePrice
-      };
-      candleSeriesRef.current.update(newBar);
-      lastCandleRef.current = newBar;
+    if (!cur || cur.time !== candleTime) {
+      currentCandleRef.current = { time: candleTime, open: price, high: price, low: price };
     } else {
-      const updatedBar = {
-        ...lastCandleRef.current,
-        high: Math.max(lastCandleRef.current.high, livePrice),
-        low: Math.min(lastCandleRef.current.low, livePrice),
-        close: livePrice
-      };
-      candleSeriesRef.current.update(updatedBar);
-      lastCandleRef.current = updatedBar;
+      cur.high = Math.max(cur.high, price);
+      cur.low = Math.min(cur.low, price);
     }
-  }, [prices, symbol, interval]);
+    
+    const c = currentCandleRef.current!;
+    candleSeriesRef.current.update({ 
+      time: candleTime, 
+      open: c.open, 
+      high: c.high, 
+      low: c.low, 
+      close: price 
+    } as any);
+  }, [livePrices, selectedSymbol, selectedInterval]);
 
-  // Firestore Listeners for Account Data
+  // Firestore Listeners
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -198,13 +202,13 @@ export default function DemoPage() {
   const { data: openTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, tradeConstraints);
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
-  const currentPriceData = prices[symbol];
+  const currentPriceData = livePrices[selectedSymbol];
 
   const metrics = useMemo(() => {
     if (!currentAccount) return { equity: 0, floatingPnL: 0 };
     let floating = 0;
     openTrades.forEach(trade => {
-      const priceData = prices[trade.symbol];
+      const priceData = livePrices[trade.symbol];
       if (priceData) {
         const cp = trade.type === 'buy' ? priceData.bid : priceData.ask;
         const contractSize = trade.symbol === 'XAUUSD' ? 100 : trade.symbol === 'BTCUSD' ? 1 : trade.symbol === 'ETHUSD' ? 1 : 100000;
@@ -214,11 +218,11 @@ export default function DemoPage() {
       }
     });
     return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
-  }, [currentAccount, openTrades, prices]);
+  }, [currentAccount, openTrades, livePrices]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId || !currentPriceData) {
-      toast({ variant: "destructive", title: "Execution Blocked", description: "Pricing data unavailable or no account selected." });
+      toast({ variant: "destructive", title: "Execution Blocked", description: "Pricing data unavailable." });
       return;
     }
     setActionLoading(true);
@@ -228,14 +232,13 @@ export default function DemoPage() {
       const res = await fetch("/api/terminal/trades", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol, type, lots, price: executionPrice }),
+        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol, type, lots, price: executionPrice }),
       });
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || errorData.details || "Execution rejected.");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Execution rejected.");
       }
-      const data = await res.json();
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice.toFixed(getPrecision(symbol))}` });
+      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${selectedSymbol}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Execution Error", description: err.message });
     } finally {
@@ -262,45 +265,40 @@ export default function DemoPage() {
     <div className="flex h-screen bg-background overflow-hidden">
       <Navigation />
       <main className="flex-1 flex flex-col min-w-0">
-        {/* Symbol Bar */}
-        <div className="h-14 border-b border-border flex items-center px-4 gap-2 bg-card/30 overflow-x-auto no-scrollbar shrink-0 justify-between">
+        <div className="h-14 border-b border-border flex items-center px-4 gap-2 bg-card/30 overflow-x-auto no-scrollbar shrink-0">
           <div className="flex items-center gap-2">
             {SYMBOLS.map((s) => {
-              const p = prices[s];
+              const p = livePrices[s];
               return (
                 <button 
                   key={s} 
-                  onClick={() => setSymbol(s)}
+                  onClick={() => setSelectedSymbol(s)}
                   className={cn(
                     "px-3 py-1.5 rounded-lg border transition-all flex items-center gap-3 shrink-0",
-                    s === symbol ? "bg-primary/10 border-primary text-primary" : "bg-secondary/50 border-border text-muted-foreground hover:border-muted-foreground/30"
+                    s === selectedSymbol ? "bg-primary/10 border-primary text-primary" : "bg-secondary/50 border-border text-muted-foreground hover:border-muted-foreground/30"
                   )}
                 >
                   <span className="font-bold text-xs">{s}</span>
                   <span className="font-mono text-[11px] tabular-nums text-white">
-                    {p?.price ? p.price.toFixed(getPrecision(s)) : "—"}
+                    {formatPrice(p?.price, s)}
                   </span>
                 </button>
               );
             })}
           </div>
-          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/20 text-primary">
-            FEED: Binance + Frankfurter — Zero dependency, always free
-          </Badge>
         </div>
 
         <div className="flex-1 flex min-h-0">
           <div className="flex-1 flex flex-col min-w-0">
-            {/* Chart Area */}
             <div className="flex-1 relative bg-[#0a0a0a]">
               <div className="absolute top-4 left-4 z-10 flex gap-1 bg-black/60 p-1 rounded-lg border border-white/10 backdrop-blur-md">
                 {TIMEFRAMES.map((tf) => (
                   <button
                     key={tf.value}
-                    onClick={() => setInterval(tf.value)}
+                    onClick={() => setSelectedInterval(tf.value)}
                     className={cn(
                       "px-3 py-1 rounded text-[10px] font-black uppercase transition-all",
-                      interval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
+                      selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
                     )}
                   >
                     {tf.label}
@@ -311,13 +309,17 @@ export default function DemoPage() {
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm">
                   <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Initializing Node...</p>
+                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Syncing Node...</p>
                 </div>
               )}
-              <div ref={chartContainerRef} className="h-full w-full" />
+              
+              <div ref={chartContainerRef} className="h-full w-full relative">
+                {/* Security Overlay to block external links */}
+                <div className="absolute inset-0 pointer-events-none z-0" />
+                <div className="absolute bottom-0 left-0 w-20 h-8 z-10" />
+              </div>
             </div>
             
-            {/* Positions Table */}
             <div className="h-[250px] border-t border-border bg-card/30 overflow-hidden flex flex-col shrink-0">
                <div className="px-4 py-2 border-b border-border flex justify-between items-center bg-secondary/20">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
@@ -346,7 +348,7 @@ export default function DemoPage() {
                       {openTrades.length === 0 ? (
                         <tr><td colSpan={6} className="py-12 text-center italic text-muted-foreground opacity-50">No active positions.</td></tr>
                       ) : openTrades.map((t) => {
-                        const priceData = prices[t.symbol];
+                        const priceData = livePrices[t.symbol];
                         let pnl = 0;
                         if (priceData) {
                            const cp = t.type === 'buy' ? priceData.bid : priceData.ask;
@@ -366,7 +368,7 @@ export default function DemoPage() {
                               )}>{t.type}</Badge>
                             </td>
                             <td className="py-2 px-2 font-mono text-zinc-300">{t.lots.toFixed(2)}</td>
-                            <td className="py-2 px-4 font-mono text-muted-foreground">{t.openPrice.toFixed(getPrecision(t.symbol))}</td>
+                            <td className="py-2 px-4 font-mono text-muted-foreground">{formatPrice(t.openPrice, t.symbol)}</td>
                             <td className={cn(
                               "py-2 px-4 text-right font-mono font-bold tabular-nums",
                               pnl >= 0 ? "text-emerald-500" : "text-destructive"
@@ -430,14 +432,14 @@ export default function DemoPage() {
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
-                        {currentPriceData?.bid ? currentPriceData.bid.toFixed(getPrecision(symbol)) : "—"}
+                        {formatPrice(currentPriceData?.bid, selectedSymbol)}
                       </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">
-                        {currentPriceData?.ask ? currentPriceData.ask.toFixed(getPrecision(symbol)) : "—"}
+                        {formatPrice(currentPriceData?.ask, selectedSymbol)}
                       </p>
                    </div>
                 </div>
@@ -478,7 +480,7 @@ export default function DemoPage() {
                    <span className="text-[9px] font-black uppercase text-primary tracking-widest">Self-Hosted Chart Node</span>
                 </div>
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Advanced technical charting engine with built-in indicator overlays and unified session access.
+                  Advanced technical charting engine with high-frequency price aggregation.
                 </p>
              </div>
           </aside>
