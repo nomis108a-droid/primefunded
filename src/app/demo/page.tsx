@@ -33,6 +33,19 @@ const TV_SYMBOL_MAP: Record<string, string> = {
   "USDJPY": "OANDA:USDJPY"
 };
 
+/**
+ * Institutional Formatting Helper
+ * Precision varies based on asset class.
+ */
+const getPrecision = (s: string, isTab: boolean = false) => {
+  if (isTab) {
+    return (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD") ? 2 : 5;
+  }
+  if (s === "XAUUSD" || s === "USDJPY") return 3;
+  if (s === "BTCUSD" || s === "ETHUSD") return 2;
+  return 5; // Default Forex
+};
+
 export default function DemoPage() {
   const { user } = useAuth();
   const db = useFirestore();
@@ -44,7 +57,7 @@ export default function DemoPage() {
   const [symbol, setSymbol] = useState("XAUUSD");
   const [lots, setLots] = useState(0.10);
 
-  // Unified Server-Side Proxy Price State
+  // Price state for the polling loop
   const [prices, setPrices] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -62,7 +75,7 @@ export default function DemoPage() {
     };
 
     fetchLivePrices();
-    const interval = setInterval(fetchLivePrices, 3000); // Poll every 3 seconds
+    const interval = setInterval(fetchLivePrices, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -201,7 +214,7 @@ export default function DemoPage() {
       }
 
       const data = await res.json();
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice.toFixed(5)}` });
+      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${symbol} @ ${data.openPrice.toFixed(getPrecision(symbol))}` });
       
     } catch (err: any) {
       console.error("[Execution-Error]", err);
@@ -256,7 +269,7 @@ export default function DemoPage() {
                 >
                   <span className="font-bold text-xs">{s}</span>
                   <span className="font-mono text-[11px] tabular-nums text-white">
-                    {p?.price ? p.price.toFixed(s === "BTCUSD" || s === "ETHUSD" ? 2 : 5) : "—"}
+                    {p?.price ? p.price.toFixed(getPrecision(s, true)) : "—"}
                   </span>
                 </button>
               );
@@ -328,7 +341,7 @@ export default function DemoPage() {
                               )}>{t.type}</Badge>
                             </td>
                             <td className="py-2 px-2 font-mono text-zinc-300">{t.lots.toFixed(2)}</td>
-                            <td className="py-2 px-4 font-mono text-muted-foreground">{t.openPrice.toFixed(t.symbol === "BTCUSD" || t.symbol === "ETHUSD" ? 2 : 5)}</td>
+                            <td className="py-2 px-4 font-mono text-muted-foreground">{t.openPrice.toFixed(getPrecision(t.symbol))}</td>
                             <td className={cn(
                               "py-2 px-4 text-right font-mono font-bold tabular-nums",
                               pnl >= 0 ? "text-emerald-500" : "text-destructive"
@@ -392,14 +405,14 @@ export default function DemoPage() {
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">BID</p>
                       <p className="font-mono text-sm font-bold text-emerald-500 tabular-nums">
-                        {currentPrice && currentPrice.bid > 0 ? currentPrice.bid.toFixed(symbol === "BTCUSD" || symbol === "ETHUSD" ? 2 : 5) : "—"}
+                        {currentPrice && currentPrice.bid > 0 ? currentPrice.bid.toFixed(getPrecision(symbol)) : "—"}
                       </p>
                    </div>
                    <div className="h-8 w-px bg-border mx-2" />
                    <div className="text-center flex-1">
                       <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">ASK</p>
                       <p className="font-mono text-sm font-bold text-destructive tabular-nums">
-                        {currentPrice && currentPrice.ask > 0 ? currentPrice.ask.toFixed(symbol === "BTCUSD" || symbol === "ETHUSD" ? 2 : 5) : "—"}
+                        {currentPrice && currentPrice.ask > 0 ? currentPrice.ask.toFixed(getPrecision(symbol)) : "—"}
                       </p>
                    </div>
                 </div>
