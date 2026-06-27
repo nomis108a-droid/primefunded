@@ -13,3 +13,17 @@ jobs:
           curl -s -X GET \
             -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
             https://primefunded.fund/api/terminal/trades/check-sl-tp
+
+      - name: Midnight Daily Reset
+        run: |
+          # Only run at exactly 00:00 UTC
+          HOUR=$(date -u +%H)
+          MIN=$(date -u +%M)
+          if [ "$HOUR" = "00" ] && [ "$MIN" = "00" ]; then
+            echo "Starting midnight reset protocol..."
+            curl -s -X GET \
+              -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
+              https://primefunded.fund/api/terminal/daily-reset
+          else
+            echo "Skipping reset: current UTC time is $HOUR:$MIN"
+          fi

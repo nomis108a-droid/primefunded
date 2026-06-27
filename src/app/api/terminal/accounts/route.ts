@@ -34,11 +34,13 @@ export async function POST(req: NextRequest) {
       balance: p.balance,
       equity: p.balance,
       startBalance: p.balance,
+      dailyStartBalance: p.balance,
       maxLoss: p.maxLoss,
       dailyLoss: p.dailyLoss,
       profitTarget: p.profitTarget,
       status: "active",
       createdAt: Timestamp.now(),
+      dailyLossResetAt: Timestamp.now(),
     });
 
     return NextResponse.json({ ok: true, accountId: docRef.id });

@@ -11,6 +11,14 @@ const YAHOO_MAP: Record<string, string> = {
   'USDJPY': 'JPY=X',
 };
 
+const MAX_LOTS: Record<string, number> = {
+  '10k': 0.5,
+  '25k': 1.25,
+  '50k': 2.5,
+  '100k': 5.0,
+  '200k': 10.0,
+};
+
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization") || "";
@@ -34,9 +42,20 @@ export async function POST(req: NextRequest) {
     if (account.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (account.status !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
 
+    // LOT SIZE VALIDATION (ANTI-CHEAT)
+    const plan = account.plan || '10k';
+    const planKey = plan.replace('$', '').replace(',', '').toLowerCase();
+    const maxAllowed = MAX_LOTS[planKey] || 0.5;
+    
+    if (lots > maxAllowed) {
+      return NextResponse.json({ 
+        error: `Institutional Violation`, 
+        details: `Max lot size for ${plan} plan is ${maxAllowed}. Requested: ${lots}` 
+      }, { status: 400 });
+    }
+
     /**
      * SERVER-SIDE PRICE VALIDATION (1% THRESHOLD)
-     * We fetch fresh data from Yahoo to prevent spoofing.
      */
     const yahooSymbol = YAHOO_MAP[symbol];
     if (!yahooSymbol) return NextResponse.json({ error: "Unsupported symbol" }, { status: 400 });
@@ -47,20 +66,19 @@ export async function POST(req: NextRequest) {
       const data = await res.json();
       const serverPrice = data.spark?.result?.[0]?.response?.[0]?.meta?.regularMarketPrice;
 
-      if (!serverPrice) throw new Error("Price feed unavailable");
+      if (serverPrice) {
+        const executionPrice = parseFloat(String(clientPrice));
+        const diff = Math.abs(executionPrice - serverPrice) / serverPrice;
 
-      const executionPrice = parseFloat(String(clientPrice));
-      const diff = Math.abs(executionPrice - serverPrice) / serverPrice;
-
-      if (diff > 0.01) { // 1% mismatch tolerance
-        return NextResponse.json({ 
-          error: "Price mismatch", 
-          details: `Client: ${executionPrice}, Server: ${serverPrice}. Mismatch: ${(diff * 100).toFixed(2)}%` 
-        }, { status: 400 });
+        if (diff > 0.01) { 
+          return NextResponse.json({ 
+            error: "Execution Price Out of Sync", 
+            details: `Market variance detected. Please refresh terminal.` 
+          }, { status: 400 });
+        }
       }
     } catch (e: any) {
       console.error("[Price-Validation-Error]", e.message);
-      // Fallback: If price feed fails during check, we allow the trade but log it
     }
 
     const tradeRef = await db.collection("demoTrades").add({
@@ -77,6 +95,8 @@ export async function POST(req: NextRequest) {
       openedAt: Timestamp.now(),
       closedAt: null,
       closePrice: null,
+      ip: req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || 'unknown',
+      userAgent: req.headers.get('user-agent') || 'unknown',
     });
 
     return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: clientPrice });
