@@ -33,7 +33,9 @@ import {
   Download,
   Target,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  Monitor,
+  Terminal
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -142,6 +144,20 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
   const { data: userAccounts, loading: accountsLoading } = useCollection<any>(
     effectiveUid ? 'mt5_accounts' : null,
     accountConstraints
+  );
+
+  // FETCH DEMO CHALLENGE ACCOUNTS
+  const demoAccountConstraints = useMemo(() => {
+    if (!effectiveUid) return [];
+    return [
+      where('userId', '==', effectiveUid),
+      orderBy('createdAt', 'desc')
+    ];
+  }, [effectiveUid]);
+
+  const { data: demoAccounts, loading: demoAccountsLoading } = useCollection<any>(
+    effectiveUid ? 'demoAccounts' : null,
+    demoAccountConstraints
   );
 
   useEffect(() => {
@@ -334,17 +350,14 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
         <section className="mb-10">
           <div className="flex items-center gap-2 mb-4">
             <Server className="w-4 h-4 text-primary" />
-            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Select Active Node</h2>
+            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Select Active Institutional Node</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {accountsLoading ? (
               [1, 2].map(i => <Skeleton key={i} className="h-24 rounded-2xl bg-secondary/20" />)
             ) : userAccounts.length === 0 ? (
-              <Card className="col-span-full border-dashed border-border/50 bg-secondary/5 p-12 text-center">
-                 <p className="text-muted-foreground mb-6">No institutional nodes found. Begin your evaluation to start trading.</p>
-                 <Button className="font-bold cyan-box-glow px-10 h-12 rounded-xl" asChild>
-                    <Link href="/challenges">Start New Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
-                 </Button>
+              <Card className="col-span-full border-dashed border-border/50 bg-secondary/5 p-6 text-center">
+                 <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">No active institutional nodes detected.</p>
               </Card>
             ) : (
               userAccounts.map((acc: any) => (
@@ -472,7 +485,7 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
               </CardContent>
             </Card>
 
-            <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm", isBreached && "opacity-40")}>
+            <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm mb-12", isBreached && "opacity-40")}>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
                   <History className="w-5 h-5 text-primary" /> Position Journal (Isolated)
@@ -523,15 +536,105 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             </Card>
           </>
         ) : !accountsLoading && (
-          <div className="h-[60vh] flex flex-col items-center justify-center text-center space-y-6">
+          <div className="h-[40vh] flex flex-col items-center justify-center text-center space-y-6 bg-secondary/5 border-2 border-dashed border-border/50 rounded-[2rem] mb-12">
              <ShieldAlert className="w-16 h-16 text-muted-foreground opacity-20" />
-             <h3 className="text-2xl font-headline font-bold text-white uppercase tracking-tight">Access Terminal</h3>
-             <p className="text-muted-foreground max-sm">No active institutional nodes were detected for your profile. Select a challenge to begin your verification.</p>
+             <div className="max-w-md">
+                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Institutional Access Required</h3>
+                <p className="text-muted-foreground text-sm leading-relaxed mt-2">No active MT5 nodes detected. Institutional nodes are for traders who have passed all evaluation stages.</p>
+             </div>
              <Button size="lg" className="h-14 px-12 font-bold text-lg cyan-box-glow rounded-2xl" asChild>
                 <Link href="/challenges">Start Challenge <ChevronRight className="ml-2 w-5 h-5" /></Link>
              </Button>
           </div>
         )}
+
+        <section className="mb-20">
+          <div className="flex items-center gap-3 mb-6">
+            <Monitor className="w-6 h-6 text-primary" />
+            <h2 className="text-2xl font-headline font-bold text-white">Demo Challenge Accounts</h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {demoAccountsLoading ? (
+              [1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-3xl bg-secondary/20" />)
+            ) : demoAccounts.length === 0 ? (
+              <Card className="col-span-full border-dashed border-border/50 bg-card/40 p-12 text-center flex flex-col items-center justify-center space-y-4">
+                 <Terminal className="w-12 h-12 text-muted-foreground opacity-20" />
+                 <p className="text-muted-foreground font-bold uppercase text-[10px] tracking-widest">No active challenges. Purchase a challenge to get started.</p>
+                 <Button className="font-bold cyan-box-glow px-8 h-12 rounded-xl" asChild>
+                   <Link href="/challenges">Begin Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                 </Button>
+              </Card>
+            ) : (
+              demoAccounts.map((acc: any) => {
+                const pnl = (acc.balance || 0) - (acc.startBalance || 0);
+                const pnlColor = pnl >= 0 ? 'text-emerald-500' : 'text-destructive';
+                
+                return (
+                  <Card key={acc.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group">
+                    <div className={cn(
+                      "absolute top-0 left-0 w-full h-1",
+                      acc.status === 'blown' ? "bg-destructive" : acc.status === 'passed' ? "bg-amber-500" : "bg-primary"
+                    )} />
+                    <CardHeader className="pb-4">
+                      <div className="flex justify-between items-start">
+                         <Badge className={cn(
+                           "uppercase text-[9px] font-black border-none px-3 py-1",
+                           acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : 
+                           acc.status === 'blown' ? "bg-destructive/20 text-destructive" :
+                           "bg-amber-500/20 text-amber-500"
+                         )}>
+                           {acc.status || 'Active'}
+                         </Badge>
+                         <span className="text-[10px] font-mono text-muted-foreground">ID: {acc.id?.slice(0, 8)}</span>
+                      </div>
+                      <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{acc.label}</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                       <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
+                          <div>
+                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Balance</p>
+                             <p className="text-lg font-bold text-white font-mono">${(acc.balance || 0).toLocaleString()}</p>
+                          </div>
+                          <div>
+                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Equity</p>
+                             <p className="text-lg font-bold text-white font-mono">${(acc.equity || 0).toLocaleString()}</p>
+                          </div>
+                       </div>
+                       
+                       <div className="grid grid-cols-2 gap-4">
+                          <div>
+                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">P&L</p>
+                             <p className={cn("text-lg font-bold font-mono", pnlColor)}>
+                               {pnl >= 0 ? '+' : ''}${pnl.toLocaleString()}
+                             </p>
+                          </div>
+                          <div>
+                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Profit Target</p>
+                             <p className="text-lg font-bold text-amber-500 font-mono">${(acc.profitTarget || 0).toLocaleString()}</p>
+                          </div>
+                       </div>
+
+                       <div className="pt-2 space-y-1">
+                          <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tighter">
+                             <span className="text-muted-foreground">Daily Limit: <span className="text-destructive">${(acc.dailyLoss || 0).toLocaleString()}</span></span>
+                             <span className="text-muted-foreground">Max Loss: <span className="text-destructive">${(acc.maxLoss || 0).toLocaleString()}</span></span>
+                          </div>
+                       </div>
+                    </CardContent>
+                    <CardFooter className="pt-2">
+                       <Button className="w-full font-black cyan-box-glow h-11" asChild disabled={acc.status === 'blown'}>
+                          <Link href={`/demo?accountId=${acc.id}`}>
+                            <Terminal className="w-4 h-4 mr-2" /> Open Terminal
+                          </Link>
+                       </Button>
+                    </CardFooter>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+        </section>
       </main>
     </div>
   );

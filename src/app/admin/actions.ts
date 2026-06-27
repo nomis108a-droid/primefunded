@@ -84,6 +84,24 @@ async function sendAdminNotification(
   }
 }
 
+export async function fetchAllDemoAccounts() {
+  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  const snap = await adminDb.collection('demoAccounts').orderBy('createdAt', 'desc').get();
+  const accounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return JSON.parse(JSON.stringify(accounts));
+}
+
+export async function fetchDemoTradesByAccount(accountId: string) {
+  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  const snap = await adminDb.collection('demoTrades')
+    .where('accountId', '==', accountId)
+    .orderBy('openedAt', 'desc')
+    .limit(100)
+    .get();
+  const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return JSON.parse(JSON.stringify(trades));
+}
+
 export async function runOneTimeCleanupAction() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
   
@@ -463,7 +481,7 @@ export async function forceBreachAccountAction(userId: string, login: string, re
 
 export async function fetchAdminTerminalData() {
   if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const [usersSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap, accountsSnap] = await Promise.all([
+  const [usersSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap, accountsSnap, demoAccountsSnap] = await Promise.all([
     adminDb.collection('users').get(),
     adminDb.collection('orders').get(),
     adminDb.collection('payouts').get(),
@@ -471,6 +489,7 @@ export async function fetchAdminTerminalData() {
     adminDb.collection('broadcasts').get(),
     adminDb.collection('breaches').get(),
     adminDb.collection('mt5_accounts').get(),
+    adminDb.collection('demoAccounts').get(),
   ]);
 
   const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -479,6 +498,7 @@ export async function fetchAdminTerminalData() {
   const referrals = referralsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const broadcasts = broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   const breaches = breachesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const demoAccounts = demoAccountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   
   const accounts = accountsSnap.docs.map(d => {
     const data = d.data();
@@ -499,6 +519,7 @@ export async function fetchAdminTerminalData() {
     broadcasts: JSON.parse(JSON.stringify(broadcasts)), 
     breaches: JSON.parse(JSON.stringify(breaches)), 
     accounts: JSON.parse(JSON.stringify(accounts)),
+    demoAccounts: JSON.parse(JSON.stringify(demoAccounts)),
     success: true 
   };
 }

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -16,9 +15,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award, Wrench
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award, Wrench, Monitor, BarChart2
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction, deleteMt5AccountAction, runOneTimeCleanupAction } from './actions';
+import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction, deleteMt5AccountAction, runOneTimeCleanupAction, fetchDemoTradesByAccount } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -55,10 +54,17 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [previewUserId, setPreviewUserId] = useState<string | null>(null);
-  const [adminData, setAdminData] = useState<any>({ users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], accounts: [] });
+  const [adminData, setAdminData] = useState<any>({ users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], accounts: [], demoAccounts: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
+
+  // Demo Node Trades state
+  const [selectedDemoAccount, setSelectedDemoAccount] = useState<any>(null);
+  const [demoTrades, setDemoTrades] = useState<any[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
+  const [isTradesModalOpen, setIsTradesModalOpen] = useState(false);
+  const [demoFilter, setDemoFilter] = useState<'all' | 'active' | 'blown' | 'passed'>('all');
 
   // Provisioning Form State
   const [provisionForm, setProvisionForm] = useState({ login: '', password: '', displayLogin: '', plan: '1-Step Pro', size: '100000', userId: '', phase: 'evaluation' });
@@ -113,6 +119,20 @@ export default function AdminPage() {
     }
   };
 
+  const handleViewDemoTrades = async (acc: any) => {
+    setSelectedDemoAccount(acc);
+    setIsTradesModalOpen(true);
+    setTradesLoading(true);
+    try {
+      const trades = await fetchDemoTradesByAccount(acc.id);
+      setDemoTrades(trades);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to fetch trades." });
+    } finally {
+      setTradesLoading(false);
+    }
+  };
+
   const handleProbeConnection = async () => {
     toast({ title: "Probing Node...", description: "Testing latency to institutional terminals." });
     try {
@@ -152,8 +172,6 @@ export default function AdminPage() {
       const res = await runOneTimeCleanupAction();
       if (res.success) {
         toast({ title: "Cleanup Complete", description: `Deleted ${res.deletedIds.length} nodes and reset ${res.resetUserIds.length} profiles.` });
-        console.log('Cleanup Audit - Deleted Account IDs:', res.deletedIds);
-        console.log('Cleanup Audit - Reset User IDs:', res.resetUserIds);
         refreshData();
       }
     } catch (err: any) {
@@ -319,6 +337,27 @@ export default function AdminPage() {
     );
   }, [adminData.users, searchTerm]);
 
+  const filteredDemoAccounts = useMemo(() => {
+    if (!adminData.demoAccounts) return [];
+    return adminData.demoAccounts.filter((acc: any) => {
+      const matchesStatus = demoFilter === 'all' || acc.status === demoFilter;
+      const matchesSearch = !searchTerm || 
+        acc.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        acc.id.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesStatus && matchesSearch;
+    });
+  }, [adminData.demoAccounts, demoFilter, searchTerm]);
+
+  const demoStats = useMemo(() => {
+    const accounts = adminData.demoAccounts || [];
+    return {
+      total: accounts.length,
+      active: accounts.filter((a: any) => a.status === 'active').length,
+      blown: accounts.filter((a: any) => a.status === 'blown').length,
+      passed: accounts.filter((a: any) => a.status === 'passed').length,
+    };
+  }, [adminData.demoAccounts]);
+
   const stats = useMemo(() => {
     const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified' || o.status === 'approved');
     const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
@@ -457,6 +496,7 @@ export default function AdminPage() {
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
+              <TabsTrigger value="demo_nodes" className="font-bold">Demo Nodes</TabsTrigger>
               <TabsTrigger value="mt5_nodes" className="font-bold">Account Nodes</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
               <TabsTrigger value="profile_editor" className="font-bold">Profile Editor</TabsTrigger>
@@ -491,6 +531,98 @@ export default function AdminPage() {
                         <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {(() => { const d = getTradeDate(act.timestamp); return d ? formatDistanceToNow(d, { addSuffix: true }) : 'Recently'; })()}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
                       </div>
                     ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'demo_nodes' && (
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card className="bg-secondary/30 border-border/50 p-6">
+                  <p className="text-[10px] font-black uppercase text-muted-foreground mb-1">Total Demo</p>
+                  <h3 className="text-2xl font-bold text-white">{demoStats.total}</h3>
+                </Card>
+                <Card className="bg-emerald-500/5 border-emerald-500/20 p-6">
+                  <p className="text-[10px] font-black uppercase text-emerald-500/70 mb-1">Active Challenges</p>
+                  <h3 className="text-2xl font-bold text-emerald-500">{demoStats.active}</h3>
+                </Card>
+                <Card className="bg-destructive/5 border-destructive/20 p-6">
+                  <p className="text-[10px] font-black uppercase text-destructive/70 mb-1">Blown / Liquidated</p>
+                  <h3 className="text-2xl font-bold text-destructive">{demoStats.blown}</h3>
+                </Card>
+                <Card className="bg-amber-500/5 border-amber-500/20 p-6">
+                  <p className="text-[10px] font-black uppercase text-amber-500/70 mb-1">Passed Stages</p>
+                  <h3 className="text-2xl font-bold text-amber-500">{demoStats.passed}</h3>
+                </Card>
+              </div>
+
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="flex bg-secondary/50 p-1 rounded-xl border border-border">
+                   {['all', 'active', 'blown', 'passed'].map(f => (
+                     <button 
+                       key={f} 
+                       onClick={() => setDemoFilter(f as any)}
+                       className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all", demoFilter === f ? "bg-primary text-black" : "text-muted-foreground hover:text-white")}
+                     >
+                       {f}
+                     </button>
+                   ))}
+                </div>
+                <div className="relative w-full md:w-80">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input placeholder="Search Demo Nodes..." className="pl-10 bg-secondary/30" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                </div>
+              </div>
+
+              <Card className="bg-card/30 border-border/50">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                        <tr>
+                          <th className="py-4 px-6">Trader ID</th>
+                          <th className="py-4 px-4">Plan</th>
+                          <th className="py-4 px-4 text-right">Balance</th>
+                          <th className="py-4 px-4 text-right">Equity</th>
+                          <th className="py-4 px-4 text-right">P&L</th>
+                          <th className="py-4 px-4 text-center">Status</th>
+                          <th className="py-4 px-6 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {filteredDemoAccounts.map((acc: any) => {
+                          const pnl = (acc.balance || 0) - (acc.startBalance || 0);
+                          return (
+                            <tr key={acc.id} className="hover:bg-primary/5 group">
+                              <td className="py-4 px-6 font-mono text-xs text-primary font-bold">{acc.userId?.slice(0, 8)}...</td>
+                              <td className="py-4 px-4 text-white text-xs">{acc.label}</td>
+                              <td className="py-4 px-4 text-right font-mono font-bold">${(acc.balance || 0).toLocaleString()}</td>
+                              <td className="py-4 px-4 text-right font-mono text-muted-foreground">${(acc.equity || 0).toLocaleString()}</td>
+                              <td className={cn("py-4 px-4 text-right font-mono font-bold", pnl >= 0 ? "text-emerald-500" : "text-destructive")}>
+                                {pnl >= 0 ? '+' : ''}{pnl.toLocaleString()}
+                              </td>
+                              <td className="py-4 px-4 text-center">
+                                <Badge className={cn(
+                                  "uppercase text-[9px] font-black",
+                                  acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
+                                  acc.status === 'blown' ? "bg-destructive/20 text-destructive" :
+                                  "bg-amber-500/20 text-amber-500"
+                                )}>
+                                  {acc.status}
+                                </Badge>
+                              </td>
+                              <td className="py-4 px-6 text-right">
+                                <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase cursor-pointer" onClick={() => handleViewDemoTrades(acc)}>
+                                   <BarChart2 className="w-3 h-3 mr-1" /> View Trades
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </CardContent>
               </Card>
@@ -740,20 +872,6 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'profile_editor' && (
-            <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-white">Profile Editor</CardTitle>
-                  <CardDescription>Administrative control over user institutional records.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-20 text-center text-muted-foreground italic">
-                  Select a user from the directory to manually override profile fields.
                 </CardContent>
               </Card>
             </div>
@@ -1031,6 +1149,65 @@ export default function AdminPage() {
           )}
         </div>
       </main>
+
+      <Dialog open={isTradesModalOpen} onOpenChange={setIsTradesModalOpen}>
+        <DialogContent className="max-w-4xl bg-card border-border overflow-hidden p-0">
+          <DialogHeader className="p-6 border-b border-white/5">
+            <DialogTitle className="text-xl font-headline text-white flex items-center gap-2">
+              <Monitor className="w-5 h-5 text-primary" /> Execution Audit: {selectedDemoAccount?.label}
+            </DialogTitle>
+            <DialogDescription className="text-xs uppercase font-black tracking-widest text-muted-foreground">
+               Live log of virtual terminal executions for Node {selectedDemoAccount?.id?.slice(0, 8)}...
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
+            {tradesLoading ? (
+              <div className="p-20 text-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
+                <p className="text-xs font-black uppercase text-muted-foreground">Syncing Trade Log...</p>
+              </div>
+            ) : demoTrades.length === 0 ? (
+              <div className="p-20 text-center text-muted-foreground italic">No executions found for this challenge node.</div>
+            ) : (
+              <table className="w-full text-sm text-left">
+                <thead className="bg-secondary/30 text-muted-foreground uppercase text-[9px] font-black tracking-widest sticky top-0">
+                  <tr>
+                    <th className="py-3 px-6">Symbol</th>
+                    <th className="py-3 px-4">Type</th>
+                    <th className="py-3 px-4">Lots</th>
+                    <th className="py-3 px-4 text-right">Entry</th>
+                    <th className="py-3 px-4 text-right">Exit</th>
+                    <th className="py-3 px-6 text-right">PnL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/50">
+                  {demoTrades.map((t: any) => (
+                    <tr key={t.id} className="hover:bg-white/5 transition-colors">
+                      <td className="py-3 px-6 font-bold text-white">{t.symbol}</td>
+                      <td className="py-3 px-4">
+                        <Badge className={cn("text-[8px] font-black", t.type === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-destructive/20 text-destructive')}>
+                          {t.type?.toUpperCase()}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-zinc-400">{t.lots?.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right font-mono text-xs">${t.openPrice?.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-xs text-muted-foreground">
+                        {t.closePrice ? `$${t.closePrice.toLocaleString()}` : 'OPEN'}
+                      </td>
+                      <td className={cn("py-3 px-6 text-right font-bold font-mono", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                         {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+          <DialogFooter className="p-4 bg-secondary/10">
+             <Button variant="ghost" onClick={() => setIsTradesModalOpen(false)}>Close Audit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
         <DialogContent className="bg-black/95 backdrop-blur-2xl border-primary/30 text-white shadow-2xl">
