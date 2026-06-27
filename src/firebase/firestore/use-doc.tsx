@@ -1,7 +1,6 @@
-
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   doc,
   onSnapshot,
@@ -21,8 +20,11 @@ export function useDoc<T = DocumentData>(path: string | null) {
   useEffect(() => {
     if (!path || !db) {
       setLoading(false);
+      setData(null);
       return;
     }
+
+    let isMounted = true;
 
     try {
       const docRef = doc(db, path) as DocumentReference<T>;
@@ -30,22 +32,32 @@ export function useDoc<T = DocumentData>(path: string | null) {
       const unsubscribe = onSnapshot(
         docRef,
         (snapshot) => {
+          if (!isMounted) return;
           setData(snapshot.exists() ? snapshot.data() : null);
           setLoading(false);
+          setError(null);
         },
-        async (serverError) => {
-          const permissionError = new FirestorePermissionError({
-            path: docRef.path,
-            operation: 'get',
-          } satisfies SecurityRuleContext);
+        async (serverError: any) => {
+          if (!isMounted) return;
+          if (serverError.code === 'permission-denied') {
+            const permissionError = new FirestorePermissionError({
+              path: docRef.path,
+              operation: 'get',
+            } satisfies SecurityRuleContext);
 
-          errorEmitter.emit('permission-error', permissionError);
-          setError(permissionError);
+            errorEmitter.emit('permission-error', permissionError);
+            setError(permissionError);
+          } else {
+            setError(serverError);
+          }
           setLoading(false);
         }
       );
 
-      return () => unsubscribe();
+      return () => {
+        isMounted = false;
+        unsubscribe();
+      };
     } catch (err: any) {
       console.error('[useDoc] Initialization Error:', err);
       setError(err);
@@ -53,5 +65,5 @@ export function useDoc<T = DocumentData>(path: string | null) {
     }
   }, [db, path]);
 
-  return { data, loading, error };
+  return useMemo(() => ({ data, loading, error }), [data, loading, error]);
 }

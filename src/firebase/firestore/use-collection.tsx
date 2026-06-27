@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   collection,
   onSnapshot,
@@ -17,9 +17,6 @@ const DEFAULT_CONSTRAINTS: QueryConstraint[] = [];
 /**
  * useCollection Hook
  * Fetches a collection in real-time with optimized query stability and security guards.
- * 
- * CRITICAL: The constraints array MUST be memoized by the caller using useMemo.
- * If not memoized, this hook will trigger a re-subscription loop.
  */
 export function useCollection<T = DocumentData>(
   path: string | null,
@@ -30,65 +27,64 @@ export function useCollection<T = DocumentData>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  // Security collections that MUST have a filter to prevent unauthorized scans
-  const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "mt5_accounts", "mt5_trades", "referrals", "notifications", "certificates"];
+  // Memoize the query object to prevent unnecessary re-subscriptions
+  const q = useMemo(() => {
+    if (!path || !db) return null;
 
-  useEffect(() => {
-    if (!path || !db) {
-      setLoading(false);
-      setData([]);
-      return;
-    }
-
-    // Rule Guard: Enforce mandatory filtering on sensitive collections
-    // This protects against "Permission Denied" errors from wide-open scans
+    // Security collections that MUST have a filter
+    const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "mt5_accounts", "mt5_trades", "referrals", "notifications", "certificates"];
+    
     if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
-      console.warn(`[useCollection] Security Guard: Query on "${path}" blocked. Missing required filters.`);
-      setLoading(false);
-      setData([]);
-      return;
+      return null;
     }
-
-    let unsubscribe: () => void = () => {};
 
     try {
-      const collectionRef = collection(db, path);
-      const q = query(collectionRef, ...constraints);
+      return query(collection(db, path), ...constraints);
+    } catch (e) {
+      console.error("[useCollection] Query Construction Error:", e);
+      return null;
+    }
+  }, [db, path, constraints]);
 
-      unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
-          setData(docs);
-          setLoading(false);
-          setError(null);
-        },
-        async (serverError: any) => {
-          if (serverError.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-              path: collectionRef.path,
-              operation: 'list',
-              requestResourceData: { path, constraintsCount: constraints.length }
-            } satisfies SecurityRuleContext);
-            errorEmitter.emit('permission-error', permissionError);
-            setError(permissionError);
-          } else {
-            console.error(`[useCollection] Firestore Error (${path}):`, serverError.message);
-            setError(serverError);
-          }
-          setLoading(false);
-        }
-      );
-    } catch (err: any) {
-      console.error('[useCollection] Execution Error:', err);
-      setError(err);
+  useEffect(() => {
+    if (!q) {
       setLoading(false);
+      setData([]);
+      return;
     }
 
+    let isMounted = true;
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        if (!isMounted) return;
+        const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
+        setData(docs);
+        setLoading(false);
+        setError(null);
+      },
+      async (serverError: any) => {
+        if (!isMounted) return;
+        if (serverError.code === 'permission-denied') {
+          const permissionError = new FirestorePermissionError({
+            path: path || 'unknown',
+            operation: 'list',
+          } satisfies SecurityRuleContext);
+          errorEmitter.emit('permission-error', permissionError);
+          setError(permissionError);
+        } else {
+          setError(serverError);
+        }
+        setLoading(false);
+      }
+    );
+
     return () => {
+      isMounted = false;
       unsubscribe();
     };
-  }, [db, path, constraints]); // constraints must be stable reference (memoized)
+  }, [q, path]);
 
-  return { data, loading, error };
+  return useMemo(() => ({ data, loading, error }), [data, loading, error]);
 }

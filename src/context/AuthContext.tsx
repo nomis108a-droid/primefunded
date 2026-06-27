@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { 
   onAuthStateChanged, 
   User, 
@@ -33,10 +33,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const router = useRouter();
 
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
       setUser(user);
       
-      if (!user) {
+      if (!u) {
         setUserData(null);
         setLoading(false);
       }
@@ -53,10 +53,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
         if (snapshot.exists()) {
           const data = snapshot.data();
-          // DEBUG: Monitor live synchronization state
-          if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === 'true') {
-            console.log(`[AuthContext] Snapshot fired for ${user.uid}:`, data);
-          }
           setUserData(data);
         }
         setLoading(false);
@@ -76,8 +72,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     router.push('/login');
   };
 
+  const contextValue = useMemo(() => ({
+    user,
+    userData,
+    loading,
+    logout
+  }), [user, userData, loading]);
+
   return (
-    <AuthContext.Provider value={{ user, userData, loading, logout }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

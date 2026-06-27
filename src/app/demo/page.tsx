@@ -102,19 +102,25 @@ export default function DemoPage() {
   const indicatorSeriesRef = useRef<any[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
     const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
         if (!res.ok) return;
         const data = await res.json();
-        if (data && typeof data === 'object' && !data.error) setLivePrices(data);
+        if (isMounted && data && typeof data === 'object' && !data.error) {
+          setLivePrices(data);
+        }
       } catch (e: any) {
         console.warn('[Prices] fetch failed:', e.message);
       }
     };
     fetchPrices();
     const timer = window.setInterval(fetchPrices, 3000);
-    return () => window.clearInterval(timer);
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    }
   }, []);
 
   useEffect(() => {
@@ -171,6 +177,7 @@ export default function DemoPage() {
   useEffect(() => {
     if (!candleSeriesRef.current || !chartInstanceRef.current) return;
     
+    let isMounted = true;
     currentCandleRef.current = null;
     candleSeriesRef.current.setData([]);
     
@@ -188,6 +195,7 @@ export default function DemoPage() {
         if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
         const data = await res.json();
         
+        if (!isMounted) return;
         const candles = Array.isArray(data) ? data : data.candles || [];
         setIsMarketClosed(!!data.isFallback);
         
@@ -238,10 +246,11 @@ export default function DemoPage() {
       } catch (e: any) {
         console.error('[Chart] fetch failed:', e.message);
       } finally {
-        setIsChartLoading(false);
+        if (isMounted) setIsChartLoading(false);
       }
     };
     load();
+    return () => { isMounted = false; };
   }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50, indicators.bb]);
 
   useEffect(() => {
@@ -283,13 +292,16 @@ export default function DemoPage() {
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
   useEffect(() => {
-    if (accounts.length > 0 && !currentAccountId) setCurrentAccountId(accounts[0].id);
+    if (accounts.length > 0 && !currentAccountId) {
+      setCurrentAccountId(accounts[0].id);
+    }
   }, [accounts, currentAccountId]);
 
   const tradeConstraints = useMemo(() => {
-    if (!user?.uid || !currentAccountId) return [];
+    const uid = user?.uid;
+    if (!uid || !currentAccountId) return [];
     return [
-      where("userId", "==", user.uid),
+      where("userId", "==", uid),
       where("accountId", "==", currentAccountId),
       where("status", "==", "open")
     ];
@@ -301,9 +313,10 @@ export default function DemoPage() {
   );
 
   const historyConstraints = useMemo(() => {
-    if (!user?.uid || !currentAccountId) return [];
+    const uid = user?.uid;
+    if (!uid || !currentAccountId) return [];
     return [
-      where("userId", "==", user.uid),
+      where("userId", "==", uid),
       where("accountId", "==", currentAccountId),
       where("status", "==", "closed"),
       orderBy("closedAt", "desc"),
