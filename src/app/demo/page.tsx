@@ -39,12 +39,12 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { where, orderBy, limit } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi, SeriesMarker } from 'lightweight-charts';
+import { where, orderBy, limit, doc, onSnapshot } from "firebase/firestore";
+import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
-import { RSI, BollingerBands, MACD } from 'technicalindicators';
+import { RSI, BollingerBands } from 'technicalindicators';
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
@@ -91,14 +91,11 @@ export default function DemoPage() {
     rsi: false,
     bb: false,
     ma20: true,
-    ma50: true,
-    macd: false
+    ma50: true
   });
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const rsiContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
-  const rsiInstanceRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const currentCandleRef = useRef<{time:number, open:number, high:number, low:number} | null>(null);
 
@@ -182,11 +179,8 @@ export default function DemoPage() {
         if (Array.isArray(candles) && candles.length > 0) {
           candleSeriesRef.current?.setData(candles);
           
-          // Technical Indicators
           const closes = candles.map((c: any) => c.close);
-          const times = candles.map((c: any) => c.time);
 
-          // MA 20/50
           if (indicators.ma20) {
             const ma20Data = candles.map((c: any, i: number) => {
               if (i < 19) return null;
@@ -207,6 +201,14 @@ export default function DemoPage() {
             line?.setData(ma50Data as any);
           }
 
+          if (indicators.bb) {
+            const bb = BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
+            const bbUpper = chartInstanceRef.current?.addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, priceLineVisible: false });
+            const bbLower = chartInstanceRef.current?.addLineSeries({ color: 'rgba(59, 130, 246, 0.3)', lineWidth: 1, priceLineVisible: false });
+            bbUpper?.setData(bb.map((b, i) => ({ time: candles[i + 19].time, value: b.upper })));
+            bbLower?.setData(bb.map((b, i) => ({ time: candles[i + 19].time, value: b.lower })));
+          }
+
           chartInstanceRef.current?.timeScale().fitContent();
         }
       } catch (e: any) {
@@ -216,7 +218,7 @@ export default function DemoPage() {
       }
     };
     load();
-  }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50]);
+  }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50, indicators.bb]);
 
   // 4. Live Tick Update
   useEffect(() => {
@@ -248,7 +250,7 @@ export default function DemoPage() {
     } as any);
   }, [livePrices, selectedSymbol, selectedInterval]);
 
-  // Firestore Listeners
+  // Firestore Listeners - Hardened guards
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -494,37 +496,21 @@ export default function DemoPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Syncing Institutional Feed...</p>
               </div>
             )}
-            
-            <div className="h-full flex flex-col">
-              <div ref={chartContainerRef} className="flex-1 w-full relative">
-                {/* Security Overlay to block TradingView links */}
-                <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10" />
-              </div>
-              
-              {/* RSI Sub-Panel */}
-              {indicators.rsi && (
-                <div className="h-[120px] border-t border-zinc-800 relative bg-zinc-950/50">
-                  <div className="absolute top-2 left-4 z-10 flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase text-zinc-500">RSI (14)</span>
-                    <span className="text-[10px] font-mono text-primary font-bold">54.21</span>
-                  </div>
-                  <div ref={rsiContainerRef} className="h-full w-full" />
-                </div>
-              )}
+            <div ref={chartContainerRef} className="h-full w-full relative" style={{ position: 'relative' }}>
+              {/* Security Overlay to block TradingView links */}
+              <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10" />
             </div>
           </div>
           
           {/* BOTTOM PANEL (EXECUTION LEDGER) */}
-          <div className="h-[280px] border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
+          <Tabs value={activeBottomTab} onValueChange={setActiveBottomTab} className="h-[280px] border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0">
              <div className="px-4 h-10 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50">
-                <Tabs value={activeBottomTab} onValueChange={setActiveBottomTab} className="h-full">
-                  <TabsList className="bg-transparent h-full p-0 gap-6">
-                    <TabsTrigger value="positions" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Open Positions ({openTrades.length})</TabsTrigger>
-                    <TabsTrigger value="pending" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Pending Orders (0)</TabsTrigger>
-                    <TabsTrigger value="history" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Trade History</TabsTrigger>
-                    <TabsTrigger value="account" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Account Info</TabsTrigger>
-                  </TabsList>
-                </Tabs>
+                <TabsList className="bg-transparent h-full p-0 gap-6">
+                  <TabsTrigger value="positions" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Open Positions ({openTrades.length})</TabsTrigger>
+                  <TabsTrigger value="pending" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Pending Orders (0)</TabsTrigger>
+                  <TabsTrigger value="history" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Trade History</TabsTrigger>
+                  <TabsTrigger value="account" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Account Info</TabsTrigger>
+                </TabsList>
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase text-zinc-500 tracking-tighter">Profit:</span>
@@ -641,7 +627,7 @@ export default function DemoPage() {
                    </div>
                 </TabsContent>
              </div>
-          </div>
+          </Tabs>
         </div>
 
         {/* 4. ORDER PANEL (RIGHT SIDE) */}

@@ -143,7 +143,7 @@ export default function PayoutsPage() {
       await addDoc(collection(db, 'payouts'), payoutData);
       await addDoc(collection(db, 'users', user.uid, 'notifications'), {
         title: "💸 Payout Requested",
-        message: `Your payout request for $${payoutData.amount} via ${payoutData.method} has been submitted successfully.`,
+        message: `Your payout request for $${payoutData.amount} via ${payoutForm.method} has been submitted successfully.`,
         type: 'payout_requested',
         isRead: false,
         createdAt: serverTimestamp()

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
@@ -206,7 +205,7 @@ export default function DashboardPage() {
             ) : accounts.length === 0 ? (
               <Card className="col-span-full border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6">
                  <Terminal className="w-16 h-16 text-muted-foreground opacity-20" />
-                 <div className="max-w-sm">
+                 <div className="max-sm">
                    <h3 className="text-xl font-bold text-white mb-2">No active challenges</h3>
                    <p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p>
                  </div>
