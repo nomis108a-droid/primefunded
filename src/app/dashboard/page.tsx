@@ -1,579 +1,229 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, memo } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { useAuth } from '@/context/AuthContext';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { 
   Wallet, 
   Activity, 
-  Server, 
-  ShieldCheck, 
-  Copy, 
-  Check, 
-  AlertTriangle, 
-  ExternalLink, 
-  Users, 
-  DollarSign, 
-  Skull,
+  History, 
+  Trophy, 
+  Terminal,
   TrendingUp,
   TrendingDown,
   BarChart3,
   Calendar,
-  History,
-  Trophy,
   Zap,
   ArrowRight,
   Clock,
-  Loader2,
   PieChart,
-  ArrowUpRight,
-  ArrowDownRight,
   Award,
-  Download,
   Target,
   ChevronRight,
   ShieldAlert,
-  Monitor,
-  Terminal
+  Loader2,
+  XCircle
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFirestore, useCollection } from '@/firebase';
-import { where, doc, limit, orderBy, onSnapshot, collection, query, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { where, orderBy, onSnapshot, doc, limit } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { NotificationBell } from '@/components/NotificationBell';
 import { cn } from '@/lib/utils';
-import { 
-  BarChart, 
-  Bar, 
-  Cell,
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip as ChartTooltip, 
-  ResponsiveContainer,
-  ReferenceLine
-} from 'recharts';
-import { format, subDays, subMonths, differenceInSeconds, isValid, startOfDay, differenceInDays } from 'date-fns';
-import { getTradeDate, enrichTrades } from '@/lib/tradeUtils';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
-
-const getTradingDayKey = (date: Date) => {
-  const adjusted = new Date(date.getTime() - (2 * 60 * 60 * 1000));
-  return adjusted.toISOString().split('T')[0];
-};
-
-interface DashboardPageProps {
-  adminViewMode?: boolean;
-  targetUid?: string;
-}
+import { format, isValid } from 'date-fns';
+import { getTradeDate } from '@/lib/tradeUtils';
 
 const MetricCard = memo(function MetricCard({ 
   title, 
   value, 
   icon, 
-  footer, 
-  disabled, 
-  progress, 
-  progressLabel 
+  color = 'primary',
+  trend
 }: { 
   title: string, 
   value: string, 
   icon: React.ReactNode, 
-  footer?: string, 
-  disabled?: boolean,
-  progress?: number,
-  progressLabel?: string
+  color?: string,
+  trend?: { val: string, positive: boolean }
 }) {
   return (
-    <Card className={cn(
-      "border-border/50 bg-card/40 transition-all duration-300 group",
-      disabled ? "opacity-40 grayscale" : "hover:border-primary/30"
-    )}>
+    <Card className="border-border/50 bg-card/40 transition-all duration-300 hover:border-primary/30 group">
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground group-hover:text-primary transition-colors">{title}</span>
-          <div className="p-2 bg-secondary rounded-lg border border-border group-hover:border-primary/20 transition-colors">
+          <div className={cn("p-2 rounded-lg border border-border group-hover:border-primary/20 transition-colors bg-secondary/50")}>
             {icon}
           </div>
         </div>
-        <div className="flex items-end gap-2 mb-4">
+        <div className="flex flex-col gap-1">
           <span className="text-3xl font-bold font-headline tabular-nums leading-none text-white">{value}</span>
+          {trend && (
+            <div className={cn("flex items-center gap-1 text-[10px] font-bold uppercase", trend.positive ? "text-emerald-500" : "text-destructive")}>
+              {trend.positive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {trend.val}
+            </div>
+          )}
         </div>
-        
-        {progress !== undefined && (
-          <div className="space-y-1.5 mb-4">
-            <Progress value={progress} className="h-1" />
-            <p className="text-[8px] font-black uppercase tracking-wider text-primary">{progressLabel}</p>
-          </div>
-        )}
-
-        {footer && <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 font-bold uppercase tracking-wider text-wrap break-all"><Server className="w-3 h-3 shrink-0" /> {footer}</p>}
       </CardContent>
     </Card>
   );
 });
 
-export default function DashboardPage({ adminViewMode = false, targetUid }: DashboardPageProps) {
+export default function DashboardPage() {
   const { user, userData, loading: authLoading } = useAuth();
   const db = useFirestore();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const isDebug = searchParams.get('debug') === 'true';
-  const effectiveUid = adminViewMode && targetUid ? targetUid : user?.uid;
   const { toast } = useToast();
+  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
 
-  const [activeLogin, setActiveLogin] = useState<string | null>(null);
-  const [liveAccountData, setLiveAccountData] = useState<any>(null);
-
-  // FETCH ALL ACCOUNTS FOR THIS USER
+  // 1. Fetch Demo Accounts
   const accountConstraints = useMemo(() => {
-    if (!effectiveUid) return [];
+    if (!user?.uid) return [];
     return [
-      where('userId', '==', effectiveUid),
+      where('userId', '==', user.uid),
       orderBy('createdAt', 'desc')
     ];
-  }, [effectiveUid]);
+  }, [user?.uid]);
 
-  const { data: userAccounts, loading: accountsLoading } = useCollection<any>(
-    effectiveUid ? 'mt5_accounts' : null,
+  const { data: accounts, loading: accountsLoading } = useCollection<any>(
+    user?.uid ? 'demoAccounts' : null,
     accountConstraints
   );
 
-  // FETCH DEMO CHALLENGE ACCOUNTS
-  const demoAccountConstraints = useMemo(() => {
-    if (!effectiveUid) return [];
+  // 2. Fetch Trades
+  const tradeConstraints = useMemo(() => {
+    if (!user?.uid) return [];
     return [
-      where('userId', '==', effectiveUid),
-      orderBy('createdAt', 'desc')
+      where('userId', '==', user.uid),
+      orderBy('openedAt', 'desc')
     ];
-  }, [effectiveUid]);
+  }, [user?.uid]);
 
-  const { data: demoAccounts, loading: demoAccountsLoading } = useCollection<any>(
-    effectiveUid ? 'demoAccounts' : null,
-    demoAccountConstraints
-  );
-
-  useEffect(() => {
-    if (userAccounts.length > 0 && !activeLogin) {
-      const profileLogin = userData?.mt5Login;
-      if (profileLogin && userAccounts.find(a => String(a.id) === String(profileLogin))) {
-        setActiveLogin(String(profileLogin));
-      } else {
-        setActiveLogin(String(userAccounts[0].id));
-      }
-    }
-  }, [userAccounts, userData?.mt5Login, activeLogin]);
-
-  // ── Persistent real-time listener for active account ─────────
-  useEffect(() => {
-    if (!activeLogin || !db) {
-      setLiveAccountData(null);
-      return;
-    }
-    const ref = doc(db, 'mt5_accounts', activeLogin);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) {
-        setLiveAccountData({ id: snap.id, ...snap.data() });
-      }
-    });
-    return () => unsub();
-  }, [activeLogin, db]);
-
-  const activeAccount = useMemo(() =>
-    liveAccountData || userAccounts.find(a => String(a.id) === String(activeLogin)) || userAccounts[0]
-  , [liveAccountData, userAccounts, activeLogin]);
-
-  const isBreached = activeAccount?.status === 'breached';
-
-  // DERIVE METRICS EXCLUSIVELY FROM ACTIVE ACCOUNT DOCUMENT
-  const metrics = useMemo(() => {
-    if (!activeAccount) return { balance: 0, equity: 0, initial: 100000 };
-    const initial = parseFloat(String(activeAccount.accountBalance || 100000));
-    const balance = parseFloat(String(activeAccount.dailyStartBalance ?? initial));
-    const equity = parseFloat(String(activeAccount.liveEquity ?? activeAccount.equity ?? balance));
-    return { balance, equity, initial };
-  }, [activeAccount]);
-
-  const connectivityInfo = useMemo(() => {
-    if (!activeAccount) return { status: 'offline', label: 'Terminal Offline' };
-    if (isBreached) return { status: 'terminated', label: 'Terminated' };
-    
-    const rawTs = activeAccount?.lastMT5Update;
-    const lastUpdateMs = rawTs?.seconds
-      ? rawTs.seconds * 1000
-      : rawTs instanceof Date
-        ? rawTs.getTime()
-        : rawTs ? Number(rawTs) : 0;
-    
-    if (lastUpdateMs === 0) return { status: 'awaiting', label: 'Awaiting Data' };
-
-    const diffSeconds = Math.floor((Date.now() - lastUpdateMs) / 1000);
-    const isEAOnline = diffSeconds <= 600;
-    const minutesAgo = Math.floor(diffSeconds / 60);
-    const timeLabel = minutesAgo === 0 ? 'Just now' : minutesAgo > 59 ? '>1h ago' : `${minutesAgo}m ago`;
-
-    if (isEAOnline) return { status: 'live', label: `Live Sync (${timeLabel})` };
-    return { status: 'offline', label: `Terminal Offline (${timeLabel})` };
-  }, [activeAccount, isBreached]);
-
-  // ISOLATED TRADES & PERFORMANCE
-  const tradeConstraints = useMemo(() => [
-    orderBy('date', 'desc'),
-    limit(500)
-  ], []);
-
-  const { data: rawTrades, loading: tradesLoading } = useCollection<any>(
-    effectiveUid ? `users/${effectiveUid}/trades` : null,
+  const { data: allTrades, loading: tradesLoading } = useCollection<any>(
+    user?.uid ? 'demoTrades' : null,
     tradeConstraints
   );
 
-  const filteredTrades = useMemo(() => {
-    if (!rawTrades || !activeAccount) return [];
-    return rawTrades.filter(t => String(t.login) === String(activeAccount.id));
-  }, [rawTrades, activeAccount]);
+  // 3. Separate Open and Closed Trades
+  const openTrades = useMemo(() => allTrades.filter(t => t.status === 'open'), [allTrades]);
+  const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed'), [allTrades]);
 
-  const enrichedTrades = useMemo(() => {
-    return enrichTrades(filteredTrades, activeAccount?.id || 'N/A');
-  }, [filteredTrades, activeAccount?.id]);
-
-  const todaysTrades = useMemo(() => {
-    const todayKey = getTradingDayKey(new Date());
-    return enrichedTrades.filter(t => t.closeTime && getTradingDayKey(getTradeDate(t.closeTime)!) === todayKey);
-  }, [enrichedTrades]);
-
-  // RISK CALCULATIONS
-  const dailyRiskMetrics = useMemo(() => {
-    if (!activeAccount) return { pnl: 0, pnlPct: 0, usage: 0, limit: 3, limitAmount: 0, totalDailyLoss: 0, isPositive: true };
-    const initialBalance = parseFloat(String(activeAccount.accountBalance || 100000));
-    const realizedLosses = todaysTrades.reduce((acc, t) => t.pnl < 0 ? acc + Math.abs(t.pnl) : acc, 0);
-    const totalDailyPnl = todaysTrades.reduce((acc, t) => acc + t.pnl, 0);
-    const limitPct = 3;
-    const limitAmount = initialBalance * (limitPct / 100);
-    const usage = Math.min((realizedLosses / limitAmount) * 100, 100);
-    return { pnl: totalDailyPnl, pnlPct: initialBalance > 0 ? (totalDailyPnl / initialBalance) * 100 : 0, usage, limit: limitPct, limitAmount, totalDailyLoss: realizedLosses, isPositive: totalDailyPnl >= 0 };
-  }, [activeAccount, todaysTrades]);
-
-  const profitTargetData = useMemo(() => {
-    if (!activeAccount) return { targetPct: 0, progress: 0, hasTarget: false };
-    const initial = parseFloat(String(activeAccount.accountBalance || 100000));
-    const planKey = getPlanKey(activeAccount.accountPlan || '');
-    const phase = activeAccount.phase || 'evaluation';
-    let targetPct = 0;
-    if (planKey === '1-step-pro' && phase === 'evaluation') {
-      targetPct = 8;
-    } else {
-      const rules = RULES_CONFIG.plans[planKey]?.[phase];
-      targetPct = rules?.profitTarget || 0;
-    }
-    const targetAmount = initial * (targetPct / 100);
-    const targetValue = initial + targetAmount;
-    const currentProfit = (parseFloat(String(activeAccount.liveBalance ?? activeAccount.balance ?? initial)) - initial);
-    const progress = targetAmount > 0 ? Math.max(0, Math.min((currentProfit / targetAmount) * 100, 100)) : 0;
-    return { targetPct, targetAmount, targetValue, currentProfit, progress, hasTarget: targetPct > 0 };
-  }, [activeAccount]);
-
-  const performanceStats = useMemo(() => {
-    const closedPositions = enrichedTrades.filter(t => t.closeTime);
-    const total = closedPositions.length;
-    if (total === 0) return null;
-    const wins = closedPositions.filter(t => t.pnl > 0);
-    const losses = closedPositions.filter(t => t.pnl < 0);
-    const totalPnl = closedPositions.reduce((acc, t) => acc + t.pnl, 0);
-    const best = Math.max(...closedPositions.map(t => t.pnl));
-    const worst = Math.min(...closedPositions.map(t => t.pnl));
-    return { total, winRate: (wins.length / total) * 100, avgWin: wins.length > 0 ? wins.reduce((acc, t) => acc + t.pnl, 0) / wins.length : 0, avgLoss: losses.length > 0 ? losses.reduce((acc, t) => acc + t.pnl, 0) / losses.length : 0, totalPnl, best, worst };
-  }, [enrichedTrades]);
-
-  const tradingDaysData = useMemo(() => {
-    if (!filteredTrades || !activeAccount) return { count: 0, required: 5, progress: 0 };
-    const days = new Set<string>();
-    filteredTrades.forEach(t => {
-      const date = getTradeDate(t.time || t.date);
-      if (date && isValid(date)) days.add(getTradingDayKey(date));
-    });
-    const count = days.size;
-    const plan = activeAccount.accountPlan?.toLowerCase() || '';
-    const phase = activeAccount.phase || 'evaluation';
-    let required = 5;
-    if (plan.includes('3-step')) {
-      required = phase === 'phase1' ? 7 : phase === 'phase2' ? 6 : 5;
-    } else if (plan.includes('instant')) {
-      required = 1;
-    }
-    return { count, required, progress: Math.min((count / required) * 100, 100) };
-  }, [filteredTrades, activeAccount]);
-
-  // ── Live clock for connectivity badge ───────────────────────
-  const [, setTick] = useState(0);
+  // 4. Live Prices for Open Trade P&L Calculation
   useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 30_000);
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/terminal/live-prices');
+        if (res.ok) {
+          const data = await res.json();
+          setLivePrices(data);
+        }
+      } catch (e) {}
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  if (authLoading && !adminViewMode) return null;
+  // 5. Compute Stats from Closed History
+  const stats = useMemo(() => {
+    if (closedTrades.length === 0) return { total: 0, winRate: 0, totalPnl: 0, best: 0, worst: 0 };
+    const wins = closedTrades.filter(t => (t.pnl || 0) > 0);
+    const totalPnl = closedTrades.reduce((acc, t) => acc + (t.pnl || 0), 0);
+    const best = Math.max(...closedTrades.map(t => (t.pnl || 0)));
+    const worst = Math.min(...closedTrades.map(t => (t.pnl || 0)));
+    return {
+      total: closedTrades.length,
+      winRate: (wins.length / closedTrades.length) * 100,
+      totalPnl,
+      best,
+      worst
+    };
+  }, [closedTrades]);
+
+  const calculateOpenPnl = (trade: any) => {
+    const priceData = livePrices[trade.symbol];
+    if (!priceData) return 0;
+    const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
+    const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
+    
+    // Contract size approximation
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD'].includes(trade.symbol);
+    const contractSize = isForex ? 100000 : (trade.symbol === 'XAUUSD' ? 100 : 1);
+    return diff * trade.lots * contractSize;
+  };
+
+  const closeTrade = async (tradeId: string) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) toast({ title: "Trade Closed Successfully" });
+      else throw new Error("Failed to close trade");
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error", description: err.message });
+    }
+  };
+
+  if (authLoading) return null;
 
   return (
     <div className="flex min-h-screen bg-background">
-      {!adminViewMode && <Navigation />}
+      <Navigation />
       
-      <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto custom-scrollbar">
         <header className="flex flex-col md:flex-row justify-between items-start mb-10 gap-6">
           <div>
-            <h1 className="text-3xl font-headline font-bold mb-1 text-white">
-              {adminViewMode ? `Previewing: ${userData?.name || 'Trader'}` : "Institutional Terminal"}
-            </h1>
-            <p className="text-muted-foreground">Manage your funding nodes and risk protocols.</p>
+            <h1 className="text-3xl font-headline font-bold mb-1 text-white">Trader Terminal</h1>
+            <p className="text-muted-foreground">Monitoring active challenges and node performance.</p>
           </div>
           <div className="flex items-center gap-4">
-            {!adminViewMode && <NotificationBell />}
-            <Badge variant="outline" className={cn(
-              "h-9 px-4 uppercase font-bold tracking-widest border-white/10",
-              connectivityInfo.status === 'live' && "border-accent/30 text-accent"
-            )}>
-              <div className={cn(
-                "w-2 h-2 rounded-full mr-2", 
-                connectivityInfo.status === 'live' ? 'bg-accent live-indicator' : 
-                connectivityInfo.status === 'offline' || connectivityInfo.status === 'terminated' ? 'bg-destructive' : 'bg-amber-500'
-              )} />
-              {connectivityInfo.label}
-            </Badge>
+            <NotificationBell />
+            <Button className="font-bold cyan-box-glow cursor-pointer" asChild>
+              <Link href="/challenges"><Zap className="w-4 h-4 mr-2" /> New Challenge</Link>
+            </Button>
           </div>
         </header>
 
-        <section className="mb-10">
-          <div className="flex items-center gap-2 mb-4">
-            <Server className="w-4 h-4 text-primary" />
-            <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Select Active Institutional Node</h2>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {accountsLoading ? (
-              [1, 2].map(i => <Skeleton key={i} className="h-24 rounded-2xl bg-secondary/20" />)
-            ) : userAccounts.length === 0 ? (
-              <Card className="col-span-full border-dashed border-border/50 bg-secondary/5 p-6 text-center">
-                 <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">No active institutional nodes detected.</p>
-              </Card>
-            ) : (
-              userAccounts.map((acc: any) => (
-                <Card 
-                  key={acc.id} 
-                  onClick={() => { setActiveLogin(acc.id); setLiveAccountData(null); }}
-                  className={cn(
-                    "cursor-pointer transition-all duration-300 relative overflow-hidden group",
-                    activeLogin === acc.id ? "bg-primary/10 border-primary shadow-[0_0_20px_rgba(17,179,245,0.15)]" : "bg-card/40 border-border/50 hover:border-primary/30"
-                  )}
-                >
-                  <CardContent className="p-5">
-                    <div className="flex justify-between items-start mb-3">
-                       <Badge className={cn(
-                         "text-[9px] font-black uppercase",
-                         acc.status === 'breached' ? "bg-destructive/20 text-destructive" : "bg-secondary text-white"
-                       )}>
-                         {acc.status || 'Active'}
-                       </Badge>
-                       <span className="font-mono text-[10px] text-muted-foreground">{acc.login}</span>
-                    </div>
-                    <p className="text-sm font-bold text-white mb-0.5">{acc.accountPlan}</p>
-                    <p className="text-lg font-black text-primary font-headline">${(parseFloat(acc.accountBalance || 100000) / 1000).toFixed(0)}k Node</p>
-                    {activeLogin === acc.id && (
-                       <div className="absolute bottom-0 left-0 w-full h-1 bg-primary" />
-                    )}
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </section>
-
-        {activeAccount ? (
-          <>
-            {isBreached && (
-              <div className="mb-8 p-6 rounded-2xl bg-destructive/20 border border-destructive/40 flex items-center gap-6">
-                <Skull className="w-10 h-10 text-destructive shrink-0" />
-                <div>
-                  <h3 className="text-xl font-headline font-bold text-white uppercase">Node Liquidated</h3>
-                  <p className="text-sm text-destructive-foreground">Terminated: <span className="font-bold text-white">{activeAccount.breachReason || 'Institutional Risk Violation'}</span></p>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <MetricCard 
-                title="Session Balance" 
-                value={`$${metrics.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} 
-                icon={<Wallet className="text-primary" />} 
-                footer="Balance at 02:00 UTC start."
-                disabled={isBreached} 
-              />
-              <MetricCard 
-                title="Current Equity" 
-                value={`$${metrics.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}`} 
-                icon={<Activity className="text-accent" />} 
-                disabled={isBreached} 
-              />
-              <MetricCard 
-                title="Trading Days" 
-                value={`${tradingDaysData.count} / ${tradingDaysData.required} Days`} 
-                icon={<Calendar className="text-emerald-500" />} 
-                progress={tradingDaysData.progress}
-                progressLabel={`${tradingDaysData.progress.toFixed(0)}% Completed`}
-              />
-              <MetricCard 
-                title="Profit Target" 
-                value={profitTargetData.hasTarget ? `$${(profitTargetData.targetValue ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : 'Live Node'} 
-                icon={<Target className="text-amber-500" />} 
-                progress={profitTargetData.hasTarget ? profitTargetData.progress : undefined}
-                progressLabel={profitTargetData.hasTarget ? `${profitTargetData.progress.toFixed(1)}% to Target` : 'Funded Stage: No Target'}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              <Card className={cn("border-border/50 bg-card/40", isBreached && "opacity-40")}>
-                <CardContent className="p-6">
-                  <div className="flex justify-between mb-4">
-                    <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Session P&L</span>
-                    {dailyRiskMetrics.isPositive ? <TrendingUp className="text-emerald-500 w-4 h-4" /> : <TrendingDown className="text-destructive w-4 h-4" />}
-                  </div>
-                  <p className={cn("text-3xl font-bold font-headline", dailyRiskMetrics.isPositive ? 'text-emerald-500' : 'text-destructive')}>
-                    {dailyRiskMetrics.isPositive ? '+' : ''}${dailyRiskMetrics.pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
-                    Total realized P&L since 02:00 UTC
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className={cn("border-border/50 bg-card/40", isBreached && "opacity-40")}>
-                <CardContent className="p-6">
-                  <div className="flex justify-between mb-4">
-                    <span className="text-[10px] font-black uppercase text-muted-foreground">Daily Drawdown Status</span>
-                    <span className="text-[10px] font-bold text-muted-foreground">Limit: ${dailyRiskMetrics.limitAmount.toLocaleString()}</span>
-                  </div>
-                  <p className="text-3xl font-bold font-headline text-white">${dailyRiskMetrics.totalDailyLoss.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-                  <div className="mt-4 space-y-1.5">
-                    <Progress value={dailyRiskMetrics.usage} className="h-1.5" />
-                    <p className={cn("text-[9px] font-black uppercase", dailyRiskMetrics.usage > 80 ? 'text-destructive' : 'text-primary')}>
-                      Realized losses only. {dailyRiskMetrics.usage.toFixed(1)}% of 3% limit used.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm mb-8", isBreached && "opacity-40")}>
-              <CardHeader>
-                <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
-                  <BarChart3 className="w-5 h-5 text-accent" /> Institutional Performance Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-6">
-                  <SummaryItem label="Total Trades" value={performanceStats?.total ?? 0} />
-                  <SummaryItem label="Win Rate" value={`${performanceStats?.winRate.toFixed(1) ?? 0}%`} color={performanceStats && performanceStats.winRate >= 50 ? 'text-emerald-500' : 'text-destructive'} />
-                  <SummaryItem label="Avg Win" value={`$${performanceStats?.avgWin.toFixed(2) ?? '0.00'}`} color="text-emerald-500" />
-                  <SummaryItem label="Avg Loss" value={`$${performanceStats?.avgLoss.toFixed(2) ?? '0.00'}`} color="text-destructive" />
-                  <SummaryItem label="Total P&L" value={`$${performanceStats?.totalPnl.toFixed(2) ?? '0.00'}`} color={performanceStats && performanceStats.totalPnl >= 0 ? 'text-emerald-500' : 'text-destructive'} />
-                  <SummaryItem label="Best Trade" value={`$${performanceStats?.best.toFixed(2) ?? '0.00'}`} color="text-emerald-500" />
-                  <SummaryItem label="Worst Trade" value={`$${performanceStats?.worst.toFixed(2) ?? '0.00'}`} color="text-destructive" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className={cn("border-border/50 bg-card/40 backdrop-blur-sm mb-12", isBreached && "opacity-40")}>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
-                  <History className="w-5 h-5 text-primary" /> Position Journal (Isolated)
-                </CardTitle>
-                <Badge variant="outline" className="text-[9px] font-black uppercase">Node {activeAccount.login}</Badge>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                      <tr>
-                        <th className="py-4 px-6">Symbol</th>
-                        <th className="py-4 px-4">Type</th>
-                        <th className="py-4 px-4">Close Time</th>
-                        <th className="py-4 px-4">Duration</th>
-                        <th className="py-4 px-4 text-right">Lots</th>
-                        <th className="py-4 px-6 text-right">P&L</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {tradesLoading ? (
-                        [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={6} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
-                      ) : enrichedTrades.length > 0 ? (
-                        enrichedTrades.slice(0, 50).map((trade: any) => (
-                          <tr key={trade.id} className="hover:bg-primary/5 transition-colors">
-                            <td className="py-4 px-6 font-bold text-white">{trade.symbol}</td>
-                            <td className="py-4 px-4">
-                              <Badge variant="outline" className={cn(
-                                "text-[9px] font-black uppercase",
-                                trade.type?.toLowerCase() === 'buy' ? 'text-emerald-500 border-emerald-500/30' : 'text-destructive border-destructive/30'
-                              )}>{trade.type}</Badge>
-                            </td>
-                            <td className="py-4 px-4 text-xs text-muted-foreground font-mono">{trade.closeTime ? format(getTradeDate(trade.closeTime)!, 'MMM d, HH:mm') : '—'}</td>
-                            <td className="py-4 px-4 text-xs text-muted-foreground flex items-center gap-1.5 pt-5"><Clock className="w-3 h-3" />{trade.duration}</td>
-                            <td className="py-4 px-4 text-right text-white font-mono">{trade.lots || trade.volume}</td>
-                            <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (trade.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                              {(trade.pnl || 0) >= 0 ? '+' : ''}${(trade.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">No executions recorded for node {activeAccount.login}.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          </>
-        ) : !accountsLoading && (
-          <div className="h-[40vh] flex flex-col items-center justify-center text-center space-y-6 bg-secondary/5 border-2 border-dashed border-border/50 rounded-[2rem] mb-12">
-             <ShieldAlert className="w-16 h-16 text-muted-foreground opacity-20" />
-             <div className="max-w-md">
-                <h3 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Institutional Access Required</h3>
-                <p className="text-muted-foreground text-sm leading-relaxed mt-2">No active MT5 nodes detected. Institutional nodes are for traders who have passed all evaluation stages.</p>
-             </div>
-             <Button size="lg" className="h-14 px-12 font-bold text-lg cyan-box-glow rounded-2xl" asChild>
-                <Link href="/challenges">Start Challenge <ChevronRight className="ml-2 w-5 h-5" /></Link>
-             </Button>
-          </div>
-        )}
-
-        <section className="mb-20">
-          <div className="flex items-center gap-3 mb-6">
-            <Monitor className="w-6 h-6 text-primary" />
-            <h2 className="text-2xl font-headline font-bold text-white">Demo Challenge Accounts</h2>
+        {/* 1. CHALLENGE ACCOUNTS SECTION */}
+        <section className="mb-12">
+          <div className="flex items-center gap-2 mb-6">
+            <Trophy className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Active Challenges</h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {demoAccountsLoading ? (
+            {accountsLoading ? (
               [1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-3xl bg-secondary/20" />)
-            ) : demoAccounts.length === 0 ? (
-              <Card className="col-span-full border-dashed border-border/50 bg-card/40 p-12 text-center flex flex-col items-center justify-center space-y-4">
-                 <Terminal className="w-12 h-12 text-muted-foreground opacity-20" />
-                 <p className="text-muted-foreground font-bold uppercase text-[10px] tracking-widest">No active challenges. Purchase a challenge to get started.</p>
-                 <Button className="font-bold cyan-box-glow px-8 h-12 rounded-xl" asChild>
-                   <Link href="/challenges">Begin Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
+            ) : accounts.length === 0 ? (
+              <Card className="col-span-full border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6">
+                 <Terminal className="w-16 h-16 text-muted-foreground opacity-20" />
+                 <div className="max-w-sm">
+                   <h3 className="text-xl font-bold text-white mb-2">No active challenges</h3>
+                   <p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p>
+                 </div>
+                 <Button className="font-bold cyan-box-glow px-10 h-12 rounded-xl" asChild>
+                   <Link href="/challenges">Buy a Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
                  </Button>
               </Card>
             ) : (
-              demoAccounts.map((acc: any) => {
+              accounts.map((acc: any) => {
                 const pnl = (acc.balance || 0) - (acc.startBalance || 0);
-                const pnlColor = pnl >= 0 ? 'text-emerald-500' : 'text-destructive';
+                const targetGap = (acc.profitTarget || 0) - (acc.startBalance || 0);
+                const progress = targetGap > 0 ? Math.min(100, Math.max(0, (pnl / targetGap) * 100)) : 0;
                 
                 return (
-                  <Card key={acc.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group">
+                  <Card key={acc.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group shadow-xl">
                     <div className={cn(
-                      "absolute top-0 left-0 w-full h-1",
+                      "absolute top-0 left-0 w-full h-1.5",
                       acc.status === 'blown' ? "bg-destructive" : acc.status === 'passed' ? "bg-amber-500" : "bg-primary"
                     )} />
                     <CardHeader className="pb-4">
@@ -590,42 +240,43 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
                       </div>
                       <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{acc.label}</CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-6">
                        <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
                           <div>
-                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Balance</p>
-                             <p className="text-lg font-bold text-white font-mono">${(acc.balance || 0).toLocaleString()}</p>
+                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Balance</p>
+                             <p className="text-lg font-bold text-white font-mono">${(acc.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                           </div>
                           <div>
-                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Equity</p>
-                             <p className="text-lg font-bold text-white font-mono">${(acc.equity || 0).toLocaleString()}</p>
+                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">P&L</p>
+                             <p className={cn("text-lg font-bold font-mono", pnl >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                               {pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                             </p>
                           </div>
                        </div>
                        
-                       <div className="grid grid-cols-2 gap-4">
-                          <div>
-                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">P&L</p>
-                             <p className={cn("text-lg font-bold font-mono", pnlColor)}>
-                               {pnl >= 0 ? '+' : ''}${pnl.toLocaleString()}
-                             </p>
-                          </div>
-                          <div>
-                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Profit Target</p>
-                             <p className="text-lg font-bold text-amber-500 font-mono">${(acc.profitTarget || 0).toLocaleString()}</p>
-                          </div>
+                       <div className="space-y-2">
+                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                           <span className="text-muted-foreground">Profit Progress</span>
+                           <span className="text-white">${(acc.profitTarget || 0).toLocaleString()} Target</span>
+                         </div>
+                         <Progress value={progress} className="h-1.5" />
                        </div>
 
-                       <div className="pt-2 space-y-1">
-                          <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-tighter">
-                             <span className="text-muted-foreground">Daily Limit: <span className="text-destructive">${(acc.dailyLoss || 0).toLocaleString()}</span></span>
-                             <span className="text-muted-foreground">Max Loss: <span className="text-destructive">${(acc.maxLoss || 0).toLocaleString()}</span></span>
+                       <div className="grid grid-cols-2 gap-4 pt-2">
+                          <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                             <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
+                             <p className="text-xs font-bold text-white">${(acc.dailyLoss || 0).toLocaleString()}</p>
+                          </div>
+                          <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                             <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
+                             <p className="text-xs font-bold text-white">${(acc.maxLoss || 0).toLocaleString()}</p>
                           </div>
                        </div>
                     </CardContent>
-                    <CardFooter className="pt-2">
-                       <Button className="w-full font-black cyan-box-glow h-11" asChild disabled={acc.status === 'blown'}>
+                    <CardFooter className="pt-2 pb-6 px-6">
+                       <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild disabled={acc.status === 'blown'}>
                           <Link href={`/demo?accountId=${acc.id}`}>
-                            <Terminal className="w-4 h-4 mr-2" /> Open Terminal
+                            <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
                           </Link>
                        </Button>
                     </CardFooter>
@@ -635,16 +286,138 @@ export default function DashboardPage({ adminViewMode = false, targetUid }: Dash
             )}
           </div>
         </section>
-      </main>
-    </div>
-  );
-}
 
-function SummaryItem({ label, value, color = 'text-white' }: { label: string, value: string | number, color?: string }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">{label}</p>
-      <p className={cn("text-sm font-bold font-mono", color)}>{value}</p>
+        {/* 2. STATS ROW */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
+          <MetricCard title="Total Trades" value={stats.total.toString()} icon={<Activity className="text-primary w-4 h-4" />} />
+          <MetricCard title="Win Rate" value={`${stats.winRate.toFixed(1)}%`} icon={<Award className="text-amber-500 w-4 h-4" />} color="amber" />
+          <MetricCard title="Total Net P&L" value={`$${stats.totalPnl.toLocaleString()}`} icon={<Wallet className="text-emerald-500 w-4 h-4" />} trend={{ val: 'Closed Only', positive: stats.totalPnl >= 0 }} />
+          <MetricCard title="Best Trade" value={`$${stats.best.toLocaleString()}`} icon={<TrendingUp className="text-emerald-500 w-4 h-4" />} color="green" />
+          <MetricCard title="Worst Trade" value={`$${stats.worst.toLocaleString()}`} icon={<TrendingDown className="text-destructive w-4 h-4" />} color="red" />
+        </div>
+
+        {/* 3. OPEN POSITIONS SECTION */}
+        <section className="mb-12">
+          <Card className="border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+              <div>
+                <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-accent" /> Live Terminal Positions
+                </CardTitle>
+                <CardDescription>Real-time execution monitoring.</CardDescription>
+              </div>
+              <Badge variant="outline" className="animate-pulse bg-accent/5 text-accent border-accent/30 uppercase text-[9px] font-black tracking-widest h-6">
+                <div className="w-1.5 h-1.5 rounded-full bg-accent mr-2" /> Live Sync
+              </Badge>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                    <tr>
+                      <th className="py-4 px-6">Symbol</th>
+                      <th className="py-4 px-4">Type</th>
+                      <th className="py-4 px-4">Lots</th>
+                      <th className="py-4 px-4">Entry Price</th>
+                      <th className="py-4 px-4 text-right">Current P&L</th>
+                      <th className="py-4 px-6 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {tradesLoading ? (
+                      [1, 2].map(i => <tr key={i} className="animate-pulse"><td colSpan={6} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                    ) : openTrades.length === 0 ? (
+                      <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic text-sm">No live positions in the terminal.</td></tr>
+                    ) : (
+                      openTrades.map((t: any) => {
+                        const openPnl = calculateOpenPnl(t);
+                        return (
+                          <tr key={t.id} className="hover:bg-white/5 transition-colors">
+                            <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
+                            <td className="py-4 px-4">
+                              <Badge variant="outline" className={cn(
+                                "text-[9px] font-black uppercase",
+                                t.type === 'buy' ? 'text-emerald-500 border-emerald-500/30' : 'text-destructive border-destructive/30'
+                              )}>{t.type}</Badge>
+                            </td>
+                            <td className="py-4 px-4 font-mono text-zinc-400">{t.lots}</td>
+                            <td className="py-4 px-4 font-mono text-white">${t.openPrice.toLocaleString()}</td>
+                            <td className={cn("py-4 px-4 text-right font-bold tabular-nums", openPnl >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                              {openPnl >= 0 ? '+' : ''}${openPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-4 px-6 text-right">
+                              <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-destructive/20 text-destructive/50 hover:text-destructive cursor-pointer" onClick={() => closeTrade(t.id)}>
+                                <XCircle className="w-5 h-5" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* 4. TRADE HISTORY SECTION */}
+        <section className="mb-20">
+          <Card className="border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
+            <CardHeader className="border-b border-white/5 pb-4">
+              <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
+                <History className="w-5 h-5 text-primary" /> Execution Ledger
+              </CardTitle>
+              <CardDescription>Archive of the last 50 closed positions.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                    <tr>
+                      <th className="py-4 px-6">Symbol</th>
+                      <th className="py-4 px-4">Type</th>
+                      <th className="py-4 px-4">Lots</th>
+                      <th className="py-4 px-4">Entry</th>
+                      <th className="py-4 px-4">Exit Price</th>
+                      <th className="py-4 px-4">Closed At</th>
+                      <th className="py-4 px-6 text-right">Final P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {tradesLoading ? (
+                      [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={7} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                    ) : closedTrades.length === 0 ? (
+                      <tr><td colSpan={7} className="py-20 text-center text-muted-foreground italic text-sm">No historical records found.</td></tr>
+                    ) : (
+                      closedTrades.slice(0, 50).map((t: any) => (
+                        <tr key={t.id} className="hover:bg-primary/5 transition-colors">
+                          <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
+                          <td className="py-4 px-4">
+                            <Badge variant="outline" className={cn(
+                              "text-[9px] font-black uppercase",
+                              t.type === 'buy' ? 'text-emerald-500 border-emerald-500/30' : 'text-destructive border-destructive/30'
+                            )}>{t.type}</Badge>
+                          </td>
+                          <td className="py-4 px-4 font-mono text-zinc-400">{t.lots}</td>
+                          <td className="py-4 px-4 font-mono text-xs text-muted-foreground">${t.openPrice.toLocaleString()}</td>
+                          <td className="py-4 px-4 font-mono text-xs text-white">${t.closePrice?.toLocaleString()}</td>
+                          <td className="py-4 px-4 text-xs text-muted-foreground">
+                             {t.closedAt ? format(getTradeDate(t.closedAt)!, 'MMM d, HH:mm') : '—'}
+                          </td>
+                          <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                            {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
     </div>
   );
 }

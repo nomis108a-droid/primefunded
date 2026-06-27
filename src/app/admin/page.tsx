@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -11,18 +12,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Gift, Skull, AlertTriangle, CheckCircle2, ShieldEllipsis, Trophy, Landmark, Terminal, Key, Database, Hash, FileImage, XCircle, CreditCard, Banknote, ShieldCheck, FileText, Fingerprint, RefreshCw, Megaphone, Share2, Trash2, Send, UserCircle, Save, Copy, Edit2, Phone, Calendar, UserPlus, ShoppingBag, AlertOctagon, Clock, ArrowRight, RotateCcw, ShieldAlert, Wifi, Award, Wrench, Monitor, BarChart2
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Skull, CheckCircle2, ShieldEllipsis, Trophy, Terminal, Database, ShieldCheck, Megaphone, Trash2, Send, Clock, AlertOctagon, BarChart2, Monitor, RefreshCw, ArrowRight
 } from 'lucide-react';
-import { fetchAdminTerminalData, registerMt5AccountAction, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, forceBreachAccountAction, runRetroactiveRiskAuditAction, sendGlobalBroadcastAction, resetAccountAction, deleteMt5AccountAction, runOneTimeCleanupAction, fetchDemoTradesByAccount } from './actions';
+import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, sendGlobalBroadcastAction, resetDemoAccountAction, fetchDemoTradesByAccount } from './actions';
 import DashboardPage from '@/app/dashboard/page';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
-import Image from 'next/image';
-import { formatDistanceToNow, format, isValid } from 'date-fns';
+import { format, formatDistanceToNow, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -37,7 +34,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className={cn("p-2 rounded-lg border", colors[color])}>{icon}</div>
-          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">LIVE</Badge>
+          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">DEMO</Badge>
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
         <h3 className="text-3xl font-headline font-bold text-white group-hover:text-primary transition-colors">{value}</h3>
@@ -54,7 +51,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [previewUserId, setPreviewUserId] = useState<string | null>(null);
-  const [adminData, setAdminData] = useState<any>({ users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], accounts: [], demoAccounts: [] });
+  const [adminData, setAdminData] = useState<any>({ users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], demoAccounts: [], demoTrades: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
@@ -66,22 +63,8 @@ export default function AdminPage() {
   const [isTradesModalOpen, setIsTradesModalOpen] = useState(false);
   const [demoFilter, setDemoFilter] = useState<'all' | 'active' | 'blown' | 'passed'>('all');
 
-  // Provisioning Form State
-  const [provisionForm, setProvisionForm] = useState({ login: '', password: '', displayLogin: '', plan: '1-Step Pro', size: '100000', userId: '', phase: 'evaluation' });
-  const [userSearchTerm, setUserSearchTerm] = useState('');
-  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-
   // Broadcast Form State
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
-
-  // Force Breach State
-  const [isForceBreachOpen, setIsForceBreachOpen] = useState(false);
-  const [forceBreachReason, setForceBreachReason] = useState('');
-
-  // Repair/Reset State
-  const [isResetOpen, setIsResetOpen] = useState(false);
-  const [resetBalance, setResetBalance] = useState('');
-  const [resetPhase, setResetPhase] = useState('funded');
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -133,114 +116,17 @@ export default function AdminPage() {
     }
   };
 
-  const handleProbeConnection = async () => {
-    toast({ title: "Probing Node...", description: "Testing latency to institutional terminals." });
-    try {
-      const start = Date.now();
-      const res = await fetch('/api/health');
-      const latency = Date.now() - start;
-      if (res.ok) {
-        toast({ title: "Node Online", description: `Latency: ${latency}ms. Connection stable.` });
-      } else {
-        toast({ variant: "destructive", title: "Node Offline", description: "Terminal heartbeat failed." });
-      }
-    } catch (err) {
-      toast({ variant: "destructive", title: "Probe Failed", description: "Network error." });
-    }
-  };
-
-  const handleRiskAudit = async () => {
-    if (!confirm("Run retroactive audit on all active MT5 nodes? This may terminate accounts found in breach.")) return;
+  const handleResetDemoAccount = async (accountId: string) => {
+    if (!confirm("Confirm administrative reset for this demo node? All progress will be restored to starting balance.")) return;
     setActionLoading(true);
     try {
-      const res = await runRetroactiveRiskAuditAction();
+      const res = await resetDemoAccountAction(accountId);
       if (res.success) {
-        toast({ title: "Audit Complete", description: `Detected ${res.breachCount} retroactive breaches.` });
+        toast({ title: "Node Reset Complete" });
         refreshData();
       }
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Audit Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleRunCleanup = async () => {
-    if (!confirm("CRITICAL: This will delete ALL MT5 account documents except 108582571 and perform an EXHAUSTIVE reset of all linked user profiles (removing all trading traces). This is irreversible. Proceed?")) return;
-    setActionLoading(true);
-    try {
-      const res = await runOneTimeCleanupAction();
-      if (res.success) {
-        toast({ title: "Cleanup Complete", description: `Deleted ${res.deletedIds.length} nodes and reset ${res.resetUserIds.length} profiles.` });
-        refreshData();
-      }
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Cleanup Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleResetAccount = async () => {
-    if (!previewUserId || !resetBalance) return;
-    const targetUser = adminData.users.find((u: any) => u.id === previewUserId);
-    const login = targetUser?.mt5Login;
-    
-    if (!login) {
-      toast({ variant: "destructive", title: "Action Failed", description: "No MT5 login linked to this user profile." });
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      const res = await resetAccountAction(login, Number(resetBalance), resetPhase);
-      if (res.success) {
-        toast({ title: "Account Repaired", description: `Login PF-${login} restored to active status at $${resetBalance}.` });
-        setIsResetOpen(false);
-        setResetBalance('');
-        refreshData();
-      }
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Repair Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleDeleteAccount = async (login: string) => {
-    if (!confirm(`PERMANENT PURGE: Are you absolutely sure you want to delete MT5 Node PF-${login}? This will also delete all associated trade history for this specific login. This action is immutable.`)) return;
-    setActionLoading(true);
-    try {
-      const res = await deleteMt5AccountAction(login);
-      if (res.success) {
-        toast({ title: "Node Deleted", description: `PF-${login} has been completely removed from the network.` });
-        refreshData();
-      }
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Deletion Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleForceBreach = async () => {
-    if (!previewUserId || !forceBreachReason) return;
-    const targetUser = adminData.users.find((u: any) => u.id === previewUserId);
-    const login = targetUser?.mt5Login || 'N/A';
-    
-    setActionLoading(true);
-    try {
-      const res = await forceBreachAccountAction(previewUserId, login, forceBreachReason);
-      if (res.success) {
-        toast({ title: "Account manually breached" });
-        setIsForceBreachOpen(false);
-        setForceBreachReason('');
-        refreshData();
-      } else {
-        toast({ variant: "destructive", title: "Action Failed", description: "Terminal error during breach execution." });
-      }
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Fatal Error", description: err.message });
+      toast({ variant: "destructive", title: "Reset Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -259,26 +145,11 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
-  const handleUpdateOrderStatus = async (orderId: string, status: string, orderData?: any) => {
+  const handleUpdateOrderStatus = async (orderId: string, status: string) => {
     setActionLoading(true);
     const res = await updateOrderStatusAction(orderId, status);
     if (res.success) { 
       toast({ title: `Order ${status.toUpperCase()}` }); 
-      
-      if (status === 'approved' && orderData) {
-        const rawSize = orderData.accountSize || '';
-        const numericSize = rawSize.replace(/[$,]/g, '').replace(/k/i, '000');
-        
-        setProvisionForm(prev => ({
-          ...prev,
-          userId: orderData.userId,
-          plan: orderData.plan,
-          size: numericSize
-        }));
-        setUserSearchTerm(orderData.email);
-        setActiveTab('provisioning');
-        localStorage.setItem('admin_active_tab', 'provisioning');
-      }
       refreshData(); 
     }
     else { toast({ variant: "destructive", title: "Action Failed" }); }
@@ -321,21 +192,21 @@ export default function AdminPage() {
     }
   };
 
-  const filteredUsersForSearch = useMemo(() => {
-    if (!userSearchTerm) return [];
-    return adminData.users.filter((u: any) => u.email?.toLowerCase().includes(userSearchTerm.toLowerCase()) || u.name?.toLowerCase().includes(userSearchTerm.toLowerCase())).slice(0, 5);
-  }, [adminData.users, userSearchTerm]);
-
-  const filteredUsersForDirectory = useMemo(() => {
-    if (!searchTerm) return adminData.users;
-    const lowerSearch = searchTerm.toLowerCase();
-    return adminData.users.filter((u: any) => 
-      u.name?.toLowerCase().includes(lowerSearch) || 
-      u.email?.toLowerCase().includes(lowerSearch) || 
-      u.id?.toLowerCase().includes(lowerSearch) || 
-      (u.uid && u.uid.toString().toLowerCase().includes(lowerSearch))
-    );
-  }, [adminData.users, searchTerm]);
+  const stats = useMemo(() => {
+    const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified' || o.status === 'approved');
+    const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
+    const accounts = adminData.demoAccounts || [];
+    return { 
+      totalRevenue, 
+      totalTraders: adminData.users.length, 
+      totalAccounts: accounts.length,
+      activeAccounts: accounts.filter((a: any) => a.status === 'active').length,
+      blownAccounts: accounts.filter((a: any) => a.status === 'blown').length,
+      passedAccounts: accounts.filter((a: any) => a.status === 'passed').length,
+      openPositions: adminData.demoTrades?.filter((t: any) => t.status === 'open').length || 0,
+      totalVolume: accounts.reduce((acc: number, a: any) => acc + (a.equity || 0), 0)
+    };
+  }, [adminData]);
 
   const filteredDemoAccounts = useMemo(() => {
     if (!adminData.demoAccounts) return [];
@@ -348,34 +219,11 @@ export default function AdminPage() {
     });
   }, [adminData.demoAccounts, demoFilter, searchTerm]);
 
-  const demoStats = useMemo(() => {
-    const accounts = adminData.demoAccounts || [];
-    return {
-      total: accounts.length,
-      active: accounts.filter((a: any) => a.status === 'active').length,
-      blown: accounts.filter((a: any) => a.status === 'blown').length,
-      passed: accounts.filter((a: any) => a.status === 'passed').length,
-    };
-  }, [adminData.demoAccounts]);
-
-  const stats = useMemo(() => {
-    const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified' || o.status === 'approved');
-    const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
-    const pendingPayouts = adminData.payouts.filter((p: any) => p.status === 'pending').length;
-    return { 
-      totalRevenue, 
-      totalTraders: adminData.users.length, 
-      activeAccounts: adminData.accounts?.filter((a: any) => a.status === 'active').length || 0,
-      pendingOrders: adminData.orders.filter((o: any) => o.status === 'pending').length, 
-      pendingPayouts 
-    };
-  }, [adminData]);
-
   const recentActivity = useMemo(() => {
     const activities: any[] = [];
-    adminData.users.forEach((u: any) => activities.push({ id: `signup-${u.id}`, type: 'signup', description: `New trader: ${u.name || u.email}`, timestamp: u.createdAt || u.joinDate, icon: <UserPlus className="w-4 h-4 text-purple-500" />, color: 'purple' }));
-    adminData.orders.forEach((o: any) => activities.push({ id: `order-${o.id}`, type: 'order', description: `Order submitted: ${o.accountSize} ${o.plan} by ${o.userName || o.email}`, timestamp: o.submittedAt || o.date, icon: <ShoppingBag className="w-4 h-4 text-primary" />, color: 'blue' }));
-    adminData.payouts.forEach((p: any) => activities.push({ id: `payout-${p.id}`, type: 'payout', description: `Payout requested: $${p.amount} by ${p.email}`, timestamp: p.createdAt || p.date, icon: <Banknote className="w-4 h-4 text-emerald-500" />, color: 'green' }));
+    adminData.users.forEach((u: any) => activities.push({ id: `signup-${u.id}`, type: 'signup', description: `New trader: ${u.name || u.email}`, timestamp: u.createdAt || u.joinDate, icon: <Users className="w-4 h-4 text-purple-500" />, color: 'purple' }));
+    adminData.orders.forEach((o: any) => activities.push({ id: `order-${o.id}`, type: 'order', description: `Order submitted: ${o.accountSize} ${o.plan} by ${o.userName || o.email}`, timestamp: o.submittedAt || o.date, icon: <ShoppingCart className="w-4 h-4 text-primary" />, color: 'blue' }));
+    adminData.payouts.forEach((p: any) => activities.push({ id: `payout-${p.id}`, type: 'payout', description: `Payout requested: $${p.amount} by ${p.email}`, timestamp: p.createdAt || p.date, icon: <Wallet className="w-4 h-4 text-emerald-500" />, color: 'green' }));
     adminData.breaches.forEach((b: any) => activities.push({ id: `breach-${b.id}`, type: 'breach', description: `Breach detected: ${b.breachReason} on account ${b.login || b.userId}`, timestamp: b.breachedAt, icon: <AlertOctagon className="w-4 h-4 text-destructive" />, color: 'destructive' }));
     return activities.filter(a => a.timestamp).sort((a, b) => {
       const dateA = getTradeDate(a.timestamp);
@@ -385,93 +233,13 @@ export default function AdminPage() {
   }, [adminData]);
 
   if (previewUserId) {
-    const targetUser = adminData.users.find((u: any) => u.id === previewUserId);
     return (
       <div className="min-h-screen bg-background relative">
         <div className="fixed top-0 left-0 w-full z-[100] bg-primary h-14 flex items-center justify-between px-6 shadow-xl">
-          <div className="flex items-center gap-4">
-            <span className="text-xs font-black uppercase text-primary-foreground">Previewing Trader: {targetUser?.name || previewUserId}</span>
-            {targetUser?.readyForNextPhase && (
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white font-black h-8 px-4" onClick={() => handleAdvancePhase(previewUserId)} disabled={actionLoading}>
-                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Trophy className="w-3 h-3 mr-2" />}
-                Provision Next Phase
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" className="bg-black hover:bg-black/80 text-primary border border-primary font-black h-8" onClick={() => { setResetBalance(targetUser?.accountBalance || ''); setResetPhase(targetUser?.currentPhase || 'funded'); setIsResetOpen(true); }}>
-               <Wrench className="w-3 h-3 mr-2" /> Reset/Repair Node
-            </Button>
-            <Button variant="destructive" size="sm" className="bg-black hover:bg-black/80 text-destructive border border-destructive font-black h-8" onClick={() => setIsForceBreachOpen(true)}>Force Breach Account</Button>
-          </div>
+          <span className="text-xs font-black uppercase text-primary-foreground">Previewing Trader Dashboard</span>
           <Button variant="secondary" size="sm" onClick={() => setPreviewUserId(null)}><ChevronLeft className="w-3 h-3 mr-1" /> Exit Preview</Button>
         </div>
-        <div className="pt-14"><DashboardPage adminViewMode={true} targetUid={previewUserId} /></div>
-
-        <Dialog open={isForceBreachOpen} onOpenChange={setIsForceBreachOpen}>
-          <DialogContent className="bg-card border-destructive">
-            <DialogHeader>
-              <DialogTitle className="text-destructive flex items-center gap-2"><Skull className="w-5 h-5" /> Manual Account Liquidation</DialogTitle>
-              <DialogDescription>Are you sure you want to manually breach this account? This action is immutable.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Breach Reason (For Ledger)</Label>
-                <Input 
-                  placeholder="e.g. Risk protocol violation detected..." 
-                  value={forceBreachReason} 
-                  onChange={e => setForceBreachReason(e.target.value)} 
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsForceBreachOpen(false)}>Cancel</Button>
-              <Button variant="destructive" className="font-bold" onClick={handleForceBreach} disabled={actionLoading || !forceBreachReason}>
-                Confirm Manual Breach
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={isResetOpen} onOpenChange={setIsResetOpen}>
-          <DialogContent className="bg-card border-primary/20">
-            <DialogHeader>
-              <DialogTitle className="text-primary flex items-center gap-2"><Wrench className="w-5 h-5" /> Reset & Repair Node</DialogTitle>
-              <DialogDescription>Manually restore an account to active status and adjust its parameters.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>New Node Balance ($)</Label>
-                <Input 
-                  type="number"
-                  placeholder="e.g. 10000" 
-                  value={resetBalance} 
-                  onChange={e => setResetBalance(e.target.value)} 
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Reset to Phase</Label>
-                <Select value={resetPhase} onValueChange={setResetPhase}>
-                  <SelectTrigger className="bg-background">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="evaluation">Evaluation</SelectItem>
-                    <SelectItem value="phase1">Phase 1</SelectItem>
-                    <SelectItem value="phase2">Phase 2</SelectItem>
-                    <SelectItem value="phase3">Phase 3</SelectItem>
-                    <SelectItem value="funded">Funded Stage</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-[10px] text-muted-foreground uppercase font-bold">This will update both the MT5 node and user profile, clearing any breach metadata.</p>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsResetOpen(false)}>Cancel</Button>
-              <Button className="font-bold cyan-box-glow" onClick={handleResetAccount} disabled={actionLoading || !resetBalance}>
-                Confirm Repair
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <div className="pt-14"><DashboardPage /></div>
       </div>
     );
   }
@@ -482,24 +250,19 @@ export default function AdminPage() {
       <main className="flex-1 flex flex-col min-h-0">
         <div className="p-8 pb-4 shrink-0">
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
-            <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Provision institutional nodes and manage trader access.</p></div>
+            <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Managing institutional demo challenges and trader payouts.</p></div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleProbeConnection} disabled={actionLoading}><Wifi className="w-4 h-4 mr-2" /> Probe Connection</Button>
-              <Button variant="destructive" size="sm" onClick={handleRiskAudit} disabled={actionLoading}><ShieldCheck className="w-4 h-4 mr-2" /> Risk Audit All Accounts</Button>
-              <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>{isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}Refresh Data</Button>
+              <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>{isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}Sync Network</Button>
             </div>
           </div>
           <Tabs value={activeTab} onValueChange={val => { setActiveTab(val); localStorage.setItem('admin_active_tab', val); }}>
             <TabsList className="bg-secondary/50 h-12 w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="font-bold">Overview</TabsTrigger>
+              <TabsTrigger value="demo_nodes" className="font-bold">Demo Nodes</TabsTrigger>
               <TabsTrigger value="phase_passers" className="font-bold">Phase Passers</TabsTrigger>
               <TabsTrigger value="orders" className="font-bold">Order Review</TabsTrigger>
               <TabsTrigger value="payouts" className="font-bold">Payout Hub</TabsTrigger>
-              <TabsTrigger value="provisioning" className="font-bold">MT5 Provisioning</TabsTrigger>
-              <TabsTrigger value="demo_nodes" className="font-bold">Demo Nodes</TabsTrigger>
-              <TabsTrigger value="mt5_nodes" className="font-bold">Account Nodes</TabsTrigger>
               <TabsTrigger value="user_directory" className="font-bold">User Directory</TabsTrigger>
-              <TabsTrigger value="profile_editor" className="font-bold">Profile Editor</TabsTrigger>
               <TabsTrigger value="referral_audit" className="font-bold">Referral Audit</TabsTrigger>
               <TabsTrigger value="broadcasts" className="font-bold">Broadcasts</TabsTrigger>
               <TabsTrigger value="kyc" className="font-bold">KYC Hub</TabsTrigger>
@@ -512,52 +275,46 @@ export default function AdminPage() {
           {activeTab === 'overview' && (
             <div className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard title="Total Revenue" value={`$${stats.totalRevenue.toLocaleString()}`} icon={<DollarSign />} color="blue" />
-                <StatCard title="Total Traders" value={stats.totalTraders} icon={<Users />} color="purple" />
-                <StatCard title="Pending Review" value={stats.pendingOrders} icon={<ShoppingCart />} color="amber" />
-                <StatCard title="Pending Payouts" value={stats.pendingPayouts} icon={<Wallet />} color="green" />
+                <StatCard title="Total Demo Nodes" value={stats.totalAccounts} icon={<Terminal />} color="blue" />
+                <StatCard title="Open Positions" value={stats.openPositions} icon={<Activity />} color="purple" />
+                <StatCard title="Active Traders" value={stats.totalTraders} icon={<Users />} color="amber" />
+                <StatCard title="Total Volume" value={`$${(stats.totalVolume / 1000000).toFixed(1)}M`} icon={<DollarSign />} color="green" />
               </div>
               
-              <Card className="bg-card/30 border-border/50 overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
-                  <div><CardTitle className="text-xl font-headline text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary" /> Platform Activity Feed</CardTitle><CardDescription>Real-time log of events across the network.</CardDescription></div>
-                  <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live</Badge>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <div className="divide-y divide-white/5">
-                    {recentActivity.length === 0 ? <div className="p-20 text-center text-muted-foreground italic text-sm">No recent activity detected.</div> : recentActivity.map((act) => (
-                      <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
-                        <div className={cn("p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110", act.color === 'purple' && "bg-purple-500/10 border-purple-500/20", act.color === 'blue' && "bg-primary/10 border-primary/20", act.color === 'green' && "bg-emerald-500/10 border-emerald-500/20", act.color === 'destructive' && "bg-destructive/10 border-destructive/20")}>{act.icon}</div>
-                        <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {(() => { const d = getTradeDate(act.timestamp); return d ? formatDistanceToNow(d, { addSuffix: true }) : 'Recently'; })()}</span><span className="text-[10px] text-muted-foreground/30">•</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <Card className="lg:col-span-2 bg-card/30 border-border/50 overflow-hidden">
+                  <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+                    <div><CardTitle className="text-xl font-headline text-white flex items-center gap-2"><Activity className="w-5 h-5 text-primary" /> Network Pulse</CardTitle></div>
+                    <Badge variant="outline" className="animate-pulse bg-emerald-500/5 text-emerald-500 border-emerald-500/20 uppercase text-[9px] font-black tracking-widest"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2" /> Live</Badge>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="divide-y divide-white/5">
+                      {recentActivity.length === 0 ? <div className="p-20 text-center text-muted-foreground italic text-sm">Waiting for incoming node data...</div> : recentActivity.map((act) => (
+                        <div key={act.id} className="p-5 flex items-start gap-4 hover:bg-white/5 transition-colors group">
+                          <div className={cn("p-2.5 rounded-xl border shrink-0 transition-transform group-hover:scale-110", act.color === 'purple' && "bg-purple-500/10 border-purple-500/20", act.color === 'blue' && "bg-primary/10 border-primary/20", act.color === 'green' && "bg-emerald-500/10 border-emerald-500/20", act.color === 'destructive' && "bg-destructive/10 border-destructive/20")}>{act.icon}</div>
+                          <div className="flex-1 min-w-0"><p className="text-sm font-bold text-white line-clamp-1 mb-1">{act.description}</p><div className="flex items-center gap-3"><span className="text-[10px] uppercase font-black tracking-widest text-muted-foreground flex items-center gap-1.5"><Clock className="w-3 h-3" /> {(() => { const d = getTradeDate(act.timestamp); return d ? formatDistanceToNow(d, { addSuffix: true }) : 'Recently'; })()}</span><span className="text-[10px] uppercase font-bold text-muted-foreground/40">{act.type}</span></div></div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="space-y-6">
+                  <Card className="bg-secondary/20 border-border/50 p-6">
+                     <h4 className="text-xs font-black uppercase text-muted-foreground tracking-widest mb-6">Demo Node Distribution</h4>
+                     <div className="space-y-4">
+                        <DistributionRow label="Active Nodes" count={stats.activeAccounts} total={stats.totalAccounts} color="bg-primary" />
+                        <DistributionRow label="Liquidated (Blown)" count={stats.blownAccounts} total={stats.totalAccounts} color="bg-destructive" />
+                        <DistributionRow label="Passed Stages" count={stats.passedAccounts} total={stats.totalAccounts} color="bg-amber-500" />
+                     </div>
+                  </Card>
+                </div>
+              </div>
             </div>
           )}
 
           {activeTab === 'demo_nodes' && (
             <div className="space-y-8">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card className="bg-secondary/30 border-border/50 p-6">
-                  <p className="text-[10px] font-black uppercase text-muted-foreground mb-1">Total Demo</p>
-                  <h3 className="text-2xl font-bold text-white">{demoStats.total}</h3>
-                </Card>
-                <Card className="bg-emerald-500/5 border-emerald-500/20 p-6">
-                  <p className="text-[10px] font-black uppercase text-emerald-500/70 mb-1">Active Challenges</p>
-                  <h3 className="text-2xl font-bold text-emerald-500">{demoStats.active}</h3>
-                </Card>
-                <Card className="bg-destructive/5 border-destructive/20 p-6">
-                  <p className="text-[10px] font-black uppercase text-destructive/70 mb-1">Blown / Liquidated</p>
-                  <h3 className="text-2xl font-bold text-destructive">{demoStats.blown}</h3>
-                </Card>
-                <Card className="bg-amber-500/5 border-amber-500/20 p-6">
-                  <p className="text-[10px] font-black uppercase text-amber-500/70 mb-1">Passed Stages</p>
-                  <h3 className="text-2xl font-bold text-amber-500">{demoStats.passed}</h3>
-                </Card>
-              </div>
-
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="flex bg-secondary/50 p-1 rounded-xl border border-border">
                    {['all', 'active', 'blown', 'passed'].map(f => (
@@ -572,13 +329,13 @@ export default function AdminPage() {
                 </div>
                 <div className="relative w-full md:w-80">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input placeholder="Search Demo Nodes..." className="pl-10 bg-secondary/30" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                  <Input placeholder="Search user ID or email..." className="pl-10 h-11 bg-secondary/30 border-border/50 text-white rounded-xl" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                 </div>
               </div>
 
               <Card className="bg-card/30 border-border/50">
                 <CardContent className="p-0">
-                  <div className="overflow-x-auto">
+                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                       <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
                         <tr>
@@ -595,8 +352,8 @@ export default function AdminPage() {
                         {filteredDemoAccounts.map((acc: any) => {
                           const pnl = (acc.balance || 0) - (acc.startBalance || 0);
                           return (
-                            <tr key={acc.id} className="hover:bg-primary/5 group">
-                              <td className="py-4 px-6 font-mono text-xs text-primary font-bold">{acc.userId?.slice(0, 8)}...</td>
+                            <tr key={acc.id} className="hover:bg-primary/5 group transition-colors">
+                              <td className="py-4 px-6 font-mono text-xs text-primary font-bold">{acc.userId?.slice(0, 10)}...</td>
                               <td className="py-4 px-4 text-white text-xs">{acc.label}</td>
                               <td className="py-4 px-4 text-right font-mono font-bold">${(acc.balance || 0).toLocaleString()}</td>
                               <td className="py-4 px-4 text-right font-mono text-muted-foreground">${(acc.equity || 0).toLocaleString()}</td>
@@ -613,9 +370,12 @@ export default function AdminPage() {
                                   {acc.status}
                                 </Badge>
                               </td>
-                              <td className="py-4 px-6 text-right">
+                              <td className="py-4 px-6 text-right flex justify-end gap-2">
                                 <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase cursor-pointer" onClick={() => handleViewDemoTrades(acc)}>
                                    <BarChart2 className="w-3 h-3 mr-1" /> View Trades
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10" onClick={() => handleResetDemoAccount(acc.id)}>
+                                   <RefreshCw className="w-3 h-3 mr-1" /> Reset Node
                                 </Button>
                               </td>
                             </tr>
@@ -630,570 +390,135 @@ export default function AdminPage() {
           )}
 
           {activeTab === 'phase_passers' && (
-            <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-white">Phase Passers</CardTitle>
-                  <CardDescription>Traders ready for advancement.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                          <th className="py-4 px-6">Trader</th>
-                          <th className="py-4 px-4">Plan</th>
-                          <th className="py-4 px-4">Phase</th>
-                          <th className="py-4 px-4">Login</th>
-                          <th className="py-4 px-6 text-right">Action</th>
+            <Card className="bg-card/30 border-border/50">
+              <CardHeader><CardTitle className="text-white">Evaluation Success Ledger</CardTitle><CardDescription>Traders who have successfully completed their phase targets.</CardDescription></CardHeader>
+              <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                      <tr>
+                        <th className="py-4 px-6">Trader ID</th>
+                        <th className="py-4 px-4">Plan</th>
+                        <th className="py-4 px-4 text-right">Final Balance</th>
+                        <th className="py-4 px-4 text-right">P&L</th>
+                        <th className="py-4 px-6 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {adminData.demoAccounts.filter((a: any) => a.status === 'passed').map((acc: any) => (
+                        <tr key={acc.id} className="hover:bg-primary/5">
+                          <td className="py-4 px-6 font-mono text-xs text-primary font-bold">{acc.userId}</td>
+                          <td className="py-4 px-4 text-white font-bold">{acc.label}</td>
+                          <td className="py-4 px-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td>
+                          <td className="py-4 px-4 text-right font-mono text-emerald-500 font-bold">+${(acc.balance - acc.startBalance).toLocaleString()}</td>
+                          <td className="py-4 px-6 text-right">
+                             <Button size="sm" className="font-bold h-8 text-[10px] uppercase" onClick={() => handleAdvancePhase(acc.userId)}>Provision Next Phase</Button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {adminData.users.filter((u: any) => u.readyForNextPhase).map((u: any) => (
-                          <tr key={u.id} className="hover:bg-primary/5 transition-colors">
-                            <td className="py-4 px-6 font-bold text-white">{u.name}</td>
-                            <td className="py-4 px-4 text-white">{u.accountPlan}</td>
-                            <td className="py-4 px-4 uppercase text-xs font-bold text-primary">{u.currentPhase}</td>
-                            <td className="py-4 px-4 font-mono text-xs">{u.mt5Login}</td>
-                            <td className="py-4 px-6 text-right">
-                              <Button size="sm" onClick={() => handleAdvancePhase(u.id)} disabled={actionLoading}>
-                                Advance Phase
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                        {adminData.users.filter((u: any) => u.readyForNextPhase).length === 0 && (
-                          <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No traders currently awaiting phase advancement.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                      ))}
+                      {adminData.demoAccounts.filter((a: any) => a.status === 'passed').length === 0 && (
+                        <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic text-sm">No successful evaluations awaiting review.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'orders' && (
-            <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardHeader><CardTitle className="text-white">Order Review Desk</CardTitle><CardDescription>Manual verification of payments.</CardDescription></CardHeader>
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="py-4 px-6">Trader</th><th className="py-4 px-4">Plan & Size</th><th className="py-4 px-4">Amount</th><th className="py-4 px-4">Network</th><th className="py-4 px-6 text-right">Actions</th></tr></thead>
-                      <tbody className="divide-y divide-border/50">
-                        {adminData.orders.map((order: any) => (
-                          <tr key={order.id} className="hover:bg-primary/5 group">
-                            <td className="py-4 px-6"><p className="font-bold text-white">{order.userName || 'Unknown'}</p><p className="text-[10px] text-muted-foreground">{order.email}</p></td>
-                            <td className="py-4 px-4"><Badge className="bg-primary/10 text-primary border-primary/20">{order.plan} {order.accountSize}</Badge></td>
-                            <td className="py-4 px-4 font-bold text-white">${order.amountPaid}</td>
-                            <td className="py-4 px-4 text-xs">{order.network}</td>
-                            <td className="py-4 px-6 text-right flex justify-end gap-2">
-                              {order.status === 'pending' && (
-                                <>
-                                  <Button className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'approved', order)}>Approve</Button>
-                                  <Button variant="destructive" className="h-8 text-[10px] font-bold uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'rejected')}>Reject</Button>
-                                </>
-                              )}
-                              {order.status !== 'pending' && <Badge variant="outline" className="uppercase text-[9px]">{order.status}</Badge>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'provisioning' && (
-            <div className="max-w-4xl mx-auto space-y-8">
-              <Card className="bg-card/40 border-primary/20 shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-primary" />
-                <CardHeader><CardTitle className="text-2xl font-headline text-white flex items-center gap-3"><Terminal className="text-primary w-6 h-6" /> Node Provisioning Terminal</CardTitle><CardDescription>Generate and link official MetaTrader 5 institutional credentials.</CardDescription></CardHeader>
-                <CardContent className="space-y-6 pt-6">
-                  <div className="space-y-4">
-                    <Label className="text-xs uppercase font-black tracking-widest text-primary">1. Locate Recipient</Label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input placeholder="Search trader by name or email..." className="pl-10 h-12 bg-background border-border" value={userSearchTerm} onChange={e => setUserSearchTerm(e.target.value)} />
-                      {filteredUsersForSearch.length > 0 && (
-                        <Card className="absolute top-full left-0 w-full z-10 mt-1 border-primary/30 bg-black/90 backdrop-blur-xl">
-                          <CardContent className="p-0">
-                            {filteredUsersForSearch.map((u: any) => (
-                              <button key={u.id} className="w-full px-4 py-3 flex items-center justify-between hover:bg-primary/10 text-left border-b border-white/5 last:border-none group" onClick={() => { setProvisionForm({ ...provisionForm, userId: u.id }); setUserSearchTerm(u.email); }}>
-                                <div><p className="font-bold text-white group-hover:text-primary">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></div>
-                                <ArrowRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-all" />
-                              </button>
-                            ))}
-                          </CardContent>
-                        </Card>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Plan Type</Label><Select value={provisionForm.plan} onValueChange={val => setProvisionForm({...provisionForm, plan: val})}><SelectTrigger className="h-11 bg-background border-border"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1-Step Pro">1-Step Pro</SelectItem><SelectItem value="2-Step Classic">2-Step Classic</SelectItem><SelectItem value="3-Step Classic">3-Step Classic</SelectItem><SelectItem value="Instant Funding">Instant Funding</SelectItem></SelectContent></Select></div>
-                    <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Initial Balance ($)</Label><Input value={provisionForm.size} onChange={e => setProvisionForm({...provisionForm, size: e.target.value})} placeholder="e.g. 100000" className="h-11 bg-background border-border" /></div>
-                    <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">MT5 Login ID</Label><Input value={provisionForm.login} onChange={e => setProvisionForm({...provisionForm, login: e.target.value})} placeholder="e.g. 505183..." className="h-11 bg-background border-border" /></div>
-                    <div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">MT5 Master Password</Label><Input value={provisionForm.password} onChange={e => setProvisionForm({...provisionForm, password: e.target.value})} placeholder="Master key..." className="h-11 bg-background border-border" /></div>
-                  </div>
-                </CardContent>
-                <CardFooter className="bg-secondary/20 p-6 flex justify-end"><Button className="h-12 px-10 font-bold text-lg cyan-box-glow" disabled={actionLoading || !provisionForm.userId || !provisionForm.login} onClick={() => setIsConfirmOpen(true)}>{actionLoading ? <Loader2 className="animate-spin mr-2" /> : <ShieldCheck className="mr-2 w-5 h-5" />}Authorize Node Provisioning</Button></CardFooter>
-              </Card>
-
-              <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
-                <DialogContent className="bg-black border-primary/20 text-white">
-                  <DialogHeader><DialogTitle>Verify Provisioning Details</DialogTitle><DialogDescription>Provision institutional capital access for {userSearchTerm}.</DialogDescription></DialogHeader>
-                  <DialogFooter><Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Abort</Button><Button className="bg-primary text-black font-bold" onClick={async () => { setActionLoading(true); const res = await registerMt5AccountAction({...provisionForm, size: Number(provisionForm.size)}); if (res.success) { toast({ title: "Node Provisioned" }); setProvisionForm({ login: '', password: '', displayLogin: '', plan: '1-Step Pro', size: '100000', userId: '', phase: 'evaluation' }); setUserSearchTerm(''); refreshData(); } setActionLoading(false); setIsConfirmOpen(false); }}>Confirm Activation</Button></DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          )}
-
-          {activeTab === 'mt5_nodes' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h2 className="text-xl font-headline text-white">Institutional Nodes</h2>
-                  <p className="text-sm text-muted-foreground">Registry of all provisioned MetaTrader 5 accounts.</p>
-                </div>
-                <Button variant="destructive" size="sm" className="font-bold border border-destructive/30" onClick={handleRunCleanup} disabled={actionLoading}>
-                   <Trash2 className="w-4 h-4 mr-2" /> One-Time Data Cleanup
-                </Button>
-              </div>
-              <Card className="bg-card/30 border-border/50">
-                <CardContent className="p-0">
-                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                          <th className="py-4 px-6">Login ID</th>
-                          <th className="py-4 px-4">Plan</th>
-                          <th className="py-4 px-4">Balance</th>
-                          <th className="py-4 px-4">Phase</th>
-                          <th className="py-4 px-4">Status</th>
-                          <th className="py-4 px-6 text-right">Actions</th>
+            <Card className="bg-card/30 border-border/50">
+              <CardHeader><CardTitle className="text-white">Purchase Review Desk</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="py-4 px-6">Trader</th><th className="py-4 px-4">Plan & Size</th><th className="py-4 px-4">Amount</th><th className="py-4 px-4">Network</th><th className="py-4 px-6 text-right">Actions</th></tr></thead>
+                    <tbody className="divide-y divide-border/50">
+                      {adminData.orders.map((order: any) => (
+                        <tr key={order.id} className="hover:bg-primary/5">
+                          <td className="py-4 px-6"><p className="font-bold text-white">{order.userName || 'Unknown'}</p><p className="text-[10px] text-muted-foreground">{order.email}</p></td>
+                          <td className="py-4 px-4"><Badge className="bg-primary/10 text-primary border-primary/20">{order.plan} {order.accountSize}</Badge></td>
+                          <td className="py-4 px-4 font-bold text-white">${order.amountPaid}</td>
+                          <td className="py-4 px-4 text-xs">{order.network}</td>
+                          <td className="py-4 px-6 text-right flex justify-end gap-2">
+                            {order.status === 'pending' && (
+                              <>
+                                <Button className="bg-emerald-500 text-black font-bold h-8 text-[10px] uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'approved')}>Approve</Button>
+                                <Button variant="destructive" className="h-8 text-[10px] font-bold uppercase" onClick={() => handleUpdateOrderStatus(order.id, 'rejected')}>Reject</Button>
+                              </>
+                            )}
+                            {order.status !== 'pending' && <Badge variant="outline" className="uppercase text-[9px]">{order.status}</Badge>}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {adminData.accounts.sort((a: any, b: any) => String(b.login).localeCompare(String(a.login))).map((acc: any) => (
-                          <tr key={acc.id} className="hover:bg-primary/5 transition-colors group">
-                            <td className="py-4 px-6 font-mono text-xs text-white">PF-{acc.login}</td>
-                            <td className="py-4 px-4 text-white text-xs">{acc.accountPlan}</td>
-                            <td className="py-4 px-4 font-bold text-white">${parseFloat(acc.accountBalance || 0).toLocaleString()}</td>
-                            <td className="py-4 px-4 uppercase text-[10px] font-black text-muted-foreground">{acc.phase || 'evaluation'}</td>
-                            <td className="py-4 px-4">
-                              <Badge className={cn("text-[9px] font-black uppercase", acc.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive')}>
-                                {acc.status || 'active'}
-                              </Badge>
-                            </td>
-                            <td className="py-4 px-6 text-right flex justify-end gap-2">
-                               {acc.status === 'breached' && (
-                                 <Button 
-                                    size="sm" 
-                                    variant="outline" 
-                                    className="h-7 text-[9px] font-black uppercase border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 cursor-pointer"
-                                    onClick={async () => {
-                                      const originalBalance = parseFloat(String(acc.accountBalance || 100000));
-                                      if (!confirm(`Reset account PF-${acc.login} back to active status?`)) return;
-                                      setActionLoading(true);
-                                      try {
-                                        const res = await resetAccountAction(acc.login, originalBalance, acc.phase || 'evaluation');
-                                        if (res.success) {
-                                          toast({ title: "Account Restored", description: `PF-${acc.login} is now active.` });
-                                          refreshData();
-                                        }
-                                      } catch (err: any) {
-                                        toast({ variant: "destructive", title: "Reset Failed", description: err.message });
-                                      } finally {
-                                        setActionLoading(false);
-                                      }
-                                    }}
-                                    disabled={actionLoading}
-                                  >
-                                    <RefreshCw className="w-3 h-3 mr-1" /> Reset Node
-                                 </Button>
-                               )}
-                               <button onClick={() => setPreviewUserId(acc.userId)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4 text-muted-foreground hover:text-white" /></button>
-                               <button 
-                                 onClick={() => handleDeleteAccount(acc.login)} 
-                                 className="p-2 hover:bg-destructive/10 rounded-lg transition-colors group/trash"
-                                 title="Permanently Purge Node"
-                               >
-                                 <Trash2 className="w-4 h-4 text-muted-foreground group-hover/trash:text-destructive" />
-                               </button>
-                            </td>
-                          </tr>
-                        ))}
-                        {adminData.accounts.length === 0 && (
-                           <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">No institutional nodes provisioned.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'user_directory' && (
-            <div className="space-y-6">
-              <div className="relative mb-6">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                 <Input placeholder="Search directory..." className="pl-10 h-12 bg-secondary/30 border-border/50 text-white rounded-xl" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-              </div>
-              <Card className="bg-card/30 border-border/50 overflow-hidden">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                          <th className="py-4 px-6">Trader</th>
-                          <th className="py-4 px-4">Email</th>
-                          <th className="py-4 px-4">Phone</th>
-                          <th className="py-4 px-4">UID</th>
-                          <th className="py-4 px-4">Status</th>
-                          <th className="py-4 px-6 text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {filteredUsersForDirectory.map((u: any) => (
-                          <tr key={u.id} className="hover:bg-primary/5 transition-colors">
-                            <td className="py-4 px-6 font-bold text-white">{u.name || 'Anonymous'}</td>
-                            <td className="py-4 px-4 text-white">{u.email}</td>
-                            <td className="py-4 px-4 text-white">{u.phone || '—'}</td>
-                            <td className="py-4 px-4 font-mono text-xs text-primary">{u.uid || '--------'}</td>
-                            <td className="py-4 px-4"><Badge className={cn("text-[10px] uppercase font-black", u.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-destructive/10 text-destructive')}>{u.status || 'active'}</Badge></td>
-                            <td className="py-4 px-6 text-right"><button onClick={() => setPreviewUserId(u.id)} className="p-2 hover:bg-white/5 rounded-lg transition-colors"><Eye className="w-4 h-4 text-muted-foreground hover:text-white" /></button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'referral_audit' && (
-            <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-white">Referral Audit</CardTitle>
-                  <CardDescription>Commission verification and multi-tier network analysis.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                          <th className="py-4 px-6">Referrer ID</th>
-                          <th className="py-4 px-4">Referred User</th>
-                          <th className="py-4 px-4">Signup Date</th>
-                          <th className="py-4 px-6 text-right">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {adminData.referrals.sort((a: any, b: any) => {
-                          const getT = (o: any) => {
-                            if (!o?.createdAt) return 0;
-                            const s = o.createdAt.seconds ?? o.createdAt._seconds;
-                            if (s) return s;
-                            const d = new Date(o.createdAt);
-                            return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
-                          };
-                          return getT(b) - getT(a);
-                        }).map((ref: any) => (
-                          <tr key={ref.id} className="hover:bg-primary/5 transition-colors">
-                            <td className="py-4 px-6 font-mono text-xs text-white">{ref.referrerId}</td>
-                            <td className="py-4 px-4">
-                              <p className="text-white font-bold">{ref.referredUserEmail}</p>
-                              <p className="text-[10px] text-muted-foreground">{ref.referredUserId}</p>
-                            </td>
-                            <td className="py-4 px-4 text-muted-foreground">
-                              {(() => {
-                                const s = ref.createdAt?.seconds ?? ref.createdAt?._seconds;
-                                if (!s) return '—';
-                                const d = new Date(s * 1000);
-                                return isValid(d) ? format(d, 'yyyy-MM-dd') : '—';
-                              })()}
-                            </td>
-                            <td className="py-4 px-6 text-right">
-                              <Badge className={cn("uppercase text-[10px]", ref.status === 'paid' ? 'bg-emerald-500/10 text-emerald-500' : ref.status === 'joined' ? 'bg-amber-500/10 text-amber-500' : 'bg-muted')}>
-                                {ref.status}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                        {adminData.referrals.length === 0 && (
-                           <tr><td colSpan={4} className="py-20 text-center text-muted-foreground italic">No referral records detected.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'broadcasts' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1 space-y-6">
-                <Card className="bg-card/40 border-primary/20">
-                  <CardHeader><CardTitle className="text-white">New Broadcast</CardTitle><CardDescription>Send a platform-wide alert.</CardDescription></CardHeader>
-                  <CardContent>
-                    <form onSubmit={handleSendBroadcast} className="space-y-4">
-                      <div className="space-y-2"><Label>Title</Label><Input value={broadcastForm.title} onChange={e => setBroadcastForm({...broadcastForm, title: e.target.value})} placeholder="e.g. System Maintenance" /></div>
-                      <div className="space-y-2"><Label>Message</Label><Textarea value={broadcastForm.message} onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})} placeholder="Announcement details..." rows={5} /></div>
-                      <div className="space-y-2"><Label>Type</Label><Select value={broadcastForm.type} onValueChange={v => setBroadcastForm({...broadcastForm, type: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="info">Information</SelectItem><SelectItem value="success">Success</SelectItem><SelectItem value="warning">Warning</SelectItem><SelectItem value="alert">Alert</SelectItem></SelectContent></Select></div>
-                      <Button className="w-full font-bold" disabled={actionLoading || !broadcastForm.title}><Send className="w-4 h-4 mr-2" /> Send Broadcast</Button>
-                    </form>
-                  </CardContent>
-                </Card>
-              </div>
-              <div className="lg:col-span-2">
-                <Card className="bg-card/30 border-border/50">
-                  <CardHeader><CardTitle className="text-white">Broadcast History</CardTitle></CardHeader>
-                  <CardContent className="p-0">
-                    <div className="divide-y divide-white/5">
-                      {adminData.broadcasts.sort((a:any, b:any) => {
-                        const getT = (o: any) => {
-                          if (!o?.sentAt) return 0;
-                          const s = o.sentAt.seconds ?? o.sentAt._seconds;
-                          if (s) return s;
-                          const d = new Date(o.sentAt);
-                          return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
-                        };
-                        return getT(b) - getT(a);
-                      }).map((b: any) => (
-                        <div key={b.id} className="p-6 space-y-2 hover:bg-white/5 transition-colors">
-                          <div className="flex justify-between items-start">
-                             <Badge variant="outline" className="uppercase text-[9px]">{b.type}</Badge>
-                             <span className="text-[10px] text-muted-foreground uppercase font-black">
-                               {(() => {
-                                 const s = b.sentAt?.seconds ?? b.sentAt?._seconds;
-                                 if (!s) return '—';
-                                 const d = new Date(s * 1000);
-                                 if (!isValid(d)) return '—';
-                                 try {
-                                   return formatDistanceToNow(d, { addSuffix: true });
-                                 } catch (e) {
-                                   return '—';
-                                 }
-                               })()}
-                             </span>
-                          </div>
-                          <h4 className="font-bold text-white">{b.title}</h4>
-                          <p className="text-sm text-muted-foreground line-clamp-2">{b.message}</p>
-                        </div>
                       ))}
-                      {adminData.broadcasts.length === 0 && (
-                        <div className="p-20 text-center text-muted-foreground italic text-sm">No previous broadcasts recorded.</div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
-          {activeTab === 'kyc' && (
-             <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-white">KYC Review Hub</CardTitle>
-                  <CardDescription>Manage identity verification requests.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                          <th className="py-4 px-6">Trader</th>
-                          <th className="py-4 px-4">Email</th>
-                          <th className="py-4 px-4">Submitted At</th>
-                          <th className="py-4 px-4">Status</th>
-                          <th className="py-4 px-6 text-right">Actions</th>
+          {activeTab === 'payouts' && (
+            <Card className="bg-card/30 border-border/50">
+              <CardHeader><CardTitle className="text-white">Withdrawal Desk</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                      <tr><th className="py-4 px-6">Trader</th><th className="py-4 px-4">Amount</th><th className="py-4 px-4">Method</th><th className="py-4 px-4">Status</th><th className="py-4 px-6 text-right">Actions</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {adminData.payouts.map((p: any) => (
+                        <tr key={p.id} className="hover:bg-primary/5">
+                          <td className="py-4 px-6"><p className="font-bold text-white">{p.email}</p></td>
+                          <td className="py-4 px-4 font-bold text-emerald-500">${p.amount}</td>
+                          <td className="py-4 px-4 text-xs">{p.method}</td>
+                          <td className="py-4 px-4"><Badge className="uppercase text-[9px]">{p.status}</Badge></td>
+                          <td className="py-4 px-6 text-right flex justify-end gap-2">
+                            {p.status === 'pending' && (
+                              <>
+                                <Button size="sm" className="bg-emerald-500 text-black h-8 font-bold text-[10px] uppercase" onClick={() => handleUpdatePayoutStatus(p.id, 'done')}>Mark Paid</Button>
+                                <Button size="sm" variant="destructive" className="h-8 font-bold text-[10px] uppercase" onClick={() => handleUpdatePayoutStatus(p.id, 'rejected')}>Reject</Button>
+                              </>
+                            )}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {adminData.users.filter((u: any) => u.kycStatus && u.kycStatus !== 'none').map((u: any) => (
-                          <tr key={u.id} className="hover:bg-primary/5 transition-colors">
-                            <td className="py-4 px-6 font-bold text-white">{u.name}</td>
-                            <td className="py-4 px-4 text-muted-foreground">{u.email}</td>
-                            <td className="py-4 px-4 text-xs">
-                              {(() => {
-                                if (!u.kycSubmittedAt) return '—';
-                                const d = new Date(u.kycSubmittedAt);
-                                return isValid(d) ? format(d, 'yyyy-MM-dd HH:mm') : '—';
-                              })()}
-                            </td>
-                            <td className="py-4 px-4">
-                              <Badge className={cn("uppercase text-[9px]", u.kycStatus === 'verified' ? 'bg-emerald-500/10 text-emerald-500' : u.kycStatus === 'pending' ? 'bg-amber-500/10 text-amber-500' : u.kycStatus === 'rejected' ? 'bg-destructive/10 text-destructive' : 'bg-muted')}>
-                                {u.kycStatus}
-                              </Badge>
-                            </td>
-                            <td className="py-4 px-6 text-right flex justify-end gap-2">
-                               <button onClick={() => setPreviewUserId(u.id)} className="p-2 hover:bg-white/5 rounded-lg text-primary"><Eye className="w-4 h-4" /></button>
-                               {u.kycStatus === 'pending' && (
-                                 <>
-                                   <Button className="h-8 text-[10px] bg-emerald-500 text-black font-bold uppercase" onClick={() => handleUpdateKycStatus(u.id, 'verified')}>Approve</Button>
-                                   <Button variant="destructive" className="h-8 text-[10px] font-bold uppercase" onClick={() => handleUpdateKycStatus(u.id, 'rejected')}>Reject</Button>
-                                 </>
-                               )}
-                            </td>
-                          </tr>
-                        ))}
-                        {adminData.users.filter((u: any) => u.kycStatus && u.kycStatus !== 'none').length === 0 && (
-                          <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No KYC submissions found.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'breaches' && (
-            <div className="space-y-6">
-              <Card className="bg-card/30 border-border/50">
-                <CardHeader>
-                  <CardTitle className="text-white">Risk Breach Ledger</CardTitle>
-                  <CardDescription>History of liquidated accounts across the network.</CardDescription>
-                </CardHeader>
-                <CardContent className="p-0">
-                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
-                        <tr>
-                          <th className="py-4 px-6">Trader</th>
-                          <th className="py-4 px-4">Account ID</th>
-                          <th className="py-4 px-4">Breach Type</th>
-                          <th className="py-4 px-4">Date</th>
-                          <th className="py-4 px-4">Action</th>
-                          <th className="py-4 px-6 text-right">Reason</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/50">
-                        {adminData.breaches.sort((a: any, b: any) => {
-                          const getT = (o: any) => {
-                            if (!o?.breachedAt) return 0;
-                            const s = o.breachedAt.seconds ?? o.breachedAt._seconds;
-                            if (s) return s;
-                            const d = new Date(o.breachedAt);
-                            return isNaN(d.getTime()) ? 0 : d.getTime() / 1000;
-                          };
-                          return getT(b) - getT(a);
-                        }).map((b: any) => (
-                          <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
-                            <td className="py-4 px-6 font-bold text-white">{b.userName || 'N/A'}</td>
-                            <td className="py-4 px-4 font-mono text-xs">{b.login || 'N/A'}</td>
-                            <td className="py-4 px-4 uppercase text-[10px] font-black text-destructive">{b.breachType || 'Hard'}</td>
-                            <td className="py-4 px-4 text-xs text-muted-foreground">
-                              {(() => {
-                                const s = b.breachedAt?.seconds ?? b.breachedAt?._seconds;
-                                if (!s) return '—';
-                                const d = new Date(s * 1000);
-                                return isValid(d) ? format(d, 'yyyy-MM-dd HH:mm') : '—';
-                              })()}
-                            </td>
-                            <td className="py-4 px-4">
-                              <Button 
-                                size="sm" 
-                                variant="outline" 
-                                className="h-7 text-[9px] font-black uppercase tracking-widest border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 cursor-pointer"
-                                onClick={async () => {
-                                  const acc = adminData.accounts.find((a: any) => String(a.login) === String(b.login));
-                                  if (!acc) {
-                                    toast({ variant: "destructive", title: "Node Not Found", description: "Could not locate the MT5 account record to reset." });
-                                    return;
-                                  }
-                                  const originalBalance = parseFloat(String(acc.accountBalance || 100000));
-                                  const phase = acc.phase || 'evaluation';
-                                  if (!confirm(`Reset account PF-${b.login} to active status with $${originalBalance} balance?`)) return;
-                                  
-                                  setActionLoading(true);
-                                  try {
-                                    const res = await resetAccountAction(b.login, originalBalance, phase);
-                                    if (res.success) {
-                                      toast({ title: "Account Reset Successful", description: `PF-${b.login} is now active.` });
-                                      refreshData();
-                                    }
-                                  } catch (err: any) {
-                                    toast({ variant: "destructive", title: "Reset Failed", description: err.message });
-                                  } finally {
-                                    setActionLoading(false);
-                                  }
-                                }}
-                                disabled={actionLoading}
-                              >
-                                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-                                Reset Node
-                              </Button>
-                            </td>
-                            <td className="py-4 px-6 text-right text-xs text-muted-foreground truncate max-w-[200px]">{b.breachReason || b.reason}</td>
-                          </tr>
-                        ))}
-                        {adminData.breaches.length === 0 && (
-                           <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">Zero records found in the risk ledger.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           )}
         </div>
       </main>
 
+      {/* Trades Review Modal */}
       <Dialog open={isTradesModalOpen} onOpenChange={setIsTradesModalOpen}>
         <DialogContent className="max-w-4xl bg-card border-border overflow-hidden p-0">
           <DialogHeader className="p-6 border-b border-white/5">
             <DialogTitle className="text-xl font-headline text-white flex items-center gap-2">
-              <Monitor className="w-5 h-5 text-primary" /> Execution Audit: {selectedDemoAccount?.label}
+              <Monitor className="w-5 h-5 text-primary" /> Node Execution Audit: {selectedDemoAccount?.label}
             </DialogTitle>
-            <DialogDescription className="text-xs uppercase font-black tracking-widest text-muted-foreground">
-               Live log of virtual terminal executions for Node {selectedDemoAccount?.id?.slice(0, 8)}...
-            </DialogDescription>
           </DialogHeader>
           <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
             {tradesLoading ? (
-              <div className="p-20 text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
-                <p className="text-xs font-black uppercase text-muted-foreground">Syncing Trade Log...</p>
-              </div>
+              <div className="p-20 text-center"><Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" /><p className="text-[10px] font-black uppercase text-muted-foreground">Syncing Trade Log...</p></div>
             ) : demoTrades.length === 0 ? (
-              <div className="p-20 text-center text-muted-foreground italic">No executions found for this challenge node.</div>
+              <div className="p-20 text-center text-muted-foreground italic">No historical executions found for this node.</div>
             ) : (
               <table className="w-full text-sm text-left">
                 <thead className="bg-secondary/30 text-muted-foreground uppercase text-[9px] font-black tracking-widest sticky top-0">
-                  <tr>
-                    <th className="py-3 px-6">Symbol</th>
-                    <th className="py-3 px-4">Type</th>
-                    <th className="py-3 px-4">Lots</th>
-                    <th className="py-3 px-4 text-right">Entry</th>
-                    <th className="py-3 px-4 text-right">Exit</th>
-                    <th className="py-3 px-6 text-right">PnL</th>
-                  </tr>
+                  <tr><th className="py-3 px-6">Symbol</th><th className="py-3 px-4">Type</th><th className="py-3 px-4">Lots</th><th className="py-3 px-4 text-right">Entry</th><th className="py-3 px-4 text-right">Exit</th><th className="py-3 px-6 text-right">Final P&L</th></tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {demoTrades.map((t: any) => (
                     <tr key={t.id} className="hover:bg-white/5 transition-colors">
                       <td className="py-3 px-6 font-bold text-white">{t.symbol}</td>
-                      <td className="py-3 px-4">
-                        <Badge className={cn("text-[8px] font-black", t.type === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-destructive/20 text-destructive')}>
-                          {t.type?.toUpperCase()}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-zinc-400">{t.lots?.toFixed(2)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-xs">${t.openPrice?.toLocaleString()}</td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-muted-foreground">
-                        {t.closePrice ? `$${t.closePrice.toLocaleString()}` : 'OPEN'}
-                      </td>
+                      <td className="py-3 px-4"><Badge className={cn("text-[8px] font-black", t.type === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-destructive/20 text-destructive')}>{t.type?.toUpperCase()}</Badge></td>
+                      <td className="py-3 px-4 font-mono text-zinc-400">{t.lots}</td>
+                      <td className="py-3 px-4 text-right font-mono text-xs text-muted-foreground">${t.openPrice?.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-xs text-white">${t.closePrice ? t.closePrice.toLocaleString() : 'OPEN'}</td>
                       <td className={cn("py-3 px-6 text-right font-bold font-mono", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
                          {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString()}
                       </td>
@@ -1203,29 +528,37 @@ export default function AdminPage() {
               </table>
             )}
           </div>
-          <DialogFooter className="p-4 bg-secondary/10">
-             <Button variant="ghost" onClick={() => setIsTradesModalOpen(false)}>Close Audit</Button>
-          </DialogFooter>
+          <DialogFooter className="p-4 bg-secondary/10"><Button variant="ghost" onClick={() => setIsTradesModalOpen(false)}>Close Audit</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
         <DialogContent className="bg-black/95 backdrop-blur-2xl border-primary/30 text-white shadow-2xl">
           <DialogHeader className="space-y-4 pt-4">
-             <div className="flex justify-center"><div className="p-4 bg-primary/10 rounded-[2rem] border border-primary/20 shadow-[0_0_30px_rgba(17,179,245,0.2)]"><Terminal className="w-12 h-12 text-primary" /></div></div>
-             <DialogTitle className="text-4xl font-headline font-bold text-center">PrimeFunded Terminal</DialogTitle>
-             <DialogDescription className="text-center text-muted-foreground uppercase text-[10px] font-black tracking-[0.4em]">Administrative Level Access Required</DialogDescription>
+             <div className="flex justify-center"><div className="p-4 bg-primary/10 rounded-[2rem] border border-primary/20"><Terminal className="w-12 h-12 text-primary" /></div></div>
+             <DialogTitle className="text-3xl font-headline font-bold text-center">Protocol Authorization</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleAdminAuth} className="space-y-6 pt-6">
-            <div className="space-y-3">
-              <Label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest pl-1">Protocol Master Key</Label>
-              <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••••••••••••••" className="h-14 bg-white/5 border-white/10 text-center text-xl tracking-[0.5em] focus:border-primary/50 transition-all font-mono" autoFocus />
-              {adminError && <p className="text-destructive text-center text-xs font-bold uppercase animate-shake">{adminError}</p>}
-            </div>
+            <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••••••••••••••" className="h-14 bg-white/5 border-white/10 text-center text-xl tracking-[0.5em] font-mono" autoFocus />
             <Button type="submit" className="w-full h-14 font-black text-lg cyan-box-glow">AUTHENTICATE SESSION</Button>
           </form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function DistributionRow({ label, count, total, color }: { label: string, count: number, total: number, color: string }) {
+  const percent = total > 0 ? (count / total) * 100 : 0;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between text-[10px] font-black uppercase tracking-tight">
+        <span className="text-white">{label}</span>
+        <span className="text-muted-foreground">{count} / {total}</span>
+      </div>
+      <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+        <div className={cn("h-full transition-all", color)} style={{ width: `${percent}%` }} />
+      </div>
     </div>
   );
 }
