@@ -182,7 +182,6 @@ export default function DemoPage() {
     indicatorSeriesRef.current = [];
     
     const load = async () => {
-      console.log(`[Chart] Loading candles for ${selectedSymbol} (${selectedInterval})`);
       setIsChartLoading(true);
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
@@ -235,12 +234,9 @@ export default function DemoPage() {
           }
 
           chartInstanceRef.current?.timeScale().fitContent();
-        } else {
-          console.warn('[Chart] Received empty candle data from API');
         }
       } catch (e: any) {
-        console.error('[Chart] Critical failure fetching candles:', e.message);
-        toast({ variant: "destructive", title: "Feed Sync Failed", description: "Market data could not be retrieved. Please check your connection." });
+        console.error('[Chart] fetch failed:', e.message);
       } finally {
         setIsChartLoading(false);
       }
@@ -280,7 +276,10 @@ export default function DemoPage() {
     }
   }, [livePrices, selectedSymbol, selectedInterval]);
 
-  const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
+  const accountConstraints = useMemo(() => 
+    user?.uid ? [where("userId", "==", user.uid)] : []
+  , [user?.uid]);
+
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
   useEffect(() => {
@@ -296,7 +295,10 @@ export default function DemoPage() {
     ];
   }, [user?.uid, currentAccountId]);
 
-  const { data: openTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, tradeConstraints);
+  const { data: openTrades } = useCollection<any>(
+    (user?.uid && currentAccountId) ? "demoTrades" : null, 
+    tradeConstraints
+  );
 
   const historyConstraints = useMemo(() => {
     if (!user?.uid || !currentAccountId) return [];
@@ -309,7 +311,10 @@ export default function DemoPage() {
     ];
   }, [user?.uid, currentAccountId]);
 
-  const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, historyConstraints);
+  const { data: closedTrades } = useCollection<any>(
+    (user?.uid && currentAccountId) ? "demoTrades" : null, 
+    historyConstraints
+  );
 
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   const currentPriceData = livePrices[selectedSymbol];
