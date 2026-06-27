@@ -41,7 +41,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where, orderBy, limit, doc, onSnapshot } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi, ISeriesApi as Series } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
@@ -88,7 +88,6 @@ export default function DemoPage() {
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isMarketClosed, setIsMarketClosed] = useState(false);
   
-  // Indicator Toggles
   const [indicators, setIndicators] = useState({
     rsi: false,
     bb: false,
@@ -172,11 +171,9 @@ export default function DemoPage() {
   useEffect(() => {
     if (!candleSeriesRef.current || !chartInstanceRef.current) return;
     
-    // Reset state for new symbol/timeframe
     currentCandleRef.current = null;
     candleSeriesRef.current.setData([]);
     
-    // Clear old indicator series to fix Y-axis scaling conflicts
     indicatorSeriesRef.current.forEach(s => {
       try {
         chartInstanceRef.current?.removeSeries(s);
@@ -185,10 +182,11 @@ export default function DemoPage() {
     indicatorSeriesRef.current = [];
     
     const load = async () => {
+      console.log(`[Chart] Loading candles for ${selectedSymbol} (${selectedInterval})`);
       setIsChartLoading(true);
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
-        if (!res.ok) throw new Error('Fetch failed');
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
         const data = await res.json();
         
         const candles = Array.isArray(data) ? data : data.candles || [];
@@ -199,7 +197,6 @@ export default function DemoPage() {
           
           const closes = candles.map((c: any) => c.close);
 
-          // Indicator Management
           if (indicators.ma20) {
             const ma20Data = candles.map((c: any, i: number) => {
               if (i < 19) return null;
@@ -238,9 +235,12 @@ export default function DemoPage() {
           }
 
           chartInstanceRef.current?.timeScale().fitContent();
+        } else {
+          console.warn('[Chart] Received empty candle data from API');
         }
       } catch (e: any) {
-        console.warn('[Chart] Candles fetch failed:', e.message);
+        console.error('[Chart] Critical failure fetching candles:', e.message);
+        toast({ variant: "destructive", title: "Feed Sync Failed", description: "Market data could not be retrieved. Please check your connection." });
       } finally {
         setIsChartLoading(false);
       }
