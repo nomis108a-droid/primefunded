@@ -35,7 +35,8 @@ import {
   Eraser,
   Magnet,
   Zap,
-  Target
+  Target,
+  AlertTriangle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -85,6 +86,7 @@ export default function DemoPage() {
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [activeBottomTab, setActiveBottomTab] = useState("positions");
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
+  const [isMarketClosed, setIsMarketClosed] = useState(false);
   
   // Indicator Toggles
   const [indicators, setIndicators] = useState({
@@ -97,7 +99,7 @@ export default function DemoPage() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const currentCandleRef = useRef<{time:number, open:number, high:number, low:number} | null>(null);
+  const currentCandleRef = useRef<{time:number, open:number, high:number, low:number, close:number} | null>(null);
 
   // 1. Unified Price Polling
   useEffect(() => {
@@ -139,7 +141,9 @@ export default function DemoPage() {
         borderColor: '#27272a',
       },
       watermark: { visible: false },
-      crosshair: { mode: 1 }
+      crosshair: { mode: 1 },
+      handleScroll: true,
+      handleScale: true,
     });
 
     const candleSeries = chart.addCandlestickSeries({
@@ -176,9 +180,12 @@ export default function DemoPage() {
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
         if (!res.ok) throw new Error('Fetch failed');
-        const candles = await res.json();
+        const data = await res.json();
         
-        if (Array.isArray(candles) && candles.length > 0) {
+        const candles = Array.isArray(data) ? data : data.candles || [];
+        setIsMarketClosed(!!data.isFallback);
+        
+        if (candles.length > 0) {
           candleSeriesRef.current?.setData(candles);
           
           const closes = candles.map((c: any) => c.close);
@@ -222,7 +229,7 @@ export default function DemoPage() {
     load();
   }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50, indicators.bb]);
 
-  // 4. Live Tick Update
+  // 4. Live Tick Update (Corrected logic)
   useEffect(() => {
     if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
@@ -232,27 +239,32 @@ export default function DemoPage() {
       '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400
     };
     const secs = intervalMap[selectedInterval] || 300;
-    const candleTime = Math.floor(Math.floor(Date.now() / 1000) / secs) * secs;
+    const now = Math.floor(Date.now() / 1000);
+    const candleTime = Math.floor(now / secs) * secs;
+
     const cur = currentCandleRef.current;
 
     if (!cur || cur.time !== candleTime) {
-      currentCandleRef.current = { time: candleTime, open: price, high: price, low: price };
+      // New candle period started
+      const newCandle = { time: candleTime, open: price, high: price, low: price, close: price };
+      currentCandleRef.current = newCandle;
+      candleSeriesRef.current.update(newCandle as any);
     } else {
+      // Update existing candle
       cur.high = Math.max(cur.high, price);
       cur.low = Math.min(cur.low, price);
+      cur.close = price;
+      candleSeriesRef.current.update({ 
+        time: candleTime, 
+        open: cur.open, 
+        high: cur.high, 
+        low: cur.low, 
+        close: price 
+      } as any);
     }
-    
-    const c = currentCandleRef.current!;
-    candleSeriesRef.current.update({ 
-      time: candleTime, 
-      open: c.open, 
-      high: c.high, 
-      low: c.low, 
-      close: price 
-    } as any);
   }, [livePrices, selectedSymbol, selectedInterval]);
 
-  // Firestore Listeners
+  // Firestore Listeners with strict guards
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -294,16 +306,16 @@ export default function DemoPage() {
       const priceData = livePrices[trade.symbol];
       if (priceData) {
         const cp = trade.type === 'buy' ? priceData.bid : priceData.ask;
-        const contractSize = trade.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol) ? 1 : 100000;
+        const cSize = trade.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol) ? 1 : 100000;
         floating += trade.type === 'buy' 
-          ? (cp - trade.openPrice) * contractSize * trade.lots
-          : (trade.openPrice - cp) * contractSize * trade.lots;
+          ? (cp - trade.openPrice) * cSize * trade.lots
+          : (trade.openPrice - cp) * cSize * trade.lots;
       }
     });
     return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
   }, [currentAccount, openTrades, livePrices]);
 
-  // Order Panel Metrics Fix
+  // Institutional Calculations
   const contractSize = useMemo(() => {
     const crypto = ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'];
     if (crypto.includes(selectedSymbol)) return 1;
@@ -312,16 +324,18 @@ export default function DemoPage() {
   }, [selectedSymbol]);
 
   const spread = useMemo(() => {
-    if (!currentPriceData) return 0;
+    if (!currentPriceData || !currentPriceData.ask || !currentPriceData.bid) return 0;
     return Math.max(0, currentPriceData.ask - currentPriceData.bid);
   }, [currentPriceData]);
 
   const spreadCost = useMemo(() => {
+    if (spread <= 0 || !currentPriceData) return 0;
     return spread * lots * contractSize;
-  }, [spread, lots, contractSize]);
+  }, [spread, lots, contractSize, currentPriceData]);
 
   const marginRequired = useMemo(() => {
     const price = currentPriceData?.price || 0;
+    if (price <= 0) return 0;
     return (lots * contractSize * price) / 100;
   }, [lots, contractSize, currentPriceData]);
 
@@ -380,6 +394,8 @@ export default function DemoPage() {
       toast({ variant: "destructive", title: "Closure Error", description: err.message });
     }
   }
+
+  if (!user) return null;
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
@@ -519,8 +535,20 @@ export default function DemoPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Syncing Institutional Feed...</p>
               </div>
             )}
+            
+            {isMarketClosed && (
+              <div className="absolute top-4 left-4 z-10 flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-500">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Market Closed — Showing Illustrative Data</span>
+              </div>
+            )}
+
             <div ref={chartContainerRef} className="h-full w-full relative" style={{ position: 'relative' }}>
-              <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10" />
+              <div className="absolute inset-0 z-[5] pointer-events-none" />
+              {/* This overlay covers the TV attribution to prevent misclicks */}
+              <div className="absolute bottom-0 left-0 w-32 h-10 bg-transparent z-10 pointer-events-none" />
+              {/* Transparent click shield for TradingView watermark */}
+              <div className="absolute bottom-2 left-2 w-20 h-6 bg-transparent z-20 pointer-events-auto" />
             </div>
           </div>
           
@@ -548,7 +576,7 @@ export default function DemoPage() {
              </div>
 
              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <TabsContent value="positions" className="m-0">
+                <TabsContent value="positions" className="m-0 border-none outline-none">
                   <table className="w-full text-[11px] text-left">
                     <thead className="sticky top-0 bg-zinc-950/90 backdrop-blur-md text-zinc-500 uppercase text-[9px] font-black tracking-widest border-b border-zinc-800">
                       <tr>
@@ -566,14 +594,14 @@ export default function DemoPage() {
                       {openTrades.length === 0 ? (
                         <tr><td colSpan={8} className="py-20 text-center italic text-zinc-600">No active positions.</td></tr>
                       ) : openTrades.map((t) => {
-                        const priceData = livePrices[t.symbol];
+                        const pData = livePrices[t.symbol];
                         let pnl = 0;
-                        if (priceData) {
-                           const cp = t.type === 'buy' ? priceData.bid : priceData.ask;
-                           const contractSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
+                        if (pData) {
+                           const cp = t.type === 'buy' ? pData.bid : pData.ask;
+                           const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
                            pnl = t.type === 'buy' 
-                             ? (cp - t.openPrice) * contractSize * t.lots
-                             : (t.openPrice - cp) * contractSize * t.lots;
+                             ? (cp - t.openPrice) * cSize * t.lots
+                             : (t.openPrice - cp) * cSize * t.lots;
                         }
                         return (
                           <tr key={t.id} className="hover:bg-white/5 group transition-colors">
@@ -606,7 +634,7 @@ export default function DemoPage() {
                   </table>
                 </TabsContent>
                 
-                <TabsContent value="history" className="m-0">
+                <TabsContent value="history" className="m-0 border-none outline-none">
                    <table className="w-full text-[11px] text-left">
                     <thead className="sticky top-0 bg-zinc-950/90 backdrop-blur-md text-zinc-500 uppercase text-[9px] font-black tracking-widest border-b border-zinc-800">
                       <tr>
@@ -623,7 +651,7 @@ export default function DemoPage() {
                       {closedTrades.map((t) => (
                         <tr key={t.id} className="hover:bg-white/5 group transition-colors">
                           <td className="py-2 px-4 font-bold text-white">{t.symbol}</td>
-                          <td className="py-2 px-2 uppercase font-bold">{t.type}</td>
+                          <td className="py-2 px-2 uppercase font-bold text-[10px]">{t.type}</td>
                           <td className="py-2 px-4 font-mono">{t.lots}</td>
                           <td className="py-2 px-4 font-mono text-zinc-500">{formatPrice(t.openPrice, t.symbol)}</td>
                           <td className="py-2 px-4 font-mono text-zinc-500">{formatPrice(t.closePrice, t.symbol)}</td>
@@ -637,7 +665,7 @@ export default function DemoPage() {
                    </table>
                 </TabsContent>
 
-                <TabsContent value="account" className="m-0 p-8">
+                <TabsContent value="account" className="m-0 p-8 border-none outline-none">
                    <div className="grid grid-cols-5 gap-8">
                       <AccountMetric label="Balance" value={`$${currentAccount?.balance?.toLocaleString()}`} />
                       <AccountMetric label="Equity" value={`$${metrics.equity.toLocaleString()}`} />

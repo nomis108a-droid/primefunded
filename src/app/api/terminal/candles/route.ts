@@ -32,6 +32,7 @@ const INTERVAL_MAP: Record<string, { binance: string, stooq: string }> = {
   "1min": { binance: "1m", stooq: "5" },
   "5min": { binance: "5m", stooq: "5" },
   "15min": { binance: "15m", stooq: "15" },
+  "30min": { binance: "15m", stooq: "15" },
   "1h": { binance: "1h", stooq: "60" },
   "4h": { binance: "4h", stooq: "240" },
   "1day": { binance: "1d", stooq: "d" },
@@ -44,13 +45,13 @@ function generateFallbackCandles(basePrice: number, count: number, intervalSecs:
   
   for (let i = count; i >= 0; i--) {
     const time = Math.floor((now - i * intervalSecs) / intervalSecs) * intervalSecs;
-    const volatility = currentPrice * 0.0005;
-    const change = (Math.random() - 0.49) * volatility;
+    const volatility = 0.0005;
+    const change = (Math.random() - 0.49) * currentPrice * volatility;
     
     const open = currentPrice;
     const close = parseFloat((currentPrice + change).toFixed(5));
-    const high = parseFloat((Math.max(open, close) + Math.random() * volatility * 0.2).toFixed(5));
-    const low = parseFloat((Math.min(open, close) - Math.random() * volatility * 0.2).toFixed(5));
+    const high = parseFloat((Math.max(open, close) + Math.random() * currentPrice * 0.0002).toFixed(5));
+    const low = parseFloat((Math.min(open, close) - Math.random() * currentPrice * 0.0002).toFixed(5));
     
     candles.push({ time, open: parseFloat(open.toFixed(5)), high, low, close });
     currentPrice = close;
@@ -65,15 +66,14 @@ export async function GET(req: NextRequest) {
     const interval = (searchParams.get("interval") || "1min").toLowerCase();
 
     const db = getAdminDb();
-    const cacheKey = `${symbol}_${interval}`;
-    const cacheRef = db.collection("candles").doc(cacheKey);
-
+    
     const intervalSecondsMap: Record<string, number> = {
       '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400
     };
     const intervalSeconds = intervalSecondsMap[interval] || 300;
 
     let candles: any[] = [];
+    let isFallback = false;
 
     // 1. Check Binance for Crypto
     if (CRYPTO_MAP[symbol]) {
@@ -117,6 +117,7 @@ export async function GET(req: NextRequest) {
 
     // 3. Fallback: If no candles (weekend or API fail), generate synthetic data
     if (candles.length === 0) {
+      isFallback = true;
       const priceDoc = await db.collection('livePrices').doc(symbol).get();
       const basePrice = priceDoc.data()?.price || (symbol.includes('USD') ? 1.0 : 100.0);
       candles = generateFallbackCandles(basePrice, 200, intervalSeconds);
@@ -125,7 +126,7 @@ export async function GET(req: NextRequest) {
     candles.sort((a, b) => a.time - b.time);
     if (candles.length > 200) candles = candles.slice(-200);
 
-    return NextResponse.json(candles);
+    return NextResponse.json({ candles, isFallback });
 
   } catch (error: any) {
     console.error('[Candle-API] Fatal Error:', error.message);
