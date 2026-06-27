@@ -58,6 +58,7 @@ export function useCollection<T = DocumentData>(
           setError(null);
         },
         async (serverError: any) => {
+          console.error('[useCollection] Permission denied on path:', path, 'constraints:', constraints.length);
           if (serverError.code === 'permission-denied') {
             const permissionError = new FirestorePermissionError({
               path: collectionRef.path,
