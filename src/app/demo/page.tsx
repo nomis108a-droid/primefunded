@@ -18,7 +18,7 @@ import {
   Square, Triangle, Type, Pencil, Magnet, Undo, Trash2, Ruler,
   TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
   Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
-  ZoomIn, ZoomOut, AlertCircle, Home, Eraser
+  ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -34,9 +34,8 @@ import { ChartSettingsModal } from "./ChartSettingsModal";
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
   { label: '1m', value: '1min' }, { label: '5m', value: '5min' }, { label: '15m', value: '15min' },
-  { label: '30m', value: '30min' }, { label: '1h', value: '1h' }, { label: '2h', value: '2h' },
-  { label: '4h', value: '4h' }, { label: '1D', value: '1day' }, { label: '1W', value: '1week' },
-  { label: '1M', value: '1month' },
+  { label: '30m', value: '30min' }, { label: '1H', value: '1h' }, { label: '4H', value: '4h' },
+  { label: '1D', value: '1day' }, { label: '1W', value: '1week' }, { label: '1M', value: '1month' },
 ];
 
 const TIMEZONES = [
@@ -311,6 +310,65 @@ export default function DemoPage() {
     }
   };
 
+  async function closeTrade(tradeId: string) {
+    try {
+      setActionLoading(true);
+      const trade = openTrades.find(t => t.id === tradeId);
+      if (!trade) return;
+
+      const pricesRes = await fetch('/api/terminal/live-prices');
+      const prices = await pricesRes.json();
+      const priceData = prices[trade.symbol] || prices[trade.symbol?.toUpperCase()] || livePrices[trade.symbol];
+
+      const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
+
+      if (!closePrice || closePrice <= 0) {
+        toast({ title: "Cannot Close", description: `No live price for ${trade.symbol}`, variant: "destructive" });
+        return;
+      }
+
+      const token = await user?.getIdToken();
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ closePrice })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Close Failed", description: err.error || "Server error", variant: "destructive" });
+        return;
+      }
+      toast({ title: "✓ Position Closed", description: `${trade.symbol} closed at ${closePrice.toFixed(2)}` });
+    } catch (e: any) {
+      toast({ title: "Close Error", description: e.message, variant: "destructive" });
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  const TOOLBAR_ITEMS = [
+    { id: 'crosshair', name: 'Crosshair', icon: Crosshair },
+    { id: 'trend', name: 'Trend Line', icon: Slash },
+    { id: 'arrow', name: 'Arrow', icon: ArrowUpRight },
+    { id: 'hline', name: 'Horizontal Line', icon: Minus },
+    { id: 'vline', name: 'Vertical Line', icon: SeparatorVertical },
+    { id: 'ray', name: 'Ray', icon: () => <ArrowRight className="rotate-[-45deg] scale-75" /> },
+    { id: 'channel', name: 'Parallel Channel', icon: Columns },
+    { id: 'rect', name: 'Rectangle', icon: Square },
+    { id: 'text', name: 'Text', icon: Type },
+    { id: 'circle', name: 'Circle', icon: Circle },
+    { id: 'measure', name: 'Ruler / Measure', icon: Ruler },
+    { id: 'zoom-in', name: 'Zoom In', icon: ZoomIn, action: handleZoomIn },
+    { id: 'zoom-out', name: 'Zoom Out', icon: ZoomOut, action: handleZoomOut },
+    { id: 'home', name: 'Home', icon: Home, action: handleResetView },
+    { id: 'lock', name: 'Lock', icon: drawingsLocked ? Lock : Unlock, action: () => setDrawingsLocked(!drawingsLocked), toggle: true },
+    { id: 'magnet', name: 'Magnet', icon: Magnet, action: () => setMagnetMode(!magnetMode), active: magnetMode, toggle: true },
+    { id: 'eye', name: 'Eye', icon: drawingsHidden ? EyeOff : Eye, action: () => setDrawingsHidden(!drawingsHidden), toggle: true },
+    { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
+    { id: 'favorites', name: 'Favorites', icon: Star }
+  ];
+
   if (authLoading) return <div className="fixed inset-0 bg-[#09090b] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
@@ -358,81 +416,52 @@ export default function DemoPage() {
         </div>
       </header>
 
+      {/* SYMBOL TABS */}
+      <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
+        {SYMBOLS.map((s) => (
+          <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center gap-3 transition-all border-b-2", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
+            <span className={cn("font-bold text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* TIMEFRAME BAR */}
+      <div className="h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
+        {TIMEFRAMES.map((tf) => (
+          <button
+            key={tf.value}
+            onClick={() => setSelectedInterval(tf.value)}
+            className={cn(
+              "px-3 h-6 flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest",
+              selectedInterval === tf.value
+                ? "bg-primary text-black"
+                : "text-zinc-500 hover:text-white hover:bg-white/5"
+            )}
+          >
+            {tf.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 flex min-h-0 relative">
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
-          <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
-            {SYMBOLS.map((s) => (
-              <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center gap-3 transition-all border-b-2", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
-                <span className={cn("font-bold text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
-              </button>
-            ))}
-          </div>
-
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
             {/* TRADINGVIEW STYLE SIDEBAR */}
             <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
-                <div className="flex flex-col gap-1 items-center w-full">
-                  {/* 1. Crosshair */}
-                  <ToolIcon name="Crosshair" icon={<Crosshair />} active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} />
-                  
-                  {/* 2. Trend Line */}
-                  <ToolIcon name="Trend Line" icon={<Slash />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
-                  
-                  {/* 3. Arrow */}
-                  <ToolIcon name="Arrow" icon={<ArrowUpRight />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
-                  
-                  {/* 4. Horizontal Line */}
-                  <ToolIcon name="Horizontal Line" icon={<Minus />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
-                  
-                  {/* 5. Vertical Line */}
-                  <ToolIcon name="Vertical Line" icon={<div className="rotate-90"><Minus /></div>} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
-                  
-                  {/* 6. Ray */}
-                  <ToolIcon name="Ray" icon={<ArrowRight className="rotate-[-45deg]" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
-
-                  {/* 7. Parallel Channel */}
-                  <ToolIcon name="Parallel Channel" icon={<Columns className="scale-75" />} active={activeTool === 'channel'} onClick={() => setActiveTool('channel')} />
-
-                  {/* 8. Rectangle */}
-                  <ToolIcon name="Rectangle" icon={<Square />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-
-                  {/* 9. Text */}
-                  <ToolIcon name="Text" icon={<Type />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-
-                  {/* 10. Circle */}
-                  <ToolIcon name="Circle" icon={<Circle />} active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} />
-
-                  {/* 11. Ruler / Measure */}
-                  <ToolIcon name="Ruler / Measure" icon={<Ruler />} active={activeTool === 'measure'} onClick={() => setActiveTool('measure')} />
-
-                  <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-
-                  {/* 12. Zoom In */}
-                  <ToolIcon name="Zoom In" icon={<ZoomIn />} active={false} onClick={handleZoomIn} />
-
-                  {/* 13. Zoom Out */}
-                  <ToolIcon name="Zoom Out" icon={<ZoomOut />} active={false} onClick={handleZoomOut} />
-
-                  {/* 14. Home */}
-                  <ToolIcon name="Reset View" icon={<Home className="w-4 h-4" />} active={false} onClick={handleResetView} />
-
-                  <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-
-                  {/* 15. Lock */}
-                  <ToolIcon name="Lock Drawings" icon={drawingsLocked ? <Lock className="text-primary" /> : <Unlock />} onClick={() => setDrawingsLocked(!drawingsLocked)} />
-                  
-                  {/* 16. Magnet */}
-                  <ToolIcon name="Magnet Mode" icon={<Magnet className={cn(magnetMode && "text-primary")} />} onClick={() => setMagnetMode(!magnetMode)} />
-                  
-                  {/* 17. Eye */}
-                  <ToolIcon name="Hide Drawings" icon={drawingsHidden ? <EyeOff className="text-primary" /> : <Eye />} onClick={() => setDrawingsHidden(!drawingsHidden)} />
-                  
-                  {/* 18. Eraser */}
-                  <ToolIcon name="Eraser / Remove All" icon={<Eraser className="w-4 h-4" />} className="hover:text-destructive" onClick={() => setIsDeleteAllOpen(true)} />
-                  
-                  {/* 19. Favorites */}
-                  <ToolIcon name="Favorites" icon={<Star />} active={false} onClick={() => {}} />
+                <div className="flex flex-col gap-0.5 items-center w-full">
+                  {TOOLBAR_ITEMS.map((item) => (
+                    <ToolIcon 
+                      key={item.id}
+                      name={item.name}
+                      icon={typeof item.icon === 'function' ? <item.icon /> : <item.icon />}
+                      active={item.toggle ? item.active : activeTool === item.id}
+                      onClick={() => {
+                        if (item.action) item.action();
+                        else setActiveTool(item.id);
+                      }}
+                    />
+                  ))}
                 </div>
               </TooltipProvider>
             </aside>
@@ -454,7 +483,16 @@ export default function DemoPage() {
             </div>
           </div>
           
-          <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={alerts} livePrices={livePrices} closeTrade={async () => {}} deleteAlert={async () => {}} user={user} alertsLoading={alertsLoading} />
+          <PositionsPanel 
+            openTrades={openTrades} 
+            closedTrades={closedTrades} 
+            alerts={alerts} 
+            livePrices={livePrices} 
+            closeTrade={closeTrade} 
+            deleteAlert={async () => {}} 
+            user={user} 
+            alertsLoading={alertsLoading} 
+          />
         </div>
 
         <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
@@ -505,7 +543,6 @@ export default function DemoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete All Confirmation */}
       <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
         <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden">
           <div className="p-6 space-y-4">
@@ -525,7 +562,7 @@ export default function DemoPage() {
   );
 }
 
-function ToolIcon({ name, icon, active = false, onClick, className }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void, className?: string }) {
+function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -541,11 +578,10 @@ function ToolIcon({ name, icon, active = false, onClick, className }: { name: st
           }}
           className={cn(
             "w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px] relative cursor-pointer group", 
-            active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]",
-            className
+            active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]"
           )}
         >
-          <div className="flex items-center justify-center transition-transform group-active:scale-90">
+          <div className="flex items-center justify-center transition-transform group-active:scale-90 scale-90">
             {icon}
           </div>
         </div>
