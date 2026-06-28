@@ -93,9 +93,9 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // 4. CHECK: 1% Max Floating Loss (Funded Rule)
+      // 4. CHECK: 1% Max Floating Loss (Funded Rule) - BASIS: CURRENT BALANCE
       if (rules.maxFloatingLoss) {
-        const floatLimit = acc.startBalance * (rules.maxFloatingLoss / 100);
+        const floatLimit = acc.balance * (rules.maxFloatingLoss / 100);
         let floatBreach = false;
         for (const t of trades) {
           const tPnl = calculateTradePnl(t, prices[t.symbol]);
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
         if (floatBreach) {
           await accDoc.ref.update({
             status: 'blown',
-            breachReason: `Institutional Violation: Individual Floating Loss exceeded ${rules.maxFloatingLoss}%`,
+            breachReason: `Institutional Violation: Individual Floating Loss exceeded ${rules.maxFloatingLoss}% of current balance`,
             equity: currentEquity,
             updatedAt: FieldValue.serverTimestamp()
           });
