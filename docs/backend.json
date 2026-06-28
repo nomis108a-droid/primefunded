@@ -105,6 +105,19 @@
         "ask": { "type": "number" },
         "updatedAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "Alert": {
+      "title": "Price Alert",
+      "description": "User-defined price alerts for symbols.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "symbol": { "type": "string" },
+        "condition": { "type": "string", "enum": ["above", "below"] },
+        "targetPrice": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "triggered"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "auth": {
@@ -130,6 +143,10 @@
     "/livePrices/{symbol}": {
       "schema": { "$ref": "#/backend/entities/LivePrice" },
       "description": "Real-time price feeds for demo environment."
+    },
+    "/alerts/{alertId}": {
+      "schema": { "$ref": "#/backend/entities/Alert" },
+      "description": "Stores user price alerts."
     }
   }
 }
