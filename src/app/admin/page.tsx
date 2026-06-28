@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -667,6 +666,10 @@ export default function AdminPage() {
       {/* User Detail Modal */}
       <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-white/5 text-white h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="sr-only">
+             <DialogTitle>Trader Dossier: {userDetail?.user?.name}</DialogTitle>
+             <DialogDescription>Full institutional overview of the selected trader.</DialogDescription>
+          </DialogHeader>
           {userDetailLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center p-20">
               <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />

@@ -226,13 +226,17 @@ export async function fetchUserDetailAction(userId: string) {
 
     if (!userSnap.exists) return { success: false, error: "User not found" };
 
-    return {
-      success: true,
+    const data = {
       user: { id: userSnap.id, ...userSnap.data() },
       accounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       trades: tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    };
+
+    return {
+      success: true,
+      ...JSON.parse(JSON.stringify(data))
     };
   } catch (err: any) {
     return { success: false, error: err.message };
