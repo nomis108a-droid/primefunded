@@ -162,38 +162,55 @@ export default function DemoPage() {
     
     // Handle Drawing Clicks
     chart.subscribeClick((param) => {
-      if (!param.point || !mainSeriesRef.current || activeTool === 'pointer') return;
+      if (!param.point || !mainSeriesRef.current || activeTool === 'pointer' || !chartInstanceRef.current) return;
       
-      const price = mainSeriesRef.current.coordinateToPrice(param.point.y);
-      if (price === null) return;
+      try {
+        const price = mainSeriesRef.current.coordinateToPrice(param.point.y);
+        if (price === null) return;
 
-      if (activeTool === 'hline') {
-        const line = mainSeriesRef.current.createPriceLine({
-          price: price,
-          color: '#ffffff',
-          lineWidth: 1,
-          lineStyle: 0,
-          axisLabelVisible: true,
-          title: 'H-LEVEL',
-        });
-        drawingLinesRef.current.push(line);
-        setActiveTool('pointer');
-        toast({ title: "Drawing Placed", description: "Horizontal level added to chart." });
+        if (activeTool === 'hline') {
+          const line = mainSeriesRef.current.createPriceLine({
+            price: price,
+            color: '#ffffff',
+            lineWidth: 1,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: 'H-LEVEL',
+          });
+          drawingLinesRef.current.push(line);
+          setActiveTool('pointer');
+          toast({ title: "Drawing Placed", description: "Horizontal level added to chart." });
+        }
+      } catch (e) {
+        // chart likely disposed
       }
     });
     
     const handleResize = () => {
       if (chartContainerRef.current && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+        try {
+          chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+        } catch (e) {}
       }
     };
     window.addEventListener('resize', handleResize);
     
     return () => {
       window.removeEventListener('resize', handleResize);
-      chart.remove();
+      if (chartInstanceRef.current) {
+        try {
+          chartInstanceRef.current.remove();
+        } catch (e) {}
+        chartInstanceRef.current = null;
+      }
+      mainSeriesRef.current = null;
+      currentCandleRef.current = null;
+      priceLinesRef.current = [];
+      drawingLinesRef.current = [];
+      indicatorSeriesRef.current = {};
+      setIsChartReady(false);
     };
-  }, [selectedTimezone, activeTool]); // Re-subscribe when tool changes
+  }, [selectedTimezone, activeTool]);
 
   // Isolated Candle Fetch & Indicator Calculation & Series Switching
   useEffect(() => {
@@ -201,6 +218,7 @@ export default function DemoPage() {
     let isMounted = true;
     
     const fetchHistory = async () => {
+      if (!chartInstanceRef.current) return;
       setIsChartLoading(true);
       console.log(`[Chart] Starting sync for ${selectedSymbol} ${selectedInterval} [${chartType}]`);
       
@@ -208,147 +226,154 @@ export default function DemoPage() {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
         if (!res.ok) throw new Error("Feed Offline");
         const data = await res.json();
-        if (!isMounted) return;
+        if (!isMounted || !chartInstanceRef.current) return;
         
         const candles = Array.isArray(data) ? data : (data.candles || []);
         if (candles.length > 0) {
-          // 1. Handle Series Switching
-          if (mainSeriesRef.current) {
-            chartInstanceRef.current?.removeSeries(mainSeriesRef.current);
-          }
-
-          const commonOptions = {
-            priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: 1 / Math.pow(10, getPrecision(selectedSymbol)) },
-          };
-
-          if (chartType === 'candles') {
-            mainSeriesRef.current = chartInstanceRef.current!.addCandlestickSeries({ 
-              ...commonOptions,
-              upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444' 
-            });
-          } else if (chartType === 'bars') {
-            mainSeriesRef.current = chartInstanceRef.current!.addBarSeries({ 
-              ...commonOptions,
-              upColor: '#10b981', downColor: '#ef4444' 
-            });
-          } else if (chartType === 'line') {
-            mainSeriesRef.current = chartInstanceRef.current!.addLineSeries({ 
-              ...commonOptions,
-              color: '#3b82f6', lineWidth: 2 
-            });
-          } else if (chartType === 'area') {
-            mainSeriesRef.current = chartInstanceRef.current!.addAreaSeries({ 
-              ...commonOptions,
-              topColor: 'rgba(59, 130, 246, 0.4)', bottomColor: 'rgba(59, 130, 246, 0.0)', lineColor: '#3b82f6', lineWidth: 2 
-            });
-          } else if (chartType === 'baseline') {
-            mainSeriesRef.current = chartInstanceRef.current!.addBaselineSeries({ 
-              ...commonOptions,
-              baseValue: { type: 'price', price: candles[0].close },
-              topFillColor1: 'rgba(16, 185, 129, 0.2)', topFillColor2: 'rgba(16, 185, 129, 0.0)',
-              topLineColor: '#10b981',
-              bottomFillColor1: 'rgba(239, 68, 68, 0.0)', bottomFillColor2: 'rgba(239, 68, 68, 0.2)',
-              bottomLineColor: '#ef4444',
-            });
-          }
-
-          // 2. Set Data
-          if (chartType === 'candles' || chartType === 'bars') {
-            mainSeriesRef.current?.setData(candles);
-          } else {
-            mainSeriesRef.current?.setData(candles.map((c: any) => ({ time: c.time, value: c.close })));
-          }
-          
-          // 3. Render Indicators
-          Object.values(indicatorSeriesRef.current).forEach(s => chartInstanceRef.current?.removeSeries(s));
-          indicatorSeriesRef.current = {};
-
-          const closes = candles.map((c: any) => c.close);
-          const times = candles.map((c: any) => c.time);
-
-          // Session Shading
-          if (indicatorState.sessions && !selectedInterval.includes('day')) {
-             const sessionSeries = chartInstanceRef.current!.addHistogramSeries({ 
-               priceScaleId: 'session_shading',
-               color: 'transparent',
-               priceFormat: { type: 'price' } 
-             });
-             chartInstanceRef.current!.priceScale('session_shading').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
-             
-             const sessionData = candles.map((c: any) => {
-               const utcHour = new Date(c.time * 1000).getUTCHours();
-               let color = 'transparent';
-               // London: 08-16 UTC, New York: 13-21 UTC
-               if (utcHour >= 13 && utcHour <= 21) color = 'rgba(245, 158, 11, 0.05)'; // NY
-               else if (utcHour >= 8 && utcHour <= 16) color = 'rgba(59, 130, 246, 0.05)'; // London
-               
-               return { time: c.time, value: 1000000, color };
-             });
-             sessionSeries.setData(sessionData);
-             indicatorSeriesRef.current['sessions'] = sessionSeries;
-          }
-
-          // Overlays
-          const emaPeriods = { ema9: 9, ema21: 21, ema50: 50, ema200: 200 };
-          const emaColors = { ema9: '#3b82f6', ema21: '#f59e0b', ema50: '#ec4899', ema200: '#8b5cf6' };
-          Object.entries(emaPeriods).forEach(([key, period]) => {
-            if (indicatorState[key]) {
-              const emaData = Indicators.calculateEMA(closes, period);
-              const series = chartInstanceRef.current!.addLineSeries({ color: emaColors[key as keyof typeof emaColors], lineWidth: 1, title: key.toUpperCase() });
-              series.setData(emaData.map((v, i) => ({ time: times[i], value: v })));
-              indicatorSeriesRef.current[key] = series;
+          try {
+            // 1. Handle Series Switching
+            if (mainSeriesRef.current) {
+              chartInstanceRef.current.removeSeries(mainSeriesRef.current);
             }
-          });
 
-          if (indicatorState.bb) {
-            const bb = Indicators.calculateBollingerBands(closes);
-            const common = { lineWidth: 1, lineStyle: 2 };
-            const u = chartInstanceRef.current!.addLineSeries({ ...common, color: '#4ade80', title: 'BB Upper' });
-            const l = chartInstanceRef.current!.addLineSeries({ ...common, color: '#4ade80', title: 'BB Lower' });
-            const m = chartInstanceRef.current!.addLineSeries({ ...common, color: '#4ade80', title: 'BB Mid', lineStyle: 0 });
-            u.setData(bb.upper.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            l.setData(bb.lower.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            m.setData(bb.middle.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            indicatorSeriesRef.current['bb_u'] = u; indicatorSeriesRef.current['bb_l'] = l; indicatorSeriesRef.current['bb_m'] = m;
+            const commonOptions = {
+              priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: 1 / Math.pow(10, getPrecision(selectedSymbol)) },
+            };
+
+            if (chartType === 'candles') {
+              mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries({ 
+                ...commonOptions,
+                upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444' 
+              });
+            } else if (chartType === 'bars') {
+              mainSeriesRef.current = chartInstanceRef.current.addBarSeries({ 
+                ...commonOptions,
+                upColor: '#10b981', downColor: '#ef4444' 
+              });
+            } else if (chartType === 'line') {
+              mainSeriesRef.current = chartInstanceRef.current.addLineSeries({ 
+                ...commonOptions,
+                color: '#3b82f6', lineWidth: 2 
+              });
+            } else if (chartType === 'area') {
+              mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ 
+                ...commonOptions,
+                topColor: 'rgba(59, 130, 246, 0.4)', bottomColor: 'rgba(59, 130, 246, 0.0)', lineColor: '#3b82f6', lineWidth: 2 
+              });
+            } else if (chartType === 'baseline') {
+              mainSeriesRef.current = chartInstanceRef.current.addBaselineSeries({ 
+                ...commonOptions,
+                baseValue: { type: 'price', price: candles[0].close },
+                topFillColor1: 'rgba(16, 185, 129, 0.2)', topFillColor2: 'rgba(16, 185, 129, 0.0)',
+                topLineColor: '#10b981',
+                bottomFillColor1: 'rgba(239, 68, 68, 0.0)', bottomFillColor2: 'rgba(239, 68, 68, 0.2)',
+                bottomLineColor: '#ef4444',
+              });
+            }
+
+            // 2. Set Data
+            if (mainSeriesRef.current) {
+              if (chartType === 'candles' || chartType === 'bars') {
+                mainSeriesRef.current.setData(candles);
+              } else {
+                mainSeriesRef.current.setData(candles.map((c: any) => ({ time: c.time, value: c.close })));
+              }
+            }
+            
+            // 3. Render Indicators
+            Object.values(indicatorSeriesRef.current).forEach(s => {
+              try { chartInstanceRef.current?.removeSeries(s); } catch (e) {}
+            });
+            indicatorSeriesRef.current = {};
+
+            const closes = candles.map((c: any) => c.close);
+            const times = candles.map((c: any) => c.time);
+
+            // Session Shading
+            if (indicatorState.sessions && !selectedInterval.includes('day')) {
+               const sessionSeries = chartInstanceRef.current.addHistogramSeries({ 
+                 priceScaleId: 'session_shading',
+                 color: 'transparent',
+                 priceFormat: { type: 'price' } 
+               });
+               chartInstanceRef.current.priceScale('session_shading').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+               
+               const sessionData = candles.map((c: any) => {
+                 const utcHour = new Date(c.time * 1000).getUTCHours();
+                 let color = 'transparent';
+                 if (utcHour >= 13 && utcHour <= 21) color = 'rgba(245, 158, 11, 0.05)'; // NY
+                 else if (utcHour >= 8 && utcHour <= 16) color = 'rgba(59, 130, 246, 0.05)'; // London
+                 
+                 return { time: c.time, value: 1000000, color };
+               });
+               sessionSeries.setData(sessionData);
+               indicatorSeriesRef.current['sessions'] = sessionSeries;
+            }
+
+            // Overlays
+            const emaPeriods = { ema9: 9, ema21: 21, ema50: 50, ema200: 200 };
+            const emaColors = { ema9: '#3b82f6', ema21: '#f59e0b', ema50: '#ec4899', ema200: '#8b5cf6' };
+            Object.entries(emaPeriods).forEach(([key, period]) => {
+              if (indicatorState[key]) {
+                const emaData = Indicators.calculateEMA(closes, period);
+                const series = chartInstanceRef.current!.addLineSeries({ color: emaColors[key as keyof typeof emaColors], lineWidth: 1, title: key.toUpperCase() });
+                series.setData(emaData.map((v, i) => ({ time: times[i], value: v })));
+                indicatorSeriesRef.current[key] = series;
+              }
+            });
+
+            if (indicatorState.bb) {
+              const bb = Indicators.calculateBollingerBands(closes);
+              const common = { lineWidth: 1, lineStyle: 2 };
+              const u = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: 'BB Upper' });
+              const l = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: 'BB Lower' });
+              const m = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: 'BB Mid', lineStyle: 0 });
+              u.setData(bb.upper.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              l.setData(bb.lower.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              m.setData(bb.middle.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              indicatorSeriesRef.current['bb_u'] = u; indicatorSeriesRef.current['bb_l'] = l; indicatorSeriesRef.current['bb_m'] = m;
+            }
+
+            // Sub-Panes
+            if (indicatorState.volume) {
+              const volSeries = chartInstanceRef.current.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
+              chartInstanceRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+              volSeries.setData(candles.map((c: any) => ({ time: c.time, value: c.volume || Math.random() * 100, color: c.close >= c.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)' })));
+              indicatorSeriesRef.current['volume'] = volSeries;
+            }
+
+            if (indicatorState.rsi) {
+              const rsiData = Indicators.calculateRSI(closes);
+              const rsiSeries = chartInstanceRef.current.addLineSeries({ color: '#8b5cf6', lineWidth: 2, priceScaleId: 'rsi', title: 'RSI' });
+              chartInstanceRef.current.priceScale('rsi').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.7 } });
+              rsiSeries.setData(rsiData.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              indicatorSeriesRef.current['rsi'] = rsiSeries;
+            }
+
+            if (indicatorState.macd) {
+              const macd = Indicators.calculateMACD(closes);
+              const mLine = chartInstanceRef.current.addLineSeries({ color: '#3b82f6', lineWidth: 1, priceScaleId: 'macd' });
+              const sLine = chartInstanceRef.current.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceScaleId: 'macd' });
+              const hist = chartInstanceRef.current.addHistogramSeries({ priceScaleId: 'macd' });
+              chartInstanceRef.current.priceScale('macd').applyOptions({ scaleMargins: { top: 0.4, bottom: 0.4 } });
+              mLine.setData(macd.macdLine.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              sLine.setData(macd.signalLine.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              hist.setData(macd.histogram.map((v, i) => ({ time: times[i], value: v, color: (v || 0) >= 0 ? '#10b981' : '#ef4444' })).filter(d => d.value !== null));
+              indicatorSeriesRef.current['macd_l'] = mLine; indicatorSeriesRef.current['macd_s'] = sLine; indicatorSeriesRef.current['macd_h'] = hist;
+            }
+
+            if (indicatorState.atr) {
+              const atrData = Indicators.calculateATR(candles);
+              const atrSeries = chartInstanceRef.current.addLineSeries({ color: '#ef4444', lineWidth: 1, priceScaleId: 'atr', title: 'ATR' });
+              chartInstanceRef.current.priceScale('atr').applyOptions({ scaleMargins: { top: 0.7, bottom: 0.1 } });
+              atrSeries.setData(atrData.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
+              indicatorSeriesRef.current['atr'] = atrSeries;
+            }
+
+            chartInstanceRef.current.timeScale().fitContent();
+          } catch (e) {
+            // chart likely disposed
           }
-
-          // Sub-Panes
-          if (indicatorState.volume) {
-            const volSeries = chartInstanceRef.current!.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-            chartInstanceRef.current!.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
-            volSeries.setData(candles.map((c: any) => ({ time: c.time, value: c.volume || Math.random() * 100, color: c.close >= c.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)' })));
-            indicatorSeriesRef.current['volume'] = volSeries;
-          }
-
-          if (indicatorState.rsi) {
-            const rsiData = Indicators.calculateRSI(closes);
-            const rsiSeries = chartInstanceRef.current!.addLineSeries({ color: '#8b5cf6', lineWidth: 2, priceScaleId: 'rsi', title: 'RSI' });
-            chartInstanceRef.current!.priceScale('rsi').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.7 } });
-            rsiSeries.setData(rsiData.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            indicatorSeriesRef.current['rsi'] = rsiSeries;
-          }
-
-          if (indicatorState.macd) {
-            const macd = Indicators.calculateMACD(closes);
-            const mLine = chartInstanceRef.current!.addLineSeries({ color: '#3b82f6', lineWidth: 1, priceScaleId: 'macd' });
-            const sLine = chartInstanceRef.current!.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceScaleId: 'macd' });
-            const hist = chartInstanceRef.current!.addHistogramSeries({ priceScaleId: 'macd' });
-            chartInstanceRef.current!.priceScale('macd').applyOptions({ scaleMargins: { top: 0.4, bottom: 0.4 } });
-            mLine.setData(macd.macdLine.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            sLine.setData(macd.signalLine.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            hist.setData(macd.histogram.map((v, i) => ({ time: times[i], value: v, color: (v || 0) >= 0 ? '#10b981' : '#ef4444' })).filter(d => d.value !== null));
-            indicatorSeriesRef.current['macd_l'] = mLine; indicatorSeriesRef.current['macd_s'] = sLine; indicatorSeriesRef.current['macd_h'] = hist;
-          }
-
-          if (indicatorState.atr) {
-            const atrData = Indicators.calculateATR(candles);
-            const atrSeries = chartInstanceRef.current!.addLineSeries({ color: '#ef4444', lineWidth: 1, priceScaleId: 'atr', title: 'ATR' });
-            chartInstanceRef.current!.priceScale('atr').applyOptions({ scaleMargins: { top: 0.7, bottom: 0.1 } });
-            atrSeries.setData(atrData.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            indicatorSeriesRef.current['atr'] = atrSeries;
-          }
-
-          chartInstanceRef.current?.timeScale().fitContent();
         }
       } catch (err: any) {
         console.warn("[Chart] History unavailable:", err.message);
@@ -362,26 +387,30 @@ export default function DemoPage() {
 
   // Real-time Tick Sync
   useEffect(() => {
-    if (!mainSeriesRef.current || !livePrices[selectedSymbol]) return;
+    if (!mainSeriesRef.current || !chartInstanceRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
     if (!price || price <= 0) return;
     const secs = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000 }[selectedInterval] || 300;
     const candleTime = Math.floor(Math.floor(Date.now() / 1000) / (secs as any)) * (secs as any);
     const cur = currentCandleRef.current;
     
-    if (chartType === 'candles' || chartType === 'bars') {
-      if (!cur || cur.time !== candleTime) {
-        const next = { time: candleTime, open: price, high: price, low: price, close: price };
-        currentCandleRef.current = next;
-        mainSeriesRef.current.update(next as any);
+    try {
+      if (chartType === 'candles' || chartType === 'bars') {
+        if (!cur || cur.time !== candleTime) {
+          const next = { time: candleTime, open: price, high: price, low: price, close: price };
+          currentCandleRef.current = next;
+          mainSeriesRef.current.update(next as any);
+        } else {
+          cur.high = Math.max(cur.high, price);
+          cur.low = Math.min(cur.low, price);
+          cur.close = price;
+          mainSeriesRef.current.update({ ...cur, close: price } as any);
+        }
       } else {
-        cur.high = Math.max(cur.high, price);
-        cur.low = Math.min(cur.low, price);
-        cur.close = price;
-        mainSeriesRef.current.update({ ...cur, close: price } as any);
+        mainSeriesRef.current.update({ time: candleTime, value: price });
       }
-    } else {
-      mainSeriesRef.current.update({ time: candleTime, value: price });
+    } catch (e) {
+      // chart likely disposed
     }
   }, [livePrices[selectedSymbol], selectedSymbol, selectedInterval, chartType]);
 
@@ -406,7 +435,6 @@ export default function DemoPage() {
 
   const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, historyConstraints);
 
-  // Alert Constraints & Collection
   const alertConstraints = useMemo(() => {
     if (!user?.uid) return [];
     return [where("userId", "==", user.uid), orderBy("createdAt", "desc")];
@@ -432,47 +460,53 @@ export default function DemoPage() {
 
   // Position & Alert Overlays
   useEffect(() => {
-    if (!mainSeriesRef.current) return;
-    priceLinesRef.current.forEach(line => mainSeriesRef.current?.removePriceLine(line));
-    priceLinesRef.current = [];
+    if (!mainSeriesRef.current || !chartInstanceRef.current) return;
     
-    const pData = livePrices[selectedSymbol];
-    
-    // Position Lines
-    openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
-      let pnlText = "";
-      if (pData) {
-        const cp = t.type === 'buy' ? pData.bid : pData.ask;
-        const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
-        const pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
-        pnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
-      }
-      const entry = mainSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
-      if (entry) priceLinesRef.current.push(entry);
-      if (t.sl) {
-        const line = mainSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
-        if (line) priceLinesRef.current.push(line);
-      }
-      if (t.tp) {
-        const line = mainSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
-        if (line) priceLinesRef.current.push(line);
-      }
-    });
-
-    // Alert Lines
-    alerts.filter(a => a.symbol === selectedSymbol && a.status === 'active').forEach(a => {
-      const line = mainSeriesRef.current?.createPriceLine({ 
-        price: a.targetPrice, 
-        color: '#f59e0b', 
-        lineWidth: 1, 
-        lineStyle: 3, 
-        axisLabelVisible: true, 
-        title: `ALERT ${a.condition.toUpperCase()}` 
+    try {
+      priceLinesRef.current.forEach(line => {
+        try { mainSeriesRef.current?.removePriceLine(line); } catch (e) {}
       });
-      if (line) priceLinesRef.current.push(line);
-    });
+      priceLinesRef.current = [];
+      
+      const pData = livePrices[selectedSymbol];
+      
+      // Position Lines
+      openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
+        let pnlText = "";
+        if (pData) {
+          const cp = t.type === 'buy' ? pData.bid : pData.ask;
+          const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
+          const pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
+          pnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
+        }
+        const entry = mainSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
+        if (entry) priceLinesRef.current.push(entry);
+        if (t.sl) {
+          const line = mainSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
+          if (line) priceLinesRef.current.push(line);
+        }
+        if (t.tp) {
+          const line = mainSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
+          if (line) priceLinesRef.current.push(line);
+        }
+      });
 
-  }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType]);
+      // Alert Lines
+      alerts.filter(a => a.symbol === selectedSymbol && a.status === 'active').forEach(a => {
+        const line = mainSeriesRef.current?.createPriceLine({ 
+          price: a.targetPrice, 
+          color: '#f59e0b', 
+          lineWidth: 1, 
+          lineStyle: 3, 
+          axisLabelVisible: true, 
+          title: `ALERT ${a.condition.toUpperCase()}` 
+        });
+        if (line) priceLinesRef.current.push(line);
+      });
+    } catch (e) {
+      // chart likely disposed
+    }
+  }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType, isChartReady]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId || !livePrices[selectedSymbol]) return;
@@ -515,7 +549,10 @@ export default function DemoPage() {
   };
 
   const handleClearDrawings = () => {
-    drawingLinesRef.current.forEach(line => mainSeriesRef.current?.removePriceLine(line));
+    if (!mainSeriesRef.current) return;
+    drawingLinesRef.current.forEach(line => {
+      try { mainSeriesRef.current?.removePriceLine(line); } catch (e) {}
+    });
     drawingLinesRef.current = [];
     toast({ title: "Canvas Cleared", description: "All manual drawings removed." });
   };
