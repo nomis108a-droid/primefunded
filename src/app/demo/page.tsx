@@ -28,7 +28,9 @@ import {
   CandlestickChart,
   BarChart3,
   AreaChart,
-  Activity
+  Activity,
+  Clock,
+  Globe
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -49,8 +51,20 @@ const TIMEFRAMES = [
   { label: '15m', value: '15min' },
   { label: '30m', value: '30min' },
   { label: '1h', value: '1h' },
+  { label: '2h', value: '2h' },
   { label: '4h', value: '4h' },
   { label: '1D', value: '1day' },
+  { label: '1W', value: '1week' },
+  { label: '1M', value: '1month' },
+];
+
+const TIMEZONES = [
+  { label: 'Local Time', value: 'local' },
+  { label: 'UTC', value: 'UTC' },
+  { label: 'New York (EST)', value: 'America/New_York' },
+  { label: 'London (GMT)', value: 'Europe/London' },
+  { label: 'Tokyo (JST)', value: 'Asia/Tokyo' },
+  { label: 'Sydney (AEST)', value: 'Australia/Sydney' },
 ];
 
 const getPrecision = (s: string) => (s === "USDJPY" ? 3 : (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD" ? 2 : 5));
@@ -67,6 +81,7 @@ export default function DemoPage() {
   const [isChartReady, setIsChartReady] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
+  const [selectedTimezone, setSelectedTimezone] = useState("local");
   const [chartType, setChartType] = useState<string>("candles");
   const [lots, setLots] = useState(0.10);
   const [sl, setSl] = useState<string>("");
@@ -77,7 +92,7 @@ export default function DemoPage() {
   // Indicator State
   const [indicatorState, setIndicatorState] = useState<Record<string, boolean>>({
     ema9: false, ema21: false, ema50: false, ema200: false,
-    bb: false, rsi: false, macd: false, atr: false, volume: true
+    bb: false, rsi: false, macd: false, atr: false, volume: true, sessions: true
   });
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -116,6 +131,14 @@ export default function DemoPage() {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight || 480,
       timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
+      localization: {
+        timeFormatter: (time: number) => {
+          if (selectedTimezone === 'local') {
+            return new Date(time * 1000).toLocaleString();
+          }
+          return new Date(time * 1000).toLocaleString('en-US', { timeZone: selectedTimezone });
+        }
+      }
     });
     
     chartInstanceRef.current = chart;
@@ -132,7 +155,7 @@ export default function DemoPage() {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, []);
+  }, [selectedTimezone]);
 
   // Isolated Candle Fetch & Indicator Calculation & Series Switching
   useEffect(() => {
@@ -199,12 +222,33 @@ export default function DemoPage() {
           }
           
           // 3. Render Indicators
-          // Clear existing indicators
           Object.values(indicatorSeriesRef.current).forEach(s => chartInstanceRef.current?.removeSeries(s));
           indicatorSeriesRef.current = {};
 
           const closes = candles.map((c: any) => c.close);
           const times = candles.map((c: any) => c.time);
+
+          // Session Shading
+          if (indicatorState.sessions && !selectedInterval.includes('day')) {
+             const sessionSeries = chartInstanceRef.current!.addHistogramSeries({ 
+               priceScaleId: 'session_shading',
+               color: 'transparent',
+               priceFormat: { type: 'price' } 
+             });
+             chartInstanceRef.current!.priceScale('session_shading').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+             
+             const sessionData = candles.map((c: any) => {
+               const utcHour = new Date(c.time * 1000).getUTCHours();
+               let color = 'transparent';
+               // London: 08-16 UTC, New York: 13-21 UTC
+               if (utcHour >= 13 && utcHour <= 21) color = 'rgba(245, 158, 11, 0.05)'; // NY
+               else if (utcHour >= 8 && utcHour <= 16) color = 'rgba(59, 130, 246, 0.05)'; // London
+               
+               return { time: c.time, value: 1000000, color };
+             });
+             sessionSeries.setData(sessionData);
+             indicatorSeriesRef.current['sessions'] = sessionSeries;
+          }
 
           // Overlays
           const emaPeriods = { ema9: 9, ema21: 21, ema50: 50, ema200: 200 };
@@ -283,7 +327,7 @@ export default function DemoPage() {
     if (!mainSeriesRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
     if (!price || price <= 0) return;
-    const secs = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 }[selectedInterval] || 300;
+    const secs = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000 }[selectedInterval] || 300;
     const candleTime = Math.floor(Math.floor(Date.now() / 1000) / (secs as any)) * (secs as any);
     const cur = currentCandleRef.current;
     
@@ -436,6 +480,21 @@ export default function DemoPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
+                  <Globe className="w-4 h-4" /> {TIMEZONES.find(t => t.value === selectedTimezone)?.label || 'Timezone'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white w-48">
+                <DropdownMenuRadioGroup value={selectedTimezone} onValueChange={setSelectedTimezone}>
+                  {TIMEZONES.map((tz) => (
+                    <DropdownMenuRadioItem key={tz.value} value={tz.value}>{tz.label}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
                   <LayoutGrid className="w-4 h-4" /> Chart Type
                 </Button>
               </DropdownMenuTrigger>
@@ -463,6 +522,7 @@ export default function DemoPage() {
                 <DropdownMenuCheckboxItem checked={indicatorState.ema50} onCheckedChange={() => toggleIndicator('ema50')}>EMA 50 (Pink)</DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem checked={indicatorState.ema200} onCheckedChange={() => toggleIndicator('ema200')}>EMA 200 (Purple)</DropdownMenuCheckboxItem>
                 <DropdownMenuCheckboxItem checked={indicatorState.bb} onCheckedChange={() => toggleIndicator('bb')}>Bollinger Bands</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.sessions} onCheckedChange={() => toggleIndicator('sessions')}>Session Shading</DropdownMenuCheckboxItem>
                 <DropdownMenuSeparator className="bg-zinc-800" />
                 <div className="px-2 py-2 text-[10px] font-black uppercase text-zinc-500 tracking-widest">Sub Panes</div>
                 <DropdownMenuCheckboxItem checked={indicatorState.volume} onCheckedChange={() => toggleIndicator('volume')}>Volume</DropdownMenuCheckboxItem>
@@ -507,8 +567,8 @@ export default function DemoPage() {
           </div>
 
           <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950/30 shrink-0">
-            <div className="flex items-center gap-1 bg-zinc-900/50 p-0.5 rounded-lg border border-zinc-800">
-              {TIMEFRAMES.map((tf) => <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2.5 py-1 rounded-md text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-300")}>{tf.label}</button>)}
+            <div className="flex items-center gap-1 bg-zinc-900/50 p-0.5 rounded-lg border border-zinc-800 overflow-x-auto no-scrollbar">
+              {TIMEFRAMES.map((tf) => <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all whitespace-nowrap", selectedInterval === tf.value ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-300")}>{tf.label}</button>)}
             </div>
           </div>
 

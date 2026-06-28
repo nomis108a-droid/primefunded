@@ -4,8 +4,7 @@ import { Timestamp } from "firebase-admin/firestore";
 
 /**
  * @fileOverview Institutional Candle Server
- * Fetches Crypto from Binance and Forex/Metals from Stooq.
- * Includes a synthetic generator for weekend gaps to ensure visual continuity.
+ * Expanded with support for 2H, 3H, 1W, and 1M intervals.
  */
 
 const CRYPTO_MAP: Record<string, string> = {
@@ -32,10 +31,13 @@ const INTERVAL_MAP: Record<string, { binance: string, stooq: string }> = {
   "1min": { binance: "1m", stooq: "5" },
   "5min": { binance: "5m", stooq: "5" },
   "15min": { binance: "15m", stooq: "15" },
-  "30min": { binance: "15m", stooq: "15" },
+  "30min": { binance: "30m", stooq: "15" },
   "1h": { binance: "1h", stooq: "60" },
+  "2h": { binance: "2h", stooq: "60" },
   "4h": { binance: "4h", stooq: "240" },
   "1day": { binance: "1d", stooq: "d" },
+  "1week": { binance: "1w", stooq: "w" },
+  "1month": { binance: "1M", stooq: "m" },
 };
 
 function generateFallbackCandles(basePrice: number, count: number, intervalSecs: number) {
@@ -68,7 +70,7 @@ export async function GET(req: NextRequest) {
     const db = getAdminDb();
     
     const intervalSecondsMap: Record<string, number> = {
-      '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400
+      '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
     };
     const intervalSeconds = intervalSecondsMap[interval] || 300;
 
@@ -79,7 +81,7 @@ export async function GET(req: NextRequest) {
     if (CRYPTO_MAP[symbol]) {
       try {
         const bInterval = INTERVAL_MAP[interval]?.binance || "1m";
-        const url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=200`;
+        const url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=300`;
         const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const data = await res.json();
@@ -90,6 +92,7 @@ export async function GET(req: NextRequest) {
               high: parseFloat(v[2]),
               low: parseFloat(v[3]),
               close: parseFloat(v[4]),
+              volume: parseFloat(v[5])
             }));
           }
         }
@@ -106,13 +109,13 @@ export async function GET(req: NextRequest) {
         if (res.ok) {
           const csv = await res.text();
           const lines = csv.trim().split('\n');
-          // Skip header, check for data
           if (lines.length > 1 && !csv.includes('html')) {
             for (let i = 1; i < lines.length; i++) {
               const parts = lines[i].split(',');
               if (parts.length < 6) continue;
               const [date, time, open, high, low, close] = parts;
-              const ts = Math.floor(new Date(`${date}T${time}`).getTime() / 1000);
+              const tsString = time ? `${date}T${time}` : `${date}T00:00:00`;
+              const ts = Math.floor(new Date(tsString).getTime() / 1000);
               if (!isNaN(ts)) {
                 candles.push({ time: ts, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close) });
               }
@@ -130,20 +133,22 @@ export async function GET(req: NextRequest) {
       try {
         const priceDoc = await db.collection('livePrices').doc(symbol).get();
         const basePrice = Number(priceDoc.data()?.price) || (symbol.includes('USD') ? 1.0 : 100.0);
-        candles = generateFallbackCandles(basePrice, 200, intervalSeconds);
+        candles = generateFallbackCandles(basePrice, 300, intervalSeconds);
       } catch (err) {
-        candles = generateFallbackCandles(1.0, 200, intervalSeconds);
+        candles = generateFallbackCandles(1.0, 300, intervalSeconds);
       }
     }
 
     candles.sort((a, b) => a.time - b.time);
-    if (candles.length > 200) candles = candles.slice(-200);
+    // Dedup by time
+    candles = candles.filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
+    
+    if (candles.length > 300) candles = candles.slice(-300);
 
     return NextResponse.json({ candles, isFallback });
 
   } catch (error: any) {
     console.error('[Candle-API] Fatal Error:', error.message);
-    // Never return 500 if we can return a valid fallback
     return NextResponse.json({ candles: generateFallbackCandles(1.0, 50, 60), isFallback: true });
   }
 }
