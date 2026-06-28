@@ -50,7 +50,6 @@ const intervalSecondsMap: Record<string, number> = {
 
 /**
  * INSTITUTIONAL DATA VAULT: Persistence Layer
- * Survives component unmounting to provide instantaneous remounts.
  */
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 const currentCandleCache = new Map<string, any>();
@@ -78,6 +77,9 @@ export default function DemoPage() {
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
   
+  // UI Panels state
+  const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
+
   // Drawing & Workspace States
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [magnetMode, setMagnetMode] = useState(false);
@@ -101,6 +103,8 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
+  const isFetchingMore = useRef(false);
+  const oldestTimestamp = useRef<number | null>(null);
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
@@ -115,25 +119,19 @@ export default function DemoPage() {
   }, [accountsLoading, accounts, currentAccountId]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      setPageReady(true);
-    }, 3000);
+    const t = setTimeout(() => setPageReady(true), 3000);
     return () => clearTimeout(t);
   }, []);
 
-  // Candle Close Countdown logic
   useEffect(() => {
     const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
-    
     const updateCountdown = () => {
       const now = Math.floor(Date.now() / 1000);
       const remaining = intervalSecs - (now % intervalSecs);
-      
       const mins = Math.floor(remaining / 60);
       const secs = remaining % 60;
       setCountdown(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
     };
-
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
@@ -163,6 +161,23 @@ export default function DemoPage() {
     applyGlobalSettings();
   }, [chartSettings, applyGlobalSettings]);
 
+  /**
+   * ISSUE 1 FIX: Synchronized Chart Resizing
+   */
+  useEffect(() => {
+    if (chartInstanceRef.current && chartContainerRef.current) {
+      // Small timeout to allow the DOM to reflow before measuring
+      setTimeout(() => {
+        if (chartInstanceRef.current && chartContainerRef.current) {
+          chartInstanceRef.current.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+            height: chartContainerRef.current.clientHeight
+          });
+        }
+      }, 50);
+    }
+  }, [bottomPanelOpen]);
+
   useEffect(() => {
     if (!chartContainerRef.current || !pageReady) return;
     
@@ -176,8 +191,45 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     setIsChartReady(true);
     applyGlobalSettings();
-    const handleResize = () => { if (chartContainerRef.current && chartInstanceRef.current) chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth }); };
+
+    const handleResize = () => { 
+      if (chartContainerRef.current && chartInstanceRef.current) {
+        chartInstanceRef.current.applyOptions({ 
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight 
+        });
+      }
+    };
     window.addEventListener('resize', handleResize);
+
+    /**
+     * ISSUE 2 FIX: Lazy Loading Logic
+     */
+    chart.timeScale().subscribeVisibleLogicalRangeChange(async (range) => {
+      if (range && range.from < 50 && !isFetchingMore.current && oldestTimestamp.current) {
+        isFetchingMore.current = true;
+        try {
+          const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&before=${oldestTimestamp.current}&limit=500`);
+          if (res.ok) {
+            const data = await res.json();
+            const olderCandles = data.candles || [];
+            if (olderCandles.length > 0 && mainSeriesRef.current) {
+              const cacheKey = `${selectedSymbol}-${selectedInterval}`;
+              const currentData = candleDataCache.get(cacheKey)?.candles || [];
+              const combined = [...olderCandles, ...currentData].sort((a, b) => a.time - b.time);
+              const unique = combined.filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
+              
+              mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? unique : unique.map((c: any) => ({ time: c.time, value: c.close })));
+              candleDataCache.set(cacheKey, { candles: unique, lastUpdated: Date.now() });
+              oldestTimestamp.current = unique[0].time;
+            }
+          }
+        } catch (e) {} finally {
+          isFetchingMore.current = false;
+        }
+      }
+    });
+
     return () => {
       window.removeEventListener('resize', handleResize);
       if (chartInstanceRef.current) { 
@@ -188,7 +240,7 @@ export default function DemoPage() {
       setIsChartReady(false);
       currentCandleRef.current = null;
     };
-  }, [pageReady, applyGlobalSettings]);
+  }, [pageReady, applyGlobalSettings, selectedSymbol, selectedInterval, chartType]);
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
@@ -199,40 +251,34 @@ export default function DemoPage() {
     const cached = candleDataCache.get(cacheKey);
 
     const fetchHistory = async () => {
-      // 1. Instant Cache Load (No Spinner if fresh)
-      if (cached && (Date.now() - cached.lastUpdated < 300000)) { // 5 mins
+      if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
         setIsChartLoading(false);
         setChartError(null);
         setupSeries(cached.candles);
-        // Still fetch in background to sync gaps
+        oldestTimestamp.current = cached.candles[0].time;
       } else {
         setIsChartLoading(true);
         setChartError(null);
       }
       
       try {
-        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`, {
+        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
           signal: controller.signal
         });
         
         if (!res.ok) throw new Error(`Network response error: ${res.status}`);
-        
         const data = await res.json();
         const candles = data.candles || [];
-        
         if (!isMounted || !chartInstanceRef.current) return;
 
         if (candles.length > 0) {
           setupSeries(candles);
-          // 2. Global Sync
           candleDataCache.set(cacheKey, { candles, lastUpdated: Date.now() });
-          const lastCandle = candles[candles.length - 1];
-          currentCandleRef.current = lastCandle;
-          currentCandleCache.set(cacheKey, lastCandle);
+          currentCandleRef.current = candles[candles.length - 1];
+          oldestTimestamp.current = candles[0].time;
         }
       } catch (err: any) {
         if (err.name !== 'AbortError') {
-          console.error(`[Chart] Sync connection error for ${selectedSymbol}:`, err);
           if (isMounted && !cached) setChartError(err.message || "Failed to establish market connection");
         }
       } finally {
@@ -257,16 +303,11 @@ export default function DemoPage() {
     };
 
     fetchHistory();
-    
-    return () => { 
-      isMounted = false; 
-      controller.abort();
-    };
+    return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
 
   useEffect(() => {
     if (!pageReady || !isChartReady) return;
-
     const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
@@ -291,87 +332,37 @@ export default function DemoPage() {
                 cur.close = price;
               }
               mainSeriesRef.current.update(currentCandleRef.current);
-              
-              // Sync to Global cache so it survives navigation
-              const cacheKey = `${selectedSymbol}-${selectedInterval}`;
-              currentCandleCache.set(cacheKey, currentCandleRef.current);
             }
           }
         } catch (err) {}
       } catch (e) {}
     };
-
     fetchPrices();
-    // 3. Robust Background Interval (Doesn't use RAF)
     const interval = setInterval(fetchPrices, 3000);
-
-    // 4. Tab Return Fast Sync
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchPrices();
-      }
-    };
+    const handleVisibilityChange = () => { if (document.visibilityState === 'visible') fetchPrices(); };
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', handleVisibilityChange); };
   }, [pageReady, isChartReady, selectedInterval, selectedSymbol]);
 
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
-      if (!user) {
-        toast({ title: "Auth Required", description: "Login to execute trades", variant: "destructive" });
-        return;
-      }
-      if (!currentAccountId) {
-        toast({ title: "No Account", description: "Please select a trading node", variant: "destructive" });
-        return;
-      }
-
+      if (!user) { toast({ title: "Auth Required", variant: "destructive" }); return; }
+      if (!currentAccountId) { toast({ title: "No Account", variant: "destructive" }); return; }
       const pricesRes = await fetch('/api/terminal/live-prices');
       const prices = await pricesRes.json();
       const priceData = prices[selectedSymbol];
-
-      if (!priceData || !priceData.price) {
-        toast({ title: "Price Sync Error", description: `No live feed for ${selectedSymbol}. Try again.`, variant: "destructive" });
-        return;
-      }
-
+      if (!priceData || !priceData.price) { toast({ title: "Price Sync Error", variant: "destructive" }); return; }
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
       const token = await user.getIdToken(true);
-
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          accountId: currentAccountId,
-          symbol: selectedSymbol,
-          type,
-          lots,
-          price: executionPrice,
-          sl: parseFloat(sl) > 0 ? parseFloat(sl) : null,
-          tp: parseFloat(tp) > 0 ? parseFloat(tp) : null,
-        })
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol, type, lots, price: executionPrice, sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: parseFloat(tp) > 0 ? parseFloat(tp) : null })
       });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast({ title: "Execution Failed", description: err.error || `Server Error: ${res.status}`, variant: "destructive" });
-        return;
-      }
-
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast({ title: "Execution Failed", description: err.error || `Server Error: ${res.status}`, variant: "destructive" }); return; }
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
-    } catch(e: any) {
-      toast({ title: "System Error", description: e.message, variant: "destructive" });
-    } finally {
-      setActionLoading(false);
-    }
+    } catch(e: any) { toast({ title: "System Error", variant: "destructive" }); } finally { setActionLoading(false); }
   }
 
   const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
@@ -379,62 +370,25 @@ export default function DemoPage() {
   const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "closed"), orderBy("closedAt", "desc"), limit(50)] : [], [user?.uid, currentAccountId]));
   const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("createdAt", "desc")] : [], [user?.uid]));
 
-  const handleZoomIn = () => {
-    if (chartInstanceRef.current) {
-      const timeScale = chartInstanceRef.current.timeScale();
-      timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing * 1.2 });
-    }
-  };
-
-  const handleZoomOut = () => {
-    if (chartInstanceRef.current) {
-      const timeScale = chartInstanceRef.current.timeScale();
-      timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing / 1.2 });
-    }
-  };
-
-  const handleResetView = () => {
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.timeScale().fitContent();
-      chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
-    }
-  };
+  const handleZoomIn = () => { if (chartInstanceRef.current) { const timeScale = chartInstanceRef.current.timeScale(); timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing * 1.2 }); } };
+  const handleZoomOut = () => { if (chartInstanceRef.current) { const timeScale = chartInstanceRef.current.timeScale(); timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing / 1.2 }); } };
+  const handleResetView = () => { if (chartInstanceRef.current) { chartInstanceRef.current.timeScale().fitContent(); chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true }); } };
 
   async function closeTrade(tradeId: string) {
     try {
       setActionLoading(true);
       const trade = openTrades.find(t => t.id === tradeId);
       if (!trade) return;
-
       const pricesRes = await fetch('/api/terminal/live-prices');
       const prices = await pricesRes.json();
       const priceData = prices[trade.symbol] || prices[trade.symbol?.toUpperCase()] || livePrices[trade.symbol];
-
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
-
-      if (!closePrice || closePrice <= 0) {
-        toast({ title: "Cannot Close", description: `No live price for ${trade.symbol}`, variant: "destructive" });
-        return;
-      }
-
+      if (!closePrice || closePrice <= 0) { toast({ title: "Cannot Close", variant: "destructive" }); return; }
       const token = await user?.getIdToken();
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ closePrice })
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast({ title: "Close Failed", description: err.error || "Server error", variant: "destructive" });
-        return;
-      }
-      toast({ title: "✓ Position Closed", description: `${trade.symbol} closed at ${closePrice.toFixed(2)}` });
-    } catch (e: any) {
-      toast({ title: "Close Error", description: e.message, variant: "destructive" });
-    } finally {
-      setActionLoading(false);
-    }
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice }) });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); toast({ title: "Close Failed", description: err.error || "Server error", variant: "destructive" }); return; }
+      toast({ title: "✓ Position Closed" });
+    } catch (e: any) { toast({ title: "Close Error", variant: "destructive" }); } finally { setActionLoading(false); }
   }
 
   const TOOLBAR_ITEMS = [
@@ -506,7 +460,6 @@ export default function DemoPage() {
         </div>
       </header>
 
-      {/* SYMBOL TABS */}
       <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
         {SYMBOLS.map((s) => (
           <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center gap-3 transition-all border-b-2", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
@@ -515,7 +468,6 @@ export default function DemoPage() {
         ))}
       </div>
 
-      {/* TIMEFRAME BAR */}
       <div className="h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
         {TIMEFRAMES.map((tf) => (
           <button
@@ -523,9 +475,7 @@ export default function DemoPage() {
             onClick={() => setSelectedInterval(tf.value)}
             className={cn(
               "px-3 h-6 flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest",
-              selectedInterval === tf.value
-                ? "bg-primary text-black"
-                : "text-zinc-500 hover:text-white hover:bg-white/5"
+              selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white hover:bg-white/5"
             )}
           >
             {tf.label}
@@ -536,7 +486,6 @@ export default function DemoPage() {
       <div className="flex-1 flex min-h-0 relative">
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
-            {/* TRADINGVIEW STYLE SIDEBAR */}
             <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
                 <div className="flex flex-col gap-0.5 items-center w-full">
@@ -546,10 +495,7 @@ export default function DemoPage() {
                       name={item.name}
                       icon={typeof item.icon === 'function' ? <item.icon /> : <item.icon />}
                       active={item.toggle ? item.active : activeTool === item.id}
-                      onClick={() => {
-                        if (item.action) item.action();
-                        else setActiveTool(item.id);
-                      }}
+                      onClick={() => { if (item.action) item.action(); else setActiveTool(item.id); }}
                     />
                   ))}
                 </div>
@@ -563,21 +509,12 @@ export default function DemoPage() {
                   <p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p>
                 </div>
               )}
-              
               {chartError && !isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-md p-6 text-center">
                   <AlertCircle className="w-8 h-8 text-destructive mb-4" />
                   <h3 className="text-sm font-bold text-white mb-2">Sync Connection Interrupted</h3>
                   <p className="text-xs text-zinc-400 mb-6 max-w-[250px]">{chartError}</p>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="h-9 px-6 font-bold" 
-                    onClick={() => {
-                      setIsChartReady(false);
-                      setTimeout(() => setIsChartReady(true), 10);
-                    }}
-                  >
+                  <Button variant="outline" size="sm" className="h-9 px-6 font-bold" onClick={() => { setIsChartReady(false); setTimeout(() => setIsChartReady(true), 10); }}>
                     <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
                   </Button>
                 </div>
@@ -585,22 +522,13 @@ export default function DemoPage() {
               
               <div ref={chartContainerRef} className="h-full w-full relative" />
               
-              {/* Candle Close Countdown Overlay */}
               <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
               </div>
 
-              {/* PrimeFunded Watermark Logo */}
               <div className="absolute bottom-4 left-4 z-10 opacity-20 pointer-events-none select-none flex items-center gap-2">
-                <Image 
-                  src={branding.logoUrl} 
-                  alt="PrimeFunded" 
-                  width={28} 
-                  height={28} 
-                  className="rounded-full grayscale contrast-125" 
-                  data-ai-hint="site logo"
-                />
+                <Image src={branding.logoUrl} alt="PrimeFunded" width={28} height={28} className="rounded-full grayscale contrast-125" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-white/20">{branding.siteName}</span>
               </div>
 
@@ -626,7 +554,9 @@ export default function DemoPage() {
             closeTrade={closeTrade} 
             deleteAlert={async () => {}} 
             user={user} 
-            alertsLoading={alertsLoading} 
+            alertsLoading={alertsLoading}
+            panelOpen={bottomPanelOpen}
+            setPanelOpen={setBottomPanelOpen}
           />
         </div>
 
@@ -646,20 +576,10 @@ export default function DemoPage() {
                  <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
               </div>
               <div className="space-y-4">
-                <button 
-                  type="button" 
-                  onClick={() => placeTrade('buy')}
-                  disabled={actionLoading}
-                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50"
-                >
+                <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading} className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50">
                   {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 'BUY BY MARKET'}
                 </button>
-                <button 
-                  type="button" 
-                  onClick={() => placeTrade('sell')}
-                  disabled={actionLoading}
-                  className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50"
-                >
+                <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading} className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50">
                   {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 'SELL BY MARKET'}
                 </button>
               </div>
@@ -668,31 +588,8 @@ export default function DemoPage() {
       </div>
 
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
-      
-      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
-          <div className="p-6">
-            <h2 className="text-xl font-bold mb-4">Set Price Alert</h2>
-            <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
-        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden">
-          <div className="p-6 space-y-4">
-            <div className="flex items-center gap-3 text-destructive">
-               <AlertCircle className="w-6 h-6" />
-               <h2 className="text-xl font-headline font-bold">Clear Canvas?</h2>
-            </div>
-            <p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>. This action cannot be undone.</p>
-          </div>
-          <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2">
-             <Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button>
-             <Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm"><div className="p-6"><h2 className="text-xl font-bold mb-4">Set Price Alert</h2><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div></DialogContent></Dialog>
+      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}><DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden"><div className="p-6 space-y-4"><div className="flex items-center gap-3 text-destructive"><AlertCircle className="w-6 h-6" /><h2 className="text-xl font-headline font-bold">Clear Canvas?</h2></div><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div><DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
@@ -701,29 +598,11 @@ function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon:
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div 
-          onClick={onClick}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onClick?.();
-            }
-          }}
-          className={cn(
-            "w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px] relative cursor-pointer group", 
-            active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]"
-          )}
-        >
-          <div className="flex items-center justify-center transition-transform group-active:scale-90 scale-90">
-            {icon}
-          </div>
+        <div onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }} className={cn("w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px] relative cursor-pointer group", active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]")}>
+          <div className="flex items-center justify-center transition-transform group-active:scale-90 scale-90">{icon}</div>
         </div>
       </TooltipTrigger>
-      <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">
-        {name}
-      </TooltipContent>
+      <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">{name}</TooltipContent>
     </Tooltip>
   );
 }

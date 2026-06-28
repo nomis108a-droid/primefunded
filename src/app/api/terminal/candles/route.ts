@@ -4,7 +4,7 @@ import { Timestamp } from "firebase-admin/firestore";
 
 /**
  * @fileOverview Institutional Candle Server
- * Expanded with support for 2H, 3H, 1W, and 1M intervals.
+ * Enhanced with support for 'before' (endTime) and custom limits for lazy loading.
  */
 
 const CRYPTO_MAP: Record<string, string> = {
@@ -40,13 +40,13 @@ const INTERVAL_MAP: Record<string, { binance: string, stooq: string }> = {
   "1month": { binance: "1M", stooq: "m" },
 };
 
-function generateFallbackCandles(basePrice: number, count: number, intervalSecs: number) {
+function generateFallbackCandles(basePrice: number, count: number, intervalSecs: number, endTime?: number) {
   const candles = [];
-  const now = Math.floor(Date.now() / 1000);
+  const endTs = endTime || Math.floor(Date.now() / 1000);
   let currentPrice = Number(basePrice) || 1.0;
   
   for (let i = count; i >= 0; i--) {
-    const time = Math.floor((now - i * intervalSecs) / intervalSecs) * intervalSecs;
+    const time = Math.floor((endTs - i * intervalSecs) / intervalSecs) * intervalSecs;
     const volatility = 0.0005;
     const change = (Math.random() - 0.49) * currentPrice * volatility;
     
@@ -66,6 +66,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const symbol = searchParams.get("symbol") || "EURUSD";
     const interval = (searchParams.get("interval") || "1min").toLowerCase();
+    const before = searchParams.get("before") ? parseInt(searchParams.get("before")!) : null;
+    const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 500;
 
     const db = getAdminDb();
     
@@ -81,7 +83,9 @@ export async function GET(req: NextRequest) {
     if (CRYPTO_MAP[symbol]) {
       try {
         const bInterval = INTERVAL_MAP[interval]?.binance || "1m";
-        const url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=300`;
+        let url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=${limit}`;
+        if (before) url += `&endTime=${before * 1000}`;
+
         const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const data = await res.json();
@@ -100,7 +104,7 @@ export async function GET(req: NextRequest) {
         console.warn(`[Binance] Fetch failed for ${symbol}`);
       }
     } 
-    // 2. Check Stooq for Forex/Metals
+    // 2. Check Stooq for Forex/Metals (Note: Stooq CSV doesn't support pagination easily, we just fetch a larger chunk initially)
     else if (STOOQ_MAP[symbol]) {
       try {
         const sInterval = INTERVAL_MAP[interval]?.stooq || "5";
@@ -117,6 +121,8 @@ export async function GET(req: NextRequest) {
               const tsString = time ? `${date}T${time}` : `${date}T00:00:00`;
               const ts = Math.floor(new Date(tsString).getTime() / 1000);
               if (!isNaN(ts)) {
+                // If 'before' filter applied, filter on server to match logic
+                if (before && ts >= before) continue;
                 candles.push({ time: ts, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close) });
               }
             }
@@ -127,23 +133,22 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 3. Fallback: If no candles (weekend or API fail), generate synthetic data
+    // 3. Fallback: If no candles, generate synthetic data
     if (candles.length === 0) {
       isFallback = true;
       try {
         const priceDoc = await db.collection('livePrices').doc(symbol).get();
         const basePrice = Number(priceDoc.data()?.price) || (symbol.includes('USD') ? 1.0 : 100.0);
-        candles = generateFallbackCandles(basePrice, 300, intervalSeconds);
+        candles = generateFallbackCandles(basePrice, limit, intervalSeconds, before || undefined);
       } catch (err) {
-        candles = generateFallbackCandles(1.0, 300, intervalSeconds);
+        candles = generateFallbackCandles(1.0, limit, intervalSeconds, before || undefined);
       }
     }
 
     candles.sort((a, b) => a.time - b.time);
-    // Dedup by time
     candles = candles.filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
     
-    if (candles.length > 300) candles = candles.slice(-300);
+    if (candles.length > limit) candles = candles.slice(-limit);
 
     return NextResponse.json({ candles, isFallback });
 

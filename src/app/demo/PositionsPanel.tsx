@@ -20,6 +20,8 @@ interface PositionsPanelProps {
   deleteAlert: (id: string) => Promise<void>;
   user: any;
   alertsLoading: boolean;
+  panelOpen: boolean;
+  setPanelOpen: (open: boolean) => void;
 }
 
 export function PositionsPanel({ 
@@ -30,10 +32,11 @@ export function PositionsPanel({
   closeTrade, 
   deleteAlert, 
   user,
-  alertsLoading
+  alertsLoading,
+  panelOpen,
+  setPanelOpen
 }: PositionsPanelProps) {
   const [activeTab, setActiveTab] = useState("positions");
-  const [panelOpen, setPanelOpen] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditingType] = useState<'sl' | 'tp' | null>(null);
   const [editValue, setEditValue] = useState("");
