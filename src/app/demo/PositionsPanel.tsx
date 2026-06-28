@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { XCircle, Check, X, Loader2 } from "lucide-react";
+import { XCircle, Check, X, Loader2, Bell, Trash2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, differenceInSeconds } from 'date-fns';
 import { getTradeDate, formatDuration } from '@/lib/tradeUtils';
@@ -14,12 +14,24 @@ import { useToast } from '@/hooks/use-toast';
 interface PositionsPanelProps {
   openTrades: any[];
   closedTrades: any[];
+  alerts: any[];
   livePrices: Record<string, any>;
   closeTrade: (id: string, openedAt: any) => Promise<void>;
+  deleteAlert: (id: string) => Promise<void>;
   user: any;
+  alertsLoading: boolean;
 }
 
-export function PositionsPanel({ openTrades, closedTrades, livePrices, closeTrade, user }: PositionsPanelProps) {
+export function PositionsPanel({ 
+  openTrades, 
+  closedTrades, 
+  alerts, 
+  livePrices, 
+  closeTrade, 
+  deleteAlert, 
+  user,
+  alertsLoading
+}: PositionsPanelProps) {
   const [activeTab, setActiveTab] = useState("positions");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditingType] = useState<'sl' | 'tp' | null>(null);
@@ -60,6 +72,9 @@ export function PositionsPanel({ openTrades, closedTrades, livePrices, closeTrad
           </TabsTrigger>
           <TabsTrigger value="history" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">
             Trade History
+          </TabsTrigger>
+          <TabsTrigger value="alerts" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">
+            Price Alerts ({alerts.length})
           </TabsTrigger>
         </TabsList>
       </div>
@@ -184,6 +199,49 @@ export function PositionsPanel({ openTrades, closedTrades, livePrices, closeTrad
               })}
             </tbody>
            </table>
+        </TabsContent>
+
+        <TabsContent value="alerts" className="m-0 border-none outline-none">
+          <table className="w-full text-[11px] text-left">
+            <thead className="sticky top-0 bg-zinc-950/90 backdrop-blur-md text-zinc-500 uppercase text-[9px] font-black tracking-widest border-b border-zinc-800">
+              <tr>
+                <th className="py-2.5 px-4">Symbol</th>
+                <th className="py-2.5 px-4">Condition</th>
+                <th className="py-2.5 px-4">Target Price</th>
+                <th className="py-2.5 px-4">Status</th>
+                <th className="py-2.5 px-4">Set At</th>
+                <th className="py-2.5 px-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900">
+              {alertsLoading ? (
+                <tr><td colSpan={6} className="py-10 text-center"><Loader2 className="animate-spin w-4 h-4 mx-auto text-primary" /></td></tr>
+              ) : alerts.length === 0 ? (
+                <tr><td colSpan={6} className="py-20 text-center italic text-zinc-600">No active alerts configured.</td></tr>
+              ) : alerts.map((a) => {
+                const setDate = getTradeDate(a.createdAt);
+                return (
+                  <tr key={a.id} className="hover:bg-white/5 transition-colors">
+                    <td className="py-2 px-4 font-bold text-white">{a.symbol}</td>
+                    <td className="py-2 px-4 uppercase text-[10px] font-black text-zinc-400">Price {a.condition}</td>
+                    <td className="py-2 px-4 font-mono text-white">{formatPrice(a.targetPrice, a.symbol)}</td>
+                    <td className="py-2 px-4">
+                      <Badge className={cn(
+                        "text-[9px] uppercase font-black px-2 h-4",
+                        a.status === 'active' ? "bg-primary/10 text-primary" : "bg-zinc-800 text-zinc-500"
+                      )}>{a.status}</Badge>
+                    </td>
+                    <td className="py-2 px-4 text-zinc-600">{setDate ? format(setDate, 'MMM d, HH:mm') : '—'}</td>
+                    <td className="py-2 px-4 text-right">
+                      <button onClick={() => deleteAlert(a.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </TabsContent>
       </div>
     </Tabs>

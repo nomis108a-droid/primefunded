@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -11,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { 
   Loader2,
   ArrowLeft,
@@ -33,7 +33,10 @@ import {
   Clock,
   Globe,
   Type,
-  Square
+  Square,
+  Bell,
+  ArrowUp,
+  ArrowDown
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -92,6 +95,11 @@ export default function DemoPage() {
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   
+  // Alert UI State
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  const [alertTargetPrice, setAlertTargetPrice] = useState("");
+  const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
+
   // Drawing Tool State
   const [activeTool, setActiveTool] = useState<string>('pointer');
   const [magnetMode, setMagnetMode] = useState(false);
@@ -398,6 +406,14 @@ export default function DemoPage() {
 
   const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, historyConstraints);
 
+  // Alert Constraints & Collection
+  const alertConstraints = useMemo(() => {
+    if (!user?.uid) return [];
+    return [where("userId", "==", user.uid), orderBy("createdAt", "desc")];
+  }, [user?.uid]);
+
+  const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, alertConstraints);
+
   const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
   
   const metrics = useMemo(() => {
@@ -414,12 +430,15 @@ export default function DemoPage() {
     return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
   }, [currentAccount, openTrades, livePrices]);
 
-  // Position Overlays
+  // Position & Alert Overlays
   useEffect(() => {
     if (!mainSeriesRef.current) return;
     priceLinesRef.current.forEach(line => mainSeriesRef.current?.removePriceLine(line));
     priceLinesRef.current = [];
+    
     const pData = livePrices[selectedSymbol];
+    
+    // Position Lines
     openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
       let pnlText = "";
       if (pData) {
@@ -439,7 +458,21 @@ export default function DemoPage() {
         if (line) priceLinesRef.current.push(line);
       }
     });
-  }, [openTrades, selectedSymbol, livePrices[selectedSymbol], chartType]);
+
+    // Alert Lines
+    alerts.filter(a => a.symbol === selectedSymbol && a.status === 'active').forEach(a => {
+      const line = mainSeriesRef.current?.createPriceLine({ 
+        price: a.targetPrice, 
+        color: '#f59e0b', 
+        lineWidth: 1, 
+        lineStyle: 3, 
+        axisLabelVisible: true, 
+        title: `ALERT ${a.condition.toUpperCase()}` 
+      });
+      if (line) priceLinesRef.current.push(line);
+    });
+
+  }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId || !livePrices[selectedSymbol]) return;
@@ -487,6 +520,42 @@ export default function DemoPage() {
     toast({ title: "Canvas Cleared", description: "All manual drawings removed." });
   };
 
+  async function createAlert() {
+    if (!user || !alertTargetPrice) return;
+    setActionLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch("/api/terminal/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ symbol: selectedSymbol, condition: alertCondition, targetPrice: parseFloat(alertTargetPrice) })
+      });
+      if (!res.ok) throw new Error("Failed to set alert.");
+      toast({ title: "Alert Synchronized", description: `${selectedSymbol} level monitor active.` });
+      setIsAlertModalOpen(false);
+      setAlertTargetPrice("");
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Alert Error", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function deleteAlert(id: string) {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/terminal/alerts?id=${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to cancel alert.");
+      toast({ title: "Alert Cancelled" });
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Cancel Error", description: err.message });
+    }
+  }
+
   if (authLoading) return <div className="fixed inset-0 bg-[#09090b] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
@@ -513,6 +582,13 @@ export default function DemoPage() {
           )}
           
           <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5" onClick={() => {
+              setAlertTargetPrice(livePrices[selectedSymbol]?.price?.toString() || "");
+              setIsAlertModalOpen(true);
+            }}>
+              <Bell className="w-4 h-4" /> Set Alert
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
@@ -624,9 +700,12 @@ export default function DemoPage() {
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
+            alerts={alerts}
             livePrices={livePrices} 
             closeTrade={closeTrade} 
+            deleteAlert={deleteAlert}
             user={user} 
+            alertsLoading={alertsLoading}
           />
         </div>
 
@@ -664,6 +743,73 @@ export default function DemoPage() {
            <div className="mt-auto p-3 bg-primary/5 border border-primary/10 rounded-lg flex items-center gap-2"><Zap className="w-3.5 h-3.5 text-primary" /><p className="text-[10px] text-primary/80 font-bold">Institutional execution enabled. Leverage: 1:100</p></div>
         </aside>
       </div>
+
+      {/* Price Alert Modal */}
+      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="w-5 h-5 text-primary" /> Set Price Alert
+            </DialogTitle>
+            <DialogDescription className="text-zinc-500">
+              Notify me when {selectedSymbol} crosses a target level.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="flex justify-between items-center bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+              <div>
+                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Symbol</p>
+                <p className="text-lg font-bold text-white">{selectedSymbol}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Current</p>
+                <p className="text-lg font-mono font-bold text-primary">{formatPrice(livePrices[selectedSymbol]?.price, selectedSymbol)}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Condition</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button 
+                  onClick={() => setAlertCondition("above")}
+                  className={cn(
+                    "flex items-center justify-center gap-2 h-11 rounded-lg border font-bold text-xs transition-all",
+                    alertCondition === 'above' ? "bg-primary/10 border-primary text-primary" : "bg-zinc-950 border-zinc-800 text-zinc-500"
+                  )}
+                >
+                  <ArrowUp className="w-3.5 h-3.5" /> Price Above
+                </button>
+                <button 
+                  onClick={() => setAlertCondition("below")}
+                  className={cn(
+                    "flex items-center justify-center gap-2 h-11 rounded-lg border font-bold text-xs transition-all",
+                    alertCondition === 'below' ? "bg-primary/10 border-primary text-primary" : "bg-zinc-950 border-zinc-800 text-zinc-500"
+                  )}
+                >
+                  <ArrowDown className="w-3.5 h-3.5" /> Price Below
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Target Price</Label>
+              <Input 
+                type="number" 
+                value={alertTargetPrice} 
+                onChange={e => setAlertTargetPrice(e.target.value)}
+                className="h-12 bg-zinc-950 border-zinc-800 font-mono text-lg text-center font-bold" 
+                placeholder="0.00000"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="w-full h-12 font-black cyan-box-glow" onClick={createAlert} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+              CREATE PRICE ALERT
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
