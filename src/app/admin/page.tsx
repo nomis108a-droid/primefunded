@@ -13,9 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User
 } from 'lucide-react';
-import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction } from './actions';
+import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
@@ -61,6 +61,11 @@ export default function AdminPage() {
   const [tradesLoading, setTradesLoading] = useState(false);
   const [isTradesModalOpen, setIsTradesModalOpen] = useState(false);
   const [demoFilter, setDemoFilter] = useState<'all' | 'active' | 'blown' | 'passed'>('all');
+
+  // User Detail state
+  const [userDetail, setUserDetail] = useState<any>(null);
+  const [isUserDetailModalOpen, setIsUserDetailModalOpen] = useState(false);
+  const [userDetailLoading, setUserDetailLoading] = useState(false);
 
   // Broadcast state
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'announcement' });
@@ -169,6 +174,24 @@ export default function AdminPage() {
       toast({ variant: "destructive", title: "Action Failed", description: err.message });
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleViewUserDetail = async (userId: string) => {
+    setUserDetailLoading(true);
+    setIsUserDetailModalOpen(true);
+    try {
+      const res = await fetchUserDetailAction(userId);
+      if (res.success) {
+        setUserDetail(res);
+      } else {
+        throw new Error(res.error);
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Fetch Failed", description: err.message });
+      setIsUserDetailModalOpen(false);
+    } finally {
+      setUserDetailLoading(false);
     }
   };
 
@@ -311,7 +334,7 @@ export default function AdminPage() {
                             <td className="p-4 text-right">
                               <div className="flex justify-end gap-2">
                                 <Button variant="ghost" size="sm" onClick={() => handleAction(() => resetDemoAccountAction(acc.id), "Node Reprovisioned")}><RefreshCw className="w-3.5 h-3.5" /></Button>
-                                <Button variant="ghost" size="sm"><ExternalLink className="w-3.5 h-3.5" /></Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleViewUserDetail(acc.userId)}><ExternalLink className="w-3.5 h-3.5" /></Button>
                               </div>
                             </td>
                           </tr>
@@ -401,20 +424,17 @@ export default function AdminPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold">
-                      <tr><th className="p-4">Name</th><th className="p-4">Email</th><th className="p-4">UID</th><th className="p-4">Tier</th><th className="p-4">Status</th><th className="p-4 text-right">KYC</th></tr>
+                      <tr><th className="p-4">Name</th><th className="p-4">Email</th><th className="p-4">Phone</th><th className="p-4">UID</th><th className="p-4 text-right">Actions</th></tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
                       {filteredUsers.map((u: any) => (
                         <tr key={u.id} className="hover:bg-white/5">
                           <td className="p-4 font-bold text-white">{u.name}</td>
                           <td className="p-4 text-xs">{u.email}</td>
+                          <td className="p-4 text-xs text-muted-foreground">{u.phone || '—'}</td>
                           <td className="p-4 font-mono text-[10px]">{u.uid}</td>
-                          <td className="p-4"><Badge variant="outline" className="text-[9px]">{u.tier || 'Bronze'}</Badge></td>
-                          <td className="p-4"><Badge className="bg-emerald-500/20 text-emerald-500 text-[9px] uppercase">{u.status || 'Active'}</Badge></td>
                           <td className="p-4 text-right">
-                             <Badge variant="outline" className={cn("text-[9px]", u.kycVerified ? "border-emerald-500 text-emerald-500" : "border-amber-500 text-amber-500")}>
-                               {u.kycStatus || 'none'}
-                             </Badge>
+                             <Button size="sm" variant="ghost" onClick={() => handleViewUserDetail(u.authUid || u.id)} className="h-8 text-primary font-bold"><Eye className="w-4 h-4 mr-2" /> View Account</Button>
                           </td>
                         </tr>
                       ))}
@@ -592,6 +612,7 @@ export default function AdminPage() {
         </div>
       </main>
 
+      {/* Admin Auth Modal */}
       <Dialog open={showAdminModal} onOpenChange={(open) => {
         if (!isAuthenticated && !open) return;
         setShowAdminModal(open);
@@ -619,6 +640,144 @@ export default function AdminPage() {
             <Button type="submit" className="w-full h-14 font-black cyan-box-glow text-lg">AUTHENTICATE</Button>
           </form>
           <p className="text-[9px] text-center uppercase tracking-widest text-muted-foreground/30 mt-4">Unauthorized access is monitored and logged.</p>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Detail Modal */}
+      <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
+        <DialogContent className="max-w-5xl bg-zinc-950 border-white/5 text-white h-[90vh] flex flex-col p-0 overflow-hidden">
+          {userDetailLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-20">
+              <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+              <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Compiling Trader Dossier...</p>
+            </div>
+          ) : userDetail && (
+            <>
+              <div className="p-8 border-b border-white/5 bg-secondary/10 shrink-0">
+                <div className="flex justify-between items-start">
+                  <div className="flex gap-6 items-center">
+                    <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center border-2 border-primary/20">
+                      <User className="w-10 h-10 text-primary" />
+                    </div>
+                    <div>
+                      <h2 className="text-3xl font-headline font-bold mb-1">{userDetail.user.name}</h2>
+                      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> {userDetail.user.email}</span>
+                        <span className="flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" /> {userDetail.user.phone || 'No Phone'}</span>
+                        <span className="flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" /> {userDetail.user.country || 'N/A'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right space-y-2">
+                    <Badge className="bg-primary/20 text-primary uppercase text-[10px] font-black">{userDetail.user.tier || 'Bronze'} Tier</Badge>
+                    <div className="text-[10px] font-mono text-muted-foreground">UID: {userDetail.user.uid}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-background">
+                <Tabs defaultValue="nodes" className="w-full">
+                  <TabsList className="bg-secondary/40 border border-white/5 mb-8">
+                    <TabsTrigger value="nodes" className="font-bold">Nodes ({userDetail.accounts.length})</TabsTrigger>
+                    <TabsTrigger value="ledger" className="font-bold">Execution Ledger ({userDetail.trades.length})</TabsTrigger>
+                    <TabsTrigger value="financials" className="font-bold">Financial History</TabsTrigger>
+                    <TabsTrigger value="compliance" className="font-bold">Compliance Status</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="nodes" className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {userDetail.accounts.map((acc: any) => (
+                        <Card key={acc.id} className="bg-card/40 border-border/50">
+                          <CardHeader className="pb-4 border-b border-white/5">
+                            <div className="flex justify-between items-center">
+                              <CardTitle className="text-lg">{acc.label}</CardTitle>
+                              <Badge className={cn("uppercase text-[9px]", acc.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{acc.status}</Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="pt-4 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div><p className="text-[9px] uppercase font-bold text-muted-foreground">Balance</p><p className="font-bold font-mono">${acc.balance.toLocaleString()}</p></div>
+                              <div><p className="text-[9px] uppercase font-bold text-muted-foreground">Equity</p><p className="font-bold font-mono">${acc.equity.toLocaleString()}</p></div>
+                              <div><p className="text-[9px] uppercase font-bold text-muted-foreground">Start</p><p className="text-zinc-500 font-mono text-sm">${acc.startBalance.toLocaleString()}</p></div>
+                              <div><p className="text-[9px] uppercase font-bold text-muted-foreground">Target</p><p className="text-zinc-500 font-mono text-sm">${acc.profitTarget?.toLocaleString() || 'N/A'}</p></div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="ledger">
+                    <div className="rounded-xl border border-white/5 overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-secondary/30 text-muted-foreground uppercase text-[9px] font-bold">
+                          <tr><th className="p-3">Symbol</th><th className="p-3">Type</th><th className="p-3">Lots</th><th className="p-3 text-right">P&L</th><th className="p-3 text-right">Status</th></tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {userDetail.trades.map((t: any) => (
+                            <tr key={t.id} className="hover:bg-white/5">
+                              <td className="p-3 font-bold">{t.symbol}</td>
+                              <td className="p-3 uppercase">{t.type}</td>
+                              <td className="p-3 font-mono">{t.lots}</td>
+                              <td className={cn("p-3 text-right font-bold", t.pnl >= 0 ? "text-emerald-500" : "text-destructive")}>${t.pnl.toLocaleString()}</td>
+                              <td className="p-3 text-right"><Badge variant="outline" className="text-[9px] uppercase">{t.status}</Badge></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="financials">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                       <Card className="bg-card/40 border-border/50">
+                         <CardHeader><CardTitle className="text-sm">Payout Requests</CardTitle></CardHeader>
+                         <CardContent>
+                           {userDetail.payouts.length === 0 ? <p className="text-xs text-muted-foreground italic">No payout history.</p> : (
+                             <div className="space-y-3">
+                               {userDetail.payouts.map((p: any) => (
+                                 <div key={p.id} className="flex justify-between items-center p-3 rounded-lg bg-secondary/20">
+                                   <div><p className="text-xs font-bold">${parseFloat(p.amount).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">{format(new Date(p.date), 'MMM d, yyyy')}</p></div>
+                                   <Badge className="text-[9px] uppercase">{p.status}</Badge>
+                                 </div>
+                               ))}
+                             </div>
+                           )}
+                         </CardContent>
+                       </Card>
+                       <Card className="bg-card/40 border-border/50">
+                         <CardHeader><CardTitle className="text-sm">Affiliate Referrals</CardTitle></CardHeader>
+                         <CardContent>
+                            <div className="text-2xl font-bold text-emerald-500 mb-4">${(userDetail.referrals.length * 30).toFixed(2)} Total Earned</div>
+                            <p className="text-xs text-muted-foreground">Joined referrals: {userDetail.referrals.length}</p>
+                         </CardContent>
+                       </Card>
+                     </div>
+                  </TabsContent>
+
+                  <TabsContent value="compliance">
+                     <Card className="bg-card/40 border-border/50">
+                       <CardHeader><CardTitle className="text-sm">KYC & Risk Audit</CardTitle></CardHeader>
+                       <CardContent className="space-y-6">
+                          <div className="flex justify-between items-center p-4 rounded-xl bg-secondary/20 border border-white/5">
+                             <div><p className="font-bold">Identity Verification</p><p className="text-xs text-muted-foreground">Status: {userDetail.user.kycStatus}</p></div>
+                             {userDetail.user.kycVerified ? <CheckCircle2 className="text-emerald-500" /> : <Clock className="text-amber-500" />}
+                          </div>
+                          <div className="flex justify-between items-center p-4 rounded-xl bg-secondary/20 border border-white/5">
+                             <div><p className="font-bold">Account Standing</p><p className="text-xs text-muted-foreground">Risk Level: Normal</p></div>
+                             <ShieldCheck className="text-primary" />
+                          </div>
+                       </CardContent>
+                     </Card>
+                  </TabsContent>
+                </Tabs>
+              </div>
+
+              <div className="p-6 border-t border-white/5 shrink-0 bg-secondary/5 flex justify-end">
+                 <Button onClick={() => setIsUserDetailModalOpen(false)} className="font-bold px-8">Close Dossier</Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -169,7 +169,7 @@ export async function updatePayoutStatusAction(id: string, status: string) {
   await payoutRef.update({ status, updatedAt: FieldValue.serverTimestamp() });
 
   if (status === 'done' && payoutData?.userId) {
-    await sendAdminNotification(payoutData.userId, "💸 Payout Processed", `Your withdrawal for $${payoutData.amount} has been processed successfully.`, "payout_processed");
+    await sendAdminNotification( payoutData.userId, "💸 Payout Processed", `Your withdrawal for $${payoutData.amount} has been processed successfully.`, "payout_processed");
   }
 
   return { success: true };
@@ -201,6 +201,33 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
   });
 
   return { success: true };
+}
+
+export async function fetchUserDetailAction(userId: string) {
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+
+  try {
+    const [userSnap, accountsSnap, tradesSnap, referralsSnap, payoutsSnap] = await Promise.all([
+      adminDb.collection('users').doc(userId).get(),
+      adminDb.collection('demoAccounts').where('userId', '==', userId).get(),
+      adminDb.collection('demoTrades').where('userId', '==', userId).orderBy('openedAt', 'desc').limit(100).get(),
+      adminDb.collection('referrals').where('referrerId', '==', userId).get(),
+      adminDb.collection('payouts').where('userId', '==', userId).get()
+    ]);
+
+    if (!userSnap.exists) return { success: false, error: "User not found" };
+
+    return {
+      success: true,
+      user: { id: userSnap.id, ...userSnap.data() },
+      accounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      trades: tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }
 
 export async function fetchAdminTerminalData() {
