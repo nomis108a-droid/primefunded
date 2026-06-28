@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo } from 'react';
@@ -14,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Skull, CheckCircle2, ShieldEllipsis, Trophy, Terminal, Database, ShieldCheck, Megaphone, Trash2, Send, Clock, AlertOctagon, BarChart2, Monitor, RefreshCw, ArrowRight
+  Eye, Users, ShoppingCart, Wallet, Activity, Search, Loader2, DollarSign, ChevronLeft, Skull, CheckCircle2, ShieldEllipsis, Trophy, Terminal, Database, ShieldCheck, Megaphone, Trash2, Send, Clock, AlertOctagon, BarChart2, Monitor, RefreshCw, ArrowRight, Wand2
 } from 'lucide-react';
 import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, sendGlobalBroadcastAction, resetDemoAccountAction, fetchDemoTradesByAccount } from './actions';
 import DashboardPage from '@/app/dashboard/page';
@@ -102,6 +101,23 @@ export default function AdminPage() {
     }
   };
 
+  const handleRunMigration = async () => {
+    if (!confirm("Run institutional data migration? This will backfill telemetry for legacy accounts.")) return;
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/admin/migrate-accounts?key=93463962569392846256');
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: "Migration Successful", description: `Updated ${data.updated} accounts.` });
+        refreshData();
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Migration Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleViewDemoTrades = async (acc: any) => {
     setSelectedDemoAccount(acc);
     setIsTradesModalOpen(true);
@@ -174,24 +190,6 @@ export default function AdminPage() {
     setActionLoading(false);
   };
 
-  const handleSendBroadcast = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!broadcastForm.title || !broadcastForm.message) return;
-    setActionLoading(true);
-    try {
-      const res = await sendGlobalBroadcastAction(broadcastForm);
-      if (res.success) {
-        toast({ title: "Broadcast Sent", description: "Announcement delivered to all nodes." });
-        setBroadcastForm({ title: '', message: '', type: 'info' });
-        refreshData();
-      }
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Broadcast Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const stats = useMemo(() => {
     const verifiedOrders = adminData.orders.filter((o: any) => o.status === 'verified' || o.status === 'approved');
     const totalRevenue = verifiedOrders.reduce((acc: number, o: any) => acc + (parseFloat(o.amountPaid) || 0), 0);
@@ -252,6 +250,10 @@ export default function AdminPage() {
           <div className="flex flex-col md:flex-row justify-between items-start mb-6 gap-4">
             <div><h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1><p className="text-muted-foreground text-sm">Managing institutional demo challenges and trader payouts.</p></div>
             <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleRunMigration} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wand2 className="w-4 h-4 mr-2" />}
+                Run Migration
+              </Button>
               <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>{isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Database className="w-4 h-4 mr-2" />}Sync Network</Button>
             </div>
           </div>
@@ -361,14 +363,17 @@ export default function AdminPage() {
                                 {pnl >= 0 ? '+' : ''}{pnl.toLocaleString()}
                               </td>
                               <td className="py-4 px-4 text-center">
-                                <Badge className={cn(
-                                  "uppercase text-[9px] font-black",
-                                  acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
-                                  acc.status === 'blown' ? "bg-destructive/20 text-destructive" :
-                                  "bg-amber-500/20 text-amber-500"
-                                )}>
-                                  {acc.status}
-                                </Badge>
+                                <div className="flex flex-col items-center">
+                                  <Badge className={cn(
+                                    "uppercase text-[9px] font-black",
+                                    acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
+                                    acc.status === 'blown' ? "bg-destructive/20 text-destructive" :
+                                    "bg-amber-500/20 text-amber-500"
+                                  )}>
+                                    {acc.status}
+                                  </Badge>
+                                  {acc.breachReason && <span className="text-[8px] text-destructive mt-1 font-bold">{acc.breachReason}</span>}
+                                </div>
                               </td>
                               <td className="py-4 px-6 text-right flex justify-end gap-2">
                                 <Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase cursor-pointer" onClick={() => handleViewDemoTrades(acc)}>
