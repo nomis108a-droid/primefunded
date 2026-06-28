@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -397,11 +396,11 @@ export default function DemoPage() {
           tp: tp ? parseFloat(tp) : null
         }),
       });
+      const data = await res.json();
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Execution rejected.");
+        throw new Error(data.error || data.details || "Execution rejected.");
       }
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${selectedSymbol}` });
+      toast({ title: "Order Executed", description: `${type.toUpperCase()} ${lots} ${selectedSymbol} at ${executionPrice.toFixed(2)}` });
       setSl("");
       setTp("");
     } catch (err: any) {
@@ -420,6 +419,7 @@ export default function DemoPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Closure rejected.");
       toast({ title: "Position Closed", description: `PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
     } catch (err: any) {
       toast({ variant: "destructive", title: "Closure Error", description: err.message });

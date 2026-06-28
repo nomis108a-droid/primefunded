@@ -23,21 +23,21 @@ export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "No auth token" }, { status: 401 });
+    if (!token) return NextResponse.json({ error: "No auth token provided" }, { status: 401 });
 
     let uid: string;
     try {
       const decoded = await getAdminAuth().verifyIdToken(token);
       uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    } catch (err) {
+      return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
     }
 
     const body = await req.json().catch(() => ({}));
     const { accountId, symbol, type, lots: rawLots, sl, tp, price: clientPrice } = body;
 
     if (!accountId || !symbol || !type || !rawLots || !clientPrice) {
-      return NextResponse.json({ error: "Missing required order parameters" }, { status: 400 });
+      return NextResponse.json({ error: "Missing required order parameters (symbol, type, lots, price)" }, { status: 400 });
     }
 
     const lots = parseFloat(String(rawLots));
@@ -46,15 +46,14 @@ export async function POST(req: NextRequest) {
     const db = getAdminDb();
     const accSnap = await db.collection("demoAccounts").doc(accountId).get();
     
-    if (!accSnap.exists) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    if (!accSnap.exists) return NextResponse.json({ error: "Trading account not found" }, { status: 404 });
     const account = accSnap.data()!;
-    if (account.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (account.userId !== uid) return NextResponse.json({ error: "Permission denied for this account" }, { status: 403 });
     
     const status = (account.status || "").toLowerCase();
-    if (status !== "active") return NextResponse.json({ error: `Account is ${status}` }, { status: 400 });
+    if (status !== "active") return NextResponse.json({ error: `Account is currently ${status} and locked for execution.` }, { status: 400 });
 
     // EXECUTION FREQUENCY RULE: 3 Minute minimum between trades
-    // Optimization: Fetch the most recent trades for this account and sort in memory to avoid index requirement
     const lastTradesSnap = await db.collection("demoTrades")
       .where("accountId", "==", accountId)
       .limit(5)
@@ -64,60 +63,65 @@ export async function POST(req: NextRequest) {
       const latestTrade = lastTradesSnap.docs
         .map(d => d.data())
         .sort((a, b) => {
-          const timeA = a.openedAt?.toDate?.()?.getTime() || new Date(a.openedAt).getTime() || 0;
-          const timeB = b.openedAt?.toDate?.()?.getTime() || new Date(b.openedAt).getTime() || 0;
+          const timeA = a.openedAt?.toDate?.()?.getTime() || (a.openedAt?.seconds ? a.openedAt.seconds * 1000 : new Date(a.openedAt).getTime()) || 0;
+          const timeB = b.openedAt?.toDate?.()?.getTime() || (b.openedAt?.seconds ? b.openedAt.seconds * 1000 : new Date(b.openedAt).getTime()) || 0;
           return timeB - timeA;
         })[0];
 
-      if (latestTrade) {
-        const lastOpened = latestTrade.openedAt?.toDate?.() || new Date(latestTrade.openedAt);
-        const diffMs = Date.now() - lastOpened.getTime();
+      if (latestTrade && latestTrade.openedAt) {
+        const timeVal = latestTrade.openedAt.toDate ? latestTrade.openedAt.toDate().getTime() : (latestTrade.openedAt.seconds ? latestTrade.openedAt.seconds * 1000 : new Date(latestTrade.openedAt).getTime());
+        const diffMs = Date.now() - timeVal;
         if (diffMs < 3 * 60 * 1000) {
           const remainingSecs = Math.ceil((3 * 60 * 1000 - diffMs) / 1000);
           return NextResponse.json({ 
             error: "Execution Frequency Violation", 
-            details: `Institutional spacing active. Please wait ${remainingSecs}s before next order.` 
+            details: `Institutional spacing protocol active. Please wait ${remainingSecs}s before placing your next order.` 
           }, { status: 400 });
         }
       }
     }
 
     // LOT SIZE VALIDATION (ANTI-CHEAT)
-    const rawPlan = account.plan || '10k';
-    const planKey = rawPlan.toLowerCase().includes('k') 
-      ? rawPlan.toLowerCase().trim() 
-      : `${parseInt(rawPlan.replace(/[^0-9]/g, '')) / 1000}k`;
+    const rawPlan = String(account.plan || '10k');
+    let planKey = rawPlan.toLowerCase().trim();
+    
+    // Normalize "$10,000" or "10000" to "10k"
+    if (!planKey.includes('k')) {
+      const numericPart = parseInt(rawPlan.replace(/[^0-9]/g, ''));
+      if (!isNaN(numericPart)) {
+        planKey = `${numericPart / 1000}k`;
+      }
+    }
     
     const maxAllowed = MAX_LOTS[planKey] || 0.5;
     
     if (lots > maxAllowed) {
       return NextResponse.json({ 
-        error: `Institutional Violation`, 
-        details: `Max lot size for ${rawPlan} plan is ${maxAllowed}. Requested: ${lots}` 
+        error: `Institutional Lot Violation`, 
+        details: `Maximum allowable lot size for ${rawPlan} accounts is ${maxAllowed}. Requested: ${lots}` 
       }, { status: 400 });
     }
 
-    // Price Validation (1% Tolerance)
+    // Price Validation (2% Tolerance for high volatility)
     const yahooSymbol = YAHOO_MAP[symbol];
     if (yahooSymbol) {
       try {
         const url = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${encodeURIComponent(yahooSymbol)}&range=1d&interval=1m`;
-        const res = await fetch(url, { cache: 'no-store' });
+        const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
         if (res.ok) {
           const data = await res.json();
           const serverPrice = data.spark?.result?.[0]?.response?.[0]?.meta?.regularMarketPrice;
           if (serverPrice) {
             const diff = Math.abs(executionPrice - serverPrice) / serverPrice;
-            if (diff > 0.015) { // Relaxed to 1.5% for high volatility crypto/gold
+            if (diff > 0.02) { 
               return NextResponse.json({ 
-                error: "Execution Price Out of Sync", 
-                details: "Market variance detected. Please refresh terminal for latest pricing." 
+                error: "Market Data Out of Sync", 
+                details: "Terminal pricing variance detected. Please refresh for synchronized institutional feed." 
               }, { status: 400 });
             }
           }
         }
       } catch (e) {
-        // Log price validation failure but allow trade if market APIs are down
         console.warn("[Price-Validation-Bypassed]", symbol);
       }
     }
@@ -142,7 +146,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: executionPrice });
   } catch (error: any) {
-    console.error('[Open-Trade-API] Fatal Error:', error);
-    return NextResponse.json({ error: "Internal Server Error", details: error.message }, { status: 500 });
+    console.error('[Open-Trade-API] Critical Error:', error);
+    return NextResponse.json({ 
+      error: "Internal Terminal Fault", 
+      details: error.message || "An unexpected error occurred during execution." 
+    }, { status: 500 });
   }
 }

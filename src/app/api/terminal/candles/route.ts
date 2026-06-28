@@ -41,7 +41,7 @@ const INTERVAL_MAP: Record<string, { binance: string, stooq: string }> = {
 function generateFallbackCandles(basePrice: number, count: number, intervalSecs: number) {
   const candles = [];
   const now = Math.floor(Date.now() / 1000);
-  let currentPrice = basePrice;
+  let currentPrice = Number(basePrice) || 1.0;
   
   for (let i = count; i >= 0; i--) {
     const time = Math.floor((now - i * intervalSecs) / intervalSecs) * intervalSecs;
@@ -77,36 +77,45 @@ export async function GET(req: NextRequest) {
 
     // 1. Check Binance for Crypto
     if (CRYPTO_MAP[symbol]) {
-      const bInterval = INTERVAL_MAP[interval]?.binance || "1m";
-      const url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=200`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        candles = data.map((v: any) => ({
-          time: Math.floor(v[0] / 1000),
-          open: parseFloat(v[1]),
-          high: parseFloat(v[2]),
-          low: parseFloat(v[3]),
-          close: parseFloat(v[4]),
-        }));
+      try {
+        const bInterval = INTERVAL_MAP[interval]?.binance || "1m";
+        const url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=200`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            candles = data.map((v: any) => ({
+              time: Math.floor(v[0] / 1000),
+              open: parseFloat(v[1]),
+              high: parseFloat(v[2]),
+              low: parseFloat(v[3]),
+              close: parseFloat(v[4]),
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn(`[Binance] Fetch failed for ${symbol}`);
       }
     } 
     // 2. Check Stooq for Forex/Metals
     else if (STOOQ_MAP[symbol]) {
-      const sInterval = INTERVAL_MAP[interval]?.stooq || "5";
-      const url = `https://stooq.com/q/d/l/?s=${STOOQ_MAP[symbol]}&i=${sInterval}`;
       try {
-        const res = await fetch(url);
+        const sInterval = INTERVAL_MAP[interval]?.stooq || "5";
+        const url = `https://stooq.com/q/d/l/?s=${STOOQ_MAP[symbol]}&i=${sInterval}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const csv = await res.text();
           const lines = csv.trim().split('\n');
-          // Skip header
-          for (let i = 1; i < lines.length; i++) {
-            const [date, time, open, high, low, close] = lines[i].split(',');
-            if (!date || !time) continue;
-            const ts = Math.floor(new Date(`${date}T${time}`).getTime() / 1000);
-            if (!isNaN(ts)) {
-              candles.push({ time: ts, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close) });
+          // Skip header, check for data
+          if (lines.length > 1 && !csv.includes('html')) {
+            for (let i = 1; i < lines.length; i++) {
+              const parts = lines[i].split(',');
+              if (parts.length < 6) continue;
+              const [date, time, open, high, low, close] = parts;
+              const ts = Math.floor(new Date(`${date}T${time}`).getTime() / 1000);
+              if (!isNaN(ts)) {
+                candles.push({ time: ts, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close) });
+              }
             }
           }
         }
@@ -118,9 +127,13 @@ export async function GET(req: NextRequest) {
     // 3. Fallback: If no candles (weekend or API fail), generate synthetic data
     if (candles.length === 0) {
       isFallback = true;
-      const priceDoc = await db.collection('livePrices').doc(symbol).get();
-      const basePrice = priceDoc.data()?.price || (symbol.includes('USD') ? 1.0 : 100.0);
-      candles = generateFallbackCandles(basePrice, 200, intervalSeconds);
+      try {
+        const priceDoc = await db.collection('livePrices').doc(symbol).get();
+        const basePrice = Number(priceDoc.data()?.price) || (symbol.includes('USD') ? 1.0 : 100.0);
+        candles = generateFallbackCandles(basePrice, 200, intervalSeconds);
+      } catch (err) {
+        candles = generateFallbackCandles(1.0, 200, intervalSeconds);
+      }
     }
 
     candles.sort((a, b) => a.time - b.time);
@@ -130,6 +143,7 @@ export async function GET(req: NextRequest) {
 
   } catch (error: any) {
     console.error('[Candle-API] Fatal Error:', error.message);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    // Never return 500 if we can return a valid fallback
+    return NextResponse.json({ candles: generateFallbackCandles(1.0, 50, 60), isFallback: true });
   }
 }
