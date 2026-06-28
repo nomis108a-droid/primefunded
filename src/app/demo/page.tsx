@@ -18,7 +18,7 @@ import {
   TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
   Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
   ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
-  RefreshCw
+  RefreshCw, Clock as ClockIcon
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -47,6 +47,13 @@ const TIMEZONES = [
 const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
+
+/**
+ * INSTITUTIONAL DATA VAULT: Persistence Layer
+ * Survives component unmounting to provide instantaneous remounts.
+ */
+const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
+const currentCandleCache = new Map<string, any>();
 
 export default function DemoPage() {
   const { user, loading: authLoading } = useAuth();
@@ -109,7 +116,6 @@ export default function DemoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      console.log("[DemoPage] Fallback timer triggered - forcing pageReady=true");
       setPageReady(true);
     }, 3000);
     return () => clearTimeout(t);
@@ -158,12 +164,8 @@ export default function DemoPage() {
   }, [chartSettings, applyGlobalSettings]);
 
   useEffect(() => {
-    if (!chartContainerRef.current || !pageReady) {
-      console.log("[Chart] Waiting for chart container or pageReady...");
-      return;
-    }
+    if (!chartContainerRef.current || !pageReady) return;
     
-    console.log("[Chart] Initializing chart instance...");
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
@@ -193,11 +195,20 @@ export default function DemoPage() {
     
     let isMounted = true;
     const controller = new AbortController();
+    const cacheKey = `${selectedSymbol}-${selectedInterval}`;
+    const cached = candleDataCache.get(cacheKey);
 
     const fetchHistory = async () => {
-      console.log(`[Chart] Data Sync Started: Symbol=${selectedSymbol}, Interval=${selectedInterval}`);
-      setIsChartLoading(true);
-      setChartError(null);
+      // 1. Instant Cache Load (No Spinner if fresh)
+      if (cached && (Date.now() - cached.lastUpdated < 300000)) { // 5 mins
+        setIsChartLoading(false);
+        setChartError(null);
+        setupSeries(cached.candles);
+        // Still fetch in background to sync gaps
+      } else {
+        setIsChartLoading(true);
+        setChartError(null);
+      }
       
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`, {
@@ -207,63 +218,49 @@ export default function DemoPage() {
         if (!res.ok) throw new Error(`Network response error: ${res.status}`);
         
         const data = await res.json();
-        
-        if (!isMounted || !chartInstanceRef.current) {
-          console.log("[Chart] Data Sync Aborted (Unmounted or Instance gone)");
-          return;
-        }
-
-        console.log(`[Chart] Data Sync Success: Received ${data.candles?.length || 0} bars`);
         const candles = data.candles || [];
         
+        if (!isMounted || !chartInstanceRef.current) return;
+
         if (candles.length > 0) {
-          if (mainSeriesRef.current) {
-            chartInstanceRef.current.removeSeries(mainSeriesRef.current);
-          }
-          const opts = { priceFormat: { type: 'price', precision: selectedSymbol === "USDJPY" ? 3 : (selectedSymbol === "XAUUSD" || selectedSymbol === "BTCUSD" || selectedSymbol === "ETHUSD" ? 2 : 5) }, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '', ...chartSettings.canvas.candles };
-          if (chartType === 'candles') mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries(opts);
-          else if (chartType === 'bars') mainSeriesRef.current = chartInstanceRef.current.addBarSeries(opts);
-          else if (chartType === 'line') mainSeriesRef.current = chartInstanceRef.current.addLineSeries(opts);
-          else if (chartType === 'area') mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ ...opts, topColor: chartSettings.canvas.candles.upColor + '66', bottomColor: 'rgba(0,0,0,0)', lineColor: chartSettings.canvas.candles.upColor });
-          
-          if (mainSeriesRef.current) {
-            mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? candles : candles.map((c: any) => ({ time: c.time, value: c.close })));
-            currentCandleRef.current = candles[candles.length - 1];
-            console.log("[Chart] Main series updated with historical data");
-          }
-          chartInstanceRef.current.timeScale().fitContent();
-        } else {
-          console.warn("[Chart] Received empty candle array from API");
+          setupSeries(candles);
+          // 2. Global Sync
+          candleDataCache.set(cacheKey, { candles, lastUpdated: Date.now() });
+          const lastCandle = candles[candles.length - 1];
+          currentCandleRef.current = lastCandle;
+          currentCandleCache.set(cacheKey, lastCandle);
         }
       } catch (err: any) {
-        if (err.name === 'AbortError') {
-          console.log(`[Chart] Stale fetch cancelled for ${selectedSymbol}`);
-        } else {
+        if (err.name !== 'AbortError') {
           console.error(`[Chart] Sync connection error for ${selectedSymbol}:`, err);
-          if (isMounted) setChartError(err.message || "Failed to establish market connection");
+          if (isMounted && !cached) setChartError(err.message || "Failed to establish market connection");
         }
       } finally {
-        if (isMounted) {
-          setIsChartLoading(false);
-          console.log(`[Chart] Data Sync Finalized for ${selectedSymbol}`);
-        }
+        if (isMounted) setIsChartLoading(false);
       }
     };
 
-    // Client-side safety timeout
-    const timeoutId = setTimeout(() => {
-      if (isMounted && isChartLoading) {
-        console.warn(`[Chart] Fetch for ${selectedSymbol} timed out after 10s. Aborting.`);
-        controller.abort();
+    const setupSeries = (candles: any[]) => {
+      if (!chartInstanceRef.current) return;
+      if (mainSeriesRef.current) {
+        chartInstanceRef.current.removeSeries(mainSeriesRef.current);
       }
-    }, 10000);
+      const opts = { priceFormat: { type: 'price', precision: selectedSymbol === "USDJPY" ? 3 : (selectedSymbol === "XAUUSD" || selectedSymbol === "BTCUSD" || selectedSymbol === "ETHUSD" ? 2 : 5) }, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '', ...chartSettings.canvas.candles };
+      if (chartType === 'candles') mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries(opts);
+      else if (chartType === 'bars') mainSeriesRef.current = chartInstanceRef.current.addBarSeries(opts);
+      else if (chartType === 'line') mainSeriesRef.current = chartInstanceRef.current.addLineSeries(opts);
+      else if (chartType === 'area') mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ ...opts, topColor: chartSettings.canvas.candles.upColor + '66', bottomColor: 'rgba(0,0,0,0)', lineColor: chartSettings.canvas.candles.upColor });
+      
+      if (mainSeriesRef.current) {
+        mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? candles : candles.map((c: any) => ({ time: c.time, value: c.close })));
+      }
+    };
 
     fetchHistory();
     
     return () => { 
       isMounted = false; 
       controller.abort();
-      clearTimeout(timeoutId);
     };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
 
@@ -294,6 +291,10 @@ export default function DemoPage() {
                 cur.close = price;
               }
               mainSeriesRef.current.update(currentCandleRef.current);
+              
+              // Sync to Global cache so it survives navigation
+              const cacheKey = `${selectedSymbol}-${selectedInterval}`;
+              currentCandleCache.set(cacheKey, currentCandleRef.current);
             }
           }
         } catch (err) {}
@@ -301,8 +302,21 @@ export default function DemoPage() {
     };
 
     fetchPrices();
+    // 3. Robust Background Interval (Doesn't use RAF)
     const interval = setInterval(fetchPrices, 3000);
-    return () => clearInterval(interval);
+
+    // 4. Tab Return Fast Sync
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchPrices();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [pageReady, isChartReady, selectedInterval, selectedSymbol]);
 
   async function placeTrade(type: 'buy' | 'sell') {
@@ -573,7 +587,7 @@ export default function DemoPage() {
               
               {/* Candle Close Countdown Overlay */}
               <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
-                <Clock className="w-3 h-3 text-primary animate-pulse" />
+                <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
               </div>
 
@@ -713,21 +727,3 @@ function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon:
     </Tooltip>
   );
 }
-
-const Clock = (props: any) => (
-  <svg 
-    xmlns="http://www.w3.org/2000/svg" 
-    width="24" 
-    height="24" 
-    viewBox="0 0 24 24" 
-    fill="none" 
-    stroke="currentColor" 
-    strokeWidth="2" 
-    strokeLinecap="round" 
-    strokeLinejoin="round" 
-    {...props}
-  >
-    <circle cx="12" cy="12" r="10" />
-    <polyline points="12 6 12 12 16 14" />
-  </svg>
-);
