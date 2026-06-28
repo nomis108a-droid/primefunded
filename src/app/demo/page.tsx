@@ -67,6 +67,7 @@ export default function DemoPage() {
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  const [countdown, setCountdown] = useState("00:00");
   
   // Drawing & Workspace States
   const [activeTool, setActiveTool] = useState<string>('crosshair');
@@ -108,6 +109,24 @@ export default function DemoPage() {
     const t = setTimeout(() => setPageReady(true), 3000);
     return () => clearTimeout(t);
   }, []);
+
+  // Candle Close Countdown logic
+  useEffect(() => {
+    const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
+    
+    const updateCountdown = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = intervalSecs - (now % intervalSecs);
+      
+      const mins = Math.floor(remaining / 60);
+      const secs = remaining % 60;
+      setCountdown(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+    };
+
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [selectedInterval]);
 
   const applyGlobalSettings = useCallback(() => {
     if (!chartInstanceRef.current) return;
@@ -470,7 +489,13 @@ export default function DemoPage() {
               
               <div ref={chartContainerRef} className="h-full w-full relative" />
               
-              {/* PrimeFunded Watermark Logo - Fixed institutional branding overlay */}
+              {/* Candle Close Countdown Overlay */}
+              <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
+                <Clock className="w-3 h-3 text-primary animate-pulse" />
+                <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
+              </div>
+
+              {/* PrimeFunded Watermark Logo */}
               <div className="absolute bottom-4 left-4 z-10 opacity-20 pointer-events-none select-none flex items-center gap-2">
                 <Image 
                   src={branding.logoUrl} 
@@ -606,3 +631,22 @@ function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon:
     </Tooltip>
   );
 }
+
+const Clock = (props: any) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width="24" 
+    height="24" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    {...props}
+  >
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
+

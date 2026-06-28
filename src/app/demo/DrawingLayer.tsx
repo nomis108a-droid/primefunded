@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IChartApi, ISeriesApi } from 'lightweight-charts';
 import { cn } from '@/lib/utils';
+import { Trash2 } from 'lucide-react';
 
 export interface Point {
   time: number;
@@ -32,6 +33,8 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [tempDrawing, setTempDrawing] = useState<Drawing | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draggedPointIndex, setDraggedPointIndex] = useState<number | null>(null);
+  
   const containerRef = useRef<SVGSVGElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [revision, setRevision] = useState(0);
@@ -80,9 +83,22 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     };
   }, [chart]);
 
+  // Handle Keyboard Delete
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+        setDrawings(prev => prev.filter(d => d.id !== selectedId));
+        setSelectedId(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedId]);
+
   useEffect(() => {
     if (activeTool === 'eraser') {
       setDrawings([]);
+      setSelectedId(null);
       setActiveTool('crosshair');
     }
   }, [activeTool, setActiveTool]);
@@ -94,8 +110,8 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
   }, [chart, series]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (activeTool === 'crosshair' || activeTool === 'dot' || locked) return;
-    
+    if (locked) return;
+
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -108,6 +124,17 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     if (time === null || price === null) return;
     const unixTime = typeof time === 'number' ? time : (new Date(time).getTime() / 1000);
 
+    // If activeTool is crosshair, handle selection or deselection
+    if (activeTool === 'crosshair') {
+      // Logic for selecting handled by individual elements via onClick/onMouseDown
+      // But we need to deselect if clicking empty space
+      // Check if we hit a handle first (selection/editing)
+      if (draggedPointIndex === null) {
+        // We'll let the element click events handle setting the selectedId
+      }
+      return;
+    }
+
     // 1-Click Tools
     if (['hline', 'vline', 'text', 'price-label'].includes(activeTool)) {
       const newDrawing: Drawing = {
@@ -119,6 +146,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       };
       setDrawings(prev => [...prev, newDrawing]);
       setActiveTool('crosshair');
+      setSelectedId(newDrawing.id);
       return;
     }
 
@@ -139,12 +167,11 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       setDrawings(prev => [...prev, finalDrawing]);
       setTempDrawing(null);
       setActiveTool('crosshair');
+      setSelectedId(finalDrawing.id);
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!tempDrawing || locked) return;
-
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -157,10 +184,29 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     if (time === null || price === null) return;
     const unixTime = typeof time === 'number' ? time : (new Date(time).getTime() / 1000);
 
-    setTempDrawing(prev => prev ? ({
-      ...prev,
-      points: [prev.points[0], { time: unixTime, price }]
-    }) : null);
+    // Case 1: Creating new drawing
+    if (tempDrawing && !locked) {
+      setTempDrawing(prev => prev ? ({
+        ...prev,
+        points: [prev.points[0], { time: unixTime, price }]
+      }) : null);
+    }
+
+    // Case 2: Editing existing drawing (dragging a point)
+    if (selectedId && draggedPointIndex !== null && !locked) {
+      setDrawings(prev => prev.map(d => {
+        if (d.id === selectedId) {
+          const newPoints = [...d.points];
+          newPoints[draggedPointIndex] = { time: unixTime, price };
+          return { ...d, points: newPoints };
+        }
+        return d;
+      }));
+    }
+  };
+
+  const handleMouseUp = () => {
+    setDraggedPointIndex(null);
   };
 
   const getCursorClass = () => {
@@ -168,6 +214,14 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     if (activeTool === 'crosshair' || activeTool === 'dot') return 'cursor-crosshair';
     if (activeTool === 'text' || activeTool === 'note') return 'cursor-text';
     return 'cursor-cell';
+  };
+
+  const deleteSelected = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (selectedId) {
+      setDrawings(prev => prev.filter(d => d.id !== selectedId));
+      setSelectedId(null);
+    }
   };
 
   const renderDrawing = (drawing: Drawing) => {
@@ -180,82 +234,117 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     const strokeWidth = isSelected ? 3 : 2;
     const drawingColor = drawing.color || '#2962ff';
 
+    const handlePointMouseDown = (idx: number) => (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!locked) {
+        setDraggedPointIndex(idx);
+        setSelectedId(drawing.id);
+      }
+    };
+
+    const drawHandles = () => {
+      if (!isSelected || locked) return null;
+      return drawing.points.map((p, idx) => {
+        const coords = getCoords(p);
+        if (coords.x === null || coords.y === null) return null;
+        return (
+          <circle
+            key={`handle-${drawing.id}-${idx}`}
+            cx={coords.x}
+            cy={coords.y}
+            r={5}
+            fill="white"
+            stroke={drawingColor}
+            strokeWidth={2}
+            className="cursor-move pointer-events-auto"
+            onMouseDown={handlePointMouseDown(idx)}
+          />
+        );
+      });
+    };
+
+    const renderTools = () => {
+      if (!isSelected || locked) return null;
+      // Position delete button near first point
+      return (
+        <foreignObject x={p1.x + 10} y={p1.y - 40} width="30" height="30" className="pointer-events-auto">
+          <button 
+            onClick={deleteSelected}
+            className="w-6 h-6 rounded bg-zinc-800 border border-zinc-700 flex items-center justify-center text-red-500 hover:bg-zinc-700 transition-colors shadow-xl"
+          >
+            <Trash2 size={14} />
+          </button>
+        </foreignObject>
+      );
+    };
+
+    let shape = null;
     switch (drawing.type) {
       case 'hline':
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
-            <line x1={0} y1={p1.y} x2={dimensions.width} y2={p1.y} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" />
-          </g>
+        shape = (
+          <line x1={0} y1={p1.y} x2={dimensions.width} y2={p1.y} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
+        break;
       case 'vline':
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
-            <line x1={p1.x} y1={0} x2={p1.x} y2={dimensions.height} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" />
-          </g>
+        shape = (
+          <line x1={p1.x} y1={0} x2={p1.x} y2={dimensions.height} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
+        break;
       case 'trend':
-        if (p2.x === null || p2.y === null) return null;
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
-            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" />
-          </g>
+        if (p2.x === null || p2.y === null) break;
+        shape = (
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
+        break;
       case 'arrow':
-        if (p2.x === null || p2.y === null) return null;
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
+        if (p2.x === null || p2.y === null) break;
+        shape = (
+          <g onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} className="cursor-pointer pointer-events-auto">
             <defs>
               <marker id={`arrowhead-${drawing.id}`} markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
                 <polygon points="0 0, 10 3.5, 0 7" fill={drawingColor} />
               </marker>
             </defs>
-            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={drawingColor} strokeWidth={strokeWidth} markerEnd={`url(#arrowhead-${drawing.id})`} className="cursor-pointer" />
+            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={drawingColor} strokeWidth={strokeWidth} markerEnd={`url(#arrowhead-${drawing.id})`} />
           </g>
         );
+        break;
       case 'ray':
-        if (p2.x === null || p2.y === null) return null;
+        if (p2.x === null || p2.y === null) break;
         const rdx = p2.x - p1.x;
         const rdy = p2.y - p1.y;
         const rlen = Math.sqrt(rdx * rdx + rdy * rdy);
-        if (rlen === 0) return null;
+        if (rlen === 0) break;
         const rex = p1.x + (rdx / rlen) * 10000;
         const rey = p1.y + (rdy / rlen) * 10000;
-        if (!Number.isFinite(rex) || !Number.isFinite(rey)) return null;
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
-            <line x1={p1.x} y1={p1.y} x2={rex} y2={rey} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" />
-          </g>
+        if (!Number.isFinite(rex) || !Number.isFinite(rey)) break;
+        shape = (
+          <line x1={p1.x} y1={p1.y} x2={rex} y2={rey} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
+        break;
       case 'rect':
-        if (p2.x === null || p2.y === null) return null;
+        if (p2.x === null || p2.y === null) break;
         const rx = Math.min(p1.x, p2.x);
         const ry = Math.min(p1.y, p2.y);
         const rw = Math.abs(p1.x - p2.x);
         const rh = Math.abs(p1.y - p2.y);
-        return (
-          <rect key={drawing.id} x={rx} y={ry} width={rw} height={rh} fill={drawingColor + '11'} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
+        shape = (
+          <rect x={rx} y={ry} width={rw} height={rh} fill={drawingColor + '11'} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
+        break;
       case 'circle':
-      case 'ellipse':
-        if (p2.x === null || p2.y === null) return null;
+        if (p2.x === null || p2.y === null) break;
         const radius = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-        return (
-          <circle key={drawing.id} cx={p1.x} cy={p1.y} r={radius} fill={drawingColor + '11'} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
+        shape = (
+          <circle cx={p1.x} cy={p1.y} r={radius} fill={drawingColor + '11'} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
-      case 'triangle':
-        if (p2.x === null || p2.y === null) return null;
-        const tx3 = p1.x - (p2.x - p1.x);
-        const ty3 = p2.y;
-        const points = `${p1.x},${p1.y} ${p2.x},${p2.y} ${tx3},${ty3}`;
-        return (
-          <polygon key={drawing.id} points={points} fill={drawingColor + '11'} stroke={drawingColor} strokeWidth={strokeWidth} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
-        );
+        break;
       case 'fib':
-        if (p2.x === null || p2.y === null) return null;
+        if (p2.x === null || p2.y === null) break;
         const ratios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
         const range = drawing.points[1].price - drawing.points[0].price;
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
+        shape = (
+          <g className="cursor-pointer pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={drawingColor} strokeWidth={0.5} strokeDasharray="5,5" />
             {ratios.map(r => {
               const fibPrice = drawing.points[0].price + range * r;
@@ -270,31 +359,40 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
             })}
           </g>
         );
+        break;
       case 'long':
       case 'short':
-        if (p2.x === null || p2.y === null) return null;
+        if (p2.x === null || p2.y === null) break;
         const isLong = drawing.type === 'long';
         const entry = p1.y;
         const target = p2.y;
         const stopY = entry + (entry - target);
         const boxX = Math.min(p1.x, p2.x);
         const boxW = Math.abs(p1.x - p2.x);
-        return (
-          <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} className="cursor-pointer">
+        shape = (
+          <g onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} className="cursor-pointer pointer-events-auto">
             <rect x={boxX} y={Math.min(entry, target)} width={boxW} height={Math.abs(entry - target)} fill={isLong ? '#10b98122' : '#ef444422'} stroke={isLong ? '#10b981' : '#ef4444'} strokeWidth={1} />
             <rect x={boxX} y={Math.min(entry, stopY)} width={boxW} height={Math.abs(entry - stopY)} fill={isLong ? '#ef444422' : '#10b98122'} stroke={isLong ? '#ef4444' : '#10b981'} strokeWidth={1} />
             <line x1={boxX} y1={entry} x2={boxX + boxW} y2={entry} stroke="white" strokeWidth={1} opacity={0.5} />
           </g>
         );
+        break;
       case 'text':
-        return (
-          <text key={drawing.id} x={p1.x} y={p1.y} fill="white" fontSize="13" className="select-none cursor-pointer font-bold" onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
+        shape = (
+          <text x={p1.x} y={p1.y} fill="white" fontSize="13" className="select-none cursor-pointer font-bold pointer-events-auto" onMouseDown={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
             {drawing.text}
           </text>
         );
-      default:
-        return null;
+        break;
     }
+
+    return (
+      <g key={drawing.id}>
+        {shape}
+        {drawHandles()}
+        {renderTools()}
+      </g>
+    );
   };
 
   if (hidden) return null;
@@ -304,12 +402,18 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       ref={containerRef} 
       className={cn(
         "absolute inset-0 z-30 w-full h-full", 
-        (activeTool !== 'crosshair' && activeTool !== 'dot' && !locked) ? "pointer-events-auto" : "pointer-events-none",
+        (activeTool !== 'crosshair' || selectedId || tempDrawing) ? "pointer-events-auto" : "pointer-events-none",
         getCursorClass()
       )} 
       onMouseDown={handleMouseDown} 
       onMouseMove={handleMouseMove} 
-      onClick={() => (activeTool === 'crosshair' || activeTool === 'dot') && setSelectedId(null)}
+      onMouseUp={handleMouseUp}
+      onClick={() => {
+        if (activeTool === 'crosshair' && !draggedPointIndex) {
+          // If we haven't clicked a drawing via e.stopPropagation, we deselect
+          setSelectedId(null);
+        }
+      }}
     >
       <g key={`revision-${revision}`}>
         {drawings.map(renderDrawing)}
@@ -318,3 +422,4 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     </svg>
   );
 }
+
