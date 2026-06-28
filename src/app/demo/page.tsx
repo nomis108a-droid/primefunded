@@ -23,7 +23,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where, orderBy, limit } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi, PriceScaleMode } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, PriceScaleMode, IPriceLine } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
@@ -48,13 +48,10 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
-/**
- * INSTITUTIONAL DATA VAULT: Persistence Layer
- */
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 export default function DemoPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const branding = useBrandSettings();
 
@@ -76,10 +73,7 @@ export default function DemoPage() {
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
   
-  // UI Panels state
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
-
-  // Drawing & Workspace States
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [magnetMode, setMagnetMode] = useState(false);
   const [drawingsLocked, setDrawingsLocked] = useState(false);
@@ -104,19 +98,13 @@ export default function DemoPage() {
   const currentCandleRef = useRef<any>(null);
   const isFetchingMore = useRef(false);
   const oldestTimestamp = useRef<number | null>(null);
+  const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
-  // LOG 1: Auth State tracking
-  useEffect(() => {
-    console.log(`[Demo-Lifecycle] Auth Resolution: loading=${authLoading}, user=${user?.email || 'unauthenticated'}`);
-  }, [authLoading, user]);
-
-  // BUG 1 FIX: Resilient Page Ready Logic
   useEffect(() => {
     if (!authLoading && !accountsLoading) {
-      console.log(`[Demo-Lifecycle] Dependencies resolved: accountsCount=${accounts.length}`);
       if (accounts.length > 0 && !currentAccountId) {
         setCurrentAccountId(accounts[0].id);
       }
@@ -126,10 +114,7 @@ export default function DemoPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      if (!pageReady) {
-        console.warn("[Demo-Lifecycle] Auth/Account resolution timed out, forcing fallback ready state.");
-        setPageReady(true);
-      }
+      if (!pageReady) setPageReady(true);
     }, 5000);
     return () => clearTimeout(t);
   }, [pageReady]);
@@ -172,16 +157,12 @@ export default function DemoPage() {
     applyGlobalSettings();
   }, [chartSettings, applyGlobalSettings]);
 
-  // Robust Resize Sync with UI transitions
   useEffect(() => {
     if (chartInstanceRef.current && chartContainerRef.current) {
-      // Immediate call for flex layout updates
       chartInstanceRef.current.applyOptions({
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight
       });
-
-      // Delayed call to capture final dimensions after CSS transitions (200ms)
       const t = setTimeout(() => {
         if (chartInstanceRef.current && chartContainerRef.current) {
           chartInstanceRef.current.applyOptions({
@@ -197,7 +178,6 @@ export default function DemoPage() {
   useEffect(() => {
     if (!chartContainerRef.current || !pageReady) return;
     
-    console.log("[Chart] Initializing chart instance...");
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
@@ -256,7 +236,6 @@ export default function DemoPage() {
     };
   }, [pageReady, applyGlobalSettings, selectedSymbol, selectedInterval, chartType]);
 
-  // BUG 4 FIX: Robust Fetching with Timeout & Logging
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
     
@@ -266,10 +245,7 @@ export default function DemoPage() {
     const cached = candleDataCache.get(cacheKey);
 
     const fetchHistory = async () => {
-      console.log(`[Chart-Fetch] Start for ${selectedSymbol} (${selectedInterval})`);
-      
       if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
-        console.log(`[Chart-Fetch] Using fresh cached data for ${selectedSymbol}`);
         setIsChartLoading(false);
         setChartError(null);
         setupSeries(cached.candles);
@@ -279,7 +255,7 @@ export default function DemoPage() {
         setChartError(null);
       }
       
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s fetch timeout
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -295,28 +271,20 @@ export default function DemoPage() {
         if (!isMounted || !chartInstanceRef.current) return;
 
         if (candles.length > 0) {
-          console.log(`[Chart-Fetch] Success: received ${candles.length} candles`);
           setupSeries(candles);
           candleDataCache.set(cacheKey, { candles, lastUpdated: Date.now() });
           currentCandleRef.current = candles[candles.length - 1];
           oldestTimestamp.current = candles[0].time;
-        } else {
-          console.warn(`[Chart-Fetch] API returned empty candle set for ${selectedSymbol}`);
         }
       } catch (err: any) {
         if (err.name === 'AbortError') {
-          console.error(`[Chart-Fetch] Aborted/Timeout for ${selectedSymbol}`);
           if (isMounted && !cached) setChartError("Sync connection timed out. Markets may be closed or slow.");
         } else {
-          console.error(`[Chart-Fetch] Error:`, err.message);
           if (isMounted && !cached) setChartError(err.message || "Failed to establish market connection");
         }
       } finally {
         clearTimeout(timeoutId);
-        if (isMounted) {
-          setIsChartLoading(false);
-          console.log(`[Chart-Fetch] Cycle complete for ${selectedSymbol}`);
-        }
+        if (isMounted) setIsChartLoading(false);
       }
     };
 
@@ -340,11 +308,9 @@ export default function DemoPage() {
     return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
 
-  // BUG 2 FIX: Robust Live Polling logic
   useEffect(() => {
     if (!pageReady || !isChartReady) return;
     
-    console.log("[Chart-Sync] Initializing live price polling...");
     const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
@@ -379,10 +345,7 @@ export default function DemoPage() {
     const interval = setInterval(fetchPrices, 3000);
     
     const handleVisibilityChange = () => { 
-      if (document.visibilityState === 'visible') {
-        console.log("[Chart-Sync] Tab focused, force refreshing prices.");
-        fetchPrices();
-      }
+      if (document.visibilityState === 'visible') fetchPrices();
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
@@ -392,20 +355,92 @@ export default function DemoPage() {
     };
   }, [pageReady, isChartReady, selectedInterval, selectedSymbol]);
 
-  // BUG 3 FIX: Resilient Trade Execution
+  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
+  const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+
+  const calculateOpenPnl = useCallback((trade: any) => {
+    const priceData = livePrices[trade.symbol];
+    if (!priceData) return 0;
+    const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
+    const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol);
+    const contractSize = isForex ? 100000 : (trade.symbol === 'XAUUSD' ? 100 : 1);
+    return diff * trade.lots * contractSize;
+  }, [livePrices]);
+
+  useEffect(() => {
+    if (!mainSeriesRef.current || !isChartReady) return;
+
+    // Clear existing price lines
+    activePriceLinesRef.current.forEach((lines) => {
+      lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line));
+    });
+    activePriceLinesRef.current.clear();
+
+    // Draw lines for open positions on current symbol
+    openTrades.filter(t => t.symbol === selectedSymbol).forEach((trade) => {
+      const lines: IPriceLine[] = [];
+      const currentPnl = calculateOpenPnl(trade);
+      const isProfit = currentPnl >= 0;
+
+      // 1. Entry Line
+      const entryLine = mainSeriesRef.current!.createPriceLine({
+        price: trade.openPrice,
+        color: trade.type === 'buy' ? '#2962ff' : '#f57c00',
+        lineWidth: 1,
+        lineStyle: 0, // Solid
+        axisLabelVisible: true,
+        title: `${trade.lots.toFixed(2)}  ${currentPnl >= 0 ? '+' : ''}${currentPnl.toFixed(2)} USD`,
+      });
+      lines.push(entryLine);
+
+      // 2. Stop Loss Line
+      if (trade.sl) {
+        const slLine = mainSeriesRef.current!.createPriceLine({
+          price: trade.sl,
+          color: '#ef4444',
+          lineWidth: 1,
+          lineStyle: 2, // Dashed
+          axisLabelVisible: true,
+          title: `SL @ ${trade.sl}`,
+        });
+        lines.push(slLine);
+      }
+
+      // 3. Take Profit Line
+      if (trade.tp) {
+        const tpLine = mainSeriesRef.current!.createPriceLine({
+          price: trade.tp,
+          color: '#10b981',
+          lineWidth: 1,
+          lineStyle: 2, // Dashed
+          axisLabelVisible: true,
+          title: `TP @ ${trade.tp}`,
+        });
+        lines.push(tpLine);
+      }
+
+      activePriceLinesRef.current.set(trade.id, lines);
+    });
+
+    return () => {
+      activePriceLinesRef.current.forEach((lines) => {
+        lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line));
+      });
+    };
+  }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
+
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
-      if (!user) { toast({ title: "Auth Required", description: "Please wait for session to initialize.", variant: "destructive" }); return; }
-      if (!currentAccountId) { toast({ title: "No Account Selected", description: "Syncing nodes...", variant: "destructive" }); return; }
-      
-      console.log(`[Trade-Exec] Initiating ${type} order for ${selectedSymbol}`);
+      if (!user) { toast({ title: "Auth Required", variant: "destructive" }); return; }
+      if (!currentAccountId) { toast({ title: "No Account Selected", variant: "destructive" }); return; }
       
       const pricesRes = await fetch('/api/terminal/live-prices');
       const prices = await pricesRes.json();
       const priceData = prices[selectedSymbol];
       
-      if (!priceData || !priceData.price) { toast({ title: "Price Sync Error", description: "Real-time quote unavailable. Try again.", variant: "destructive" }); return; }
+      if (!priceData || !priceData.price) { toast({ title: "Price Sync Error", variant: "destructive" }); return; }
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
       const token = await user.getIdToken(true);
@@ -424,15 +459,12 @@ export default function DemoPage() {
       
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
     } catch(e: any) { 
-      console.error("[Trade-Exec] Fatal error:", e.message);
       toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); 
     } finally { 
       setActionLoading(false); 
     }
   }
 
-  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
-  const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
   const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "closed"), orderBy("closedAt", "desc"), limit(50)] : [], [user?.uid, currentAccountId]));
   const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("createdAt", "desc")] : [], [user?.uid]));
 
