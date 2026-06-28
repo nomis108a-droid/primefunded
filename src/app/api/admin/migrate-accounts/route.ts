@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { ADMIN_EMAILS } from "@/lib/admin";
 
 /**
  * @fileOverview Institutional Data Migration
@@ -10,14 +9,10 @@ import { ADMIN_EMAILS } from "@/lib/admin";
 
 export async function GET(req: NextRequest) {
   try {
-    // 1. Authorization Guard
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.replace("Bearer ", "");
-    
-    // Fallback: master key check for simple one-time run from admin UI
+    // Authorization Check: Master key required for execution
     const isMaster = req.nextUrl.searchParams.get('key') === '93463962569392846256';
     
-    if (!isMaster && !token) {
+    if (!isMaster) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -32,31 +27,31 @@ export async function GET(req: NextRequest) {
       const updates: any = {};
       let needsUpdate = false;
 
-      // Backfill Drawdown Telemetry
+      // 1. Backfill Daily Drawdown Telemetry
       if (data.dailyStartBalance === undefined) {
         updates.dailyStartBalance = data.balance || data.startBalance || 100000;
         needsUpdate = true;
       }
 
-      // Standardize Plan Metadata
+      // 2. Standardize Plan Key for Rules Engine
       if (data.planType === undefined) {
-        updates.planType = "1-step-pro"; // Map all legacy demo nodes to 1-Step Pro rules
+        updates.planType = "1-step-pro"; 
         needsUpdate = true;
       }
 
-      // Standardize Phase
-      if (data.phase === undefined) {
-        updates.phase = "evaluation";
-        needsUpdate = true;
-      }
-
-      // Initialize Breach Metadata
+      // 3. Initialize Breach Context
       if (data.breachReason === undefined) {
         updates.breachReason = null;
         needsUpdate = true;
       }
 
-      // Sync Reset Timestamps
+      // 4. Set Initial Phase
+      if (data.phase === undefined) {
+        updates.phase = "evaluation";
+        needsUpdate = true;
+      }
+
+      // 5. Initialize Reset Timestamp
       if (data.dailyLossResetAt === undefined) {
         updates.dailyLossResetAt = FieldValue.serverTimestamp();
         needsUpdate = true;
