@@ -76,6 +76,7 @@ export default function DemoPage() {
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
+  const [isChartReady, setIsChartReady] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
   const [lots, setLots] = useState(0.10);
@@ -168,6 +169,7 @@ export default function DemoPage() {
 
     chartInstanceRef.current = chart;
     candleSeriesRef.current = candleSeries;
+    setIsChartReady(true);
 
     const handleResize = () => {
       if (chartContainerRef.current) {
@@ -184,7 +186,7 @@ export default function DemoPage() {
 
   // 2. ISOLATED CANDLE FETCH (Stable State Machine)
   useEffect(() => {
-    if (!candleSeriesRef.current || !chartInstanceRef.current) return;
+    if (!isChartReady || !candleSeriesRef.current || !chartInstanceRef.current) return;
     
     let isMounted = true;
     currentCandleRef.current = null;
@@ -197,10 +199,11 @@ export default function DemoPage() {
     indicatorSeriesRef.current = [];
 
     const fetchHistory = async () => {
+      console.log(`[Chart-Fetch] Start for ${selectedSymbol} @ ${selectedInterval}`);
       setIsChartLoading(true);
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
-        if (!res.ok) throw new Error("Feed Offline");
+        if (!res.ok) throw new Error(`HTTP ${res.status} - Feed Offline`);
         const data = await res.json();
         
         if (!isMounted) return;
@@ -226,16 +229,19 @@ export default function DemoPage() {
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
-      } catch (err) {
-        console.warn("[Chart-Fetch] Historical data unavailable:", err);
+      } catch (err: any) {
+        console.warn("[Chart-Fetch] Historical data unavailable:", err.message);
       } finally {
-        if (isMounted) setIsChartLoading(false);
+        if (isMounted) {
+          console.log("[Chart-Fetch] Before setLoading(false)");
+          setIsChartLoading(false);
+        }
       }
     };
 
     fetchHistory();
     return () => { isMounted = false; };
-  }, [selectedSymbol, selectedInterval, indicators.ma20]);
+  }, [isChartReady, selectedSymbol, selectedInterval, indicators.ma20]);
 
   // 3. IMMEDIATE TICK SYNC (High Responsiveness)
   useEffect(() => {
