@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
       }
 
       // 3. Set FIXED Dollar Max Loss Limit
-      if (data.maxLoss === undefined || data.maxLoss !== (startBalance * (rules.maxDrawdown / 100))) {
+      if (data.maxLoss === undefined || data.maxLoss < (startBalance * 0.01)) {
         updates.maxLoss = startBalance * (rules.maxDrawdown / 100);
         needsUpdate = true;
       }
@@ -51,6 +51,12 @@ export async function GET(req: NextRequest) {
       const correctTarget = startBalance * (rules.profitTarget / 100);
       if (data.profitTarget !== correctTarget) {
         updates.profitTarget = correctTarget;
+        needsUpdate = true;
+      }
+
+      // 5. Standardize Plan Key
+      if (!data.planType) {
+        updates.planType = planKey;
         needsUpdate = true;
       }
 
