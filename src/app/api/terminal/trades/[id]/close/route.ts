@@ -29,6 +29,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (trade.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (trade.status !== "open") return NextResponse.json({ error: "Already closed" }, { status: 400 });
 
+    // MINIMUM HOLD TIME RULE: 2 Minutes before manual close
+    const openTime = trade.openedAt?.toDate?.() || new Date(trade.openedAt);
+    const holdTimeMs = Date.now() - openTime.getTime();
+    if (holdTimeMs < 2 * 60 * 1000) {
+      return NextResponse.json({ 
+        error: "Minimum Hold Time Violation", 
+        details: "Trades must be held for at least 2 minutes before manual closure." 
+      }, { status: 400 });
+    }
+
     const priceSnap = await db.collection("livePrices").doc(trade.symbol).get();
     if (!priceSnap.exists) return NextResponse.json({ error: "No price for symbol" }, { status: 400 });
     const priceData = priceSnap.data()!;
@@ -47,9 +57,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const newBalance = account.balance + pnl;
 
       let newStatus = account.status;
+      let breachReason = account.breachReason || null;
+
+      // Rule 1: Max Total Loss (Fixed)
       if (account.startBalance - newBalance >= account.maxLoss) {
         newStatus = "blown";
-      } else if (newBalance - account.startBalance >= account.profitTarget) {
+        breachReason = `Maximum Drawdown Limit Hit ($${account.maxLoss})`;
+      } 
+      // Rule 2: Single Trade Loss Breach (3% of balance)
+      else if (pnl < 0 && Math.abs(pnl) >= (account.balance * 0.03)) {
+        newStatus = "blown";
+        breachReason = "Single Trade Loss Limit Hit (3% Max)";
+      }
+      // Rule 3: Profit Target
+      else if (newBalance - account.startBalance >= account.profitTarget) {
         newStatus = "passed";
       }
 
@@ -64,6 +85,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         balance: newBalance,
         equity: newBalance,
         status: newStatus,
+        breachReason
       });
     });
 

@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -44,6 +43,25 @@ export async function POST(req: NextRequest) {
     
     // Case-insensitive status check
     if (account.status?.toLowerCase() !== "active") return NextResponse.json({ error: "Account is locked" }, { status: 400 });
+
+    // EXECUTION FREQUENCY RULE: 3 Minute minimum between trades
+    const lastTradeSnap = await db.collection("demoTrades")
+      .where("accountId", "==", accountId)
+      .orderBy("openedAt", "desc")
+      .limit(1)
+      .get();
+    
+    if (!lastTradeSnap.empty) {
+      const lastTrade = lastTradeSnap.docs[0].data();
+      const lastOpened = lastTrade.openedAt?.toDate?.() || new Date(lastTrade.openedAt);
+      const diffMs = Date.now() - lastOpened.getTime();
+      if (diffMs < 3 * 60 * 1000) {
+        return NextResponse.json({ 
+          error: "Execution Frequency Violation", 
+          details: "Minimum 3 minutes required between executions." 
+        }, { status: 400 });
+      }
+    }
 
     // LOT SIZE VALIDATION (ANTI-CHEAT)
     const plan = account.plan || '10k';

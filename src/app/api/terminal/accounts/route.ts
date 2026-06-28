@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       balance: p.balance,
       equity: p.balance,
       startBalance: p.balance,
-      dailyStartBalance: p.balance,
+      dailyStartBalance: p.balance, // Initialized for drawdown tracking
       maxLoss: p.maxLoss,
       dailyLoss: p.dailyLoss,
       profitTarget: p.profitTarget,
