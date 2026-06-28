@@ -1,4 +1,3 @@
-
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
@@ -19,6 +18,23 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'picsum.photos' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' }
     ],
+  },
+  async rewrites() {
+    // Serve standard icon paths from the high-res placeholder seeds to fix 404s
+    return [
+      {
+        source: '/apple-touch-icon.png',
+        destination: 'https://picsum.photos/seed/pflogo-blue-silver/180/180',
+      },
+      {
+        source: '/favicon.ico',
+        destination: 'https://picsum.photos/seed/pflogo-blue-silver/32/32',
+      },
+      {
+        source: '/favicon-32x32.png',
+        destination: 'https://picsum.photos/seed/pflogo-blue-silver/32/32',
+      },
+    ];
   },
   async headers() {
     return [
