@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -123,11 +122,11 @@ export default function DemoPage() {
         layout: { background: { type: chartSettings.canvas.background.type === 'gradient' ? ColorType.VerticalGradient : ColorType.Solid, color: chartSettings.canvas.background.color }, textColor: chartSettings.canvas.scales.textColor, fontSize: chartSettings.canvas.scales.fontSize },
         grid: { vertLines: { visible: chartSettings.scales.lines.gridVert && (chartSettings.canvas.grid.type === 'vertical' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.vert.color }, horzLines: { visible: chartSettings.scales.lines.gridHorz && (chartSettings.canvas.grid.type === 'horizontal' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.horz.color } },
         crosshair: { horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color }, vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color } },
-        watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, text: chartSettings.canvas.watermark.text || selectedSymbol }
+        watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, text: chartSettings.canvas.watermark.text || branding.siteName }
       });
       if (mainSeriesRef.current) mainSeriesRef.current.applyOptions({ ...chartSettings.canvas.candles, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '' });
     } catch (e) {}
-  }, [chartSettings, selectedSymbol]);
+  }, [chartSettings, selectedSymbol, branding.siteName]);
 
   useEffect(() => {
     localStorage.setItem('chartGlobalSettings', JSON.stringify(chartSettings));
@@ -189,7 +188,7 @@ export default function DemoPage() {
     };
     fetchHistory();
     return () => { isMounted = false; };
-  }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
+  }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
 
   useEffect(() => {
     if (!pageReady || !isChartReady) return;
@@ -468,7 +467,22 @@ export default function DemoPage() {
 
             <div className="flex-1 relative">
               {isChartLoading && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary" /><p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p></div>}
+              
               <div ref={chartContainerRef} className="h-full w-full relative" />
+              
+              {/* PrimeFunded Watermark Logo - Fixed institutional branding overlay */}
+              <div className="absolute bottom-4 left-4 z-10 opacity-20 pointer-events-none select-none flex items-center gap-2">
+                <Image 
+                  src={branding.logoUrl} 
+                  alt="PrimeFunded" 
+                  width={28} 
+                  height={28} 
+                  className="rounded-full grayscale contrast-125" 
+                  data-ai-hint="site logo"
+                />
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/20">{branding.siteName}</span>
+              </div>
+
               {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
                 <DrawingLayer 
                   chart={chartInstanceRef.current} 
