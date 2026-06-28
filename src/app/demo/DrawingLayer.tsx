@@ -213,8 +213,15 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
         const rdx = p2.x - p1.x;
         const rdy = p2.y - p1.y;
         const rlen = Math.sqrt(rdx * rdx + rdy * rdy);
+        
+        // Prevent division by zero and resulting NaN coordinates
+        if (rlen === 0) return null;
+
         const rex = p1.x + (rdx / rlen) * 5000;
         const rey = p1.y + (rdy / rlen) * 5000;
+        
+        if (!Number.isFinite(rex) || !Number.isFinite(rey)) return null;
+
         return (
           <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
             <line x1={p1.x} y1={p1.y} x2={rex} y2={rey} stroke={drawing.color} strokeWidth={strokeWidth} className="cursor-pointer" />
