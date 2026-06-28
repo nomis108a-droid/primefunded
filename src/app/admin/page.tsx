@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction } from './actions';
 import { cn } from '@/lib/utils';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -259,36 +259,45 @@ export default function AdminPage() {
                 <Card className="bg-card/40 border-border/50">
                   <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Recent Activity</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
-                    {adminData.orders.slice(0, 5).map((o: any) => (
-                      <div key={o.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20 border border-white/5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary"><CreditCard className="w-4 h-4" /></div>
-                          <div>
-                            <p className="text-xs font-bold text-white">Order submitted: {o.accountSize || o.plan || 'Plan'} {o.plan || ''}</p>
-                            <p className="text-[10px] text-muted-foreground">{o.email}</p>
+                    {adminData.orders.slice(0, 5).map((o: any) => {
+                      const orderDate = o.date ? new Date(o.date) : null;
+                      return (
+                        <div key={o.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20 border border-white/5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary"><CreditCard className="w-4 h-4" /></div>
+                            <div>
+                              <p className="text-xs font-bold text-white">Order submitted: {o.accountSize || o.plan || 'Plan'} {o.plan || ''}</p>
+                              <p className="text-[10px] text-muted-foreground">{o.email}</p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                             <Badge variant="outline" className="text-[9px] uppercase mb-1">{o.status}</Badge>
+                             <p className="text-[8px] text-muted-foreground">{orderDate && isValid(orderDate) ? format(orderDate, 'MMM d') : ''}</p>
                           </div>
                         </div>
-                        <Badge variant="outline" className="text-[9px] uppercase">{o.status}</Badge>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {adminData.orders.length === 0 && <p className="text-center text-xs text-muted-foreground py-10">No recent orders.</p>}
                   </CardContent>
                 </Card>
                 <Card className="bg-card/40 border-border/50">
                   <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> New Traders</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
-                    {adminData.users.slice(0, 5).map((u: any) => (
-                      <div key={u.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20 border border-white/5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500"><Users className="w-4 h-4" /></div>
-                          <div>
-                            <p className="text-xs font-bold text-white">{u.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{u.email}</p>
+                    {adminData.users.slice(0, 5).map((u: any) => {
+                      const joinDate = u.joinDate ? new Date(u.joinDate) : null;
+                      return (
+                        <div key={u.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20 border border-white/5">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500"><Users className="w-4 h-4" /></div>
+                            <div>
+                              <p className="text-xs font-bold text-white">{u.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{u.email}</p>
+                            </div>
                           </div>
+                          <p className="text-[10px] text-muted-foreground">{joinDate && isValid(joinDate) ? format(joinDate, 'MMM d') : 'New'}</p>
                         </div>
-                        <p className="text-[10px] text-muted-foreground">{u.joinDate ? format(new Date(u.joinDate), 'MMM d') : 'New'}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </CardContent>
                 </Card>
               </div>
@@ -397,20 +406,23 @@ export default function AdminPage() {
                       <tr><th className="p-4">Date</th><th className="p-4">Trader</th><th className="p-4 text-right">Amount</th><th className="p-4">Method</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
-                      {adminData.payouts.map((p: any) => (
-                        <tr key={p.id} className="hover:bg-white/5">
-                          <td className="p-4 text-xs text-muted-foreground">{p.date ? format(new Date(p.date), 'MMM d, HH:mm') : '—'}</td>
-                          <td className="p-4 font-bold text-white">{p.email}</td>
-                          <td className="p-4 text-right font-mono font-bold text-emerald-500">${parseFloat(p.amount).toLocaleString()}</td>
-                          <td className="p-4 text-xs">{p.method}</td>
-                          <td className="p-4"><Badge className="uppercase text-[9px]">{p.status}</Badge></td>
-                          <td className="p-4 text-right">
-                             {p.status === 'pending' && (
-                               <Button size="sm" className="bg-primary text-black h-8 font-bold" onClick={() => handleAction(() => updatePayoutStatusAction(p.id, 'done'), "Payout Processed")}>Process</Button>
-                             )}
-                          </td>
-                        </tr>
-                      ))}
+                      {adminData.payouts.map((p: any) => {
+                        const payoutDate = p.date ? new Date(p.date) : null;
+                        return (
+                          <tr key={p.id} className="hover:bg-white/5">
+                            <td className="p-4 text-xs text-muted-foreground">{payoutDate && isValid(payoutDate) ? format(payoutDate, 'MMM d, HH:mm') : '—'}</td>
+                            <td className="p-4 font-bold text-white">{p.email}</td>
+                            <td className="p-4 text-right font-mono font-bold text-emerald-500">${parseFloat(p.amount).toLocaleString()}</td>
+                            <td className="p-4 text-xs">{p.method}</td>
+                            <td className="p-4"><Badge className="uppercase text-[9px]">{p.status}</Badge></td>
+                            <td className="p-4 text-right">
+                               {p.status === 'pending' && (
+                                 <Button size="sm" className="bg-primary text-black h-8 font-bold" onClick={() => handleAction(() => updatePayoutStatusAction(p.id, 'done'), "Payout Processed")}>Process</Button>
+                               )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -542,13 +554,16 @@ export default function AdminPage() {
                          <tr><th className="p-4">Date</th><th className="p-4">Title</th><th className="p-4">Author</th></tr>
                        </thead>
                        <tbody className="divide-y divide-border/50">
-                         {adminData.broadcasts.map((b: any) => (
-                           <tr key={b.id} className="hover:bg-white/5">
-                             <td className="p-4 text-xs text-muted-foreground">{b.sentAt ? format(getTradeDate(b.sentAt)!, 'MMM d, HH:mm') : '—'}</td>
-                             <td className="p-4 font-bold text-white">{b.title}</td>
-                             <td className="p-4 text-xs">{b.sentBy}</td>
-                           </tr>
-                         ))}
+                         {adminData.broadcasts.map((b: any) => {
+                           const sentDate = getTradeDate(b.sentAt);
+                           return (
+                             <tr key={b.id} className="hover:bg-white/5">
+                               <td className="p-4 text-xs text-muted-foreground">{sentDate && isValid(sentDate) ? format(sentDate, 'MMM d, HH:mm') : '—'}</td>
+                               <td className="p-4 font-bold text-white">{b.title}</td>
+                               <td className="p-4 text-xs">{b.sentBy}</td>
+                             </tr>
+                           );
+                         })}
                        </tbody>
                      </table>
                    </div>
@@ -566,18 +581,21 @@ export default function AdminPage() {
                       <tr><th className="p-4">Date</th><th className="p-4">Trader</th><th className="p-4">Plan / Phase</th><th className="p-4">Type</th><th className="p-4">Reason</th></tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
-                      {adminData.breaches.map((b: any) => (
-                        <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
-                          <td className="p-4 text-xs text-muted-foreground">{b.breachedAt ? format(getTradeDate(b.breachedAt)!, 'MMM d, HH:mm') : '—'}</td>
-                          <td className="p-4">
-                             <p className="font-bold text-white">{b.userName || 'N/A'}</p>
-                             <p className="text-[10px] text-muted-foreground">{b.userEmail}</p>
-                          </td>
-                          <td className="p-4 text-xs uppercase font-bold">{b.plan} / {b.phase}</td>
-                          <td className="p-4"><Badge variant="destructive" className="text-[9px] uppercase font-black">{b.breachType}</Badge></td>
-                          <td className="p-4 text-xs text-destructive font-medium">{b.breachReason}</td>
-                        </tr>
-                      ))}
+                      {adminData.breaches.map((b: any) => {
+                        const breachDate = getTradeDate(b.breachedAt);
+                        return (
+                          <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
+                            <td className="p-4 text-xs text-muted-foreground">{breachDate && isValid(breachDate) ? format(breachDate, 'MMM d, HH:mm') : '—'}</td>
+                            <td className="p-4">
+                               <p className="font-bold text-white">{b.userName || 'N/A'}</p>
+                               <p className="text-[10px] text-muted-foreground">{b.userEmail}</p>
+                            </td>
+                            <td className="p-4 text-xs uppercase font-bold">{b.plan} / {b.phase}</td>
+                            <td className="p-4"><Badge variant="destructive" className="text-[9px] uppercase font-black">{b.breachType}</Badge></td>
+                            <td className="p-4 text-xs text-destructive font-medium">{b.breachReason}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -594,15 +612,18 @@ export default function AdminPage() {
                       <tr><th className="p-4">Referrer</th><th className="p-4">New User</th><th className="p-4">Earned</th><th className="p-4">Status</th><th className="p-4 text-right">Date</th></tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
-                      {adminData.referrals.map((r: any) => (
-                        <tr key={r.id} className="hover:bg-white/5">
-                          <td className="p-4 font-mono text-xs">{r.referrerId}</td>
-                          <td className="p-4 text-xs">{r.referredUserEmail}</td>
-                          <td className="p-4 font-bold text-emerald-500">${r.amount}</td>
-                          <td className="p-4"><Badge className="uppercase text-[9px]">{r.status}</Badge></td>
-                          <td className="p-4 text-right text-xs text-muted-foreground">{r.createdAt ? format(getTradeDate(r.createdAt)!, 'MMM d') : '—'}</td>
-                        </tr>
-                      ))}
+                      {adminData.referrals.map((r: any) => {
+                        const refDate = getTradeDate(r.createdAt);
+                        return (
+                          <tr key={r.id} className="hover:bg-white/5">
+                            <td className="p-4 font-mono text-xs">{r.referrerId}</td>
+                            <td className="p-4 text-xs">{r.referredUserEmail}</td>
+                            <td className="p-4 font-bold text-emerald-500">${r.amount}</td>
+                            <td className="p-4"><Badge className="uppercase text-[9px]">{r.status}</Badge></td>
+                            <td className="p-4 text-right text-xs text-muted-foreground">{refDate && isValid(refDate) ? format(refDate, 'MMM d') : '—'}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -735,12 +756,15 @@ export default function AdminPage() {
                          <CardContent>
                            {userDetail.payouts.length === 0 ? <p className="text-xs text-muted-foreground italic">No payout history.</p> : (
                              <div className="space-y-3">
-                               {userDetail.payouts.map((p: any) => (
-                                 <div key={p.id} className="flex justify-between items-center p-3 rounded-lg bg-secondary/20">
-                                   <div><p className="text-xs font-bold">${parseFloat(p.amount).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">{format(new Date(p.date), 'MMM d, yyyy')}</p></div>
-                                   <Badge className="text-[9px] uppercase">{p.status}</Badge>
-                                 </div>
-                               ))}
+                               {userDetail.payouts.map((p: any) => {
+                                 const pDate = p.date ? new Date(p.date) : null;
+                                 return (
+                                   <div key={p.id} className="flex justify-between items-center p-3 rounded-lg bg-secondary/20">
+                                     <div><p className="text-xs font-bold">${parseFloat(p.amount).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">{pDate && isValid(pDate) ? format(pDate, 'MMM d, yyyy') : ''}</p></div>
+                                     <Badge className="text-[9px] uppercase">{p.status}</Badge>
+                                   </div>
+                                 );
+                               })}
                              </div>
                            )}
                          </CardContent>

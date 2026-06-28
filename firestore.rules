@@ -2,6 +2,14 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper: Check if user is in the authorized admin email list
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.email == "sitarama108a@gmail.com" ||
+        request.auth.token.email == "sitarama108a-alt@gmail.com"
+      );
+    }
+
     match /livePrices/{symbol} {
       allow read: if true;
       allow write: if false;
@@ -18,56 +26,56 @@ service cloud.firestore {
     }
 
     match /demoAccounts/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /demoTrades/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /referrals/{id} {
-      allow read: if request.auth != null && (
+      allow read: if isAdmin() || (request.auth != null && (
         resource.data.userId == request.auth.uid ||
         resource.data.referrerId == request.auth.uid ||
         resource.data.referredUserId == request.auth.uid
-      );
+      ));
       allow write: if false;
     }
 
     match /payouts/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /orders/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /breaches/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /certificates/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /notifications/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /mt5_accounts/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
     match /mt5_trades/{id} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow write: if false;
     }
 
@@ -77,12 +85,12 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
       allow create: if request.auth != null;
       allow update: if request.auth != null && request.auth.uid == userId;
 
       match /{subcollection=**} {
-        allow read: if request.auth != null && request.auth.uid == userId;
+        allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
         allow write: if request.auth != null && request.auth.uid == userId;
       }
     }
