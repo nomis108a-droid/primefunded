@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -30,7 +31,9 @@ import {
   AreaChart,
   Activity,
   Clock,
-  Globe
+  Globe,
+  Type,
+  Square
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -89,6 +92,10 @@ export default function DemoPage() {
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   
+  // Drawing Tool State
+  const [activeTool, setActiveTool] = useState<string>('pointer');
+  const [magnetMode, setMagnetMode] = useState(false);
+  
   // Indicator State
   const [indicatorState, setIndicatorState] = useState<Record<string, boolean>>({
     ema9: false, ema21: false, ema50: false, ema200: false,
@@ -100,6 +107,7 @@ export default function DemoPage() {
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const drawingLinesRef = useRef<IPriceLine[]>([]);
   
   // Indicator Refs for series cleanup
   const indicatorSeriesRef = useRef<Record<string, ISeriesApi<any>>>({});
@@ -144,6 +152,28 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     setIsChartReady(true);
     
+    // Handle Drawing Clicks
+    chart.subscribeClick((param) => {
+      if (!param.point || !mainSeriesRef.current || activeTool === 'pointer') return;
+      
+      const price = mainSeriesRef.current.coordinateToPrice(param.point.y);
+      if (price === null) return;
+
+      if (activeTool === 'hline') {
+        const line = mainSeriesRef.current.createPriceLine({
+          price: price,
+          color: '#ffffff',
+          lineWidth: 1,
+          lineStyle: 0,
+          axisLabelVisible: true,
+          title: 'H-LEVEL',
+        });
+        drawingLinesRef.current.push(line);
+        setActiveTool('pointer');
+        toast({ title: "Drawing Placed", description: "Horizontal level added to chart." });
+      }
+    });
+    
     const handleResize = () => {
       if (chartContainerRef.current && chartInstanceRef.current) {
         chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
@@ -155,7 +185,7 @@ export default function DemoPage() {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [selectedTimezone]);
+  }, [selectedTimezone, activeTool]); // Re-subscribe when tool changes
 
   // Isolated Candle Fetch & Indicator Calculation & Series Switching
   useEffect(() => {
@@ -451,6 +481,12 @@ export default function DemoPage() {
     setIndicatorState(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const handleClearDrawings = () => {
+    drawingLinesRef.current.forEach(line => mainSeriesRef.current?.removePriceLine(line));
+    drawingLinesRef.current = [];
+    toast({ title: "Canvas Cleared", description: "All manual drawings removed." });
+  };
+
   if (authLoading) return <div className="fixed inset-0 bg-[#09090b] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
@@ -546,13 +582,16 @@ export default function DemoPage() {
 
       <div className="flex-1 flex min-h-0 relative">
         <aside className="w-12 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-4 gap-4 shrink-0">
-          <ToolIcon icon={<MousePointer2 />} active />
-          <ToolIcon icon={<LayoutGrid />} />
-          <ToolIcon icon={<Minus className="rotate-45" />} />
-          <ToolIcon icon={<TrendingUp />} />
+          <ToolIcon icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
+          <div className="w-8 h-px bg-zinc-800 my-1" />
+          <ToolIcon icon={<TrendingUp className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+          <ToolIcon icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+          <ToolIcon icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
+          <ToolIcon icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
+          
           <div className="mt-auto flex flex-col gap-4">
-            <ToolIcon icon={<Magnet />} />
-            <ToolIcon icon={<Eraser />} />
+            <ToolIcon icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
+            <ToolIcon icon={<Eraser className="w-4 h-4" />} onClick={handleClearDrawings} />
           </div>
         </aside>
 
@@ -579,7 +618,7 @@ export default function DemoPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Syncing Feed...</p>
               </div>
             )}
-            <div ref={chartContainerRef} className="h-full w-full relative" />
+            <div ref={chartContainerRef} className={cn("h-full w-full relative", activeTool !== 'pointer' && "cursor-crosshair")} />
           </div>
           
           <PositionsPanel 
@@ -629,6 +668,16 @@ export default function DemoPage() {
   );
 }
 
-function ToolIcon({ icon, active = false }: { icon: React.ReactNode, active?: boolean }) {
-  return <button className={cn("w-9 h-9 flex items-center justify-center rounded-lg transition-all", active ? "bg-primary/10 text-primary" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5")}>{icon}</button>;
+function ToolIcon({ icon, active = false, onClick }: { icon: React.ReactNode, active?: boolean, onClick?: () => void }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "w-9 h-9 flex items-center justify-center rounded-lg transition-all", 
+        active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5"
+      )}
+    >
+      {icon}
+    </button>
+  );
 }
