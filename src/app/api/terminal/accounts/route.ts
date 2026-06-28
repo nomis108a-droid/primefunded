@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
-const PLANS: Record<string, { balance: number; maxLoss: number; dailyLoss: number; profitTarget: number; label: string }> = {
-  "10k": { balance: 10000, maxLoss: 600, dailyLoss: 300, profitTarget: 1000, label: "$10,000" },
-  "25k": { balance: 25000, maxLoss: 1500, dailyLoss: 750, profitTarget: 2500, label: "$25,000" },
-  "50k": { balance: 50000, maxLoss: 3000, dailyLoss: 1500, profitTarget: 5000, label: "$50,000" },
+const PLANS: Record<string, { balance: number; label: string }> = {
+  "10k": { balance: 10000, label: "$10,000" },
+  "25k": { balance: 25000, label: "$25,000" },
+  "50k": { balance: 50000, label: "$50,000" },
+  "100k": { balance: 100000, label: "$100,000" },
+  "200k": { balance: 200000, label: "$200,000" },
 };
 
 export async function POST(req: NextRequest) {
@@ -26,18 +29,35 @@ export async function POST(req: NextRequest) {
     const p = PLANS[plan];
     if (!p) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
 
+    const planType = "1-step-pro";
+    const phase = "evaluation";
+    const rules = RULES_CONFIG.plans[planType]?.[phase];
+
+    if (!rules) {
+      return NextResponse.json({ error: "Configuration Error: Plan rules not found" }, { status: 500 });
+    }
+
+    // Dynamic calculation based on Institutional Rules
+    const profitTarget = p.balance * ((rules.profitTarget || 10) / 100);
+    const dailyLoss = p.balance * (rules.dailyDrawdown / 100);
+    const maxLoss = p.balance * (rules.maxDrawdown / 100);
+
     const db = getAdminDb();
     const docRef = await db.collection("demoAccounts").add({
       userId: uid,
       plan,
-      planType: "1-step-pro", // Standardize for risk engine
-      phase: "evaluation",
+      planType,
+      phase,
       label: `Phase 1 — ${p.label} Challenge`,
       balance: p.balance,
       equity: p.balance,
       startBalance: p.balance,
       dailyStartBalance: p.balance,
+      profitTarget,
+      dailyLoss,
+      maxLoss,
       status: "active",
+      breachReason: null,
       createdAt: Timestamp.now(),
       dailyLossResetAt: Timestamp.now(),
     });

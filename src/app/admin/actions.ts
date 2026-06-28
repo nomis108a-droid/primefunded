@@ -1,4 +1,3 @@
-
 'use server';
 
 import { cookies } from 'next/headers';
@@ -102,6 +101,9 @@ export async function fetchDemoTradesByAccount(accountId: string) {
   return { success: true, trades: JSON.parse(JSON.stringify(trades)) };
 }
 
+/**
+ * Hardened Reset Logic: Prevents overwriting passed or blown accounts.
+ */
 export async function resetDemoAccountAction(accountId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const accountRef = adminDb.collection('demoAccounts').doc(accountId);
@@ -109,10 +111,17 @@ export async function resetDemoAccountAction(accountId: string) {
   if (!accountSnap.exists) throw new Error("Account not found");
   
   const data = accountSnap.data()!;
+  
+  // IMMUTABILITY GUARD: Do not reset historical records
+  if (data.status === 'passed' || data.status === 'blown' || data.status === 'terminated') {
+    throw new Error(`Cannot reset an account with status: ${data.status}. This node is a permanent historical record.`);
+  }
+
   await accountRef.update({
     balance: data.startBalance || 100000,
     equity: data.startBalance || 100000,
     status: 'active',
+    breachReason: null,
     updatedAt: FieldValue.serverTimestamp()
   });
   
