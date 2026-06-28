@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
@@ -9,6 +10,7 @@ const CONTRACT_SIZE: Record<string, number> = {
 /**
  * @fileOverview Institutional Trade Closure API
  * Robust price matching with client-side override and symbol casing resilience.
+ * Enhanced with SL/TP trigger support and bypass for automated exits.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -27,6 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const body = await req.json().catch(() => ({}));
     const clientClosePrice = body.closePrice ? parseFloat(String(body.closePrice)) : null;
+    const closeReason = body.closeReason || "manual";
 
     const db = getAdminDb();
     const tradeRef = db.collection("demoTrades").doc(id);
@@ -37,20 +40,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (trade.status !== "open") return NextResponse.json({ error: "Already closed" }, { status: 400 });
 
     // MINIMUM HOLD TIME RULE: 2 Minutes before manual close
-    const openTime = trade.openedAt?.toDate?.() || new Date(trade.openedAt);
-    const holdTimeMs = Date.now() - openTime.getTime();
-    if (holdTimeMs < 2 * 60 * 1000) {
-      return NextResponse.json({ 
-        error: "Minimum Hold Time Violation", 
-        details: "Trades must be held for at least 2 minutes before manual closure." 
-      }, { status: 400 });
+    // Automated triggers (SL, TP, Liquidation) bypass this rule
+    const isAuto = ["stop_loss", "take_profit", "liquidation", "daily_reset"].includes(closeReason);
+    
+    if (!isAuto) {
+      const openTime = trade.openedAt?.toDate?.() || new Date(trade.openedAt);
+      const holdTimeMs = Date.now() - openTime.getTime();
+      if (holdTimeMs < 2 * 60 * 1000) {
+        return NextResponse.json({ 
+          error: "Minimum Hold Time Violation", 
+          details: "Trades must be held for at least 2 minutes before manual closure." 
+        }, { status: 400 });
+      }
     }
 
     // ROBUST PRICE MATCHING
     let closePrice = clientClosePrice;
     
     if (!closePrice) {
-      // Try multiple symbol variations in livePrices
       const symbol = trade.symbol;
       const priceDocs = [symbol, symbol.toUpperCase(), symbol.toLowerCase()];
       let priceData = null;
@@ -85,12 +92,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         updatedAt: FieldValue.serverTimestamp()
       };
 
-      // Realized Gross Loss Update
       if (pnl < 0) {
         updates.dailyGrossLossUsd = (account.dailyGrossLossUsd || 0) + Math.abs(pnl);
       }
 
-      // Check Real-time Realized Breaches
       if (updates.dailyGrossLossUsd >= account.dailyLossLimitUsd) {
         updates.status = "blown";
         updates.breachReason = "daily_drawdown_breach";
@@ -98,13 +103,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         updates.status = "blown";
         updates.breachReason = "max_drawdown_breach";
       } 
-      // Profit Target Check (REALIZED ONLY)
       else if (newBalance >= (account.startBalance + account.profitTarget) && account.status === 'active') {
         updates.status = "passed";
       }
 
       tx.update(tradeRef, {
         status: "closed",
+        closeReason,
         closePrice,
         pnl,
         closedAt: Timestamp.now(),
@@ -113,7 +118,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       tx.update(accRef, updates);
     });
 
-    return NextResponse.json({ ok: true, pnl, closePrice });
+    return NextResponse.json({ ok: true, pnl, closePrice, closeReason });
   } catch (error: any) {
     console.error('[Close-Trade-API] Error:', error);
     return NextResponse.json({ error: "Internal Server Error", details: error.message }, { status: 500 });

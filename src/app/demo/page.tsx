@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -80,6 +81,9 @@ export default function DemoPage() {
   const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+
+  // Auto-close safety trackers
+  const closingTradesRef = useRef<Set<string>>(new Set());
 
   const [chartSettings, setChartSettings] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -308,6 +312,32 @@ export default function DemoPage() {
     return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
 
+  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
+  const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+
+  const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ 
+          closePrice: exitPrice,
+          closeReason: reason
+        }),
+      });
+      if (res.ok) {
+        toast({ 
+          title: reason === 'stop_loss' ? "Stop Loss Hit" : "Take Profit Hit",
+          description: `Position closed at ${exitPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}`
+        });
+      }
+    } catch (e) {
+      console.error("[Auto-Close] Error:", e);
+    }
+  }, [user, selectedSymbol, toast]);
+
   useEffect(() => {
     if (!pageReady || !isChartReady) return;
     
@@ -317,6 +347,34 @@ export default function DemoPage() {
         if (!res.ok) return;
         const prices = await res.json();
         setLivePrices(prices);
+
+        // ── Auto-Close Reactive Engine ───────────────────────
+        if (openTrades && openTrades.length > 0) {
+          openTrades.forEach(t => {
+            if (closingTradesRef.current.has(t.id)) return;
+            
+            const pData = prices[t.symbol] || prices[t.symbol?.toUpperCase()];
+            if (!pData) return;
+
+            const bid = pData.bid;
+            const ask = pData.ask;
+            let triggeredPrice = 0;
+            let reason = "";
+
+            if (t.type === 'buy') {
+              if (t.sl && bid <= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
+              else if (t.tp && bid >= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
+            } else {
+              if (t.sl && ask >= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
+              else if (t.tp && ask <= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
+            }
+
+            if (triggeredPrice > 0) {
+              closingTradesRef.current.add(t.id);
+              handleAutoClose(t.id, triggeredPrice, reason);
+            }
+          });
+        }
 
         try {
           if (mainSeriesRef.current && chartInstanceRef.current) {
@@ -353,10 +411,7 @@ export default function DemoPage() {
       clearInterval(interval); 
       document.removeEventListener('visibilitychange', handleVisibilityChange); 
     };
-  }, [pageReady, isChartReady, selectedInterval, selectedSymbol]);
-
-  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
-  const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+  }, [pageReady, isChartReady, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol];
@@ -371,49 +426,43 @@ export default function DemoPage() {
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
 
-    // Clear existing price lines
     activePriceLinesRef.current.forEach((lines) => {
       lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line));
     });
     activePriceLinesRef.current.clear();
 
-    // Draw lines for open positions on current symbol
     openTrades.filter(t => t.symbol === selectedSymbol).forEach((trade) => {
       const lines: IPriceLine[] = [];
       const currentPnl = calculateOpenPnl(trade);
-      const isProfit = currentPnl >= 0;
 
-      // 1. Entry Line
       const entryLine = mainSeriesRef.current!.createPriceLine({
         price: trade.openPrice,
         color: trade.type === 'buy' ? '#2962ff' : '#f57c00',
         lineWidth: 1,
-        lineStyle: 0, // Solid
+        lineStyle: 0,
         axisLabelVisible: true,
         title: `${trade.lots.toFixed(2)}  ${currentPnl >= 0 ? '+' : ''}${currentPnl.toFixed(2)} USD`,
       });
       lines.push(entryLine);
 
-      // 2. Stop Loss Line
       if (trade.sl) {
         const slLine = mainSeriesRef.current!.createPriceLine({
           price: trade.sl,
           color: '#ef4444',
           lineWidth: 1,
-          lineStyle: 2, // Dashed
+          lineStyle: 2,
           axisLabelVisible: true,
           title: `SL @ ${trade.sl}`,
         });
         lines.push(slLine);
       }
 
-      // 3. Take Profit Line
       if (trade.tp) {
         const tpLine = mainSeriesRef.current!.createPriceLine({
           price: trade.tp,
           color: '#10b981',
           lineWidth: 1,
-          lineStyle: 2, // Dashed
+          lineStyle: 2,
           axisLabelVisible: true,
           title: `TP @ ${trade.tp}`,
         });
@@ -483,7 +532,7 @@ export default function DemoPage() {
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) { toast({ title: "Cannot Close", variant: "destructive" }); return; }
       const token = await user?.getIdToken();
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice }) });
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice, closeReason: "manual" }) });
       if (!res.ok) { const err = await res.json().catch(() => ({})); toast({ title: "Close Failed", description: err.error || "Server error", variant: "destructive" }); return; }
       toast({ title: "✓ Position Closed" });
     } catch (e: any) { toast({ title: "Close Error", variant: "destructive" }); } finally { setActionLoading(false); }
@@ -573,7 +622,7 @@ export default function DemoPage() {
             onClick={() => setSelectedInterval(tf.value)}
             className={cn(
               "px-3 h-6 flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest",
-              selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white hover:bg-white/5"
+              selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5"
             )}
           >
             {tf.label}

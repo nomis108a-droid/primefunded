@@ -88,6 +88,7 @@
         "sl": { "type": ["number", "null"] },
         "tp": { "type": ["number", "null"] },
         "status": { "type": "string", "enum": ["open", "closed"] },
+        "closeReason": { "type": "string", "enum": ["manual", "stop_loss", "take_profit", "liquidation", "daily_reset"] },
         "pnl": { "type": "number" },
         "openedAt": { "type": "string", "format": "date-time" },
         "closedAt": { "type": ["string", "null"], "format": "date-time" },

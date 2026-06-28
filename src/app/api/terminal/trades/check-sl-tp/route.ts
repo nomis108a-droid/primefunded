@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -5,6 +6,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
  * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
+ * Updated to use exact SL/TP prices as exit levels and support close reasons.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -80,7 +82,6 @@ export async function GET(req: NextRequest) {
         await db.runTransaction(async (tx) => {
           let finalBalance = acc.balance;
           
-          // Force-close every position
           for (const t of trades) {
             const priceData = prices[t.symbol];
             if (!priceData) continue;
@@ -89,6 +90,7 @@ export async function GET(req: NextRequest) {
             
             tx.update(t.ref, {
               status: 'closed',
+              closeReason: 'liquidation',
               closePrice: exitPrice,
               pnl: tradePnl,
               closedAt: FieldValue.serverTimestamp(),
@@ -106,7 +108,7 @@ export async function GET(req: NextRequest) {
           });
         });
         liquidated++;
-        continue; // Skip SL/TP since account is liquidated
+        continue;
       }
 
       // 3. SL/TP EXECUTION (NORMAL FLOW)
@@ -118,12 +120,14 @@ export async function GET(req: NextRequest) {
         const ask = priceData.ask || priceData.price;
 
         let triggerPrice = 0;
+        let exitReason = "";
+        
         if (t.type === 'buy') {
-          if (t.sl && bid <= t.sl) triggerPrice = bid;
-          else if (t.tp && bid >= t.tp) triggerPrice = bid;
+          if (t.sl && bid <= t.sl) { triggerPrice = t.sl; exitReason = "stop_loss"; }
+          else if (t.tp && bid >= t.tp) { triggerPrice = t.tp; exitReason = "take_profit"; }
         } else {
-          if (t.sl && ask >= t.sl) triggerPrice = ask;
-          else if (t.tp && ask <= t.tp) triggerPrice = ask;
+          if (t.sl && ask >= t.sl) { triggerPrice = t.sl; exitReason = "stop_loss"; }
+          else if (t.tp && ask <= t.tp) { triggerPrice = t.tp; exitReason = "take_profit"; }
         }
 
         if (triggerPrice > 0) {
@@ -135,6 +139,7 @@ export async function GET(req: NextRequest) {
             
             tx.update(t.ref, {
               status: 'closed',
+              closeReason: exitReason,
               closePrice: triggerPrice,
               pnl,
               closedAt: FieldValue.serverTimestamp()
@@ -146,12 +151,10 @@ export async function GET(req: NextRequest) {
               updatedAt: FieldValue.serverTimestamp()
             };
 
-            // Real-time realized loss counter update
             if (pnl < 0) {
               updates.dailyGrossLossUsd = (currentAcc.dailyGrossLossUsd || 0) + Math.abs(pnl);
             }
 
-            // Real-time Profit Target Check (REALIZED ONLY)
             if (newBalance >= (currentAcc.startBalance + currentAcc.profitTarget) && currentAcc.status === 'active') {
               updates.status = 'passed';
             }
@@ -162,7 +165,6 @@ export async function GET(req: NextRequest) {
         }
       }
       
-      // Heartbeat Equity Update
       await accDoc.ref.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
     }
 
