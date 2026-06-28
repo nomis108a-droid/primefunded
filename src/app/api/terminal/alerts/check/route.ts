@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
           triggerPrice: currentPrice
         });
 
-        // Create notification in the user's subcollection
+        // Create notification in the user's secure subcollection (Single Source of Truth)
         const notificationRef = db.collection('users')
           .doc(alert.userId)
           .collection('notifications')

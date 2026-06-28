@@ -82,7 +82,8 @@ export async function auditAccount(accountDoc: any, forceRun = false) {
   const sessionEnd = new Date(sessionStart);
   sessionEnd.setUTCDate(sessionEnd.getUTCDate() + 1);
 
-  const tradesRef = db.collection('users').doc(userId).collection('trades');
+  const userRef = db.collection('users').doc(userId);
+  const tradesRef = userRef.collection('trades');
   const allTradesSnap = await tradesRef.where('login', '==', String(login)).get();
   const trades: TradeRecord[] = allTradesSnap.docs.map(d => ({ id: d.id, ...d.data() } as TradeRecord));
   const closedTrades = trades.filter(t => t.closeTime);
@@ -184,16 +185,23 @@ export async function auditAccount(accountDoc: any, forceRun = false) {
       breachedAt: FieldValue.serverTimestamp(), 
       breachReason 
     });
-    batch.update(db.collection('users').doc(userId), { 
+    batch.update(userRef, { 
       accountStatus: 'breached', 
       breachReason 
     });
     batch.set(db.collection('breaches').doc(breachId), { 
       login, userId, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), phase: phaseKey, plan: planKey 
     });
-    batch.set(db.collection('notifications').doc(`${userId}_breach_${Date.now()}`), { 
-      userId, type: 'account_breached', title: '❌ Account Breached', message: `Your account has been breached: ${breachReason}`, read: false, createdAt: FieldValue.serverTimestamp() 
+    
+    // Fixed: Writing to User Subcollection (UI Source of Truth)
+    batch.set(userRef.collection('notifications').doc(`breach_${login}_${Date.now()}`), { 
+      type: 'account_breached', 
+      title: '❌ Account Breached', 
+      message: `Your account has been breached: ${breachReason}`, 
+      isRead: false, 
+      createdAt: FieldValue.serverTimestamp() 
     });
+    
     await batch.commit();
     return { breached: true, reason: breachReason };
   }
@@ -222,7 +230,7 @@ export async function auditAccount(accountDoc: any, forceRun = false) {
         phase: nextPhase, status: isFunded ? 'funded' : 'active',
         passedAt: FieldValue.serverTimestamp(), profitTargetReached: true, previousPhase: phaseKey,
       });
-      batch.update(db.collection('users').doc(userId), { 
+      batch.update(userRef, { 
         accountStatus: isFunded ? 'funded' : 'active', 
         phase: nextPhase, 
         passedAt: FieldValue.serverTimestamp() 
@@ -230,12 +238,16 @@ export async function auditAccount(accountDoc: any, forceRun = false) {
       batch.set(db.collection('passes').doc(`pass_${login}_${phaseKey}`), { 
         login, userId, planKey, phaseKey, nextPhase, isFunded, netClosedProfit, tradingDays: tradingDays.size, passedAt: FieldValue.serverTimestamp() 
       });
-      batch.set(db.collection('notifications').doc(`${userId}_pass_${phaseKey}`), {
-        userId, type: isFunded ? 'account_funded' : 'phase_passed',
+      
+      // Fixed: Writing to User Subcollection (UI Source of Truth)
+      batch.set(userRef.collection('notifications').doc(`pass_${phaseKey}_${Date.now()}`), {
+        type: isFunded ? 'account_funded' : 'phase_passed',
         title: isFunded ? '🎉 Account Funded!' : `✅ ${phaseKey} Passed!`,
         message: isFunded ? `Congratulations! Your account is now funded. Profit: $${netClosedProfit.toFixed(2)}` : `You passed ${phaseKey}! Moving to ${nextPhase}.`,
-        read: false, createdAt: FieldValue.serverTimestamp(),
+        isRead: false, 
+        createdAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+      
       await batch.commit();
       return { breached: false, reason: null, passed: true, nextPhase };
     }

@@ -149,12 +149,16 @@ export async function POST(request: Request) {
       }, { merge: true });
       batchWrite.update(userRef, { accountStatus: 'breached', breachReason, breachedAt: FieldValue.serverTimestamp() });
       batchWrite.update(accountRef, updates);
-      batchWrite.set(db.collection('notifications').doc(`${userId}_breach_${todayKey}`), {
-        userId, type: 'account_breached',
+      
+      // Fixed: Writing to User Subcollection (UI Source of Truth)
+      batchWrite.set(userRef.collection('notifications').doc(`breach_${loginStr}_${todayKey}`), {
+        type: 'account_breached',
         title: '❌ Account Breached',
         message: `Your account has been breached: ${breachReason}`,
-        read: false, createdAt: FieldValue.serverTimestamp(),
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+      
       await batchWrite.commit();
       return new Response(JSON.stringify({ status: "OK", breach: true }), { status: 200 });
     }
