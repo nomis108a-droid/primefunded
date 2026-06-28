@@ -30,16 +30,19 @@ import {
   Eraser,
   TrendingUp,
   AlertTriangle,
-  ShoppingBag
+  ShoppingBag,
+  Clock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where, orderBy, limit } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, IPriceLine } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
 import { RSI, BollingerBands } from 'technicalindicators';
+import { format, differenceInSeconds } from 'date-fns';
+import { getTradeDate, formatDuration } from '@/lib/tradeUtils';
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
@@ -81,6 +84,7 @@ export default function DemoPage() {
   const [activeBottomTab, setActiveBottomTab] = useState("positions");
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isMarketClosed, setIsMarketClosed] = useState(false);
+  const [now, setNow] = useState(new Date());
   
   const [indicators, setIndicators] = useState({
     rsi: false,
@@ -94,6 +98,13 @@ export default function DemoPage() {
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const currentCandleRef = useRef<{time:number, open:number, high:number, low:number, close:number} | null>(null);
   const indicatorSeriesRef = useRef<any[]>([]);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
+
+  // Live timer for duration tracking
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Fixed Price Polling
   useEffect(() => {
@@ -250,39 +261,6 @@ export default function DemoPage() {
     return () => { isMounted = false; };
   }, [selectedSymbol, selectedInterval, indicators.ma20, indicators.ma50, indicators.bb]);
 
-  // Real-time Tick Sync
-  useEffect(() => {
-    if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
-    const price = livePrices[selectedSymbol].price;
-    if (!price || price <= 0) return;
-
-    const intervalMap: Record<string, number> = {
-      '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400
-    };
-    const secs = intervalMap[selectedInterval] || 300;
-    const now = Math.floor(Date.now() / 1000);
-    const candleTime = Math.floor(now / secs) * secs;
-
-    const cur = currentCandleRef.current;
-
-    if (!cur || cur.time !== candleTime) {
-      const newCandle = { time: candleTime, open: price, high: price, low: price, close: price };
-      currentCandleRef.current = newCandle;
-      candleSeriesRef.current.update(newCandle as any);
-    } else {
-      cur.high = Math.max(cur.high, price);
-      cur.low = Math.min(cur.low, price);
-      cur.close = price;
-      candleSeriesRef.current.update({ 
-        time: candleTime, 
-        open: cur.open, 
-        high: cur.high, 
-        low: cur.low, 
-        close: price 
-      } as any);
-    }
-  }, [livePrices, selectedSymbol, selectedInterval]);
-
   const accountConstraints = useMemo(() => 
     user?.uid ? [where("userId", "==", user.uid)] : []
   , [user?.uid]);
@@ -309,6 +287,100 @@ export default function DemoPage() {
     (user?.uid && currentAccountId) ? "demoTrades" : null, 
     tradeConstraints
   );
+
+  // FEATURE 1: Position Overlays on Chart
+  useEffect(() => {
+    if (!candleSeriesRef.current) return;
+
+    // Clear existing lines
+    priceLinesRef.current.forEach(line => candleSeriesRef.current?.removePriceLine(line));
+    priceLinesRef.current = [];
+
+    const relevantTrades = openTrades.filter(t => t.symbol === selectedSymbol);
+    const pData = livePrices[selectedSymbol];
+
+    relevantTrades.forEach(t => {
+      // 1. Entry Line
+      let currentPnlText = "";
+      if (pData) {
+        const cp = t.type === 'buy' ? pData.bid : pData.ask;
+        const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
+        const pnl = t.type === 'buy' 
+          ? (cp - t.openPrice) * cSize * t.lots
+          : (t.openPrice - cp) * cSize * t.lots;
+        currentPnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
+      }
+
+      const entryLine = candleSeriesRef.current?.createPriceLine({
+        price: t.openPrice,
+        color: '#3b82f6',
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        axisLabelVisible: true,
+        title: `${t.type.toUpperCase()} ${t.lots}${currentPnlText}`,
+      });
+      if (entryLine) priceLinesRef.current.push(entryLine);
+
+      // 2. Stop Loss Line
+      if (t.sl) {
+        const slLine = candleSeriesRef.current?.createPriceLine({
+          price: t.sl,
+          color: '#ef4444',
+          lineWidth: 1,
+          lineStyle: 1, // Dotted
+          axisLabelVisible: true,
+          title: `SL: ${formatPrice(t.sl, selectedSymbol)}`,
+        });
+        if (slLine) priceLinesRef.current.push(slLine);
+      }
+
+      // 3. Take Profit Line
+      if (t.tp) {
+        const tpLine = candleSeriesRef.current?.createPriceLine({
+          price: t.tp,
+          color: '#10b981',
+          lineWidth: 1,
+          lineStyle: 1, // Dotted
+          axisLabelVisible: true,
+          title: `TP: ${formatPrice(t.tp, selectedSymbol)}`,
+        });
+        if (tpLine) priceLinesRef.current.push(tpLine);
+      }
+    });
+  }, [openTrades, selectedSymbol, livePrices[selectedSymbol]]);
+
+  // Real-time Tick Sync
+  useEffect(() => {
+    if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
+    const price = livePrices[selectedSymbol].price;
+    if (!price || price <= 0) return;
+
+    const intervalMap: Record<string, number> = {
+      '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400
+    };
+    const secs = intervalMap[selectedInterval] || 300;
+    const nowTs = Math.floor(Date.now() / 1000);
+    const candleTime = Math.floor(nowTs / secs) * secs;
+
+    const cur = currentCandleRef.current;
+
+    if (!cur || cur.time !== candleTime) {
+      const newCandle = { time: candleTime, open: price, high: price, low: price, close: price };
+      currentCandleRef.current = newCandle;
+      candleSeriesRef.current.update(newCandle as any);
+    } else {
+      cur.high = Math.max(cur.high, price);
+      cur.low = Math.min(cur.low, price);
+      cur.close = price;
+      candleSeriesRef.current.update({ 
+        time: candleTime, 
+        open: cur.open, 
+        high: cur.high, 
+        low: cur.low, 
+        close: price 
+      } as any);
+    }
+  }, [livePrices, selectedSymbol, selectedInterval]);
 
   const historyConstraints = useMemo(() => {
     const uid = user?.uid;
@@ -410,8 +482,23 @@ export default function DemoPage() {
     }
   }
 
-  async function closeTrade(tradeId: string) {
+  async function closeTrade(tradeId: string, openedAt: any) {
     if (!user) return;
+    
+    // Feature 5 Preview: Minimum Hold Check (Front-end only for UX, back-end already checks)
+    const openDate = getTradeDate(openedAt);
+    if (openDate) {
+      const holdSecs = differenceInSeconds(new Date(), openDate);
+      if (holdSecs < 120) {
+        toast({ 
+          variant: "destructive", 
+          title: "Hold Time Violation", 
+          description: `Trades must be held for 2 minutes. Please wait ${120 - holdSecs}s before closing.` 
+        });
+        return;
+      }
+    }
+
     try {
       const token = await user.getIdToken();
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
@@ -618,13 +705,15 @@ export default function DemoPage() {
                         <th className="py-2.5 px-4">Entry</th>
                         <th className="py-2.5 px-4">S/L</th>
                         <th className="py-2.5 px-4">T/P</th>
+                        <th className="py-2.5 px-4">Open Time</th>
+                        <th className="py-2.5 px-4">Duration</th>
                         <th className="py-2.5 px-4 text-right">PnL (USD)</th>
                         <th className="py-2.5 px-4 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-900">
                       {openTrades.length === 0 ? (
-                        <tr><td colSpan={8} className="py-20 text-center italic text-zinc-600">No active positions.</td></tr>
+                        <tr><td colSpan={10} className="py-20 text-center italic text-zinc-600">No active positions.</td></tr>
                       ) : openTrades.map((t) => {
                         const pData = livePrices[t.symbol];
                         let pnl = 0;
@@ -635,6 +724,10 @@ export default function DemoPage() {
                              ? (cp - t.openPrice) * cSize * t.lots
                              : (t.openPrice - cp) * cSize * t.lots;
                         }
+
+                        const openDate = getTradeDate(t.openedAt);
+                        const durationSecs = openDate ? differenceInSeconds(now, openDate) : 0;
+
                         return (
                           <tr key={t.id} className="hover:bg-white/5 group transition-colors">
                             <td className="py-2 px-4 font-bold text-white">{t.symbol}</td>
@@ -646,8 +739,21 @@ export default function DemoPage() {
                             </td>
                             <td className="py-2 px-2 font-mono text-zinc-400">{t.lots.toFixed(2)}</td>
                             <td className="py-2 px-4 font-mono text-zinc-400">{formatPrice(t.openPrice, t.symbol)}</td>
-                            <td className="py-2 px-4 font-mono text-zinc-600">{t.sl ? formatPrice(t.sl, t.symbol) : "—"}</td>
-                            <td className="py-2 px-4 font-mono text-zinc-600">{t.tp ? formatPrice(t.tp, t.symbol) : "—"}</td>
+                            <td className="py-2 px-4 font-mono text-zinc-600">
+                              {t.sl ? formatPrice(t.sl, t.symbol) : <button className="text-primary hover:underline text-[9px] font-bold">ADD</button>}
+                            </td>
+                            <td className="py-2 px-4 font-mono text-zinc-600">
+                              {t.tp ? formatPrice(t.tp, t.symbol) : <button className="text-primary hover:underline text-[9px] font-bold">ADD</button>}
+                            </td>
+                            <td className="py-2 px-4 font-mono text-zinc-500 text-[10px]">
+                              {openDate ? format(openDate, 'HH:mm:ss') : '—'}
+                            </td>
+                            <td className={cn(
+                              "py-2 px-4 font-mono text-[10px] tabular-nums",
+                              durationSecs >= 120 ? "text-emerald-500" : "text-zinc-500"
+                            )}>
+                              {formatDuration(durationSecs)}
+                            </td>
                             <td className={cn(
                               "py-2 px-4 text-right font-mono font-bold tabular-nums text-sm",
                               pnl >= 0 ? "text-emerald-500" : "text-red-500"
@@ -655,7 +761,7 @@ export default function DemoPage() {
                               {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                             <td className="py-2 px-4 text-right">
-                              <button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded">
+                              <button onClick={() => closeTrade(t.id, t.openedAt)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded">
                                 <XCircle className="w-4 h-4" />
                               </button>
                             </td>
