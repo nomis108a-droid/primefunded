@@ -17,7 +17,8 @@ import {
   Square, Triangle, Type, Pencil, Magnet, Undo, Trash2, Ruler,
   TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
   Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
-  ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical
+  ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
+  RefreshCw
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,7 @@ export default function DemoPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
   const [isChartReady, setIsChartReady] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
   const [selectedTimezone, setSelectedTimezone] = useState("local");
@@ -106,7 +108,10 @@ export default function DemoPage() {
   }, [accountsLoading, accounts, currentAccountId]);
 
   useEffect(() => {
-    const t = setTimeout(() => setPageReady(true), 3000);
+    const t = setTimeout(() => {
+      console.log("[DemoPage] Fallback timer triggered - forcing pageReady=true");
+      setPageReady(true);
+    }, 3000);
     return () => clearTimeout(t);
   }, []);
 
@@ -153,7 +158,12 @@ export default function DemoPage() {
   }, [chartSettings, applyGlobalSettings]);
 
   useEffect(() => {
-    if (!chartContainerRef.current || !pageReady) return;
+    if (!chartContainerRef.current || !pageReady) {
+      console.log("[Chart] Waiting for chart container or pageReady...");
+      return;
+    }
+    
+    console.log("[Chart] Initializing chart instance...");
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
@@ -180,14 +190,32 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
+    
     let isMounted = true;
+    const controller = new AbortController();
+
     const fetchHistory = async () => {
+      console.log(`[Chart] Data Sync Started: Symbol=${selectedSymbol}, Interval=${selectedInterval}`);
       setIsChartLoading(true);
+      setChartError(null);
+      
       try {
-        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
+        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`, {
+          signal: controller.signal
+        });
+        
+        if (!res.ok) throw new Error(`Network response error: ${res.status}`);
+        
         const data = await res.json();
-        if (!isMounted || !chartInstanceRef.current) return;
+        
+        if (!isMounted || !chartInstanceRef.current) {
+          console.log("[Chart] Data Sync Aborted (Unmounted or Instance gone)");
+          return;
+        }
+
+        console.log(`[Chart] Data Sync Success: Received ${data.candles?.length || 0} bars`);
         const candles = data.candles || [];
+        
         if (candles.length > 0) {
           if (mainSeriesRef.current) {
             chartInstanceRef.current.removeSeries(mainSeriesRef.current);
@@ -197,16 +225,46 @@ export default function DemoPage() {
           else if (chartType === 'bars') mainSeriesRef.current = chartInstanceRef.current.addBarSeries(opts);
           else if (chartType === 'line') mainSeriesRef.current = chartInstanceRef.current.addLineSeries(opts);
           else if (chartType === 'area') mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ ...opts, topColor: chartSettings.canvas.candles.upColor + '66', bottomColor: 'rgba(0,0,0,0)', lineColor: chartSettings.canvas.candles.upColor });
+          
           if (mainSeriesRef.current) {
             mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? candles : candles.map((c: any) => ({ time: c.time, value: c.close })));
             currentCandleRef.current = candles[candles.length - 1];
+            console.log("[Chart] Main series updated with historical data");
           }
           chartInstanceRef.current.timeScale().fitContent();
+        } else {
+          console.warn("[Chart] Received empty candle array from API");
         }
-      } catch (e) {} finally { if (isMounted) setIsChartLoading(false); }
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          console.log(`[Chart] Stale fetch cancelled for ${selectedSymbol}`);
+        } else {
+          console.error(`[Chart] Sync connection error for ${selectedSymbol}:`, err);
+          if (isMounted) setChartError(err.message || "Failed to establish market connection");
+        }
+      } finally {
+        if (isMounted) {
+          setIsChartLoading(false);
+          console.log(`[Chart] Data Sync Finalized for ${selectedSymbol}`);
+        }
+      }
     };
+
+    // Client-side safety timeout
+    const timeoutId = setTimeout(() => {
+      if (isMounted && isChartLoading) {
+        console.warn(`[Chart] Fetch for ${selectedSymbol} timed out after 10s. Aborting.`);
+        controller.abort();
+      }
+    }, 10000);
+
     fetchHistory();
-    return () => { isMounted = false; };
+    
+    return () => { 
+      isMounted = false; 
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
 
   useEffect(() => {
@@ -485,7 +543,31 @@ export default function DemoPage() {
             </aside>
 
             <div className="flex-1 relative">
-              {isChartLoading && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary" /><p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p></div>}
+              {isChartLoading && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
+                  <Loader2 className="animate-spin text-primary" />
+                  <p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p>
+                </div>
+              )}
+              
+              {chartError && !isChartLoading && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-md p-6 text-center">
+                  <AlertCircle className="w-8 h-8 text-destructive mb-4" />
+                  <h3 className="text-sm font-bold text-white mb-2">Sync Connection Interrupted</h3>
+                  <p className="text-xs text-zinc-400 mb-6 max-w-[250px]">{chartError}</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="h-9 px-6 font-bold" 
+                    onClick={() => {
+                      setIsChartReady(false);
+                      setTimeout(() => setIsChartReady(true), 10);
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
+                  </Button>
+                </div>
+              )}
               
               <div ref={chartContainerRef} className="h-full w-full relative" />
               
@@ -649,4 +731,3 @@ const Clock = (props: any) => (
     <polyline points="12 6 12 12 16 14" />
   </svg>
 );
-
