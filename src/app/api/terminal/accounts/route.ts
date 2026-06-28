@@ -3,9 +3,9 @@ import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 const PLANS: Record<string, { balance: number; maxLoss: number; dailyLoss: number; profitTarget: number; label: string }> = {
-  "10k": { balance: 10000, maxLoss: 500, dailyLoss: 500, profitTarget: 800, label: "$10,000" },
-  "25k": { balance: 25000, maxLoss: 1250, dailyLoss: 1250, profitTarget: 2000, label: "$25,000" },
-  "50k": { balance: 50000, maxLoss: 2500, dailyLoss: 2500, profitTarget: 4000, label: "$50,000" },
+  "10k": { balance: 10000, maxLoss: 600, dailyLoss: 300, profitTarget: 1000, label: "$10,000" },
+  "25k": { balance: 25000, maxLoss: 1500, dailyLoss: 750, profitTarget: 2500, label: "$25,000" },
+  "50k": { balance: 50000, maxLoss: 3000, dailyLoss: 1500, profitTarget: 5000, label: "$50,000" },
 };
 
 export async function POST(req: NextRequest) {
@@ -30,14 +30,13 @@ export async function POST(req: NextRequest) {
     const docRef = await db.collection("demoAccounts").add({
       userId: uid,
       plan,
+      planType: "1-step-pro", // Standardize for risk engine
+      phase: "evaluation",
       label: `Phase 1 — ${p.label} Challenge`,
       balance: p.balance,
       equity: p.balance,
       startBalance: p.balance,
-      dailyStartBalance: p.balance, // Initialized for drawdown tracking
-      maxLoss: p.maxLoss,
-      dailyLoss: p.dailyLoss,
-      profitTarget: p.profitTarget,
+      dailyStartBalance: p.balance,
       status: "active",
       createdAt: Timestamp.now(),
       dailyLossResetAt: Timestamp.now(),

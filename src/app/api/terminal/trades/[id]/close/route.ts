@@ -3,7 +3,7 @@ import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 const CONTRACT_SIZE: Record<string, number> = {
-  XAUUSD: 100, BTCUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
 };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -42,10 +42,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const priceSnap = await db.collection("livePrices").doc(trade.symbol).get();
     if (!priceSnap.exists) return NextResponse.json({ error: "No price for symbol" }, { status: 400 });
     const priceData = priceSnap.data()!;
-    const closePrice = trade.type === "buy" ? priceData.bid : priceData.ask;
+    const closePrice = trade.type === "buy" ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
 
-    const diff = trade.type === "buy" ? closePrice - trade.openPrice : trade.openPrice - closePrice;
-    const pnl = diff * trade.lots * (CONTRACT_SIZE[trade.symbol] || 100000);
+    const contractSize = CONTRACT_SIZE[trade.symbol] || 100000;
+    const pnl = (trade.type === "buy" ? closePrice - trade.openPrice : trade.openPrice - closePrice) * trade.lots * contractSize;
 
     const accRef = db.collection("demoAccounts").doc(trade.accountId);
 
@@ -59,19 +59,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       let newStatus = account.status;
       let breachReason = account.breachReason || null;
 
-      // Rule 1: Max Total Loss (Fixed)
-      if (account.startBalance - newBalance >= account.maxLoss) {
+      // Rule 1: Max Total Loss (Percentage of Start Balance)
+      const maxDrawdownPct = 6; // Default to 6%
+      if (account.startBalance - newBalance >= (account.startBalance * maxDrawdownPct / 100)) {
         newStatus = "blown";
-        breachReason = `Maximum Drawdown Limit Hit ($${account.maxLoss})`;
+        breachReason = `Maximum Drawdown Limit Hit (${maxDrawdownPct}%)`;
       } 
       // Rule 2: Single Trade Loss Breach (3% of balance)
       else if (pnl < 0 && Math.abs(pnl) >= (account.balance * 0.03)) {
         newStatus = "blown";
-        breachReason = "Single Trade Loss Limit Hit (3% Max)";
-      }
-      // Rule 3: Profit Target
-      else if (newBalance - account.startBalance >= account.profitTarget) {
-        newStatus = "passed";
+        breachReason = "Single Trade Loss Violation (3% Max)";
       }
 
       tx.update(tradeRef, {

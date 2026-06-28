@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
- * @fileOverview SL/TP Risk Engine
- * Periodically checks all open demo trades against live market prices.
- * Triggered via GitHub Actions Cron every 30 seconds.
+ * @fileOverview Institutional SL/TP & Risk Engine
+ * Continuous monitoring of open positions, floating P&L, and daily drawdown.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -13,8 +13,14 @@ const CONTRACT_SIZE: Record<string, number> = {
 };
 
 function getContractSize(symbol: string): number {
-  if (CONTRACT_SIZE[symbol]) return CONTRACT_SIZE[symbol];
-  return 100000; // Default to forex standard
+  return CONTRACT_SIZE[symbol] || 100000;
+}
+
+function calculateTradePnl(trade: any, priceData: any) {
+  if (!priceData || !priceData.price) return 0;
+  const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+  const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
+  return diff * trade.lots * getContractSize(trade.symbol);
 }
 
 export async function GET(req: NextRequest) {
@@ -26,122 +32,142 @@ export async function GET(req: NextRequest) {
   const db = getAdminDb();
   
   try {
-    // 1. Audit Daily Drawdown for all Active Accounts
-    const activeAccountsSnap = await db.collection('demoAccounts')
-      .where('status', '==', 'active')
-      .get();
-    
-    const accountBatches = [];
-    for (const accDoc of activeAccountsSnap.docs) {
-      const acc = accDoc.data();
-      const dailyStart = acc.dailyStartBalance || acc.startBalance;
-      const currentEquity = acc.equity || acc.balance;
-      const dailyLimit = acc.dailyLoss;
+    const activeAccountsSnap = await db.collection('demoAccounts').where('status', '==', 'active').get();
+    const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
+    const pricesSnap = await db.collection('livePrices').get();
 
-      if (dailyStart - currentEquity >= dailyLimit) {
-        accountBatches.push(db.collection('demoAccounts').doc(accDoc.id).update({
-          status: 'blown',
-          breachReason: `Daily Drawdown Limit Hit ($${dailyLimit})`,
-          updatedAt: FieldValue.serverTimestamp()
-        }));
-      }
-    }
-    if (accountBatches.length > 0) await Promise.all(accountBatches);
-
-    // 2. Fetch Open Positions for SL/TP evaluation
-    const tradesSnap = await db.collection('demoTrades')
-      .where('status', '==', 'open')
-      .get();
-    
-    if (tradesSnap.empty) return NextResponse.json({ closed: 0, checked: 0 });
-
-    const symbols = [...new Set(tradesSnap.docs.map(d => d.data().symbol))];
     const prices: Record<string, any> = {};
-    
-    await Promise.all(symbols.map(async (sym) => {
-      const doc = await db.collection('livePrices').doc(sym).get();
-      if (doc.exists) prices[sym] = doc.data();
-    }));
+    pricesSnap.docs.forEach(d => prices[d.id] = d.data());
+
+    const accountTrades: Record<string, any[]> = {};
+    openTradesSnap.docs.forEach(d => {
+      const t = { id: d.id, ref: d.ref, ...d.data() };
+      if (!accountTrades[t.accountId]) accountTrades[t.accountId] = [];
+      accountTrades[t.accountId].push(t);
+    });
 
     let closedCount = 0;
-    
-    for (const tradeDoc of tradesSnap.docs) {
-      const trade = tradeDoc.data();
-      const priceData = prices[trade.symbol];
-      if (!priceData || !priceData.price) continue;
+    let breaches = 0;
 
-      const currentPrice = priceData.price;
-      const bid = priceData.bid || currentPrice;
-      const ask = priceData.ask || currentPrice;
+    for (const accDoc of activeAccountsSnap.docs) {
+      const acc = accDoc.data();
+      const trades = accountTrades[accDoc.id] || [];
+      
+      // Get Institutional Rules
+      const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
+      const phase = acc.phase || 'evaluation';
+      const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
-      let shouldClose = false;
-      let executionPrice = 0;
+      // 1. Calculate REAL-TIME Equity
+      let floatingPnl = 0;
+      for (const t of trades) {
+        floatingPnl += calculateTradePnl(t, prices[t.symbol]);
+      }
+      const currentEquity = acc.balance + floatingPnl;
 
-      if (trade.type === 'buy') {
-        if (trade.sl && bid <= trade.sl) { shouldClose = true; executionPrice = bid; }
-        else if (trade.tp && bid >= trade.tp) { shouldClose = true; executionPrice = bid; }
-      } 
-      else if (trade.type === 'sell') {
-        if (trade.sl && ask >= trade.sl) { shouldClose = true; executionPrice = ask; }
-        else if (trade.tp && ask <= trade.tp) { shouldClose = true; executionPrice = ask; }
+      // 2. CHECK: Daily Drawdown (Recalculated from Daily Start)
+      const dailyStart = acc.dailyStartBalance || acc.startBalance;
+      const dailyLimitVal = dailyStart * (rules.dailyDrawdown / 100);
+      
+      if (dailyStart - currentEquity >= dailyLimitVal) {
+        await accDoc.ref.update({
+          status: 'blown',
+          breachReason: `Daily Drawdown Limit Hit: $${dailyLimitVal.toFixed(2)} (${rules.dailyDrawdown}%)`,
+          equity: currentEquity,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        breaches++;
+        continue; // Account liquidated, skip SL/TP checks
       }
 
-      if (!shouldClose) continue;
+      // 3. CHECK: Max Total Drawdown
+      const maxLimitVal = acc.startBalance * (rules.maxDrawdown / 100);
+      if (acc.startBalance - currentEquity >= maxLimitVal) {
+        await accDoc.ref.update({
+          status: 'blown',
+          breachReason: `Maximum Drawdown Limit Hit: $${maxLimitVal.toFixed(2)} (${rules.maxDrawdown}%)`,
+          equity: currentEquity,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        breaches++;
+        continue;
+      }
 
-      try {
-        await db.runTransaction(async (tx) => {
-          const accountRef = db.collection('demoAccounts').doc(trade.accountId);
-          const accountDoc = await tx.get(accountRef);
-          if (!accountDoc.exists) return;
-          
-          const account = accountDoc.data()!;
-          const contractSize = getContractSize(trade.symbol);
-          
-          const pnl = trade.type === 'buy' 
-            ? (executionPrice - trade.openPrice) * trade.lots * contractSize
-            : (trade.openPrice - executionPrice) * trade.lots * contractSize;
-
-          const newBalance = parseFloat((account.balance + pnl).toFixed(2));
-          let newStatus = account.status;
-          let breachReason = account.breachReason || null;
-
-          // Rule 1: Max Total Loss
-          if (account.startBalance - newBalance >= account.maxLoss) {
-            newStatus = 'blown';
-            breachReason = `Maximum Drawdown Limit Hit ($${account.maxLoss})`;
-          } 
-          // Rule 2: Single Trade Loss Breach (3%)
-          else if (pnl < 0 && Math.abs(pnl) >= (account.balance * 0.03)) {
-            newStatus = 'blown';
-            breachReason = 'Single Trade Loss Limit Hit (3% Max)';
+      // 4. CHECK: 1% Max Floating Loss (Funded Rule)
+      if (rules.maxFloatingLoss) {
+        const floatLimit = acc.startBalance * (rules.maxFloatingLoss / 100);
+        let floatBreach = false;
+        for (const t of trades) {
+          const tPnl = calculateTradePnl(t, prices[t.symbol]);
+          if (tPnl < 0 && Math.abs(tPnl) >= floatLimit) {
+            floatBreach = true;
+            break;
           }
-          // Rule 3: Profit Target
-          else if (newBalance - account.startBalance >= account.profitTarget) {
-            newStatus = 'passed';
-          }
-
-          tx.update(tradeDoc.ref, {
-            status: 'closed',
-            closePrice: executionPrice,
-            closedAt: FieldValue.serverTimestamp(),
-            pnl: parseFloat(pnl.toFixed(2))
-          });
-
-          tx.update(accountRef, {
-            balance: newBalance,
-            equity: newBalance,
-            status: newStatus,
-            breachReason,
+        }
+        if (floatBreach) {
+          await accDoc.ref.update({
+            status: 'blown',
+            breachReason: `Institutional Violation: Individual Floating Loss exceeded ${rules.maxFloatingLoss}%`,
+            equity: currentEquity,
             updatedAt: FieldValue.serverTimestamp()
           });
-        });
-        closedCount++;
-      } catch (err) {
-        console.error(`[RiskEngine] Closure failed for ${tradeDoc.id}:`, err);
+          breaches++;
+          continue;
+        }
       }
+
+      // 5. SL/TP Execution
+      for (const t of trades) {
+        const priceData = prices[t.symbol];
+        if (!priceData) continue;
+
+        const bid = priceData.bid || priceData.price;
+        const ask = priceData.ask || priceData.price;
+
+        let triggerPrice = 0;
+        if (t.type === 'buy') {
+          if (t.sl && bid <= t.sl) triggerPrice = bid;
+          else if (t.tp && bid >= t.tp) triggerPrice = bid;
+        } else {
+          if (t.sl && ask >= t.sl) triggerPrice = ask;
+          else if (t.tp && ask <= t.tp) triggerPrice = ask;
+        }
+
+        if (triggerPrice > 0) {
+          const pnl = (t.type === 'buy' ? triggerPrice - t.openPrice : t.openPrice - triggerPrice) * t.lots * getContractSize(t.symbol);
+          
+          await db.runTransaction(async (tx) => {
+            const currentAcc = (await tx.get(accDoc.ref)).data()!;
+            const newBalance = currentAcc.balance + pnl;
+            
+            tx.update(t.ref, {
+              status: 'closed',
+              closePrice: triggerPrice,
+              pnl,
+              closedAt: FieldValue.serverTimestamp()
+            });
+            
+            tx.update(accDoc.ref, {
+              balance: newBalance,
+              equity: newBalance,
+              updatedAt: FieldValue.serverTimestamp()
+            });
+          });
+          closedCount++;
+        }
+      }
+      
+      // Update Equity periodically even if no breach
+      await accDoc.ref.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
     }
 
-    return NextResponse.json({ success: true, closed: closedCount, checked: tradesSnap.size });
+    return NextResponse.json({ 
+      success: true, 
+      closed: closedCount, 
+      breaches, 
+      checked: activeAccountsSnap.size 
+    });
+
   } catch (error: any) {
     console.error('[RiskEngine] Critical Failure:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
