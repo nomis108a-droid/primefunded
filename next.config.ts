@@ -20,19 +20,19 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
-    // Serve standard icon paths from the high-res placeholder seeds to fix 404s
+    // Serve standard icon paths from the local logo file added to the project
     return [
       {
         source: '/apple-touch-icon.png',
-        destination: 'https://picsum.photos/seed/pflogo-blue-silver/180/180',
+        destination: '/pf-logo.png',
       },
       {
         source: '/favicon.ico',
-        destination: 'https://picsum.photos/seed/pflogo-blue-silver/32/32',
+        destination: '/pf-logo.png',
       },
       {
         source: '/favicon-32x32.png',
-        destination: 'https://picsum.photos/seed/pflogo-blue-silver/32/32',
+        destination: '/pf-logo.png',
       },
     ];
   },

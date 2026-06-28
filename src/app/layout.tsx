@@ -1,4 +1,3 @@
-
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
@@ -23,9 +22,9 @@ export const metadata: Metadata = {
   keywords: ['prop firm', 'funded account', 'trading challenge', 'forex funding', 'institutional capital'],
   authors: [{ name: 'PrimeFunded Global' }],
   icons: {
-    icon: '/favicon.ico',
+    icon: '/pf-logo.png',
     shortcut: '/favicon.ico',
-    apple: '/apple-touch-icon.png',
+    apple: '/pf-logo.png',
   },
   robots: 'index, follow',
   openGraph: {
