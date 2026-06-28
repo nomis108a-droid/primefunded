@@ -37,12 +37,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Configuration Error: Plan rules not found" }, { status: 500 });
     }
 
-    // Dynamic calculation based on Institutional Rules
-    // profitTarget for 1-step-pro evaluation is 10%
+    // FIXED DOLLAR LIMITS - Calculated ONCE at creation
     const targetPct = rules.profitTarget || 10;
     const profitTarget = p.balance * (targetPct / 100);
-    const dailyLoss = p.balance * (rules.dailyDrawdown / 100);
-    const maxLoss = p.balance * (rules.maxDrawdown / 100);
+    const dailyLossLimitUsd = p.balance * (rules.dailyDrawdown / 100);
+    const maxLossLimitUsd = p.balance * (rules.maxDrawdown / 100);
 
     const db = getAdminDb();
     const docRef = await db.collection("demoAccounts").add({
@@ -54,14 +53,14 @@ export async function POST(req: NextRequest) {
       balance: p.balance,
       equity: p.balance,
       startBalance: p.balance,
-      dailyStartBalance: p.balance,
       profitTarget,
-      dailyLoss,
-      maxLoss,
+      dailyLossLimitUsd, // Fixed threshold
+      dailyGrossLossUsd: 0, // Real-time counter
+      maxLoss: maxLossLimitUsd, // Fixed threshold
       status: "active",
       breachReason: null,
       createdAt: Timestamp.now(),
-      dailyLossResetAt: Timestamp.now(),
+      lastResetAt: Timestamp.now(),
     });
 
     return NextResponse.json({ ok: true, accountId: docRef.id });

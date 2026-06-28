@@ -4,18 +4,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
- * @fileOverview Institutional Data Migration
- * Backfills legacy demoAccounts with the required telemetry for the Risk Engine.
+ * @fileOverview Institutional Data Migration (Fixed Dollar & Gross Loss Update)
+ * Backfills accounts with the required fixed-dollar thresholds and reset counters.
  */
 
 export async function GET(req: NextRequest) {
   try {
-    // Authorization Check: Master key required for execution
     const isMaster = req.nextUrl.searchParams.get('key') === '93463962569392846256';
-    
-    if (!isMaster) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    if (!isMaster) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const db = getAdminDb();
     const snap = await db.collection("demoAccounts").get();
@@ -28,48 +24,34 @@ export async function GET(req: NextRequest) {
       const updates: any = {};
       let needsUpdate = false;
 
-      // 1. Backfill Daily Drawdown Telemetry
-      if (data.dailyStartBalance === undefined) {
-        updates.dailyStartBalance = data.balance || data.startBalance || 100000;
+      const planKey = getPlanKey(data.planType || data.plan || '1-step-pro');
+      const phaseKey = data.phase || 'evaluation';
+      const rules = RULES_CONFIG.plans[planKey]?.[phaseKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+      const startBalance = parseFloat(String(data.startBalance || 100000));
+
+      // 1. Initialize Gross Loss Counter
+      if (data.dailyGrossLossUsd === undefined) {
+        updates.dailyGrossLossUsd = 0;
         needsUpdate = true;
       }
 
-      // 2. Standardize Plan Key for Rules Engine
-      if (data.planType === undefined) {
-        updates.planType = "1-step-pro"; 
+      // 2. Set FIXED Dollar Daily Loss Limit
+      if (data.dailyLossLimitUsd === undefined) {
+        updates.dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
         needsUpdate = true;
       }
 
-      // 3. Initialize Breach Context
-      if (data.breachReason === undefined) {
-        updates.breachReason = null;
+      // 3. Set FIXED Dollar Max Loss Limit
+      if (data.maxLoss === undefined || data.maxLoss !== (startBalance * (rules.maxDrawdown / 100))) {
+        updates.maxLoss = startBalance * (rules.maxDrawdown / 100);
         needsUpdate = true;
       }
 
-      // 4. Set Initial Phase
-      if (data.phase === undefined) {
-        updates.phase = "evaluation";
+      // 4. Calibrate Profit Target
+      const correctTarget = startBalance * (rules.profitTarget / 100);
+      if (data.profitTarget !== correctTarget) {
+        updates.profitTarget = correctTarget;
         needsUpdate = true;
-      }
-
-      // 5. Initialize Reset Timestamp
-      if (data.dailyLossResetAt === undefined) {
-        updates.dailyLossResetAt = FieldValue.serverTimestamp();
-        needsUpdate = true;
-      }
-
-      // 6. CORRECT PROFIT TARGET
-      const planKey = getPlanKey(updates.planType || data.planType || '1-step-pro');
-      const phaseKey = updates.phase || data.phase || 'evaluation';
-      const rules = RULES_CONFIG.plans[planKey]?.[phaseKey];
-      
-      if (rules && rules.profitTarget) {
-        const startBalance = parseFloat(String(data.startBalance || 100000));
-        const correctTarget = startBalance * (rules.profitTarget / 100);
-        if (data.profitTarget !== correctTarget) {
-          updates.profitTarget = correctTarget;
-          needsUpdate = true;
-        }
       }
 
       if (needsUpdate) {
@@ -85,15 +67,9 @@ export async function GET(req: NextRequest) {
       await batch.commit();
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      processed: snap.size, 
-      updated: updatedCount,
-      timestamp: new Date().toISOString()
-    });
-
+    return NextResponse.json({ success: true, updated: updatedCount });
   } catch (error: any) {
     console.error('[Migration] Error:', error);
-    return NextResponse.json({ error: "Migration failed", details: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

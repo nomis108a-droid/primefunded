@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { FieldValue } from 'firebase-admin/firestore';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 /**
- * @fileOverview Institutional SL/TP & Risk Engine
- * Continuous monitoring of open positions, floating P&L, and daily drawdown.
+ * @fileOverview Institutional SL/TP & Gross Risk Engine
+ * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -46,77 +45,71 @@ export async function GET(req: NextRequest) {
       accountTrades[t.accountId].push(t);
     });
 
-    let closedCount = 0;
-    let breaches = 0;
+    let liquidated = 0;
+    let sltpClosed = 0;
 
     for (const accDoc of activeAccountsSnap.docs) {
       const acc = accDoc.data();
       const trades = accountTrades[accDoc.id] || [];
       
-      // Get Institutional Rules
-      const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
-      const phase = acc.phase || 'evaluation';
-      const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
-
-      // 1. Calculate REAL-TIME Equity
       let floatingPnl = 0;
-      for (const t of trades) {
-        floatingPnl += calculateTradePnl(t, prices[t.symbol]);
-      }
-      const currentEquity = acc.balance + floatingPnl;
-
-      // 2. CHECK: Daily Drawdown (Recalculated from Daily Start)
-      const dailyStart = acc.dailyStartBalance || acc.startBalance;
-      const dailyLimitVal = dailyStart * (rules.dailyDrawdown / 100);
+      let floatingNegativePnl = 0;
       
-      if (dailyStart - currentEquity >= dailyLimitVal) {
-        await accDoc.ref.update({
-          status: 'blown',
-          breachReason: `Daily Drawdown Limit Hit: $${dailyLimitVal.toFixed(2)} (${rules.dailyDrawdown}%)`,
-          equity: currentEquity,
-          updatedAt: FieldValue.serverTimestamp()
-        });
-        breaches++;
-        continue; // Account liquidated, skip SL/TP checks
+      for (const t of trades) {
+        const pnl = calculateTradePnl(t, prices[t.symbol]);
+        floatingPnl += pnl;
+        if (pnl < 0) floatingNegativePnl += Math.abs(pnl);
       }
 
-      // 3. CHECK: Max Total Drawdown
-      const maxLimitVal = acc.startBalance * (rules.maxDrawdown / 100);
-      if (acc.startBalance - currentEquity >= maxLimitVal) {
-        await accDoc.ref.update({
-          status: 'blown',
-          breachReason: `Maximum Drawdown Limit Hit: $${maxLimitVal.toFixed(2)} (${rules.maxDrawdown}%)`,
-          equity: currentEquity,
-          updatedAt: FieldValue.serverTimestamp()
-        });
-        breaches++;
-        continue;
+      const currentEquity = acc.balance + floatingPnl;
+      const virtualDailyLoss = (acc.dailyGrossLossUsd || 0) + floatingNegativePnl;
+
+      let breachReason = null;
+
+      // 1. CHECK: REAL-TIME DAILY GROSS LOSS (Including Negative Floating)
+      if (virtualDailyLoss >= acc.dailyLossLimitUsd) {
+        breachReason = "daily_drawdown_breach";
+      } 
+      // 2. CHECK: MAX TOTAL DRAWDOWN (Equity vs Start Balance)
+      else if ((acc.startBalance - currentEquity) >= (acc.maxLoss || acc.startBalance * 0.06)) {
+        breachReason = "max_drawdown_breach";
       }
 
-      // 4. CHECK: 1% Max Floating Loss (Funded Rule) - BASIS: CURRENT BALANCE
-      if (rules.maxFloatingLoss) {
-        const floatLimit = acc.balance * (rules.maxFloatingLoss / 100);
-        let floatBreach = false;
-        for (const t of trades) {
-          const tPnl = calculateTradePnl(t, prices[t.symbol]);
-          if (tPnl < 0 && Math.abs(tPnl) >= floatLimit) {
-            floatBreach = true;
-            break;
+      // ── LIQUIDATION PROTOCOL ─────────────────────────────────
+      if (breachReason) {
+        await db.runTransaction(async (tx) => {
+          let finalBalance = acc.balance;
+          
+          // Force-close every position
+          for (const t of trades) {
+            const priceData = prices[t.symbol];
+            if (!priceData) continue;
+            const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+            const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * getContractSize(t.symbol);
+            
+            tx.update(t.ref, {
+              status: 'closed',
+              closePrice: exitPrice,
+              pnl: tradePnl,
+              closedAt: FieldValue.serverTimestamp(),
+              liquidated: true
+            });
+            finalBalance += tradePnl;
           }
-        }
-        if (floatBreach) {
-          await accDoc.ref.update({
+
+          tx.update(accDoc.ref, {
             status: 'blown',
-            breachReason: `Institutional Violation: Individual Floating Loss exceeded ${rules.maxFloatingLoss}% of current balance`,
-            equity: currentEquity,
+            breachReason,
+            balance: finalBalance,
+            equity: finalBalance,
             updatedAt: FieldValue.serverTimestamp()
           });
-          breaches++;
-          continue;
-        }
+        });
+        liquidated++;
+        continue; // Skip SL/TP since account is liquidated
       }
 
-      // 5. SL/TP Execution
+      // 3. SL/TP EXECUTION (NORMAL FLOW)
       for (const t of trades) {
         const priceData = prices[t.symbol];
         if (!priceData) continue;
@@ -146,25 +139,37 @@ export async function GET(req: NextRequest) {
               pnl,
               closedAt: FieldValue.serverTimestamp()
             });
-            
-            tx.update(accDoc.ref, {
+
+            const updates: any = {
               balance: newBalance,
               equity: newBalance,
               updatedAt: FieldValue.serverTimestamp()
-            });
+            };
+
+            // Real-time realized loss counter update
+            if (pnl < 0) {
+              updates.dailyGrossLossUsd = (currentAcc.dailyGrossLossUsd || 0) + Math.abs(pnl);
+            }
+
+            // Real-time Profit Target Check (REALIZED ONLY)
+            if (newBalance >= (currentAcc.startBalance + currentAcc.profitTarget) && currentAcc.status === 'active') {
+              updates.status = 'passed';
+            }
+
+            tx.update(accDoc.ref, updates);
           });
-          closedCount++;
+          sltpClosed++;
         }
       }
       
-      // Update Equity periodically even if no breach
+      // Heartbeat Equity Update
       await accDoc.ref.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
     }
 
     return NextResponse.json({ 
       success: true, 
-      closed: closedCount, 
-      breaches, 
+      liquidated, 
+      sltpClosed, 
       checked: activeAccountsSnap.size 
     });
 

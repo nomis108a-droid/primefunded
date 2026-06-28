@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
@@ -56,19 +56,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const account = accSnap.data()!;
       const newBalance = account.balance + pnl;
 
-      let newStatus = account.status;
-      let breachReason = account.breachReason || null;
+      const updates: any = {
+        balance: newBalance,
+        equity: newBalance,
+        updatedAt: FieldValue.serverTimestamp()
+      };
 
-      // Rule 1: Max Total Loss (Percentage of Start Balance)
-      const maxDrawdownPct = 6; // Default to 6%
-      if (account.startBalance - newBalance >= (account.startBalance * maxDrawdownPct / 100)) {
-        newStatus = "blown";
-        breachReason = `Maximum Drawdown Limit Hit (${maxDrawdownPct}%)`;
+      // Realized Gross Loss Update
+      if (pnl < 0) {
+        updates.dailyGrossLossUsd = (account.dailyGrossLossUsd || 0) + Math.abs(pnl);
+      }
+
+      // Check Real-time Realized Breaches
+      if (updates.dailyGrossLossUsd >= account.dailyLossLimitUsd) {
+        updates.status = "blown";
+        updates.breachReason = "daily_drawdown_breach";
+      } else if ((account.startBalance - newBalance) >= account.maxLoss) {
+        updates.status = "blown";
+        updates.breachReason = "max_drawdown_breach";
       } 
-      // Rule 2: Single Trade Loss Breach (3% of balance)
-      else if (pnl < 0 && Math.abs(pnl) >= (account.balance * 0.03)) {
-        newStatus = "blown";
-        breachReason = "Single Trade Loss Violation (3% Max)";
+      // Profit Target Check (REALIZED ONLY)
+      else if (newBalance >= (account.startBalance + account.profitTarget) && account.status === 'active') {
+        updates.status = "passed";
       }
 
       tx.update(tradeRef, {
@@ -78,12 +87,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         closedAt: Timestamp.now(),
       });
 
-      tx.update(accRef, {
-        balance: newBalance,
-        equity: newBalance,
-        status: newStatus,
-        breachReason
-      });
+      tx.update(accRef, updates);
     });
 
     return NextResponse.json({ ok: true, pnl, closePrice });

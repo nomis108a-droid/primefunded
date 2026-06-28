@@ -1,4 +1,4 @@
-name: SL/TP Auto-Close
+name: SL/TP & Risk Engine
 on:
   schedule:
     - cron: '* * * * *'  # Run every 1 minute
@@ -23,13 +23,13 @@ jobs:
             -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
             https://primefunded.fund/api/terminal/trades/check-sl-tp
 
-      - name: Midnight Daily Reset
+      - name: Daily Reset (2:00 AM UTC)
         run: |
-          # Only run at exactly 00:00 UTC
           HOUR=$(date -u +%H)
           MIN=$(date -u +%M)
-          if [ "$HOUR" = "00" ] && [ "$MIN" = "00" ]; then
-            echo "Starting midnight reset protocol..."
+          # Target exactly 02:00 or 02:01 to ensure one execution
+          if [ "$HOUR" = "02" ] && [ "$MIN" = "00" ]; then
+            echo "Starting 2:00 AM UTC reset protocol..."
             curl -s -X GET \
               -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}" \
               https://primefunded.fund/api/terminal/daily-reset
