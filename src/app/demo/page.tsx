@@ -765,9 +765,9 @@ export default function DemoPage() {
                       disabled={actionLoading}
                     >
                       <span className="font-black text-sm tracking-widest">
-                        {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : !isAccountActive ? "ACCOUNT LOCKED" : "BUY BY MARKET"}
+                        {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : "BUY BY MARKET"}
                       </span>
-                      {currentPriceData && isAccountActive && !actionLoading && (
+                      {currentPriceData && !actionLoading && (
                         <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.ask, selectedSymbol)}</span>
                       )}
                     </button>
@@ -779,7 +779,7 @@ export default function DemoPage() {
                       disabled={actionLoading}
                     >
                       <span className="font-black text-sm tracking-widest">
-                        {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : !isAccountActive ? "ACCOUNT LOCKED" : "SELL BY MARKET"}
+                        {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : "SELL BY MARKET"}
                       </span>
                       {currentPriceData && isAccountActive && !actionLoading && (
                         <span className="font-mono text-xs opacity-80">{formatPrice(currentPriceData?.bid, selectedSymbol)}</span>
