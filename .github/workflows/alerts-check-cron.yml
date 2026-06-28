@@ -1,0 +1,15 @@
+name: Price Alerts Watchdog
+
+on:
+  schedule:
+    - cron: "* * * * *"   # every 1 minute
+  workflow_dispatch:
+
+jobs:
+  check-alerts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Alert Engine
+        run: |
+          curl -s -X GET "https://primefunded.fund/api/terminal/alerts/check" \
+            -H "x-api-key: ${{ secrets.TERMINAL_CRON_KEY }}"
