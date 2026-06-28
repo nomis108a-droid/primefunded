@@ -9,13 +9,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   Loader2, ArrowLeft, Minus, Plus, Activity, Bell, Globe, Settings, 
   Crosshair, Circle, Slash, ArrowUpRight, ArrowLeftRight, ArrowRight,
   Square, Triangle, Type, Pencil, Magnet, Undo, Trash2, Ruler,
-  TrendingUp, TrendingDown
+  TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
+  Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
+  ZoomIn, ZoomOut, AlertCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -66,9 +68,14 @@ export default function DemoPage() {
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  
+  // Drawing & Workspace States
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [magnetMode, setMagnetMode] = useState(false);
+  const [drawingsLocked, setDrawingsLocked] = useState(false);
+  const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
   const [chartSettings, setChartSettings] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -86,7 +93,6 @@ export default function DemoPage() {
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
 
-  // BUG 1 FIX: Wait for accounts and sync currentAccountId
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
@@ -144,8 +150,13 @@ export default function DemoPage() {
     window.addEventListener('resize', handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; }
-      mainSeriesRef.current = null; setIsChartReady(false);
+      if (chartInstanceRef.current) { 
+        try { chartInstanceRef.current.remove(); } catch (e) {} 
+        chartInstanceRef.current = null; 
+      }
+      mainSeriesRef.current = null; 
+      setIsChartReady(false);
+      currentCandleRef.current = null;
     };
   }, [pageReady, applyGlobalSettings]);
 
@@ -180,7 +191,6 @@ export default function DemoPage() {
     return () => { isMounted = false; };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
 
-  // BUG 2 FIX: Live price polling and candle updates
   useEffect(() => {
     if (!pageReady || !isChartReady) return;
 
@@ -191,7 +201,6 @@ export default function DemoPage() {
         const prices = await res.json();
         setLivePrices(prices);
 
-        // Update real-time candle
         try {
           if (mainSeriesRef.current && chartInstanceRef.current) {
             const secs = intervalSecondsMap[selectedInterval] || 60;
@@ -211,7 +220,7 @@ export default function DemoPage() {
               mainSeriesRef.current.update(currentCandleRef.current);
             }
           }
-        } catch (err) { /* chart disposed */ }
+        } catch (err) {}
       } catch (e) {}
     };
 
@@ -220,7 +229,6 @@ export default function DemoPage() {
     return () => clearInterval(interval);
   }, [pageReady, isChartReady, selectedInterval, selectedSymbol]);
 
-  // BUG 3 FIX: Robust trade execution
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
@@ -233,7 +241,6 @@ export default function DemoPage() {
         return;
       }
 
-      // Fetch fresh price directly for high-fidelity execution
       const pricesRes = await fetch('/api/terminal/live-prices');
       const prices = await pricesRes.json();
       const priceData = prices[selectedSymbol];
@@ -288,15 +295,44 @@ export default function DemoPage() {
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2"><Image src={branding.logoUrl} alt="Logo" width={24} height={24} className="rounded-full" /><span className="font-bold text-sm tracking-tight text-white">PrimeFunded Trade</span></div>
-          <Link href="/dashboard" className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-6 h-12"><ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard</Link>
+          <div className="flex items-center gap-2">
+            <Image src={branding.logoUrl} alt="Logo" width={24} height={24} className="rounded-full" />
+            <span className="font-bold text-sm tracking-tight text-white">PrimeFunded Trade</span>
+          </div>
+          <Link href="/dashboard" className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-6 h-12">
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+          </Link>
         </div>
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}><Bell className="w-4 h-4" /> Set Alert</Button>
-          <Select value={selectedTimezone} onValueChange={setSelectedTimezone}><SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold"><Globe className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger><SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent></Select>
-          <Select value={chartType} onValueChange={setChartType}><SelectTrigger className="bg-transparent border-none h-9 w-32 text-xs font-bold"><Activity className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent></Select>
-          <Button variant="ghost" size="sm" className="h-9 px-3 text-zinc-400" onClick={() => setIsSettingsOpen(true)}><Settings className="w-4 h-4" /></Button>
-          <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}><SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold"><SelectValue placeholder="Select Account" /></SelectTrigger><SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent></Select>
+          <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}>
+            <Bell className="w-4 h-4" /> Set Alert
+          </Button>
+          <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
+            <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold">
+              <Globe className="w-3.5 h-3.5 mr-2" /><SelectValue />
+            </SelectTrigger>
+            <SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={chartType} onValueChange={setChartType}>
+            <SelectTrigger className="bg-transparent border-none h-9 w-32 text-xs font-bold">
+              <Activity className="w-3.5 h-3.5 mr-2" /><SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="candles">Candles</SelectItem>
+              <SelectItem value="bars">Bars</SelectItem>
+              <SelectItem value="line">Line</SelectItem>
+              <SelectItem value="area">Area</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="ghost" size="sm" className="h-9 px-3 text-zinc-400" onClick={() => setIsSettingsOpen(true)}>
+            <Settings className="w-4 h-4" />
+          </Button>
+          <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
+            <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold">
+              <SelectValue placeholder="Select Account" />
+            </SelectTrigger>
+            <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
+          </Select>
         </div>
       </header>
 
@@ -311,31 +347,72 @@ export default function DemoPage() {
           </div>
 
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
-            <aside className="w-[44px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0">
+            {/* TRADINGVIEW STYLE SIDEBAR */}
+            <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#161616] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl">
               <TooltipProvider delayDuration={300}>
-                <ToolIcon name="Crosshair" icon={<Crosshair />} active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} />
-                <ToolIcon name="Dot" icon={<Circle className="fill-current scale-[0.3]" />} active={activeTool === 'dot'} onClick={() => setActiveTool('dot')} />
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
-                <ToolIcon name="Trend Line" icon={<Slash />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
-                <ToolIcon name="Ray" icon={<ArrowUpRight />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
-                <ToolIcon name="Extended Line" icon={<ArrowLeftRight />} active={activeTool === 'extended'} onClick={() => setActiveTool('extended')} />
-                <ToolIcon name="Horizontal Line" icon={<Minus />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
-                <ToolIcon name="Horizontal Ray" icon={<ArrowRight />} active={activeTool === 'hray'} onClick={() => setActiveTool('hray')} />
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
-                <ToolIcon name="Rectangle" icon={<Square />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-                <ToolIcon name="Circle" icon={<Circle />} active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} />
-                <ToolIcon name="Triangle" icon={<Triangle />} active={activeTool === 'triangle'} onClick={() => setActiveTool('triangle')} />
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
-                <ToolIcon name="Long Position" icon={<TrendingUp className="text-emerald-500" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
-                <ToolIcon name="Short Position" icon={<TrendingDown className="text-red-500" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
-                <ToolIcon name="Price Range" icon={<Ruler />} active={activeTool === 'measure'} onClick={() => setActiveTool('measure')} />
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
-                <ToolIcon name="Text" icon={<Type />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-                <ToolIcon name="Brush" icon={<Pencil />} active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} />
-                <div className="mt-auto flex flex-col gap-0 w-full items-center">
+                {/* GROUP 1: CURSORS */}
+                <div className="flex flex-col gap-1 items-center w-full">
+                  <ToolIcon name="Crosshair" icon={<Crosshair />} active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} />
+                  <ToolIcon name="Dot" icon={<Circle className="fill-current scale-[0.3]" />} active={activeTool === 'dot'} onClick={() => setActiveTool('dot')} />
+                </div>
+                
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+
+                {/* GROUP 2: LINES */}
+                <div className="flex flex-col gap-1 items-center w-full">
+                  <ToolIcon name="Trend Line" icon={<Slash />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+                  <ToolIcon name="Arrow" icon={<ArrowUpRight />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
+                  <ToolIcon name="Horizontal Line" icon={<Minus />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+                  <ToolIcon name="Vertical Line" icon={<div className="rotate-90"><Minus /></div>} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
+                  <ToolIcon name="Ray" icon={<ArrowRight className="rotate-[-45deg]" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
+                  <ToolIcon name="Extended Line" icon={<ArrowLeftRight />} active={activeTool === 'extended'} onClick={() => setActiveTool('extended')} />
+                  <ToolIcon name="Parallel Channel" icon={<Columns className="scale-75" />} active={activeTool === 'channel'} onClick={() => setActiveTool('channel')} />
+                </div>
+
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+
+                {/* GROUP 3: SHAPES */}
+                <div className="flex flex-col gap-1 items-center w-full">
+                  <ToolIcon name="Rectangle" icon={<Square />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
+                  <ToolIcon name="Circle" icon={<Circle />} active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} />
+                  <ToolIcon name="Triangle" icon={<Triangle />} active={activeTool === 'triangle'} onClick={() => setActiveTool('triangle')} />
+                </div>
+
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+
+                {/* GROUP 4: FIBONACCI */}
+                <div className="flex flex-col gap-1 items-center w-full">
+                  <ToolIcon name="Fib Retracement" icon={<Activity className="scale-90" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
+                  <ToolIcon name="Fib Extension" icon={<LayoutGrid className="scale-75" />} active={activeTool === 'fib-ext'} onClick={() => setActiveTool('fib-ext')} />
+                </div>
+
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+
+                {/* GROUP 5: ANNOTATION */}
+                <div className="flex flex-col gap-1 items-center w-full">
+                  <ToolIcon name="Text" icon={<Type />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
+                  <ToolIcon name="Note" icon={<StickyNote />} active={activeTool === 'note'} onClick={() => setActiveTool('note')} />
+                  <ToolIcon name="Price Label" icon={<Tag />} active={activeTool === 'price-label'} onClick={() => setActiveTool('price-label')} />
+                  <ToolIcon name="Arrow Marker" icon={<MousePointer2 />} active={activeTool === 'marker'} onClick={() => setActiveTool('marker')} />
+                </div>
+
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+
+                {/* GROUP 6: MEASUREMENT */}
+                <div className="flex flex-col gap-1 items-center w-full">
+                  <ToolIcon name="Ruler / Measure" icon={<Ruler />} active={activeTool === 'measure'} onClick={() => setActiveTool('measure')} />
+                  <ToolIcon name="Long Position" icon={<TrendingUp className="text-emerald-500" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
+                  <ToolIcon name="Short Position" icon={<TrendingDown className="text-red-500" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
+                </div>
+
+                {/* BOTTOM UTILITIES */}
+                <div className="mt-auto flex flex-col gap-1 items-center w-full pb-4">
+                  <ToolIcon name="Lock Drawings" icon={drawingsLocked ? <Lock className="text-primary" /> : <Unlock />} onClick={() => setDrawingsLocked(!drawingsLocked)} />
+                  <ToolIcon name="Hide Drawings" icon={drawingsHidden ? <EyeOff className="text-primary" /> : <Eye />} onClick={() => setDrawingsHidden(!drawingsHidden)} />
                   <ToolIcon name="Magnet Mode" icon={<Magnet className={cn(magnetMode && "text-primary")} />} onClick={() => setMagnetMode(!magnetMode)} />
-                  <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
-                  <ToolIcon name="Remove All" icon={<Trash2 />} onClick={() => setActiveTool('eraser')} />
+                  <ToolIcon name="Favorites" icon={<Star />} active={false} onClick={() => {}} />
+                  <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+                  <ToolIcon name="Delete All" icon={<Trash2 />} className="hover:text-destructive" onClick={() => setIsDeleteAllOpen(true)} />
                 </div>
               </TooltipProvider>
             </aside>
@@ -344,7 +421,15 @@ export default function DemoPage() {
               {isChartLoading && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary" /><p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p></div>}
               <div ref={chartContainerRef} className="h-full w-full relative" />
               {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
-                <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} />
+                <DrawingLayer 
+                  chart={chartInstanceRef.current} 
+                  series={mainSeriesRef.current} 
+                  symbol={selectedSymbol} 
+                  activeTool={activeTool} 
+                  setActiveTool={setActiveTool}
+                  locked={drawingsLocked}
+                  hidden={drawingsHidden}
+                />
               )}
             </div>
           </div>
@@ -390,46 +475,66 @@ export default function DemoPage() {
       </div>
 
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={() => {}} />
-      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
-        <div className="p-6">
-          <h2 className="text-xl font-bold mb-4">Set Price Alert</h2>
-          <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button>
-        </div>
-      </DialogContent></Dialog>
+      
+      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
+          <div className="p-6">
+            <h2 className="text-xl font-bold mb-4">Set Price Alert</h2>
+            <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete All Confirmation */}
+      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
+        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3 text-destructive">
+               <AlertCircle className="w-6 h-6" />
+               <h2 className="text-xl font-headline font-bold">Clear Canvas?</h2>
+            </div>
+            <p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>. This action cannot be undone.</p>
+          </div>
+          <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2">
+             <Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button>
+             <Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 function ToolIcon({ name, icon, active = false, onClick, className }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void, className?: string }) {
   const isInteractive = !!onClick;
-  const Comp = isInteractive ? 'div' : 'span';
   
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Comp 
+        <div 
           onClick={onClick}
-          role={isInteractive ? 'button' : undefined}
-          tabIndex={isInteractive ? 0 : undefined}
-          onKeyDown={isInteractive ? (e: React.KeyboardEvent) => {
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               onClick?.();
             }
-          } : undefined}
+          }}
           className={cn(
-            "w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px]", 
-            active ? "bg-[#2962ff] text-white" : "text-[#888] hover:text-white hover:bg-[#2a2a2a]",
-            isInteractive ? "cursor-pointer" : "cursor-default",
+            "w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px] relative cursor-pointer group", 
+            active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]",
             className
           )}
         >
-          <div className="flex items-center justify-center">
+          <div className="flex items-center justify-center transition-transform group-active:scale-90">
             {icon}
           </div>
-        </Comp>
+        </div>
       </TooltipTrigger>
-      <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2a2a] text-white font-bold text-[10px] uppercase shadow-2xl z-[100]">{name}</TooltipContent>
+      <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">
+        {name}
+      </TooltipContent>
     </Tooltip>
   );
 }
