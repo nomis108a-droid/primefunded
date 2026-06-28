@@ -82,7 +82,7 @@ export default function DemoPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
-  // Auto-close safety trackers
+  // Safety trackers
   const closingTradesRef = useRef<Set<string>>(new Set());
 
   const [chartSettings, setChartSettings] = useState(() => {
@@ -122,6 +122,15 @@ export default function DemoPage() {
     }, 5000);
     return () => clearTimeout(t);
   }, [pageReady]);
+
+  // RESET state on symbol switch to prevent data ghosting
+  useEffect(() => {
+    currentCandleRef.current = null;
+    oldestTimestamp.current = null;
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.timeScale().scrollToPosition(0, false);
+    }
+  }, [selectedSymbol]);
 
   useEffect(() => {
     const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
@@ -203,31 +212,6 @@ export default function DemoPage() {
     };
     window.addEventListener('resize', handleResize);
 
-    chart.timeScale().subscribeVisibleLogicalRangeChange(async (range) => {
-      if (range && range.from < 50 && !isFetchingMore.current && oldestTimestamp.current) {
-        isFetchingMore.current = true;
-        try {
-          const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&before=${oldestTimestamp.current}&limit=500`);
-          if (res.ok) {
-            const data = await res.json();
-            const olderCandles = data.candles || [];
-            if (olderCandles.length > 0 && mainSeriesRef.current) {
-              const cacheKey = `${selectedSymbol}-${selectedInterval}`;
-              const currentData = candleDataCache.get(cacheKey)?.candles || [];
-              const combined = [...olderCandles, ...currentData].sort((a, b) => a.time - b.time);
-              const unique = combined.filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
-              
-              mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? unique : unique.map((c: any) => ({ time: c.time, value: c.close })));
-              candleDataCache.set(cacheKey, { candles: unique, lastUpdated: Date.now() });
-              oldestTimestamp.current = unique[0].time;
-            }
-          }
-        } catch (e) {} finally {
-          isFetchingMore.current = false;
-        }
-      }
-    });
-
     return () => {
       window.removeEventListener('resize', handleResize);
       if (chartInstanceRef.current) { 
@@ -297,7 +281,17 @@ export default function DemoPage() {
       if (mainSeriesRef.current) {
         chartInstanceRef.current.removeSeries(mainSeriesRef.current);
       }
-      const opts = { priceFormat: { type: 'price', precision: selectedSymbol === "USDJPY" ? 3 : (selectedSymbol === "XAUUSD" || selectedSymbol === "BTCUSD" || selectedSymbol === "ETHUSD" ? 2 : 5) }, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '', ...chartSettings.canvas.candles };
+      const precision = selectedSymbol === "USDJPY" ? 3 : (selectedSymbol === "XAUUSD" || selectedSymbol === "BTCUSD" || selectedSymbol === "ETHUSD" ? 2 : 5);
+      const opts = { 
+        priceFormat: { 
+          type: 'price', 
+          precision,
+          minMove: 1 / Math.pow(10, precision)
+        }, 
+        lastValueVisible: chartSettings.scales.labels.currentPrice, 
+        title: chartSettings.scales.labels.ohlc ? selectedSymbol : '', 
+        ...chartSettings.canvas.candles 
+      };
       if (chartType === 'candles') mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries(opts);
       else if (chartType === 'bars') mainSeriesRef.current = chartInstanceRef.current.addBarSeries(opts);
       else if (chartType === 'line') mainSeriesRef.current = chartInstanceRef.current.addLineSeries(opts);
@@ -348,13 +342,13 @@ export default function DemoPage() {
         const prices = await res.json();
         setLivePrices(prices);
 
-        // ── Auto-Close Reactive Engine ───────────────────────
+        // ── Auto-Close Reactive Engine with Safety Guards ───
         if (openTrades && openTrades.length > 0) {
           openTrades.forEach(t => {
             if (closingTradesRef.current.has(t.id)) return;
             
             const pData = prices[t.symbol] || prices[t.symbol?.toUpperCase()];
-            if (!pData) return;
+            if (!pData || !pData.bid || !pData.ask || isNaN(pData.bid) || isNaN(pData.ask)) return;
 
             const bid = pData.bid;
             const ask = pData.ask;
@@ -362,11 +356,11 @@ export default function DemoPage() {
             let reason = "";
 
             if (t.type === 'buy') {
-              if (t.sl && bid <= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
-              else if (t.tp && bid >= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
+              if (t.sl && bid <= t.sl && bid > 0) { triggeredPrice = t.sl; reason = "stop_loss"; }
+              else if (t.tp && bid >= t.tp && bid > 0) { triggeredPrice = t.tp; reason = "take_profit"; }
             } else {
-              if (t.sl && ask >= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
-              else if (t.tp && ask <= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
+              if (t.sl && ask >= t.sl && ask > 0) { triggeredPrice = t.sl; reason = "stop_loss"; }
+              else if (t.tp && ask <= t.tp && ask > 0) { triggeredPrice = t.tp; reason = "take_profit"; }
             }
 
             if (triggeredPrice > 0) {
@@ -377,15 +371,19 @@ export default function DemoPage() {
         }
 
         try {
-          if (mainSeriesRef.current && chartInstanceRef.current) {
+          if (mainSeriesRef.current && chartInstanceRef.current && !isChartLoading) {
             const secs = intervalSecondsMap[selectedInterval] || 60;
             const now = Math.floor(Date.now() / 1000);
             const candleTime = Math.floor(now / secs) * secs;
             const price = prices[selectedSymbol]?.price;
 
-            if (price && price > 0) {
+            if (price && price > 0 && !isNaN(price)) {
               const cur = currentCandleRef.current;
-              if (!cur || cur.time !== candleTime) {
+              // Defensive Check: If the current candle price is vastly different from incoming (e.g. crossing symbol boundary), 
+              // reset to prevent garbled charts.
+              const isOutlier = cur && Math.abs(cur.close - price) / cur.close > 0.5;
+
+              if (!cur || cur.time !== candleTime || isOutlier) {
                 currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
               } else {
                 cur.high = Math.max(cur.high, price);
@@ -411,7 +409,7 @@ export default function DemoPage() {
       clearInterval(interval); 
       document.removeEventListener('visibilitychange', handleVisibilityChange); 
     };
-  }, [pageReady, isChartReady, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
+  }, [pageReady, isChartReady, isChartLoading, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol];

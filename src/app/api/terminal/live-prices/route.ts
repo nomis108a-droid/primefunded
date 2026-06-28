@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -25,6 +26,8 @@ export async function GET() {
       data.forEach((item: any) => {
         const symbol = item.symbol.replace('USDT', 'USD');
         const price = parseFloat(item.price);
+        if (isNaN(price) || price <= 0) return;
+
         // Crypto Spread: 0.1%
         const spread = price * 0.001;
         results[symbol] = { 
@@ -40,23 +43,26 @@ export async function GET() {
     if (forexRes.status === 'fulfilled' && forexRes.value.ok) {
       const data = await forexRes.value.json();
       const r = data.rates;
-      const pairs = [
-        { id: 'EURUSD', price: 1 / r.EUR },
-        { id: 'GBPUSD', price: 1 / r.GBP },
-        { id: 'USDJPY', price: r.JPY },
-        { id: 'AUDUSD', price: 1 / r.AUD },
-        { id: 'USDCHF', price: r.CHF }
-      ];
-      pairs.forEach(p => {
-        // Forex Spread: 0.02%
-        const spread = p.price * 0.0002;
-        results[p.id] = { 
-          price: p.price, 
-          bid: p.price - spread, 
-          ask: p.price + spread, 
-          updatedAt: now 
-        };
-      });
+      if (r) {
+        const pairs = [
+          { id: 'EURUSD', price: r.EUR ? 1 / r.EUR : 0 },
+          { id: 'GBPUSD', price: r.GBP ? 1 / r.GBP : 0 },
+          { id: 'USDJPY', price: r.JPY || 0 },
+          { id: 'AUDUSD', price: r.AUD ? 1 / r.AUD : 0 },
+          { id: 'USDCHF', price: r.CHF || 0 }
+        ];
+        pairs.forEach(p => {
+          if (p.price <= 0 || isNaN(p.price)) return;
+          // Forex Spread: 0.02%
+          const spread = p.price * 0.0002;
+          results[p.id] = { 
+            price: p.price, 
+            bid: p.price - spread, 
+            ask: p.price + spread, 
+            updatedAt: now 
+          };
+        });
+      }
     }
 
     // 3. Process Gold (Metals.live)
@@ -65,14 +71,16 @@ export async function GET() {
       // Metals.live returns an array of objects
       if (Array.isArray(data) && data[0] && (data[0].gold || data[0].price)) {
         const price = parseFloat(data[0].gold || data[0].price);
-        // Gold Spread: 0.05%
-        const spread = price * 0.0005;
-        results['XAUUSD'] = { 
-          price, 
-          bid: price - spread, 
-          ask: price + spread, 
-          updatedAt: now 
-        };
+        if (!isNaN(price) && price > 0) {
+          // Gold Spread: 0.05%
+          const spread = price * 0.0005;
+          results['XAUUSD'] = { 
+            price, 
+            bid: price - spread, 
+            ask: price + spread, 
+            updatedAt: now 
+          };
+        }
       }
     }
 
