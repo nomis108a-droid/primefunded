@@ -84,9 +84,12 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
   }, [chart, series]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (activeTool === 'pointer') return;
+    // If cursor is active, ignore clicks (let chart handle them)
+    if (activeTool === 'crosshair' || activeTool === 'dot') return;
+    
     if (activeTool === 'eraser') {
       setDrawings([]);
+      setActiveTool('crosshair');
       return;
     }
 
@@ -112,7 +115,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
         text: activeTool === 'text' ? 'Analysis Note' : undefined
       };
       setDrawings(prev => [...prev, newDrawing]);
-      setActiveTool('pointer');
+      setActiveTool('crosshair');
       return;
     }
 
@@ -132,7 +135,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
       };
       setDrawings(prev => [...prev, finalDrawing]);
       setTempDrawing(null);
-      setActiveTool('pointer');
+      setActiveTool('crosshair');
     }
   };
 
@@ -155,6 +158,13 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
       ...prev,
       points: [prev.points[0], { time: unixTime, price }]
     }) : null);
+  };
+
+  const getCursorClass = () => {
+    if (activeTool === 'crosshair' || activeTool === 'dot') return 'cursor-crosshair';
+    if (activeTool === 'text') return 'cursor-text';
+    if (activeTool === 'eraser') return 'cursor-pointer';
+    return 'cursor-cell';
   };
 
   const renderDrawing = (drawing: Drawing) => {
@@ -200,15 +210,14 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
         );
       case 'ray':
         if (p2.x === null || p2.y === null) return null;
-        // Extend line infinitely in direction of p2
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const len = Math.sqrt(dx * dx + dy * dy);
-        const ex = p1.x + (dx / len) * 5000;
-        const ey = p1.y + (dy / len) * 5000;
+        const rdx = p2.x - p1.x;
+        const rdy = p2.y - p1.y;
+        const rlen = Math.sqrt(rdx * rdx + rdy * rdy);
+        const rex = p1.x + (rdx / rlen) * 5000;
+        const rey = p1.y + (rdy / rlen) * 5000;
         return (
           <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }}>
-            <line x1={p1.x} y1={p1.y} x2={ex} y2={ey} stroke={drawing.color} strokeWidth={strokeWidth} className="cursor-pointer" />
+            <line x1={p1.x} y1={p1.y} x2={rex} y2={rey} stroke={drawing.color} strokeWidth={strokeWidth} className="cursor-pointer" />
           </g>
         );
       case 'rect':
@@ -219,6 +228,12 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
         const rh = Math.abs(p1.y - p2.y);
         return (
           <rect key={drawing.id} x={rx} y={ry} width={rw} height={rh} fill={drawing.color + '22'} stroke={drawing.color} strokeWidth={strokeWidth} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
+        );
+      case 'circle':
+        if (p2.x === null || p2.y === null) return null;
+        const radius = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        return (
+          <circle key={drawing.id} cx={p1.x} cy={p1.y} r={radius} fill={drawing.color + '22'} stroke={drawing.color} strokeWidth={strokeWidth} className="cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} />
         );
       case 'fib':
         if (p2.x === null || p2.y === null) return null;
@@ -246,14 +261,12 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
         const isLong = drawing.type === 'long';
         const entry = p1.y;
         const target = p2.y;
-        const stopY = entry + (entry - target); // Simple mirror for SL in v1
+        const stopY = entry + (entry - target);
         const boxX = Math.min(p1.x, p2.x);
         const boxW = Math.abs(p1.x - p2.x);
         return (
           <g key={drawing.id} onClick={(e) => { e.stopPropagation(); setSelectedId(drawing.id); }} className="cursor-pointer">
-            {/* Profit Zone */}
             <rect x={boxX} y={Math.min(entry, target)} width={boxW} height={Math.abs(entry - target)} fill={isLong ? '#10b98133' : '#ef444433'} stroke={isLong ? '#10b981' : '#ef4444'} strokeWidth={1} />
-            {/* Loss Zone */}
             <rect x={boxX} y={Math.min(entry, stopY)} width={boxW} height={Math.abs(entry - stopY)} fill={isLong ? '#ef444433' : '#10b98133'} stroke={isLong ? '#ef4444' : '#10b981'} strokeWidth={1} />
             <line x1={boxX} y1={entry} x2={boxX + boxW} y2={entry} stroke="white" strokeWidth={1} />
           </g>
@@ -270,7 +283,17 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool 
   };
 
   return (
-    <svg ref={containerRef} className={cn("absolute inset-0 z-30 w-full h-full", activeTool !== 'pointer' ? "cursor-crosshair pointer-events-auto" : "pointer-events-none")} onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onClick={() => activeTool === 'pointer' && setSelectedId(null)}>
+    <svg 
+      ref={containerRef} 
+      className={cn(
+        "absolute inset-0 z-30 w-full h-full", 
+        activeTool !== 'crosshair' && activeTool !== 'dot' ? "pointer-events-auto" : "pointer-events-none",
+        getCursorClass()
+      )} 
+      onMouseDown={handleMouseDown} 
+      onMouseMove={handleMouseMove} 
+      onClick={() => activeTool === 'crosshair' && setSelectedId(null)}
+    >
       <g key={`revision-${revision}`}>
         {drawings.map(renderDrawing)}
         {tempDrawing && renderDrawing(tempDrawing)}

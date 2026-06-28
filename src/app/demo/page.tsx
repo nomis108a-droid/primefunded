@@ -16,7 +16,8 @@ import {
   Loader2, ArrowLeft, MousePointer2, Minus, Plus, Layers, LayoutGrid, Magnet, Zap, Eraser, TrendingUp, 
   ShoppingBag, Settings, CandlestickChart, BarChart3, AreaChart, Activity, Clock, Globe, Type, Square, 
   Bell, ArrowUp, ArrowDown, Slash, ArrowUpRight, ArrowUpCircle, ArrowDownCircle, ArrowRight, Tag, 
-  RectangleHorizontal, Box, GripVertical, SlidersHorizontal, PlusCircle, Maximize2, ChevronDown, ChevronRight
+  RectangleHorizontal, Box, GripVertical, SlidersHorizontal, PlusCircle, Maximize2, ChevronDown, ChevronRight,
+  Crosshair, Circle, TrendingDown, Pencil, Undo, Trash2, ArrowLeftRight, Ruler, MessageSquare, Triangle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,7 @@ export default function DemoPage() {
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
-  const [activeTool, setActiveTool] = useState<string>('pointer');
+  const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [magnetMode, setMagnetMode] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -201,68 +202,53 @@ export default function DemoPage() {
           </div>
 
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
-            {/* Drawing Tools Sidebar */}
-            <aside className="w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-2 z-40 overflow-y-auto no-scrollbar">
-              <TooltipProvider>
-                <ToolIcon name="Cursor" icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
-                
-                <div className="w-8 h-px bg-zinc-800 my-1 shrink-0" />
-                
-                <Accordion type="single" collapsible className="w-full">
-                  <AccordionItem value="lines" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
-                      <ToolIcon name="Lines" icon={<Slash className="w-4 h-4" />} />
-                    </AccordionTrigger>
-                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
-                      <ToolIcon name="Trend Line" icon={<Slash className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
-                      <ToolIcon name="Ray" icon={<ArrowUpRight className="w-4 h-4" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
-                      <ToolIcon name="Horizontal" icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
-                      <ToolIcon name="Vertical" icon={<GripVertical className="w-4 h-4" />} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
-                    </AccordionContent>
-                  </AccordionItem>
+            {/* TradingView-style Sidebar */}
+            <aside className="w-[44px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0">
+              <TooltipProvider delayDuration={300}>
+                {/* Group 1: Cursor tools */}
+                <ToolIcon name="Crosshair" icon={<Crosshair />} active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} />
+                <ToolIcon name="Dot" icon={<Circle className="fill-current scale-[0.3]" />} active={activeTool === 'dot'} onClick={() => setActiveTool('dot')} />
 
-                  <AccordionItem value="fib" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
-                      <ToolIcon name="Fibonacci" icon={<Layers className="w-4 h-4" />} />
-                    </AccordionTrigger>
-                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
-                      <ToolIcon name="Fib Retracement" icon={<Layers className="w-4 h-4" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
-                    </AccordionContent>
-                  </AccordionItem>
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
 
-                  <AccordionItem value="position" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
-                      <ToolIcon name="Projection" icon={<ArrowUpCircle className="w-4 h-4" />} />
-                    </AccordionTrigger>
-                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
-                      <ToolIcon name="Long Position" icon={<ArrowUpCircle className="w-4 h-4" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
-                      <ToolIcon name="Short Position" icon={<ArrowDownCircle className="w-4 h-4" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
-                    </AccordionContent>
-                  </AccordionItem>
+                {/* Group 2: Line tools */}
+                <ToolIcon name="Trend Line" icon={<Slash />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+                <ToolIcon name="Ray" icon={<ArrowUpRight />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
+                <ToolIcon name="Extended Line" icon={<ArrowLeftRight />} active={activeTool === 'extended'} onClick={() => setActiveTool('extended')} />
+                <ToolIcon name="Horizontal Line" icon={<Minus />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+                <ToolIcon name="Horizontal Ray" icon={<ArrowRight />} active={activeTool === 'hray'} onClick={() => setActiveTool('hray')} />
+                <ToolIcon name="Vertical Line" icon={<div className="rotate-90"><Minus /></div>} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
 
-                  <AccordionItem value="annotate" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
-                      <ToolIcon name="Annotation" icon={<Type className="w-4 h-4" />} />
-                    </AccordionTrigger>
-                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
-                      <ToolIcon name="Text" icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-                      <ToolIcon name="Arrow" icon={<ArrowRight className="w-4 h-4" />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
-                    </AccordionContent>
-                  </AccordionItem>
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
 
-                  <AccordionItem value="shapes" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
-                      <ToolIcon name="Shapes" icon={<Square className="w-4 h-4" />} />
-                    </AccordionTrigger>
-                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
-                      <ToolIcon name="Rectangle" icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
+                {/* Group 3: Shapes */}
+                <ToolIcon name="Rectangle" icon={<Square />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
+                <ToolIcon name="Circle" icon={<Circle />} active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} />
+                <ToolIcon name="Triangle" icon={<Triangle />} active={activeTool === 'triangle'} onClick={() => setActiveTool('triangle')} />
 
-                <div className="mt-auto flex flex-col gap-2 shrink-0">
-                  <ToolIcon name="Magnet Mode" icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
-                  <ToolIcon name="Eraser" icon={<Eraser className="w-4 h-4" />} onClick={() => setActiveTool('eraser')} />
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
+
+                {/* Group 4: Fibonacci */}
+                <ToolIcon name="Fib Retracement" icon={<Activity />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
+
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
+
+                {/* Group 5: Measurement */}
+                <ToolIcon name="Long Position" icon={<TrendingUp className="text-emerald-500" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
+                <ToolIcon name="Short Position" icon={<TrendingDown className="text-red-500" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
+                <ToolIcon name="Price Range" icon={<Ruler />} active={activeTool === 'measure'} onClick={() => setActiveTool('measure')} />
+
+                <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
+
+                {/* Group 6: Text & Brushes */}
+                <ToolIcon name="Text" icon={<Type />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
+                <ToolIcon name="Brush" icon={<Pencil />} active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} />
+
+                <div className="mt-auto flex flex-col gap-0 w-full items-center">
+                  <ToolIcon name="Magnet Mode" icon={<Magnet className={cn(magnetMode && "text-primary")} />} onClick={() => setMagnetMode(!magnetMode)} />
+                  <div className="h-[1px] bg-[#2a2a2a] my-2 w-7 shrink-0" />
+                  <ToolIcon name="Remove Last" icon={<Undo />} onClick={() => {}} />
+                  <ToolIcon name="Remove All" icon={<Trash2 />} onClick={() => setActiveTool('eraser')} />
                 </div>
               </TooltipProvider>
             </aside>
@@ -310,9 +296,7 @@ export default function DemoPage() {
 
 /**
  * ToolIcon Component
- * Refactored to prevent nested button hydration errors.
- * Renders as a span when no onClick is provided (e.g. within AccordionTrigger),
- * and as a div[role="button"] when used as an interactive tool selector.
+ * Refactored to prevent nested button hydration errors and match TradingView style.
  */
 function ToolIcon({ name, icon, active = false, onClick, className }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void, className?: string }) {
   const isInteractive = !!onClick;
@@ -332,16 +316,20 @@ function ToolIcon({ name, icon, active = false, onClick, className }: { name: st
             }
           } : undefined}
           className={cn(
-            "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0 outline-none", 
-            active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5",
+            "w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px]", 
+            active ? "bg-[#2962ff] text-white" : "text-[#888] hover:text-white hover:bg-[#2a2a2a]",
             isInteractive ? "cursor-pointer" : "cursor-default",
             className
           )}
         >
-          {icon}
+          {import('react').then(R => R.isValidElement(icon) ? R.cloneElement(icon as any, { size: 18 }) : icon)}
+          {/* Static rendering helper since cloneElement is async in this thought loop */}
+          <div className="flex items-center justify-center">
+            {icon}
+          </div>
         </Comp>
       </TooltipTrigger>
-      <TooltipContent side="right" className="bg-zinc-900 text-white font-bold text-[10px] uppercase">{name}</TooltipContent>
+      <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2a2a] text-white font-bold text-[10px] uppercase shadow-2xl z-[100]">{name}</TooltipContent>
     </Tooltip>
   );
 }
