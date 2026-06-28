@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { 
   Loader2,
   ArrowLeft,
@@ -24,7 +24,11 @@ import {
   TrendingUp,
   ShoppingBag,
   LineChart,
-  Settings
+  Settings,
+  CandlestickChart,
+  BarChart3,
+  AreaChart,
+  Activity
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -63,6 +67,7 @@ export default function DemoPage() {
   const [isChartReady, setIsChartReady] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
+  const [chartType, setChartType] = useState<string>("candles");
   const [lots, setLots] = useState(0.10);
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
@@ -77,7 +82,7 @@ export default function DemoPage() {
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   
@@ -113,16 +118,7 @@ export default function DemoPage() {
       timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
     });
     
-    const series = chart.addCandlestickSeries({ 
-      upColor: '#10b981', 
-      downColor: '#ef4444', 
-      borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444'
-    });
-
     chartInstanceRef.current = chart;
-    candleSeriesRef.current = series;
     setIsChartReady(true);
     
     const handleResize = () => {
@@ -138,18 +134,15 @@ export default function DemoPage() {
     };
   }, []);
 
-  // Isolated Candle Fetch & Indicator Calculation
+  // Isolated Candle Fetch & Indicator Calculation & Series Switching
   useEffect(() => {
-    if (!isChartReady || !candleSeriesRef.current || !chartInstanceRef.current) return;
+    if (!isChartReady || !chartInstanceRef.current) return;
     let isMounted = true;
-    
-    // Clear existing indicators
-    Object.values(indicatorSeriesRef.current).forEach(s => chartInstanceRef.current?.removeSeries(s));
-    indicatorSeriesRef.current = {};
     
     const fetchHistory = async () => {
       setIsChartLoading(true);
-      console.log(`[Chart] Starting fetch for ${selectedSymbol} ${selectedInterval}`);
+      console.log(`[Chart] Starting sync for ${selectedSymbol} ${selectedInterval} [${chartType}]`);
+      
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
         if (!res.ok) throw new Error("Feed Offline");
@@ -158,15 +151,64 @@ export default function DemoPage() {
         
         const candles = Array.isArray(data) ? data : (data.candles || []);
         if (candles.length > 0) {
-          candleSeriesRef.current?.setData(candles);
+          // 1. Handle Series Switching
+          if (mainSeriesRef.current) {
+            chartInstanceRef.current?.removeSeries(mainSeriesRef.current);
+          }
+
+          const commonOptions = {
+            priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: 1 / Math.pow(10, getPrecision(selectedSymbol)) },
+          };
+
+          if (chartType === 'candles') {
+            mainSeriesRef.current = chartInstanceRef.current!.addCandlestickSeries({ 
+              ...commonOptions,
+              upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444' 
+            });
+          } else if (chartType === 'bars') {
+            mainSeriesRef.current = chartInstanceRef.current!.addBarSeries({ 
+              ...commonOptions,
+              upColor: '#10b981', downColor: '#ef4444' 
+            });
+          } else if (chartType === 'line') {
+            mainSeriesRef.current = chartInstanceRef.current!.addLineSeries({ 
+              ...commonOptions,
+              color: '#3b82f6', lineWidth: 2 
+            });
+          } else if (chartType === 'area') {
+            mainSeriesRef.current = chartInstanceRef.current!.addAreaSeries({ 
+              ...commonOptions,
+              topColor: 'rgba(59, 130, 246, 0.4)', bottomColor: 'rgba(59, 130, 246, 0.0)', lineColor: '#3b82f6', lineWidth: 2 
+            });
+          } else if (chartType === 'baseline') {
+            mainSeriesRef.current = chartInstanceRef.current!.addBaselineSeries({ 
+              ...commonOptions,
+              baseValue: { type: 'price', price: candles[0].close },
+              topFillColor1: 'rgba(16, 185, 129, 0.2)', topFillColor2: 'rgba(16, 185, 129, 0.0)',
+              topLineColor: '#10b981',
+              bottomFillColor1: 'rgba(239, 68, 68, 0.0)', bottomFillColor2: 'rgba(239, 68, 68, 0.2)',
+              bottomLineColor: '#ef4444',
+            });
+          }
+
+          // 2. Set Data
+          if (chartType === 'candles' || chartType === 'bars') {
+            mainSeriesRef.current?.setData(candles);
+          } else {
+            mainSeriesRef.current?.setData(candles.map((c: any) => ({ time: c.time, value: c.close })));
+          }
           
+          // 3. Render Indicators
+          // Clear existing indicators
+          Object.values(indicatorSeriesRef.current).forEach(s => chartInstanceRef.current?.removeSeries(s));
+          indicatorSeriesRef.current = {};
+
           const closes = candles.map((c: any) => c.close);
           const times = candles.map((c: any) => c.time);
 
-          // Render EMA Overlays
+          // Overlays
           const emaPeriods = { ema9: 9, ema21: 21, ema50: 50, ema200: 200 };
           const emaColors = { ema9: '#3b82f6', ema21: '#f59e0b', ema50: '#ec4899', ema200: '#8b5cf6' };
-          
           Object.entries(emaPeriods).forEach(([key, period]) => {
             if (indicatorState[key]) {
               const emaData = Indicators.calculateEMA(closes, period);
@@ -176,42 +218,26 @@ export default function DemoPage() {
             }
           });
 
-          // Bollinger Bands
           if (indicatorState.bb) {
             const bb = Indicators.calculateBollingerBands(closes);
-            const common = { lineWidth: 1, lineStyle: 2, priceScaleId: 'right' };
+            const common = { lineWidth: 1, lineStyle: 2 };
             const u = chartInstanceRef.current!.addLineSeries({ ...common, color: '#4ade80', title: 'BB Upper' });
             const l = chartInstanceRef.current!.addLineSeries({ ...common, color: '#4ade80', title: 'BB Lower' });
             const m = chartInstanceRef.current!.addLineSeries({ ...common, color: '#4ade80', title: 'BB Mid', lineStyle: 0 });
-            
             u.setData(bb.upper.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
             l.setData(bb.lower.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
             m.setData(bb.middle.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
-            
-            indicatorSeriesRef.current['bb_u'] = u;
-            indicatorSeriesRef.current['bb_l'] = l;
-            indicatorSeriesRef.current['bb_m'] = m;
+            indicatorSeriesRef.current['bb_u'] = u; indicatorSeriesRef.current['bb_l'] = l; indicatorSeriesRef.current['bb_m'] = m;
           }
 
-          // Volume Sub-Pane
+          // Sub-Panes
           if (indicatorState.volume) {
-            const volSeries = chartInstanceRef.current!.addHistogramSeries({
-              color: '#26a69a',
-              priceFormat: { type: 'volume' },
-              priceScaleId: 'volume',
-            });
-            chartInstanceRef.current!.priceScale('volume').applyOptions({
-              scaleMargins: { top: 0.8, bottom: 0 },
-            });
-            volSeries.setData(candles.map((c: any) => ({
-              time: c.time,
-              value: c.volume || Math.random() * 100,
-              color: c.close >= c.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'
-            })));
+            const volSeries = chartInstanceRef.current!.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
+            chartInstanceRef.current!.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+            volSeries.setData(candles.map((c: any) => ({ time: c.time, value: c.volume || Math.random() * 100, color: c.close >= c.open ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)' })));
             indicatorSeriesRef.current['volume'] = volSeries;
           }
 
-          // RSI Sub-Pane
           if (indicatorState.rsi) {
             const rsiData = Indicators.calculateRSI(closes);
             const rsiSeries = chartInstanceRef.current!.addLineSeries({ color: '#8b5cf6', lineWidth: 2, priceScaleId: 'rsi', title: 'RSI' });
@@ -220,25 +246,18 @@ export default function DemoPage() {
             indicatorSeriesRef.current['rsi'] = rsiSeries;
           }
 
-          // MACD Sub-Pane
           if (indicatorState.macd) {
             const macd = Indicators.calculateMACD(closes);
             const mLine = chartInstanceRef.current!.addLineSeries({ color: '#3b82f6', lineWidth: 1, priceScaleId: 'macd' });
             const sLine = chartInstanceRef.current!.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceScaleId: 'macd' });
             const hist = chartInstanceRef.current!.addHistogramSeries({ priceScaleId: 'macd' });
-            
             chartInstanceRef.current!.priceScale('macd').applyOptions({ scaleMargins: { top: 0.4, bottom: 0.4 } });
-            
             mLine.setData(macd.macdLine.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
             sLine.setData(macd.signalLine.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
             hist.setData(macd.histogram.map((v, i) => ({ time: times[i], value: v, color: (v || 0) >= 0 ? '#10b981' : '#ef4444' })).filter(d => d.value !== null));
-            
-            indicatorSeriesRef.current['macd_l'] = mLine;
-            indicatorSeriesRef.current['macd_s'] = sLine;
-            indicatorSeriesRef.current['macd_h'] = hist;
+            indicatorSeriesRef.current['macd_l'] = mLine; indicatorSeriesRef.current['macd_s'] = sLine; indicatorSeriesRef.current['macd_h'] = hist;
           }
 
-          // ATR Sub-Pane
           if (indicatorState.atr) {
             const atrData = Indicators.calculateATR(candles);
             const atrSeries = chartInstanceRef.current!.addLineSeries({ color: '#ef4444', lineWidth: 1, priceScaleId: 'atr', title: 'ATR' });
@@ -249,7 +268,6 @@ export default function DemoPage() {
 
           chartInstanceRef.current?.timeScale().fitContent();
         }
-        console.log(`[Chart] Success: Loaded ${candles.length} candles`);
       } catch (err: any) {
         console.warn("[Chart] History unavailable:", err.message);
       } finally {
@@ -258,27 +276,32 @@ export default function DemoPage() {
     };
     fetchHistory();
     return () => { isMounted = false; };
-  }, [isChartReady, selectedSymbol, selectedInterval, indicatorState]);
+  }, [isChartReady, selectedSymbol, selectedInterval, chartType, indicatorState]);
 
   // Real-time Tick Sync
   useEffect(() => {
-    if (!candleSeriesRef.current || !livePrices[selectedSymbol]) return;
+    if (!mainSeriesRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
     if (!price || price <= 0) return;
     const secs = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 }[selectedInterval] || 300;
     const candleTime = Math.floor(Math.floor(Date.now() / 1000) / (secs as any)) * (secs as any);
     const cur = currentCandleRef.current;
-    if (!cur || cur.time !== candleTime) {
-      const next = { time: candleTime, open: price, high: price, low: price, close: price };
-      currentCandleRef.current = next;
-      candleSeriesRef.current.update(next as any);
+    
+    if (chartType === 'candles' || chartType === 'bars') {
+      if (!cur || cur.time !== candleTime) {
+        const next = { time: candleTime, open: price, high: price, low: price, close: price };
+        currentCandleRef.current = next;
+        mainSeriesRef.current.update(next as any);
+      } else {
+        cur.high = Math.max(cur.high, price);
+        cur.low = Math.min(cur.low, price);
+        cur.close = price;
+        mainSeriesRef.current.update({ ...cur, close: price } as any);
+      }
     } else {
-      cur.high = Math.max(cur.high, price);
-      cur.low = Math.min(cur.low, price);
-      cur.close = price;
-      candleSeriesRef.current.update({ ...cur, close: price } as any);
+      mainSeriesRef.current.update({ time: candleTime, value: price });
     }
-  }, [livePrices[selectedSymbol], selectedSymbol, selectedInterval]);
+  }, [livePrices[selectedSymbol], selectedSymbol, selectedInterval, chartType]);
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
@@ -319,8 +342,8 @@ export default function DemoPage() {
 
   // Position Overlays
   useEffect(() => {
-    if (!candleSeriesRef.current) return;
-    priceLinesRef.current.forEach(line => candleSeriesRef.current?.removePriceLine(line));
+    if (!mainSeriesRef.current) return;
+    priceLinesRef.current.forEach(line => mainSeriesRef.current?.removePriceLine(line));
     priceLinesRef.current = [];
     const pData = livePrices[selectedSymbol];
     openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
@@ -331,18 +354,18 @@ export default function DemoPage() {
         const pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
         pnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
       }
-      const entry = candleSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
+      const entry = mainSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
       if (entry) priceLinesRef.current.push(entry);
       if (t.sl) {
-        const line = candleSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
+        const line = mainSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
         if (line) priceLinesRef.current.push(line);
       }
       if (t.tp) {
-        const line = candleSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
+        const line = mainSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
         if (line) priceLinesRef.current.push(line);
       }
     });
-  }, [openTrades, selectedSymbol, livePrices[selectedSymbol]]);
+  }, [openTrades, selectedSymbol, livePrices[selectedSymbol], chartType]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId || !livePrices[selectedSymbol]) return;
@@ -409,27 +432,46 @@ export default function DemoPage() {
             </div>
           )}
           
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
-                <LineChart className="w-4 h-4" /> Indicators
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white w-56">
-              <div className="px-2 py-2 text-[10px] font-black uppercase text-zinc-500 tracking-widest">Main Chart</div>
-              <DropdownMenuCheckboxItem checked={indicatorState.ema9} onCheckedChange={() => toggleIndicator('ema9')}>EMA 9 (Blue)</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.ema21} onCheckedChange={() => toggleIndicator('ema21')}>EMA 21 (Orange)</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.ema50} onCheckedChange={() => toggleIndicator('ema50')}>EMA 50 (Pink)</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.ema200} onCheckedChange={() => toggleIndicator('ema200')}>EMA 200 (Purple)</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.bb} onCheckedChange={() => toggleIndicator('bb')}>Bollinger Bands</DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator className="bg-zinc-800" />
-              <div className="px-2 py-2 text-[10px] font-black uppercase text-zinc-500 tracking-widest">Sub Panes</div>
-              <DropdownMenuCheckboxItem checked={indicatorState.volume} onCheckedChange={() => toggleIndicator('volume')}>Volume</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.rsi} onCheckedChange={() => toggleIndicator('rsi')}>RSI (14)</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.macd} onCheckedChange={() => toggleIndicator('macd')}>MACD</DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem checked={indicatorState.atr} onCheckedChange={() => toggleIndicator('atr')}>ATR (14)</DropdownMenuCheckboxItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
+                  <LayoutGrid className="w-4 h-4" /> Chart Type
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white w-48">
+                <DropdownMenuRadioGroup value={chartType} onValueChange={setChartType}>
+                  <DropdownMenuRadioItem value="candles" className="gap-2"><CandlestickChart className="w-3.5 h-3.5" /> Candlesticks</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="bars" className="gap-2"><BarChart3 className="w-3.5 h-3.5" /> OHLC Bars</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="line" className="gap-2"><LineChart className="w-3.5 h-3.5" /> Line</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="area" className="gap-2"><AreaChart className="w-3.5 h-3.5" /> Area</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="baseline" className="gap-2"><TrendingUp className="w-3.5 h-3.5" /> Baseline</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
+                  <Activity className="w-4 h-4" /> Indicators
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white w-56">
+                <div className="px-2 py-2 text-[10px] font-black uppercase text-zinc-500 tracking-widest">Main Chart</div>
+                <DropdownMenuCheckboxItem checked={indicatorState.ema9} onCheckedChange={() => toggleIndicator('ema9')}>EMA 9 (Blue)</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.ema21} onCheckedChange={() => toggleIndicator('ema21')}>EMA 21 (Orange)</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.ema50} onCheckedChange={() => toggleIndicator('ema50')}>EMA 50 (Pink)</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.ema200} onCheckedChange={() => toggleIndicator('ema200')}>EMA 200 (Purple)</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.bb} onCheckedChange={() => toggleIndicator('bb')}>Bollinger Bands</DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                <div className="px-2 py-2 text-[10px] font-black uppercase text-zinc-500 tracking-widest">Sub Panes</div>
+                <DropdownMenuCheckboxItem checked={indicatorState.volume} onCheckedChange={() => toggleIndicator('volume')}>Volume</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.rsi} onCheckedChange={() => toggleIndicator('rsi')}>RSI (14)</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.macd} onCheckedChange={() => toggleIndicator('macd')}>MACD</DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem checked={indicatorState.atr} onCheckedChange={() => toggleIndicator('atr')}>ATR (14)</DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
 
           <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
             <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold hover:bg-white/5 transition-colors focus:ring-0">
