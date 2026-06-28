@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState, useMemo, useEffect, memo } from 'react';
+import { useState, useMemo, useEffect, memo, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,30 +59,41 @@ export default function AdminPage() {
   const [isTradesModalOpen, setIsTradesModalOpen] = useState(false);
   const [demoFilter, setDemoFilter] = useState<'all' | 'active' | 'blown' | 'passed'>('all');
 
-  useEffect(() => {
-    const isVerified = localStorage.getItem('adminVerified') === 'true';
-    if (isVerified) setIsAuthenticated(true);
-    else setShowAdminModal(true);
-  }, []);
-
-  const refreshData = async () => {
+  const refreshData = useCallback(async () => {
     setIsLoading(true);
     const res = await fetchAdminTerminalData();
-    if (res.success) setAdminData(res);
-    else toast({ variant: "destructive", title: "Sync Error", description: "Failed to fetch terminal data." });
+    if (res.success) {
+      setAdminData(res);
+      setIsAuthenticated(true);
+      setShowAdminModal(false);
+    } else {
+      if (res.error === "Unauthorized") {
+        setIsAuthenticated(false);
+        setShowAdminModal(true);
+      } else {
+        toast({ variant: "destructive", title: "Sync Error", description: res.error || "Failed to fetch terminal data." });
+      }
+    }
     setIsLoading(false);
-  };
+  }, [toast]);
 
-  useEffect(() => { if (isAuthenticated) refreshData(); }, [isAuthenticated]);
+  useEffect(() => {
+    const isVerified = localStorage.getItem('adminVerified') === 'true';
+    if (isVerified) {
+      refreshData();
+    } else {
+      setShowAdminModal(true);
+      setIsLoading(false);
+    }
+  }, [refreshData]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === "93463962569392846256") {
-      setIsAuthenticated(true);
-      setShowAdminModal(false);
       localStorage.setItem('adminVerified', 'true');
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
-      toast({ title: "Admin Access Granted" });
+      setAdminError("");
+      refreshData();
     } else {
       setAdminError("❌ Access Denied");
       setAdminPasswordInput('');
@@ -112,8 +124,12 @@ export default function AdminPage() {
     setIsTradesModalOpen(true);
     setTradesLoading(true);
     try {
-      const trades = await fetchDemoTradesByAccount(acc.id);
-      setDemoTrades(trades);
+      const res = await fetchDemoTradesByAccount(acc.id);
+      if (res.success) {
+        setDemoTrades(res.trades);
+      } else {
+        throw new Error(res.error);
+      }
     } catch (err) {
       toast({ variant: "destructive", title: "Error", description: "Failed to fetch trades." });
     } finally {
@@ -144,6 +160,15 @@ export default function AdminPage() {
       return matchesStatus && matchesSearch;
     });
   }, [adminData.demoAccounts, demoFilter, searchTerm]);
+
+  if (!isAuthenticated && !showAdminModal) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Verifying Authorization...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -193,33 +218,41 @@ export default function AdminPage() {
                     <button key={f} onClick={() => setDemoFilter(f as any)} className={cn("px-4 py-1.5 rounded text-[10px] font-black uppercase", demoFilter === f ? "bg-primary text-black" : "text-muted-foreground")}>{f}</button>
                   ))}
                 </div>
-                <Input placeholder="Search user ID..." className="max-w-xs h-10 bg-secondary/50" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                <div className="relative w-full max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input placeholder="Search user ID..." className="pl-10 h-10 bg-secondary/50 border-white/5" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                </div>
               </div>
               <Card className="bg-card/40 border-border/50">
                 <CardContent className="p-0">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold">
-                      <tr><th className="p-4">Trader</th><th className="p-4">Balance</th><th className="p-4">Daily Start</th><th className="p-4">Plan</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {filteredDemoAccounts.map((acc: any) => (
-                        <tr key={acc.id} className="hover:bg-primary/5 transition-colors">
-                          <td className="p-4 font-mono text-xs">{acc.userId.slice(0, 12)}...</td>
-                          <td className="p-4 font-bold text-white">${acc.balance.toLocaleString()}</td>
-                          <td className="p-4 font-mono text-xs text-muted-foreground">${acc.dailyStartBalance?.toLocaleString() || '—'}</td>
-                          <td className="p-4 text-[10px] uppercase font-bold">{acc.planType || 'LEGACY'}</td>
-                          <td className="p-4">
-                            <Badge className={cn("uppercase text-[9px]", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>
-                              {acc.status}
-                            </Badge>
-                          </td>
-                          <td className="p-4 text-right">
-                            <Button variant="ghost" size="sm" onClick={() => handleViewDemoTrades(acc)}><BarChart2 className="w-4 h-4" /></Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold">
+                        <tr><th className="p-4">Trader</th><th className="p-4">Balance</th><th className="p-4">Daily Start</th><th className="p-4">Plan</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {filteredDemoAccounts.map((acc: any) => (
+                          <tr key={acc.id} className="hover:bg-primary/5 transition-colors">
+                            <td className="p-4 font-mono text-xs">{acc.userId.slice(0, 12)}...</td>
+                            <td className="p-4 font-bold text-white">${(acc.balance || 0).toLocaleString()}</td>
+                            <td className="p-4 font-mono text-xs text-muted-foreground">${(acc.dailyStartBalance || 0).toLocaleString()}</td>
+                            <td className="p-4 text-[10px] uppercase font-bold">{acc.planType || acc.plan || 'LEGACY'}</td>
+                            <td className="p-4">
+                              <Badge className={cn("uppercase text-[9px]", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>
+                                {acc.status}
+                              </Badge>
+                            </td>
+                            <td className="p-4 text-right">
+                              <Button variant="ghost" size="sm" onClick={() => handleViewDemoTrades(acc)}><BarChart2 className="w-4 h-4" /></Button>
+                            </td>
+                          </tr>
+                        ))}
+                        {filteredDemoAccounts.length === 0 && !isLoading && (
+                          <tr><td colSpan={6} className="p-10 text-center text-muted-foreground italic">No trading nodes found.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -227,13 +260,33 @@ export default function AdminPage() {
         </div>
       </main>
 
-      <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
-        <DialogContent className="bg-black/95 border-primary/30 text-white">
-          <DialogHeader><DialogTitle className="text-center">System Authorization</DialogTitle></DialogHeader>
+      <Dialog open={showAdminModal} onOpenChange={(open) => {
+        if (!isAuthenticated && !open) return; // Prevent closing if not authenticated
+        setShowAdminModal(open);
+      }}>
+        <DialogContent className="bg-black/95 border-primary/30 text-white outline-none">
+          <DialogHeader>
+            <DialogTitle className="text-center font-headline text-2xl">System Authorization</DialogTitle>
+            <DialogDescription className="text-center text-muted-foreground">Enter master access key to proceed to the administrative terminal.</DialogDescription>
+          </DialogHeader>
           <form onSubmit={handleAdminAuth} className="space-y-6 pt-4">
-            <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" autoFocus />
-            <Button type="submit" className="w-full h-14 font-black cyan-box-glow">AUTHENTICATE</Button>
+            <div className="space-y-2">
+              <Input 
+                type="password" 
+                value={adminPasswordInput} 
+                onChange={(e) => setAdminPasswordInput(e.target.value)} 
+                placeholder="••••••••" 
+                className={cn(
+                  "h-14 text-center text-2xl font-mono bg-secondary/20 border-white/10",
+                  adminError && "border-destructive text-destructive"
+                )} 
+                autoFocus 
+              />
+              {adminError && <p className="text-center text-xs font-bold text-destructive animate-pulse">{adminError}</p>}
+            </div>
+            <Button type="submit" className="w-full h-14 font-black cyan-box-glow text-lg">AUTHENTICATE</Button>
           </form>
+          <p className="text-[9px] text-center uppercase tracking-widest text-muted-foreground/30 mt-4">Unauthorized access is monitored and logged.</p>
         </DialogContent>
       </Dialog>
     </div>

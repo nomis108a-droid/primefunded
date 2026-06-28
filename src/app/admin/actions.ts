@@ -14,7 +14,7 @@ export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
     
-    // Check master password cookie (set by 5-click login)
+    // Check master password cookie
     const masterToken = cookieStore.get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     
@@ -24,7 +24,6 @@ export async function verifyAdminAuth() {
     const decoded = await adminAuth.verifySessionCookie(token, true);
     return !!(decoded.email && ADMIN_EMAILS.includes(decoded.email));
   } catch (error) {
-    console.error('[AdminAuth] Verification failed:', error);
     return false;
   }
 }
@@ -86,25 +85,25 @@ async function sendAdminNotification(
 }
 
 export async function fetchAllDemoAccounts() {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const snap = await adminDb.collection('demoAccounts').orderBy('createdAt', 'desc').get();
   const accounts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  return JSON.parse(JSON.stringify(accounts));
+  return { success: true, accounts: JSON.parse(JSON.stringify(accounts)) };
 }
 
 export async function fetchDemoTradesByAccount(accountId: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const snap = await adminDb.collection('demoTrades')
     .where('accountId', '==', accountId)
     .orderBy('openedAt', 'desc')
     .limit(100)
     .get();
   const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  return JSON.parse(JSON.stringify(trades));
+  return { success: true, trades: JSON.parse(JSON.stringify(trades)) };
 }
 
 export async function resetDemoAccountAction(accountId: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const accountRef = adminDb.collection('demoAccounts').doc(accountId);
   const accountSnap = await accountRef.get();
   if (!accountSnap.exists) throw new Error("Account not found");
@@ -121,7 +120,7 @@ export async function resetDemoAccountAction(accountId: string) {
 }
 
 export async function advanceTraderPhaseAction(userId: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const userRef = adminDb.collection('users').doc(userId);
   const userSnap = await userRef.get();
   const userData = userSnap.data();
@@ -139,7 +138,7 @@ export async function advanceTraderPhaseAction(userId: string) {
 }
 
 export async function updateOrderStatusAction(id: string, status: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
   
   if (status === 'approved') {
@@ -161,7 +160,7 @@ export async function updateOrderStatusAction(id: string, status: string) {
 }
 
 export async function updatePayoutStatusAction(id: string, status: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   
   const payoutRef = adminDb.collection('payouts').doc(id);
   const payoutSnap = await payoutRef.get();
@@ -177,7 +176,7 @@ export async function updatePayoutStatusAction(id: string, status: string) {
 }
 
 export async function processKycAction(id: string, status: string, reason?: string) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   const updates: any = { kycStatus: status, kycVerified: status === 'verified', updatedAt: FieldValue.serverTimestamp() };
   if (reason) updates.kycRejectionReason = reason;
   
@@ -193,7 +192,7 @@ export async function processKycAction(id: string, status: string, reason?: stri
 }
 
 export async function sendGlobalBroadcastAction(data: { title: string, message: string, type: string }) {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   
   await adminDb.collection('broadcasts').add({
     ...data,
@@ -205,36 +204,41 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 }
 
 export async function fetchAdminTerminalData() {
-  if (!await verifyAdminAuth()) throw new Error("Unauthorized");
-  const [usersSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap, demoAccountsSnap, demoTradesSnap] = await Promise.all([
-    adminDb.collection('users').get(),
-    adminDb.collection('orders').get(),
-    adminDb.collection('payouts').get(),
-    adminDb.collection('referrals').get(),
-    adminDb.collection('broadcasts').get(),
-    adminDb.collection('breaches').get(),
-    adminDb.collection('demoAccounts').get(),
-    adminDb.collection('demoTrades').orderBy('openedAt', 'desc').limit(500).get(),
-  ]);
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  
+  try {
+    const [usersSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap, demoAccountsSnap, demoTradesSnap] = await Promise.all([
+      adminDb.collection('users').get(),
+      adminDb.collection('orders').get(),
+      adminDb.collection('payouts').get(),
+      adminDb.collection('referrals').get(),
+      adminDb.collection('broadcasts').get(),
+      adminDb.collection('breaches').get(),
+      adminDb.collection('demoAccounts').get(),
+      adminDb.collection('demoTrades').orderBy('openedAt', 'desc').limit(500).get(),
+    ]);
 
-  const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const payouts = payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const referrals = referralsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const broadcasts = broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const breaches = breachesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const demoAccounts = demoAccountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const demoTrades = demoTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const payouts = payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const referrals = referralsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const broadcasts = broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const breaches = breachesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const demoAccounts = demoAccountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const demoTrades = demoTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-  return { 
-    users: JSON.parse(JSON.stringify(users)), 
-    orders: JSON.parse(JSON.stringify(orders)), 
-    payouts: JSON.parse(JSON.stringify(payouts)), 
-    referrals: JSON.parse(JSON.stringify(referrals)), 
-    broadcasts: JSON.parse(JSON.stringify(broadcasts)), 
-    breaches: JSON.parse(JSON.stringify(breaches)), 
-    demoAccounts: JSON.parse(JSON.stringify(demoAccounts)),
-    demoTrades: JSON.parse(JSON.stringify(demoTrades)),
-    success: true 
-  };
+    return { 
+      users: JSON.parse(JSON.stringify(users)), 
+      orders: JSON.parse(JSON.stringify(orders)), 
+      payouts: JSON.parse(JSON.stringify(payouts)), 
+      referrals: JSON.parse(JSON.stringify(referrals)), 
+      broadcasts: JSON.parse(JSON.stringify(broadcasts)), 
+      breaches: JSON.parse(JSON.stringify(breaches)), 
+      demoAccounts: JSON.parse(JSON.stringify(demoAccounts)),
+      demoTrades: JSON.parse(JSON.stringify(demoTrades)),
+      success: true 
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }
