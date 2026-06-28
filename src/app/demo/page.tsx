@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   Loader2,
   ArrowLeft,
@@ -36,7 +37,16 @@ import {
   Square,
   Bell,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Slash,
+  ArrowUpRight,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  ArrowRight,
+  Tag,
+  RectangleHorizontal,
+  Box,
+  GripVertical
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -49,6 +59,7 @@ import { differenceInSeconds } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import { PositionsPanel } from './PositionsPanel';
 import * as Indicators from "@/lib/indicators";
+import { DrawingLayer } from "./DrawingLayer";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
@@ -153,29 +164,6 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     setIsChartReady(true);
     
-    chart.subscribeClick((param) => {
-      if (!param.point || !mainSeriesRef.current || activeTool === 'pointer' || !chartInstanceRef.current) return;
-      
-      try {
-        const price = mainSeriesRef.current.coordinateToPrice(param.point.y);
-        if (price === null) return;
-
-        if (activeTool === 'hline') {
-          const line = mainSeriesRef.current.createPriceLine({
-            price: price,
-            color: '#ffffff',
-            lineWidth: 1,
-            lineStyle: 0,
-            axisLabelVisible: true,
-            title: 'H-LEVEL',
-          });
-          drawingLinesRef.current.push(line);
-          setActiveTool('pointer');
-          toast({ title: "Drawing Placed", description: "Horizontal level added to chart." });
-        }
-      } catch (e) {}
-    });
-    
     const handleResize = () => {
       if (chartContainerRef.current && chartInstanceRef.current) {
         try {
@@ -200,7 +188,7 @@ export default function DemoPage() {
       indicatorSeriesRef.current = {};
       setIsChartReady(false);
     };
-  }, [selectedTimezone, activeTool]);
+  }, [selectedTimezone]);
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
@@ -565,15 +553,6 @@ export default function DemoPage() {
     setIndicatorState(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleClearDrawings = () => {
-    if (!mainSeriesRef.current) return;
-    drawingLinesRef.current.forEach(line => {
-      try { mainSeriesRef.current?.removePriceLine(line); } catch (e) {}
-    });
-    drawingLinesRef.current = [];
-    toast({ title: "Canvas Cleared", description: "All manual drawings removed." });
-  };
-
   async function createAlert() {
     if (!user || !alertTargetPrice) return;
     setActionLoading(true);
@@ -728,18 +707,29 @@ export default function DemoPage() {
           </div>
 
           <div className="flex-1 relative min-h-0 bg-[#09090b]">
-            <aside className="absolute left-0 top-0 bottom-0 w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-4 z-10">
-              <ToolIcon icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
-              <div className="w-8 h-px bg-zinc-800 my-1" />
-              <ToolIcon icon={<TrendingUp className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
-              <ToolIcon icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
-              <ToolIcon icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-              <ToolIcon icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-              
-              <div className="mt-auto flex flex-col gap-4">
-                <ToolIcon icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
-                <ToolIcon icon={<Eraser className="w-4 h-4" />} onClick={handleClearDrawings} />
-              </div>
+            <aside className="absolute left-0 top-0 bottom-0 w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-2 z-40 overflow-y-auto no-scrollbar">
+              <TooltipProvider>
+                <ToolIcon name="Cursor" icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
+                <div className="w-8 h-px bg-zinc-800 my-1 shrink-0" />
+                <ToolIcon name="Trend Line" icon={<Slash className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+                <ToolIcon name="Horizontal Line" icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+                <ToolIcon name="Vertical Line" icon={<GripVertical className="w-4 h-4" />} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
+                <ToolIcon name="Ray" icon={<ArrowUpRight className="w-4 h-4" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
+                <ToolIcon name="Rectangle" icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
+                <ToolIcon name="Fib Retracement" icon={<Layers className="w-4 h-4" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
+                <ToolIcon name="Long Position" icon={<ArrowUpCircle className="w-4 h-4" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
+                <ToolIcon name="Short Position" icon={<ArrowDownCircle className="w-4 h-4" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
+                <ToolIcon name="Text" icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
+                <ToolIcon name="Arrow" icon={<ArrowRight className="w-4 h-4" />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
+                <ToolIcon name="Price Label" icon={<Tag className="w-4 h-4" />} active={activeTool === 'priceLabel'} onClick={() => setActiveTool('priceLabel')} />
+                <ToolIcon name="S/R Zone" icon={<RectangleHorizontal className="w-4 h-4" />} active={activeTool === 'srZone'} onClick={() => setActiveTool('srZone')} />
+                <ToolIcon name="Supply/Demand" icon={<Box className="w-4 h-4" />} active={activeTool === 'sdZone'} onClick={() => setActiveTool('sdZone')} />
+                
+                <div className="mt-auto flex flex-col gap-2 shrink-0">
+                  <ToolIcon name="Magnet Mode" icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
+                  <ToolIcon name="Eraser" icon={<Eraser className="w-4 h-4" />} onClick={() => setActiveTool('eraser')} />
+                </div>
+              </TooltipProvider>
             </aside>
 
             {isChartLoading && (
@@ -749,6 +739,16 @@ export default function DemoPage() {
               </div>
             )}
             <div ref={chartContainerRef} className={cn("h-full w-full relative", activeTool !== 'pointer' && "cursor-crosshair")} />
+            
+            {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
+              <DrawingLayer
+                chart={chartInstanceRef.current}
+                series={mainSeriesRef.current}
+                symbol={selectedSymbol}
+                activeTool={activeTool}
+                setActiveTool={setActiveTool}
+              />
+            )}
           </div>
           
           <PositionsPanel 
@@ -867,16 +867,23 @@ export default function DemoPage() {
   );
 }
 
-function ToolIcon({ icon, active = false, onClick }: { icon: React.ReactNode, active?: boolean, onClick?: () => void }) {
+function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void }) {
   return (
-    <button 
-      onClick={onClick}
-      className={cn(
-        "w-9 h-9 flex items-center justify-center rounded-lg transition-all", 
-        active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5"
-      )}
-    >
-      {icon}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button 
+          onClick={onClick}
+          className={cn(
+            "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0", 
+            active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5"
+          )}
+        >
+          {icon}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="bg-zinc-900 border-zinc-800 text-white font-bold text-[10px] uppercase tracking-widest">
+        {name}
+      </TooltipContent>
+    </Tooltip>
   );
 }
