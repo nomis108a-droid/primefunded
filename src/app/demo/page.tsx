@@ -86,8 +86,6 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
-  const priceLinesRef = useRef<IPriceLine[]>([]);
-  const indicatorSeriesRef = useRef<Record<string, ISeriesApi<any>>>({});
 
   const applyGlobalSettings = useCallback(() => {
     if (!chartInstanceRef.current) return;
@@ -96,13 +94,13 @@ export default function DemoPage() {
     const targetScaleId = chartSettings.scales.position === 'left' ? 'left' : 'right';
     const otherScaleId = chartSettings.scales.position === 'left' ? 'right' : 'left';
     try {
-      chart.priceScale(targetScaleId).applyOptions({ visible: true, mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, autoScale: chartSettings.scales.mode === 'auto', invertScale: chartSettings.scales.mode === 'invert', borderColor: chartSettings.canvas.scales.textColor + '44' });
+      chart.priceScale(targetScaleId).applyOptions({ visible: true, mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, autoScale: chartSettings.scales.mode === 'auto', borderColor: chartSettings.canvas.scales.textColor + '44' });
       chart.priceScale(otherScaleId).applyOptions({ visible: false });
       chart.applyOptions({
         layout: { background: { type: chartSettings.canvas.background.type === 'gradient' ? ColorType.VerticalGradient : ColorType.Solid, color: chartSettings.canvas.background.color }, textColor: chartSettings.canvas.scales.textColor, fontSize: chartSettings.canvas.scales.fontSize },
         grid: { vertLines: { visible: chartSettings.scales.lines.gridVert && (chartSettings.canvas.grid.type === 'vertical' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.vert.color }, horzLines: { visible: chartSettings.scales.lines.gridHorz && (chartSettings.canvas.grid.type === 'horizontal' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.horz.color } },
-        crosshair: { horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color, width: chartSettings.canvas.crosshair.width, style: chartSettings.canvas.crosshair.style }, vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color, width: chartSettings.canvas.crosshair.width, style: chartSettings.canvas.crosshair.style } },
-        watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, fontSize: chartSettings.canvas.watermark.fontSize, text: chartSettings.canvas.watermark.text || selectedSymbol }
+        crosshair: { horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color }, vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color } },
+        watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, text: chartSettings.canvas.watermark.text || selectedSymbol }
       });
       if (mainSeriesRef.current) mainSeriesRef.current.applyOptions({ ...chartSettings.canvas.candles, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '' });
     } catch (e) {}
@@ -121,7 +119,6 @@ export default function DemoPage() {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight || 480,
       timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
-      localization: { timeFormatter: (time: number) => selectedTimezone === 'local' ? new Date(time * 1000).toLocaleString() : new Date(time * 1000).toLocaleString('en-US', { timeZone: selectedTimezone }) }
     });
     chartInstanceRef.current = chart;
     setIsChartReady(true);
@@ -131,9 +128,9 @@ export default function DemoPage() {
     return () => {
       window.removeEventListener('resize', handleResize);
       if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; }
-      mainSeriesRef.current = null; currentCandleRef.current = null; setIsChartReady(false);
+      mainSeriesRef.current = null; setIsChartReady(false);
     };
-  }, [selectedTimezone, applyGlobalSettings]);
+  }, [applyGlobalSettings]);
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
@@ -213,7 +210,9 @@ export default function DemoPage() {
                 
                 <Accordion type="single" collapsible className="w-full">
                   <AccordionItem value="lines" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Lines" icon={<Slash className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
+                      <ToolIcon name="Lines" icon={<Slash className="w-4 h-4" />} />
+                    </AccordionTrigger>
                     <AccordionContent className="flex flex-col items-center gap-2 pb-2">
                       <ToolIcon name="Trend Line" icon={<Slash className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
                       <ToolIcon name="Ray" icon={<ArrowUpRight className="w-4 h-4" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
@@ -223,14 +222,18 @@ export default function DemoPage() {
                   </AccordionItem>
 
                   <AccordionItem value="fib" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Fibonacci" icon={<Layers className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
+                      <ToolIcon name="Fibonacci" icon={<Layers className="w-4 h-4" />} />
+                    </AccordionTrigger>
                     <AccordionContent className="flex flex-col items-center gap-2 pb-2">
                       <ToolIcon name="Fib Retracement" icon={<Layers className="w-4 h-4" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
                     </AccordionContent>
                   </AccordionItem>
 
                   <AccordionItem value="position" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Projection" icon={<ArrowUpCircle className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
+                      <ToolIcon name="Projection" icon={<ArrowUpCircle className="w-4 h-4" />} />
+                    </AccordionTrigger>
                     <AccordionContent className="flex flex-col items-center gap-2 pb-2">
                       <ToolIcon name="Long Position" icon={<ArrowUpCircle className="w-4 h-4" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
                       <ToolIcon name="Short Position" icon={<ArrowDownCircle className="w-4 h-4" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
@@ -238,7 +241,9 @@ export default function DemoPage() {
                   </AccordionItem>
 
                   <AccordionItem value="annotate" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Annotation" icon={<Type className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
+                      <ToolIcon name="Annotation" icon={<Type className="w-4 h-4" />} />
+                    </AccordionTrigger>
                     <AccordionContent className="flex flex-col items-center gap-2 pb-2">
                       <ToolIcon name="Text" icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
                       <ToolIcon name="Arrow" icon={<ArrowRight className="w-4 h-4" />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
@@ -246,7 +251,9 @@ export default function DemoPage() {
                   </AccordionItem>
 
                   <AccordionItem value="shapes" className="border-none">
-                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Shapes" icon={<Square className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden">
+                      <ToolIcon name="Shapes" icon={<Square className="w-4 h-4" />} />
+                    </AccordionTrigger>
                     <AccordionContent className="flex flex-col items-center gap-2 pb-2">
                       <ToolIcon name="Rectangle" icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
                     </AccordionContent>
@@ -301,11 +308,38 @@ export default function DemoPage() {
   );
 }
 
-function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void }) {
+/**
+ * ToolIcon Component
+ * Refactored to prevent nested button hydration errors.
+ * Renders as a span when no onClick is provided (e.g. within AccordionTrigger),
+ * and as a div[role="button"] when used as an interactive tool selector.
+ */
+function ToolIcon({ name, icon, active = false, onClick, className }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void, className?: string }) {
+  const isInteractive = !!onClick;
+  const Comp = isInteractive ? 'div' : 'span';
+  
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button onClick={onClick} className={cn("w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0", active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5")}>{icon}</button>
+        <Comp 
+          onClick={onClick}
+          role={isInteractive ? 'button' : undefined}
+          tabIndex={isInteractive ? 0 : undefined}
+          onKeyDown={isInteractive ? (e: React.KeyboardEvent) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onClick?.();
+            }
+          } : undefined}
+          className={cn(
+            "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0 outline-none", 
+            active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5",
+            isInteractive ? "cursor-pointer" : "cursor-default",
+            className
+          )}
+        >
+          {icon}
+        </Comp>
       </TooltipTrigger>
       <TooltipContent side="right" className="bg-zinc-900 text-white font-bold text-[10px] uppercase">{name}</TooltipContent>
     </Tooltip>
