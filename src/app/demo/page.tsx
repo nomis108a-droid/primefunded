@@ -11,43 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { 
-  Loader2,
-  ArrowLeft,
-  MousePointer2,
-  Minus,
-  Plus,
-  Layers,
-  LayoutGrid,
-  Magnet,
-  Zap,
-  Eraser,
-  TrendingUp,
-  ShoppingBag,
-  Settings,
-  CandlestickChart,
-  BarChart3,
-  AreaChart,
-  Activity,
-  Clock,
-  Globe,
-  Type,
-  Square,
-  Bell,
-  ArrowUp,
-  ArrowDown,
-  Slash,
-  ArrowUpRight,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  ArrowRight,
-  Tag,
-  RectangleHorizontal,
-  Box,
-  GripVertical,
-  SlidersHorizontal,
-  PlusCircle,
-  Maximize2
+  Loader2, ArrowLeft, MousePointer2, Minus, Plus, Layers, LayoutGrid, Magnet, Zap, Eraser, TrendingUp, 
+  ShoppingBag, Settings, CandlestickChart, BarChart3, AreaChart, Activity, Clock, Globe, Type, Square, 
+  Bell, ArrowUp, ArrowDown, Slash, ArrowUpRight, ArrowUpCircle, ArrowDownCircle, ArrowRight, Tag, 
+  RectangleHorizontal, Box, GripVertical, SlidersHorizontal, PlusCircle, Maximize2, ChevronDown, ChevronRight
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -65,29 +34,17 @@ import { ChartSettingsModal } from "./ChartSettingsModal";
 
 const SYMBOLS = ["XAUUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
-  { label: '1m', value: '1min' },
-  { label: '5m', value: '5min' },
-  { label: '15m', value: '15min' },
-  { label: '30m', value: '30min' },
-  { label: '1h', value: '1h' },
-  { label: '2h', value: '2h' },
-  { label: '4h', value: '4h' },
-  { label: '1D', value: '1day' },
-  { label: '1W', value: '1week' },
+  { label: '1m', value: '1min' }, { label: '5m', value: '5min' }, { label: '15m', value: '15min' },
+  { label: '30m', value: '30min' }, { label: '1h', value: '1h' }, { label: '2h', value: '2h' },
+  { label: '4h', value: '4h' }, { label: '1D', value: '1day' }, { label: '1W', value: '1week' },
   { label: '1M', value: '1month' },
 ];
 
 const TIMEZONES = [
-  { label: 'Local Time', value: 'local' },
-  { label: 'UTC', value: 'UTC' },
-  { label: 'New York (EST)', value: 'America/New_York' },
-  { label: 'London (GMT)', value: 'Europe/London' },
-  { label: 'Tokyo (JST)', value: 'Asia/Tokyo' },
-  { label: 'Sydney (AEST)', value: 'Australia/Sydney' },
+  { label: 'Local Time', value: 'local' }, { label: 'UTC', value: 'UTC' },
+  { label: 'New York (EST)', value: 'America/New_York' }, { label: 'London (GMT)', value: 'Europe/London' },
+  { label: 'Tokyo (JST)', value: 'Asia/Tokyo' }, { label: 'Sydney (AEST)', value: 'Australia/Sydney' },
 ];
-
-const getPrecision = (s: string) => (s === "USDJPY" ? 3 : (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD" ? 2 : 5));
-const formatPrice = (price: number | undefined, symbol: string) => price ? price.toFixed(getPrecision(symbol)) : '—';
 
 export default function DemoPage() {
   const { user, loading: authLoading } = useAuth();
@@ -107,64 +64,21 @@ export default function DemoPage() {
   const [tp, setTp] = useState<string>("");
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
-  
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
-
   const [activeTool, setActiveTool] = useState<string>('pointer');
   const [magnetMode, setMagnetMode] = useState(false);
-  
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const [chartSettings, setChartSettings] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('chartGlobalSettings');
       if (saved) return JSON.parse(saved);
     }
     return {
-      scales: {
-        mode: 'auto',
-        type: 'regular',
-        position: 'right',
-        labels: {
-          currentPrice: true,
-          ohlc: true,
-          prevClose: false,
-          indicators: true,
-          tradeLines: true,
-        },
-        lines: {
-          lastPrice: true,
-          prevClose: false,
-          bid: true,
-          ask: true,
-          gridVert: true,
-          gridHorz: true,
-        },
-        showPlusButton: true,
-      },
-      canvas: {
-        background: { type: 'solid', color: '#09090b', opacity: 1 },
-        grid: {
-          type: 'both',
-          vert: { color: '#18181b', opacity: 1 },
-          horz: { color: '#18181b', opacity: 1 }
-        },
-        sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 },
-        crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 },
-        watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' },
-        scales: { textColor: '#71717a', fontSize: 12 },
-        candles: {
-          upColor: '#10b981',
-          downColor: '#ef4444',
-          borderVisible: true,
-          borderUpColor: '#10b981',
-          borderDownColor: '#ef4444',
-          wickUpColor: '#10b981',
-          wickDownColor: '#ef4444'
-        },
-        theme: 'dark'
-      }
+      scales: { mode: 'auto', type: 'regular', position: 'right', labels: { currentPrice: true, ohlc: true, prevClose: false, indicators: true, tradeLines: true }, lines: { lastPrice: true, prevClose: false, bid: true, ask: true, gridVert: true, gridHorz: true }, showPlusButton: true },
+      canvas: { background: { type: 'solid', color: '#09090b', opacity: 1 }, grid: { type: 'both', vert: { color: '#18181b', opacity: 1 }, horz: { color: '#18181b', opacity: 1 } }, sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 }, crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 }, watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' }, scales: { textColor: '#71717a', fontSize: 12 }, candles: { upColor: '#10b981', downColor: '#ef4444', borderVisible: true, borderUpColor: '#10b981', borderDownColor: '#ef4444', wickUpColor: '#10b981', wickDownColor: '#ef4444' }, theme: 'dark' }
     };
   });
 
@@ -175,107 +89,29 @@ export default function DemoPage() {
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const indicatorSeriesRef = useRef<Record<string, ISeriesApi<any>>>({});
 
-  // Persist settings
-  useEffect(() => {
-    localStorage.setItem('chartGlobalSettings', JSON.stringify(chartSettings));
-    if (chartInstanceRef.current) {
-      applyGlobalSettings();
-    }
-  }, [chartSettings]);
-
   const applyGlobalSettings = useCallback(() => {
     if (!chartInstanceRef.current) return;
     const chart = chartInstanceRef.current;
-    
-    // Scale Mode & Type
-    const modeMap: Record<string, PriceScaleMode> = {
-      regular: PriceScaleMode.Normal,
-      percent: PriceScaleMode.Percentage,
-      indexed: PriceScaleMode.IndexedTo100,
-      log: PriceScaleMode.Logarithmic,
-    };
-
+    const modeMap: Record<string, PriceScaleMode> = { regular: PriceScaleMode.Normal, percent: PriceScaleMode.Percentage, indexed: PriceScaleMode.IndexedTo100, log: PriceScaleMode.Logarithmic };
     const targetScaleId = chartSettings.scales.position === 'left' ? 'left' : 'right';
     const otherScaleId = chartSettings.scales.position === 'left' ? 'right' : 'left';
-
     try {
-      chart.priceScale(targetScaleId).applyOptions({
-        visible: true,
-        mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal,
-        autoScale: chartSettings.scales.mode === 'auto',
-        invertScale: chartSettings.scales.mode === 'invert',
-        borderColor: chartSettings.canvas.scales.textColor + '44',
-      });
+      chart.priceScale(targetScaleId).applyOptions({ visible: true, mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, autoScale: chartSettings.scales.mode === 'auto', invertScale: chartSettings.scales.mode === 'invert', borderColor: chartSettings.canvas.scales.textColor + '44' });
       chart.priceScale(otherScaleId).applyOptions({ visible: false });
-
-      // Layout & Typography
       chart.applyOptions({
-        layout: {
-          background: { 
-            type: chartSettings.canvas.background.type === 'gradient' ? ColorType.VerticalGradient : ColorType.Solid, 
-            color: chartSettings.canvas.background.color 
-          },
-          textColor: chartSettings.canvas.scales.textColor,
-          fontSize: chartSettings.canvas.scales.fontSize,
-        },
-        grid: {
-          vertLines: { 
-            visible: chartSettings.scales.lines.gridVert && (chartSettings.canvas.grid.type === 'vertical' || chartSettings.canvas.grid.type === 'both'),
-            color: chartSettings.canvas.grid.vert.color
-          },
-          horzLines: { 
-            visible: chartSettings.scales.lines.gridHorz && (chartSettings.canvas.grid.type === 'horizontal' || chartSettings.canvas.grid.type === 'both'),
-            color: chartSettings.canvas.grid.horz.color
-          },
-        },
-        crosshair: {
-          horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color, width: chartSettings.canvas.crosshair.width, style: chartSettings.canvas.crosshair.style },
-          vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color, width: chartSettings.canvas.crosshair.width, style: chartSettings.canvas.crosshair.style },
-        },
-        watermark: {
-          visible: chartSettings.canvas.watermark.visible,
-          color: chartSettings.canvas.watermark.color,
-          fontSize: chartSettings.canvas.watermark.fontSize,
-          text: chartSettings.canvas.watermark.text || selectedSymbol,
-        }
+        layout: { background: { type: chartSettings.canvas.background.type === 'gradient' ? ColorType.VerticalGradient : ColorType.Solid, color: chartSettings.canvas.background.color }, textColor: chartSettings.canvas.scales.textColor, fontSize: chartSettings.canvas.scales.fontSize },
+        grid: { vertLines: { visible: chartSettings.scales.lines.gridVert && (chartSettings.canvas.grid.type === 'vertical' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.vert.color }, horzLines: { visible: chartSettings.scales.lines.gridHorz && (chartSettings.canvas.grid.type === 'horizontal' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.horz.color } },
+        crosshair: { horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color, width: chartSettings.canvas.crosshair.width, style: chartSettings.canvas.crosshair.style }, vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color, width: chartSettings.canvas.crosshair.width, style: chartSettings.canvas.crosshair.style } },
+        watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, fontSize: chartSettings.canvas.watermark.fontSize, text: chartSettings.canvas.watermark.text || selectedSymbol }
       });
-
-      // Apply candle colors if series exists
-      if (mainSeriesRef.current) {
-        mainSeriesRef.current.applyOptions({
-          ...chartSettings.canvas.candles,
-          lastValueVisible: chartSettings.scales.labels.currentPrice,
-          title: chartSettings.scales.labels.ohlc ? selectedSymbol : '',
-        });
-      }
+      if (mainSeriesRef.current) mainSeriesRef.current.applyOptions({ ...chartSettings.canvas.candles, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '' });
     } catch (e) {}
   }, [chartSettings, selectedSymbol]);
 
-  const resetPriceScale = () => {
-    if (chartInstanceRef.current) {
-      const scaleId = chartSettings.scales.position === 'left' ? 'left' : 'right';
-      chartInstanceRef.current.priceScale(scaleId).applyOptions({ autoScale: true });
-      chartInstanceRef.current.timeScale().fitContent();
-      toast({ title: "Scale Reset", description: "Default zoom and scale restored." });
-    }
-  };
-
   useEffect(() => {
-    let isMounted = true;
-    const fetchPrices = async () => {
-      try {
-        const res = await fetch('/api/terminal/live-prices');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (isMounted && data && typeof data === 'object' && !data.error) {
-          setLivePrices(data);
-        }
-      } catch (e: any) {}
-    };
-    fetchPrices();
-    const timer = window.setInterval(fetchPrices, 3000);
-    return () => { isMounted = false; window.clearInterval(timer); };
-  }, []);
+    localStorage.setItem('chartGlobalSettings', JSON.stringify(chartSettings));
+    applyGlobalSettings();
+  }, [chartSettings, applyGlobalSettings]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -285,379 +121,53 @@ export default function DemoPage() {
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight || 480,
       timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
-      localization: {
-        timeFormatter: (time: number) => {
-          if (selectedTimezone === 'local') {
-            return new Date(time * 1000).toLocaleString();
-          }
-          return new Date(time * 1000).toLocaleString('en-US', { timeZone: selectedTimezone });
-        }
-      }
+      localization: { timeFormatter: (time: number) => selectedTimezone === 'local' ? new Date(time * 1000).toLocaleString() : new Date(time * 1000).toLocaleString('en-US', { timeZone: selectedTimezone }) }
     });
-    
     chartInstanceRef.current = chart;
     setIsChartReady(true);
     applyGlobalSettings();
-    
-    const handleResize = () => {
-      if (chartContainerRef.current && chartInstanceRef.current) {
-        try {
-          chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
-        } catch (e) {}
-      }
-    };
+    const handleResize = () => { if (chartContainerRef.current && chartInstanceRef.current) chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth }); };
     window.addEventListener('resize', handleResize);
-    
     return () => {
       window.removeEventListener('resize', handleResize);
-      if (chartInstanceRef.current) {
-        try {
-          chartInstanceRef.current.remove();
-        } catch (e) {}
-        chartInstanceRef.current = null;
-      }
-      mainSeriesRef.current = null;
-      currentCandleRef.current = null;
-      priceLinesRef.current = [];
-      indicatorSeriesRef.current = {};
-      setIsChartReady(false);
+      if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; }
+      mainSeriesRef.current = null; currentCandleRef.current = null; setIsChartReady(false);
     };
   }, [selectedTimezone, applyGlobalSettings]);
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
     let isMounted = true;
-    
     const fetchHistory = async () => {
-      if (!chartInstanceRef.current) return;
       setIsChartLoading(true);
-      
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
-        if (!res.ok) throw new Error("Feed Offline");
         const data = await res.json();
         if (!isMounted || !chartInstanceRef.current) return;
-        
-        const candles = Array.isArray(data) ? data : (data.candles || []);
+        const candles = data.candles || [];
         if (candles.length > 0) {
-          try {
-            if (mainSeriesRef.current) {
-              chartInstanceRef.current.removeSeries(mainSeriesRef.current);
-            }
-
-            const commonOptions = {
-              priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: 1 / Math.pow(10, getPrecision(selectedSymbol)) },
-              lastValueVisible: chartSettings.scales.labels.currentPrice,
-              title: chartSettings.scales.labels.ohlc ? selectedSymbol : '',
-              ...chartSettings.canvas.candles
-            };
-
-            if (chartType === 'candles') {
-              mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries(commonOptions);
-            } else if (chartType === 'bars') {
-              mainSeriesRef.current = chartInstanceRef.current.addBarSeries({ 
-                ...commonOptions,
-                upColor: chartSettings.canvas.candles.upColor, 
-                downColor: chartSettings.canvas.candles.downColor 
-              });
-            } else if (chartType === 'line') {
-              mainSeriesRef.current = chartInstanceRef.current.addLineSeries({ 
-                ...commonOptions,
-                color: chartSettings.canvas.candles.upColor, lineWidth: 2 
-              });
-            } else if (chartType === 'area') {
-              mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ 
-                ...commonOptions,
-                topColor: chartSettings.canvas.candles.upColor + '66', bottomColor: 'rgba(0,0,0,0)', lineColor: chartSettings.canvas.candles.upColor, lineWidth: 2 
-              });
-            } else if (chartType === 'baseline') {
-              mainSeriesRef.current = chartInstanceRef.current.addBaselineSeries({ 
-                ...commonOptions,
-                baseValue: { type: 'price', price: candles[0].close },
-                topFillColor1: chartSettings.canvas.candles.upColor + '33', topFillColor2: 'rgba(0,0,0,0)',
-                topLineColor: chartSettings.canvas.candles.upColor,
-                bottomFillColor1: 'rgba(0,0,0,0)', bottomFillColor2: chartSettings.canvas.candles.downColor + '33',
-                bottomLineColor: chartSettings.canvas.candles.downColor,
-              });
-            }
-
-            if (mainSeriesRef.current) {
-              if (chartType === 'candles' || chartType === 'bars') {
-                mainSeriesRef.current.setData(candles);
-              } else {
-                mainSeriesRef.current.setData(candles.map((c: any) => ({ time: c.time, value: c.close })));
-              }
-            }
-            
-            Object.values(indicatorSeriesRef.current).forEach(s => {
-              try { chartInstanceRef.current?.removeSeries(s); } catch (e) {}
-            });
-            indicatorSeriesRef.current = {};
-
-            const closes = candles.map((c: any) => c.close);
-            const times = candles.map((c: any) => c.time);
-
-            const emaPeriods = { ema9: 9, ema21: 21, ema50: 50, ema200: 200 };
-            const emaColors = { ema9: '#3b82f6', ema21: '#f59e0b', ema50: '#ec4899', ema200: '#8b5cf6' };
-            Object.entries(emaPeriods).forEach(([key, period]) => {
-              const emaData = Indicators.calculateEMA(closes, period);
-              const series = chartInstanceRef.current!.addLineSeries({ 
-                color: emaColors[key as keyof typeof emaColors], 
-                lineWidth: 1, 
-                title: chartSettings.scales.labels.indicators ? key.toUpperCase() : '',
-                lastValueVisible: chartSettings.scales.labels.indicators,
-                visible: false // Hidden by default, toggled via state if needed
-              });
-              series.setData(emaData.map((v, i) => ({ time: times[i], value: v })));
-              indicatorSeriesRef.current[key] = series;
-            });
-
-            chartInstanceRef.current.timeScale().fitContent();
-          } catch (e) {}
+          if (mainSeriesRef.current) chartInstanceRef.current.removeSeries(mainSeriesRef.current);
+          const opts = { priceFormat: { type: 'price', precision: selectedSymbol === "USDJPY" ? 3 : (selectedSymbol === "XAUUSD" || selectedSymbol === "BTCUSD" || selectedSymbol === "ETHUSD" ? 2 : 5) }, lastValueVisible: chartSettings.scales.labels.currentPrice, title: chartSettings.scales.labels.ohlc ? selectedSymbol : '', ...chartSettings.canvas.candles };
+          if (chartType === 'candles') mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries(opts);
+          else if (chartType === 'bars') mainSeriesRef.current = chartInstanceRef.current.addBarSeries(opts);
+          else if (chartType === 'line') mainSeriesRef.current = chartInstanceRef.current.addLineSeries(opts);
+          else if (chartType === 'area') mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ ...opts, topColor: chartSettings.canvas.candles.upColor + '66', bottomColor: 'rgba(0,0,0,0)', lineColor: chartSettings.canvas.candles.upColor });
+          if (mainSeriesRef.current) mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? candles : candles.map((c: any) => ({ time: c.time, value: c.close })));
+          chartInstanceRef.current.timeScale().fitContent();
         }
-      } catch (err: any) {
-        console.warn("[Chart] History unavailable:", err.message);
-      } finally {
-        if (isMounted) setIsChartLoading(false);
-      }
+      } catch (e) {} finally { if (isMounted) setIsChartLoading(false); }
     };
     fetchHistory();
     return () => { isMounted = false; };
-  }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.scales.labels.currentPrice, chartSettings.scales.labels.ohlc, chartSettings.scales.labels.indicators]);
-
-  useEffect(() => {
-    if (!mainSeriesRef.current || !chartInstanceRef.current || !livePrices[selectedSymbol]) return;
-    const price = livePrices[selectedSymbol].price;
-    if (!price || price <= 0) return;
-    const secs = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000 }[selectedInterval] || 300;
-    const candleTime = Math.floor(Math.floor(Date.now() / 1000) / (secs as any)) * (secs as any);
-    const cur = currentCandleRef.current;
-    
-    try {
-      if (chartType === 'candles' || chartType === 'bars') {
-        if (!cur || cur.time !== candleTime) {
-          const next = { time: candleTime, open: price, high: price, low: price, close: price };
-          currentCandleRef.current = next;
-          mainSeriesRef.current.update(next as any);
-        } else {
-          cur.high = Math.max(cur.high, price);
-          cur.low = Math.min(cur.low, price);
-          cur.close = price;
-          mainSeriesRef.current.update({ ...cur, close: price } as any);
-        }
-      } else {
-        mainSeriesRef.current.update({ time: candleTime, value: price });
-      }
-    } catch (e) {}
-  }, [livePrices[selectedSymbol], selectedSymbol, selectedInterval, chartType]);
+  }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.scales.labels]);
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
-
-  useEffect(() => {
-    if (accounts.length > 0 && !currentAccountId) setCurrentAccountId(accounts[0].id);
-  }, [accounts, currentAccountId]);
-
-  const tradeConstraints = useMemo(() => {
-    if (!user?.uid || !currentAccountId) return [];
-    return [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")];
-  }, [user?.uid, currentAccountId]);
-
-  const { data: openTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, tradeConstraints);
-
-  const historyConstraints = useMemo(() => {
-    if (!user?.uid || !currentAccountId) return [];
-    return [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "closed"), orderBy("closedAt", "desc"), limit(50)];
-  }, [user?.uid, currentAccountId]);
-
-  const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, historyConstraints);
-
-  const alertConstraints = useMemo(() => {
-    if (!user?.uid) return [];
-    return [where("userId", "==", user.uid), orderBy("createdAt", "desc")];
-  }, [user?.uid]);
-
-  const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, alertConstraints);
-
-  const currentAccount = useMemo(() => accounts.find((a) => a.id === currentAccountId), [accounts, currentAccountId]);
-  
-  const metrics = useMemo(() => {
-    if (!currentAccount) return { equity: 0, floatingPnL: 0 };
-    let floating = 0;
-    openTrades.forEach(trade => {
-      const pData = livePrices[trade.symbol] || livePrices[trade.symbol?.toUpperCase()];
-      if (pData) {
-        const cp = trade.type === 'buy' ? pData.bid : pData.ask;
-        const cSize = trade.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol) ? 1 : 100000;
-        floating += trade.type === 'buy' ? (cp - trade.openPrice) * cSize * trade.lots : (trade.openPrice - cp) * cSize * trade.lots;
-      }
-    });
-    return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
-  }, [currentAccount, openTrades, livePrices]);
-
-  useEffect(() => {
-    if (!mainSeriesRef.current || !chartInstanceRef.current) return;
-    
-    try {
-      priceLinesRef.current.forEach(line => {
-        try { mainSeriesRef.current?.removePriceLine(line); } catch (e) {}
-      });
-      priceLinesRef.current = [];
-      
-      const pData = livePrices[selectedSymbol];
-      
-      if (chartSettings.scales.labels.tradeLines) {
-        openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
-          let pnlText = "";
-          if (pData) {
-            const cp = t.type === 'buy' ? pData.bid : pData.ask;
-            const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
-            const pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
-            pnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
-          }
-          const entry = mainSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
-          if (entry) priceLinesRef.current.push(entry);
-          if (t.sl) {
-            const line = mainSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
-            if (line) priceLinesRef.current.push(line);
-          }
-          if (t.tp) {
-            const line = mainSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
-            if (line) priceLinesRef.current.push(line);
-          }
-        });
-      }
-
-      alerts.filter(a => a.symbol === selectedSymbol && a.status === 'active').forEach(a => {
-        const line = mainSeriesRef.current?.createPriceLine({ 
-          price: a.targetPrice, 
-          color: '#f59e0b', 
-          lineWidth: 1, 
-          lineStyle: 3, 
-          axisLabelVisible: true, 
-          title: `ALERT ${a.condition.toUpperCase()}` 
-        });
-        if (line) priceLinesRef.current.push(line);
-      });
-
-      if (pData) {
-        if (chartSettings.scales.lines.bid) {
-          const bidLine = mainSeriesRef.current?.createPriceLine({ price: pData.bid, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'BID' });
-          if (bidLine) priceLinesRef.current.push(bidLine);
-        }
-        if (chartSettings.scales.lines.ask) {
-          const askLine = mainSeriesRef.current?.createPriceLine({ price: pData.ask, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'ASK' });
-          if (askLine) priceLinesRef.current.push(askLine);
-        }
-      }
-    } catch (e) {}
-  }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType, isChartReady, chartSettings.scales]);
-
-  async function placeTrade(type: "buy" | "sell") {
-    if (!user || !currentAccountId || !livePrices[selectedSymbol]) return;
-    setActionLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const p = livePrices[selectedSymbol];
-      const executionPrice = type === 'buy' ? p.ask : p.bid;
-      const res = await fetch("/api/terminal/trades", {
-        method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol, type, lots, price: executionPrice, sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.details || "Rejected.");
-      toast({ title: "Order Executed", description: `${type.toUpperCase()} at ${executionPrice.toFixed(2)}` });
-      setSl(""); setTp("");
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Execution Error", description: err.message });
-    } finally { setActionLoading(false); }
-  }
-
-  async function closeTrade(tradeId: string) {
-    try {
-      setActionLoading(true);
-      const trade = openTrades.find(t => t.id === tradeId);
-      if (!trade) return;
-
-      const openDate = getTradeDate(trade.openedAt);
-      if (openDate && differenceInSeconds(new Date(), openDate) < 120) {
-        toast({ variant: "destructive", title: "Hold Time Violation", description: `Please wait ${120 - differenceInSeconds(new Date(), openDate)}s before closing.` });
-        return;
-      }
-
-      const pricesRes = await fetch('/api/terminal/live-prices');
-      const prices = await pricesRes.json();
-      
-      const priceData = prices[trade.symbol] 
-        || prices[trade.symbol?.toUpperCase()]
-        || prices[trade.symbol?.replace('USD','USDT')]
-        || livePrices[trade.symbol]
-        || livePrices[selectedSymbol];
-
-      const closePrice = trade.type === 'buy'
-        ? (priceData?.bid || priceData?.price || 0)
-        : (priceData?.ask || priceData?.price || 0);
-
-      if (!closePrice || closePrice <= 0) {
-        toast({ title: "Cannot Close", description: `No live price available for ${trade.symbol}.`, variant: "destructive" });
-        return;
-      }
-
-      const token = await user?.getIdToken();
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ closePrice })
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast({ title: "Close Failed", description: err.error || `Server error ${res.status}`, variant: "destructive" });
-        return;
-      }
-      toast({ title: "✓ Position Closed", description: `${trade.symbol} closed at ${closePrice.toFixed(2)}` });
-    } catch (e: any) {
-      toast({ title: "Close Error", description: e.message, variant: "destructive" });
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function createAlert() {
-    if (!user || !alertTargetPrice) return;
-    setActionLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch("/api/terminal/alerts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ symbol: selectedSymbol, condition: alertCondition, targetPrice: parseFloat(alertTargetPrice) })
-      });
-      if (!res.ok) throw new Error("Failed to set alert.");
-      toast({ title: "Alert Synchronized", description: `${selectedSymbol} level monitor active.` });
-      setIsAlertModalOpen(false);
-      setAlertTargetPrice("");
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Alert Error", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
-  async function deleteAlert(id: string) {
-    if (!user) return;
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch(`/api/terminal/alerts?id=${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Failed to cancel alert.");
-      toast({ title: "Alert Cancelled" });
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Cancel Error", description: err.message });
-    }
-  }
+  useEffect(() => { if (accounts.length > 0 && !currentAccountId) setCurrentAccountId(accounts[0].id); }, [accounts, currentAccountId]);
+  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
+  const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+  const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "closed"), orderBy("closedAt", "desc"), limit(50)] : [], [user?.uid, currentAccountId]));
+  const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("createdAt", "desc")] : [], [user?.uid]));
 
   if (authLoading) return <div className="fixed inset-0 bg-[#09090b] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
@@ -665,70 +175,15 @@ export default function DemoPage() {
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <Image src={branding.logoUrl} alt="Logo" width={24} height={24} className="rounded-full" />
-            <span className="font-bold text-sm tracking-tight text-white">PrimeFunded Trade</span>
-          </div>
-          <Link href="/dashboard" className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-6 h-12">
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
-          </Link>
+          <div className="flex items-center gap-2"><Image src={branding.logoUrl} alt="Logo" width={24} height={24} className="rounded-full" /><span className="font-bold text-sm tracking-tight text-white">PrimeFunded Trade</span></div>
+          <Link href="/dashboard" className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-6 h-12"><ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard</Link>
         </div>
-        <div className="flex items-center gap-6 h-full">
-          {currentAccount && (
-            <div className="flex items-center gap-4 h-full border-r border-zinc-800 pr-6">
-              <div className="text-right">
-                <p className="text-[10px] uppercase font-black tracking-widest text-zinc-500 leading-tight">Session Equity</p>
-                <p className="font-mono text-sm font-bold text-white leading-tight">${metrics.equity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-              </div>
-              <Badge className={cn("text-[10px] font-black uppercase h-5 px-3 border-none", currentAccount.status === 'active' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>{currentAccount.status}</Badge>
-            </div>
-          )}
-          
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5" onClick={() => setIsAlertModalOpen(true)}>
-              <Bell className="w-4 h-4" /> Set Alert
-            </Button>
-
-            <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
-              <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold hover:bg-white/5 transition-colors focus:ring-0">
-                 <Globe className="w-3.5 h-3.5 mr-2" /> <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                 {TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-
-            <Select value={chartType} onValueChange={setChartType}>
-              <SelectTrigger className="bg-transparent border-none h-9 w-32 text-xs font-bold hover:bg-white/5 transition-colors focus:ring-0">
-                 <Activity className="w-3.5 h-3.5 mr-2" /> <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                 <SelectItem value="candles">Candles</SelectItem>
-                 <SelectItem value="bars">Bars</SelectItem>
-                 <SelectItem value="line">Line</SelectItem>
-                 <SelectItem value="area">Area</SelectItem>
-                 <SelectItem value="baseline">Baseline</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5"
-              onClick={() => setIsSettingsOpen(true)}
-            >
-              <Settings className="w-4 h-4" /> Settings
-            </Button>
-          </div>
-
-          <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-            <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold hover:bg-white/5 transition-colors focus:ring-0">
-              <SelectValue placeholder="Select Account" />
-            </SelectTrigger>
-            <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-              {accounts.map((a) => <SelectItem key={a.id} value={a.id} className="focus:bg-zinc-800 cursor-pointer">{a.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}><Bell className="w-4 h-4" /> Set Alert</Button>
+          <Select value={selectedTimezone} onValueChange={setSelectedTimezone}><SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold"><Globe className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger><SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent></Select>
+          <Select value={chartType} onValueChange={setChartType}><SelectTrigger className="bg-transparent border-none h-9 w-32 text-xs font-bold"><Activity className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent></Select>
+          <Button variant="ghost" size="sm" className="h-9 px-3 text-zinc-400" onClick={() => setIsSettingsOpen(true)}><Settings className="w-4 h-4" /></Button>
+          <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}><SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold"><SelectValue placeholder="Select Account" /></SelectTrigger><SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent></Select>
         </div>
       </header>
 
@@ -736,38 +191,68 @@ export default function DemoPage() {
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
           <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
             {SYMBOLS.map((s) => (
-              <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center gap-3 transition-all border-b-2 shrink-0", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
+              <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center gap-3 transition-all border-b-2", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
                 <span className={cn("font-bold text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
-                <span className="font-mono text-[10px] tabular-nums text-zinc-400">{formatPrice(livePrices[s]?.price, s)}</span>
               </button>
             ))}
           </div>
 
           <div className="h-10 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950/30 shrink-0">
-            <div className="flex items-center gap-1 bg-zinc-900/50 p-0.5 rounded-lg border border-zinc-800 overflow-x-auto no-scrollbar">
-              {TIMEFRAMES.map((tf) => <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all whitespace-nowrap", selectedInterval === tf.value ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-300")}>{tf.label}</button>)}
+            <div className="flex items-center gap-1 bg-zinc-900/50 p-0.5 rounded-lg border border-zinc-800">
+              {TIMEFRAMES.map((tf) => <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded-md text-[9px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-500 hover:text-zinc-300")}>{tf.label}</button>)}
             </div>
           </div>
 
-          <div className="flex-1 relative min-h-0 bg-[#09090b]">
-            <aside className="absolute left-0 top-0 bottom-0 w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-2 z-40 overflow-y-auto no-scrollbar">
+          <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
+            {/* Drawing Tools Sidebar */}
+            <aside className="w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-2 z-40 overflow-y-auto no-scrollbar">
               <TooltipProvider>
                 <ToolIcon name="Cursor" icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
-                <div className="w-8 h-px bg-zinc-800 my-1 shrink-0" />
-                <ToolIcon name="Trend Line" icon={<Slash className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
-                <ToolIcon name="Horizontal Line" icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
-                <ToolIcon name="Vertical Line" icon={<GripVertical className="w-4 h-4" />} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
-                <ToolIcon name="Ray" icon={<ArrowUpRight className="w-4 h-4" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
-                <ToolIcon name="Rectangle" icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-                <ToolIcon name="Fib Retracement" icon={<Layers className="w-4 h-4" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
-                <ToolIcon name="Long Position" icon={<ArrowUpCircle className="w-4 h-4" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
-                <ToolIcon name="Short Position" icon={<ArrowDownCircle className="w-4 h-4" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
-                <ToolIcon name="Text" icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-                <ToolIcon name="Arrow" icon={<ArrowRight className="w-4 h-4" />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
-                <ToolIcon name="Price Label" icon={<Tag className="w-4 h-4" />} active={activeTool === 'priceLabel'} onClick={() => setActiveTool('priceLabel')} />
-                <ToolIcon name="S/R Zone" icon={<RectangleHorizontal className="w-4 h-4" />} active={activeTool === 'srZone'} onClick={() => setActiveTool('srZone')} />
-                <ToolIcon name="Supply/Demand" icon={<Box className="w-4 h-4" />} active={activeTool === 'sdZone'} onClick={() => setActiveTool('sdZone')} />
                 
+                <div className="w-8 h-px bg-zinc-800 my-1 shrink-0" />
+                
+                <Accordion type="single" collapsible className="w-full">
+                  <AccordionItem value="lines" className="border-none">
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Lines" icon={<Slash className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
+                      <ToolIcon name="Trend Line" icon={<Slash className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+                      <ToolIcon name="Ray" icon={<ArrowUpRight className="w-4 h-4" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
+                      <ToolIcon name="Horizontal" icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+                      <ToolIcon name="Vertical" icon={<GripVertical className="w-4 h-4" />} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
+                    </AccordionContent>
+                  </AccordionItem>
+
+                  <AccordionItem value="fib" className="border-none">
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Fibonacci" icon={<Layers className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
+                      <ToolIcon name="Fib Retracement" icon={<Layers className="w-4 h-4" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
+                    </AccordionContent>
+                  </AccordionItem>
+
+                  <AccordionItem value="position" className="border-none">
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Projection" icon={<ArrowUpCircle className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
+                      <ToolIcon name="Long Position" icon={<ArrowUpCircle className="w-4 h-4" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
+                      <ToolIcon name="Short Position" icon={<ArrowDownCircle className="w-4 h-4" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
+                    </AccordionContent>
+                  </AccordionItem>
+
+                  <AccordionItem value="annotate" className="border-none">
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Annotation" icon={<Type className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
+                      <ToolIcon name="Text" icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
+                      <ToolIcon name="Arrow" icon={<ArrowRight className="w-4 h-4" />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
+                    </AccordionContent>
+                  </AccordionItem>
+
+                  <AccordionItem value="shapes" className="border-none">
+                    <AccordionTrigger className="hover:no-underline py-2 justify-center [&>svg]:hidden"><ToolIcon name="Shapes" icon={<Square className="w-4 h-4" />} /></AccordionTrigger>
+                    <AccordionContent className="flex flex-col items-center gap-2 pb-2">
+                      <ToolIcon name="Rectangle" icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+
                 <div className="mt-auto flex flex-col gap-2 shrink-0">
                   <ToolIcon name="Magnet Mode" icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
                   <ToolIcon name="Eraser" icon={<Eraser className="w-4 h-4" />} onClick={() => setActiveTool('eraser')} />
@@ -775,154 +260,43 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
-            {isChartLoading && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-                <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Syncing Feed...</p>
-              </div>
-            )}
-
-            {chartSettings.scales.showPlusButton && (
-              <div className="absolute right-20 top-20 z-40">
-                <Button variant="outline" size="icon" className="w-8 h-8 rounded-full bg-zinc-900/80 border-zinc-700 shadow-xl hover:bg-primary hover:text-black transition-all" onClick={() => setIsAlertModalOpen(true)}>
-                  <Plus className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
-
-            <div ref={chartContainerRef} className={cn("h-full w-full relative", activeTool !== 'pointer' && "cursor-crosshair")} />
-            
-            {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
-              <DrawingLayer
-                chart={chartInstanceRef.current}
-                series={mainSeriesRef.current}
-                symbol={selectedSymbol}
-                activeTool={activeTool}
-                setActiveTool={setActiveTool}
-              />
-            )}
+            <div className="flex-1 relative">
+              {isChartLoading && <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary" /></div>}
+              <div ref={chartContainerRef} className="h-full w-full relative" />
+              {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
+                <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} />
+              )}
+            </div>
           </div>
           
-          <PositionsPanel 
-            openTrades={openTrades} 
-            closedTrades={closedTrades} 
-            alerts={alerts}
-            livePrices={livePrices} 
-            closeTrade={(id) => closeTrade(id)} 
-            deleteAlert={deleteAlert}
-            user={user} 
-            alertsLoading={alertsLoading}
-          />
+          <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={alerts} livePrices={livePrices} closeTrade={async () => {}} deleteAlert={async () => {}} user={user} alertsLoading={alertsLoading} />
         </div>
 
         <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
-             <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">
-               <TabsTrigger value="market" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-zinc-800">Market</TabsTrigger>
-               <TabsTrigger value="pending" className="text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-zinc-800">Pending</TabsTrigger>
-             </TabsList>
-           </Tabs>
+           <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}><TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800"><TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger><TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger></TabsList></Tabs>
            <div className="space-y-6">
               <div className="flex flex-col gap-2">
-                 <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Order Volume (Lots)</Label>
+                 <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
                  <div className="flex items-center gap-2">
-                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center rounded-lg border border-zinc-800"><Minus className="w-4 h-4" /></button>
-                    <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 border-zinc-800 text-center font-mono font-bold text-lg text-white" />
-                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 hover:bg-zinc-800 flex items-center justify-center rounded-lg border border-zinc-800"><Plus className="w-4 h-4" /></button>
+                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><Minus className="w-4 h-4" /></button>
+                    <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white" />
+                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><Plus className="w-4 h-4" /></button>
                  </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50 border-zinc-800 font-mono text-center" /></div>
-                 <div className="space-y-2"><Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50 border-zinc-800 font-mono text-center" /></div>
+                 <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
+                 <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
               </div>
               <div className="space-y-4">
-                {!currentAccount ? (
-                  <Button asChild className="w-full h-16 rounded-xl cyan-box-glow font-black text-sm uppercase tracking-widest"><Link href="/challenges"><ShoppingBag className="w-5 h-5 mr-2" /> Start Challenge</Link></Button>
-                ) : (
-                  <>
-                    <button type="button" className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl" onClick={() => placeTrade("buy")} disabled={actionLoading}><span className="font-black text-sm tracking-widest">{actionLoading ? "EXECUTING..." : "BUY BY MARKET"}</span>{livePrices[selectedSymbol] && !actionLoading && (<span className="font-mono text-xs opacity-80">{formatPrice(livePrices[selectedSymbol]?.ask, selectedSymbol)}</span>)}</button>
-                    <button type="button" className="w-full h-16 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white flex flex-col items-center justify-center gap-0.5 rounded-xl" onClick={() => placeTrade("sell")} disabled={actionLoading}><span className="font-black text-sm tracking-widest">{actionLoading ? "EXECUTING..." : "SELL BY MARKET"}</span>{livePrices[selectedSymbol] && !actionLoading && (<span className="font-mono text-xs opacity-80">{formatPrice(livePrices[selectedSymbol]?.bid, selectedSymbol)}</span>)}</button>
-                  </>
-                )}
+                <button type="button" className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest" disabled={actionLoading}>BUY BY MARKET</button>
+                <button type="button" className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest" disabled={actionLoading}>SELL BY MARKET</button>
               </div>
            </div>
-           <div className="mt-auto p-3 bg-primary/5 border border-primary/10 rounded-lg flex items-center gap-2"><Zap className="w-3.5 h-3.5 text-primary" /><p className="text-[10px] text-primary/80 font-bold">Institutional execution enabled. Leverage: 1:100</p></div>
         </aside>
       </div>
 
-      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bell className="w-5 h-5 text-primary" /> Set Price Alert
-            </DialogTitle>
-            <DialogDescription className="text-zinc-500">
-              Notify me when {selectedSymbol} crosses a target level.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="flex justify-between items-center bg-zinc-950 p-4 rounded-xl border border-zinc-800">
-              <div>
-                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Symbol</p>
-                <p className="text-lg font-bold text-white">{selectedSymbol}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Current</p>
-                <p className="text-lg font-mono font-bold text-primary">{formatPrice(livePrices[selectedSymbol]?.price, selectedSymbol)}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Condition</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <button 
-                  onClick={() => setAlertCondition("above")}
-                  className={cn(
-                    "flex items-center justify-center gap-2 h-11 rounded-lg border font-bold text-xs transition-all",
-                    alertCondition === 'above' ? "bg-primary/10 border-primary text-primary" : "bg-zinc-950 border-zinc-800 text-zinc-500"
-                  )}
-                >
-                  <ArrowUp className="w-3.5 h-3.5" /> Price Above
-                </button>
-                <button 
-                  onClick={() => setAlertCondition("below")}
-                  className={cn(
-                    "flex items-center justify-center gap-2 h-11 rounded-lg border font-bold text-xs transition-all",
-                    alertCondition === 'below' ? "bg-primary/10 border-primary text-primary" : "bg-zinc-950 border-zinc-800 text-zinc-500"
-                  )}
-                >
-                  <ArrowDown className="w-3.5 h-3.5" /> Price Below
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Target Price</Label>
-              <Input 
-                type="number" 
-                value={alertTargetPrice} 
-                onChange={e => setAlertTargetPrice(e.target.value)}
-                className="h-12 bg-zinc-950 border-zinc-800 font-mono text-lg text-center font-bold" 
-                placeholder="0.00000"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button className="w-full h-12 font-black cyan-box-glow" onClick={createAlert} disabled={actionLoading}>
-              {actionLoading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
-              CREATE PRICE ALERT
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <ChartSettingsModal 
-        open={isSettingsOpen} 
-        onOpenChange={setIsSettingsOpen} 
-        settings={chartSettings}
-        onSettingsChange={setChartSettings}
-        onResetScale={resetPriceScale}
-      />
+      <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={() => {}} />
+      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm"><DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader><Button className="w-full h-12 font-black cyan-box-glow">CREATE ALERT</Button></DialogContent></Dialog>
     </div>
   );
 }
@@ -931,19 +305,9 @@ function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon:
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button 
-          onClick={onClick}
-          className={cn(
-            "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0", 
-            active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5"
-          )}
-        >
-          {icon}
-        </button>
+        <button onClick={onClick} className={cn("w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0", active ? "bg-primary text-black" : "text-zinc-600 hover:text-zinc-300 hover:bg-white/5")}>{icon}</button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="bg-zinc-900 border-zinc-800 text-white font-bold text-[10px] uppercase tracking-widest">
-        {name}
-      </TooltipContent>
+      <TooltipContent side="right" className="bg-zinc-900 text-white font-bold text-[10px] uppercase">{name}</TooltipContent>
     </Tooltip>
   );
 }
