@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useFirestore, useCollection } from "@/firebase";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuTrigger, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { 
   Loader2,
   ArrowLeft,
@@ -46,12 +48,17 @@ import {
   Tag,
   RectangleHorizontal,
   Box,
-  GripVertical
+  GripVertical,
+  SlidersHorizontal,
+  Settings2,
+  PlusCircle,
+  MoveLeft,
+  Maximize2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where, orderBy, limit } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi, IPriceLine } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, IPriceLine, PriceScaleMode } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
@@ -113,6 +120,35 @@ export default function DemoPage() {
   const [activeTool, setActiveTool] = useState<string>('pointer');
   const [magnetMode, setMagnetMode] = useState(false);
   
+  // Price Scale Settings
+  const [scaleSettings, setScaleSettings] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('chartScaleSettings');
+      if (saved) return JSON.parse(saved);
+    }
+    return {
+      mode: 'auto', // 'auto', 'lock', 'scaleOnly', 'invert'
+      type: 'regular', // 'regular', 'percent', 'indexed', 'log'
+      position: 'right', // 'left', 'right'
+      labels: {
+        currentPrice: true,
+        ohlc: true,
+        prevClose: false,
+        indicators: true,
+        tradeLines: true,
+      },
+      lines: {
+        lastPrice: true,
+        prevClose: false,
+        bid: true,
+        ask: true,
+        gridVert: true,
+        gridHorz: true,
+      },
+      showPlusButton: true,
+    };
+  });
+
   const [indicatorState, setIndicatorState] = useState<Record<string, boolean>>({
     ema9: false, ema21: false, ema50: false, ema200: false,
     bb: false, rsi: false, macd: false, atr: false, volume: true, sessions: true
@@ -125,6 +161,65 @@ export default function DemoPage() {
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const drawingLinesRef = useRef<IPriceLine[]>([]);
   const indicatorSeriesRef = useRef<Record<string, ISeriesApi<any>>>({});
+
+  // Persist settings
+  useEffect(() => {
+    localStorage.setItem('chartScaleSettings', JSON.stringify(scaleSettings));
+    if (chartInstanceRef.current) {
+      applyScaleSettings();
+    }
+  }, [scaleSettings]);
+
+  const applyScaleSettings = useCallback(() => {
+    if (!chartInstanceRef.current) return;
+    const chart = chartInstanceRef.current;
+    
+    // Scale Mode & Type
+    const modeMap: Record<string, PriceScaleMode> = {
+      regular: PriceScaleMode.Normal,
+      percent: PriceScaleMode.Percentage,
+      indexed: PriceScaleMode.IndexedTo100,
+      log: PriceScaleMode.Logarithmic,
+    };
+
+    const targetScale = scaleSettings.position === 'left' ? chart.priceScale('left') : chart.priceScale('right');
+    const otherScale = scaleSettings.position === 'left' ? chart.priceScale('right') : chart.priceScale('left');
+
+    try {
+      targetScale.applyOptions({
+        visible: true,
+        mode: modeMap[scaleSettings.type] || PriceScaleMode.Normal,
+        autoScale: scaleSettings.mode === 'auto',
+        invertScale: scaleSettings.mode === 'invert',
+      });
+      otherScale.applyOptions({ visible: false });
+
+      // Grid
+      chart.applyOptions({
+        grid: {
+          vertLines: { visible: scaleSettings.lines.gridVert },
+          horzLines: { visible: scaleSettings.lines.gridHorz },
+        }
+      });
+
+      // OHLC visibility (handled via CSS/Overlay normally, but chart can show/hide crosshair labels)
+      chart.applyOptions({
+        crosshair: {
+          horzLine: { labelVisible: scaleSettings.labels.currentPrice },
+          vertLine: { labelVisible: scaleSettings.labels.ohlc },
+        }
+      });
+    } catch (e) {}
+  }, [scaleSettings]);
+
+  const resetPriceScale = () => {
+    if (chartInstanceRef.current) {
+      const scale = scaleSettings.position === 'left' ? chartInstanceRef.current.priceScale('left') : chartInstanceRef.current.priceScale('right');
+      scale.applyOptions({ autoScale: true });
+      chartInstanceRef.current.timeScale().fitContent();
+      toast({ title: "Scale Reset", description: "Default zoom and scale restored." });
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -163,6 +258,7 @@ export default function DemoPage() {
     
     chartInstanceRef.current = chart;
     setIsChartReady(true);
+    applyScaleSettings();
     
     const handleResize = () => {
       if (chartContainerRef.current && chartInstanceRef.current) {
@@ -188,7 +284,7 @@ export default function DemoPage() {
       indicatorSeriesRef.current = {};
       setIsChartReady(false);
     };
-  }, [selectedTimezone]);
+  }, [selectedTimezone, applyScaleSettings]);
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
@@ -213,6 +309,8 @@ export default function DemoPage() {
 
             const commonOptions = {
               priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: 1 / Math.pow(10, getPrecision(selectedSymbol)) },
+              lastValueVisible: scaleSettings.labels.currentPrice,
+              title: scaleSettings.labels.ohlc ? selectedSymbol : '',
             };
 
             if (chartType === 'candles') {
@@ -287,7 +385,12 @@ export default function DemoPage() {
             Object.entries(emaPeriods).forEach(([key, period]) => {
               if (indicatorState[key]) {
                 const emaData = Indicators.calculateEMA(closes, period);
-                const series = chartInstanceRef.current!.addLineSeries({ color: emaColors[key as keyof typeof emaColors], lineWidth: 1, title: key.toUpperCase() });
+                const series = chartInstanceRef.current!.addLineSeries({ 
+                  color: emaColors[key as keyof typeof emaColors], 
+                  lineWidth: 1, 
+                  title: scaleSettings.labels.indicators ? key.toUpperCase() : '',
+                  lastValueVisible: scaleSettings.labels.indicators
+                });
                 series.setData(emaData.map((v, i) => ({ time: times[i], value: v })));
                 indicatorSeriesRef.current[key] = series;
               }
@@ -295,10 +398,10 @@ export default function DemoPage() {
 
             if (indicatorState.bb) {
               const bb = Indicators.calculateBollingerBands(closes);
-              const common = { lineWidth: 1, lineStyle: 2 };
-              const u = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: 'BB Upper' });
-              const l = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: 'BB Lower' });
-              const m = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: 'BB Mid', lineStyle: 0 });
+              const common = { lineWidth: 1, lineStyle: 2, lastValueVisible: scaleSettings.labels.indicators };
+              const u = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: scaleSettings.labels.indicators ? 'BB Upper' : '' });
+              const l = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: scaleSettings.labels.indicators ? 'BB Lower' : '' });
+              const m = chartInstanceRef.current.addLineSeries({ ...common, color: '#4ade80', title: scaleSettings.labels.indicators ? 'BB Mid' : '', lineStyle: 0 });
               u.setData(bb.upper.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
               l.setData(bb.lower.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
               m.setData(bb.middle.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
@@ -314,7 +417,7 @@ export default function DemoPage() {
 
             if (indicatorState.rsi) {
               const rsiData = Indicators.calculateRSI(closes);
-              const rsiSeries = chartInstanceRef.current.addLineSeries({ color: '#8b5cf6', lineWidth: 2, priceScaleId: 'rsi', title: 'RSI' });
+              const rsiSeries = chartInstanceRef.current.addLineSeries({ color: '#8b5cf6', lineWidth: 2, priceScaleId: 'rsi', title: scaleSettings.labels.indicators ? 'RSI' : '' });
               chartInstanceRef.current.priceScale('rsi').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.7 } });
               rsiSeries.setData(rsiData.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
               indicatorSeriesRef.current['rsi'] = rsiSeries;
@@ -334,7 +437,7 @@ export default function DemoPage() {
 
             if (indicatorState.atr) {
               const atrData = Indicators.calculateATR(candles);
-              const atrSeries = chartInstanceRef.current.addLineSeries({ color: '#ef4444', lineWidth: 1, priceScaleId: 'atr', title: 'ATR' });
+              const atrSeries = chartInstanceRef.current.addLineSeries({ color: '#ef4444', lineWidth: 1, priceScaleId: 'atr', title: scaleSettings.labels.indicators ? 'ATR' : '' });
               chartInstanceRef.current.priceScale('atr').applyOptions({ scaleMargins: { top: 0.7, bottom: 0.1 } });
               atrSeries.setData(atrData.map((v, i) => ({ time: times[i], value: v })).filter(d => d.value !== null));
               indicatorSeriesRef.current['atr'] = atrSeries;
@@ -351,7 +454,7 @@ export default function DemoPage() {
     };
     fetchHistory();
     return () => { isMounted = false; };
-  }, [isChartReady, selectedSymbol, selectedInterval, chartType, indicatorState]);
+  }, [isChartReady, selectedSymbol, selectedInterval, chartType, indicatorState, scaleSettings.labels.currentPrice, scaleSettings.labels.ohlc, scaleSettings.labels.indicators]);
 
   useEffect(() => {
     if (!mainSeriesRef.current || !chartInstanceRef.current || !livePrices[selectedSymbol]) return;
@@ -434,26 +537,30 @@ export default function DemoPage() {
       
       const pData = livePrices[selectedSymbol];
       
-      openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
-        let pnlText = "";
-        if (pData) {
-          const cp = t.type === 'buy' ? pData.bid : pData.ask;
-          const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
-          const pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
-          pnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
-        }
-        const entry = mainSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
-        if (entry) priceLinesRef.current.push(entry);
-        if (t.sl) {
-          const line = mainSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
-          if (line) priceLinesRef.current.push(line);
-        }
-        if (t.tp) {
-          const line = mainSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
-          if (line) priceLinesRef.current.push(line);
-        }
-      });
+      // Trade Execution Lines
+      if (scaleSettings.labels.tradeLines) {
+        openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
+          let pnlText = "";
+          if (pData) {
+            const cp = t.type === 'buy' ? pData.bid : pData.ask;
+            const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
+            const pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
+            pnlText = ` (${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USD)`;
+          }
+          const entry = mainSeriesRef.current?.createPriceLine({ price: t.openPrice, color: '#3b82f6', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${t.type.toUpperCase()} ${t.lots}${pnlText}` });
+          if (entry) priceLinesRef.current.push(entry);
+          if (t.sl) {
+            const line = mainSeriesRef.current?.createPriceLine({ price: t.sl, color: '#ef4444', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `SL: ${formatPrice(t.sl, selectedSymbol)}` });
+            if (line) priceLinesRef.current.push(line);
+          }
+          if (t.tp) {
+            const line = mainSeriesRef.current?.createPriceLine({ price: t.tp, color: '#10b981', lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: `TP: ${formatPrice(t.tp, selectedSymbol)}` });
+            if (line) priceLinesRef.current.push(line);
+          }
+        });
+      }
 
+      // Alert Lines
       alerts.filter(a => a.symbol === selectedSymbol && a.status === 'active').forEach(a => {
         const line = mainSeriesRef.current?.createPriceLine({ 
           price: a.targetPrice, 
@@ -465,8 +572,20 @@ export default function DemoPage() {
         });
         if (line) priceLinesRef.current.push(line);
       });
+
+      // Additional Scale Lines (Bid/Ask)
+      if (pData && (scaleSettings.lines.bid || scaleSettings.lines.ask)) {
+        if (scaleSettings.lines.bid) {
+          const bidLine = mainSeriesRef.current?.createPriceLine({ price: pData.bid, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'BID' });
+          if (bidLine) priceLinesRef.current.push(bidLine);
+        }
+        if (scaleSettings.lines.ask) {
+          const askLine = mainSeriesRef.current?.createPriceLine({ price: pData.ask, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'ASK' });
+          if (askLine) priceLinesRef.current.push(askLine);
+        }
+      }
     } catch (e) {}
-  }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType, isChartReady]);
+  }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType, isChartReady, scaleSettings.labels.tradeLines, scaleSettings.lines.bid, scaleSettings.lines.ask]);
 
   async function placeTrade(type: "buy" | "sell") {
     if (!user || !currentAccountId || !livePrices[selectedSymbol]) return;
@@ -676,6 +795,86 @@ export default function DemoPage() {
                 <DropdownMenuCheckboxItem checked={indicatorState.atr} onCheckedChange={() => toggleIndicator('atr')}>ATR (14)</DropdownMenuCheckboxItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Price Scale Settings */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400 hover:text-white hover:bg-white/5">
+                  <SlidersHorizontal className="w-4 h-4" /> Scale
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white w-64 p-3 space-y-4">
+                <Button variant="outline" size="sm" className="w-full h-8 text-[10px] font-black uppercase tracking-widest bg-zinc-800/50 border-zinc-700" onClick={resetPriceScale}>
+                  Reset Price Scale
+                </Button>
+
+                <div className="space-y-3">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Scale Mode</Label>
+                  <RadioGroup value={scaleSettings.mode} onValueChange={(v) => setScaleSettings({...scaleSettings, mode: v})} className="grid grid-cols-2 gap-2">
+                    {['auto', 'invert'].map((m) => (
+                      <div key={m} className="flex items-center space-x-2 bg-zinc-800/30 p-2 rounded-lg border border-zinc-700">
+                        <RadioGroupItem value={m} id={`mode-${m}`} />
+                        <Label htmlFor={`mode-${m}`} className="text-[10px] font-bold uppercase cursor-pointer">{m}</Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Scale Type</Label>
+                  <RadioGroup value={scaleSettings.type} onValueChange={(v) => setScaleSettings({...scaleSettings, type: v})} className="grid grid-cols-2 gap-2">
+                    {['regular', 'percent', 'indexed', 'log'].map((t) => (
+                      <div key={t} className="flex items-center space-x-2 bg-zinc-800/30 p-2 rounded-lg border border-zinc-700">
+                        <RadioGroupItem value={t} id={`type-${t}`} />
+                        <Label htmlFor={`type-${t}`} className="text-[10px] font-bold uppercase cursor-pointer truncate">{t === 'indexed' ? 'Idx 100' : t}</Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+
+                <div className="flex items-center justify-between p-2 bg-zinc-800/30 rounded-lg border border-zinc-700">
+                  <Label className="text-[10px] font-bold uppercase text-zinc-300">Move scale to left</Label>
+                  <Checkbox 
+                    checked={scaleSettings.position === 'left'} 
+                    onCheckedChange={(checked) => setScaleSettings({...scaleSettings, position: checked ? 'left' : 'right'})} 
+                  />
+                </div>
+
+                <DropdownMenuSeparator className="bg-zinc-800" />
+
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="text-[10px] font-bold uppercase tracking-widest h-8 focus:bg-zinc-800">
+                    <Tag className="w-3.5 h-3.5 mr-2" /> Labels
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="bg-zinc-900 border-zinc-800 text-white w-56">
+                    <DropdownMenuCheckboxItem checked={scaleSettings.labels.currentPrice} onCheckedChange={(v) => setScaleSettings({...scaleSettings, labels: {...scaleSettings.labels, currentPrice: v}})}>Current Price Label</DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={scaleSettings.labels.ohlc} onCheckedChange={(v) => setScaleSettings({...scaleSettings, labels: {...scaleSettings.labels, ohlc: v}})}>Symbol OHLC</DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={scaleSettings.labels.indicators} onCheckedChange={(v) => setScaleSettings({...scaleSettings, labels: {...scaleSettings.labels, indicators: v}})}>Indicator Labels</DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={scaleSettings.labels.tradeLines} onCheckedChange={(v) => setScaleSettings({...scaleSettings, labels: {...scaleSettings.labels, tradeLines: v}})}>Execution Lines</DropdownMenuCheckboxItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="text-[10px] font-bold uppercase tracking-widest h-8 focus:bg-zinc-800">
+                    <LineChart className="w-3.5 h-3.5 mr-2" /> Lines & Grid
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="bg-zinc-900 border-zinc-800 text-white w-56">
+                    <DropdownMenuCheckboxItem checked={scaleSettings.lines.bid} onCheckedChange={(v) => setScaleSettings({...scaleSettings, lines: {...scaleSettings.lines, bid: v}})}>Bid Line</DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={scaleSettings.lines.ask} onCheckedChange={(v) => setScaleSettings({...scaleSettings, lines: {...scaleSettings.lines, ask: v}})}>Ask Line</DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={scaleSettings.lines.gridVert} onCheckedChange={(v) => setScaleSettings({...scaleSettings, lines: {...scaleSettings.lines, gridVert: v}})}>Vertical Grid</DropdownMenuCheckboxItem>
+                    <DropdownMenuCheckboxItem checked={scaleSettings.lines.gridHorz} onCheckedChange={(v) => setScaleSettings({...scaleSettings, lines: {...scaleSettings.lines, gridHorz: v}})}>Horizontal Grid</DropdownMenuCheckboxItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+
+                <div className="flex items-center justify-between p-2 bg-zinc-800/30 rounded-lg border border-zinc-700">
+                  <Label className="text-[10px] font-bold uppercase text-zinc-300">Show + Button</Label>
+                  <Checkbox 
+                    checked={scaleSettings.showPlusButton} 
+                    onCheckedChange={(v) => setScaleSettings({...scaleSettings, showPlusButton: !!v})} 
+                  />
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
@@ -738,6 +937,35 @@ export default function DemoPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">Syncing Feed...</p>
               </div>
             )}
+
+            {/* Quick Add Button Overlay */}
+            {scaleSettings.showPlusButton && (
+              <div className="absolute right-20 top-20 z-40">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="icon" className="w-8 h-8 rounded-full bg-zinc-900/80 border-zinc-700 shadow-xl hover:bg-primary hover:text-black transition-all">
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white w-48">
+                    <DropdownMenuItem className="gap-2 cursor-pointer" onClick={() => {
+                      setAlertTargetPrice(livePrices[selectedSymbol]?.price?.toString() || "");
+                      setIsAlertModalOpen(true);
+                    }}>
+                      <Bell className="w-3.5 h-3.5 text-amber-500" /> Add Alert
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="gap-2 cursor-pointer">
+                      <LayoutGrid className="w-3.5 h-3.5 text-primary" /> Indicators...
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-zinc-800" />
+                    <DropdownMenuItem className="gap-2 text-zinc-500 cursor-not-allowed">
+                      <Maximize2 className="w-3.5 h-3.5" /> Compare Symbol (TODO)
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
             <div ref={chartContainerRef} className={cn("h-full w-full relative", activeTool !== 'pointer' && "cursor-crosshair")} />
             
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
