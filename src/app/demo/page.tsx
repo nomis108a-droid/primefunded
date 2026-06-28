@@ -762,7 +762,7 @@ export default function DemoPage() {
                       type="button"
                       className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-emerald-500/20 shadow-lg shadow-emerald-900/10 transition-all active:scale-95"
                       onClick={() => placeTrade("buy")}
-                      disabled={actionLoading || !isAccountActive || !currentPriceData}
+                      disabled={actionLoading}
                     >
                       <span className="font-black text-sm tracking-widest">
                         {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : !isAccountActive ? "ACCOUNT LOCKED" : "BUY BY MARKET"}
@@ -776,7 +776,7 @@ export default function DemoPage() {
                       type="button"
                       className="w-full h-16 bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white flex flex-col items-center justify-center gap-0.5 rounded-xl border border-red-500/20 shadow-lg shadow-red-900/10 transition-all active:scale-95"
                       onClick={() => placeTrade("sell")}
-                      disabled={actionLoading || !isAccountActive || !currentPriceData}
+                      disabled={actionLoading}
                     >
                       <span className="font-black text-sm tracking-widest">
                         {actionLoading ? "EXECUTING..." : !currentPriceData ? "PRICING OFFLINE" : !isAccountActive ? "ACCOUNT LOCKED" : "SELL BY MARKET"}
