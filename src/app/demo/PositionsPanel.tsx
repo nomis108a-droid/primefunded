@@ -69,16 +69,16 @@ export function PositionsPanel({
 
   return (
     <div className={cn(
-      "border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0 transition-all duration-200 ease-in-out",
+      "border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0 relative transition-all duration-200 ease-in-out z-40",
       panelOpen ? "h-[200px]" : "h-[40px]"
     )}>
       {/* Drag Handle / Toggle Bar */}
       <div 
-        className="h-1 bg-zinc-800 hover:bg-primary/50 cursor-ns-resize transition-colors"
+        className="h-1 bg-zinc-800 hover:bg-primary/50 cursor-ns-resize transition-colors absolute top-0 left-0 right-0 z-50"
         onClick={() => setPanelOpen(!panelOpen)}
       />
 
-      <div className="px-4 h-9 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50">
+      <div className="px-4 h-9 border-b border-zinc-800 flex justify-between items-center bg-zinc-950/50 shrink-0">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex-1">
           <TabsList className="bg-transparent h-full p-0 gap-6">
             <TabsTrigger value="positions" className="bg-transparent border-none h-full text-[10px] font-black uppercase tracking-widest text-zinc-500 data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">
@@ -95,7 +95,7 @@ export function PositionsPanel({
         
         <button 
           onClick={() => setPanelOpen(!panelOpen)}
-          className="p-1 hover:bg-white/5 rounded text-zinc-500 transition-colors"
+          className="p-1 hover:bg-white/5 rounded text-zinc-500 transition-colors cursor-pointer"
         >
           {panelOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
         </button>
@@ -105,7 +105,7 @@ export function PositionsPanel({
         "flex-1 overflow-y-auto custom-scrollbar transition-opacity duration-200",
         panelOpen ? "opacity-100" : "opacity-0 pointer-events-none"
       )}>
-        <Tabs value={activeTab} className="w-full">
+        <Tabs value={activeTab} className="w-full h-full">
           <TabsContent value="positions" className="m-0 border-none outline-none">
             <table className="w-full text-[11px] text-left">
               <thead className="sticky top-0 bg-zinc-950/90 backdrop-blur-md text-zinc-500 uppercase text-[9px] font-black tracking-widest border-b border-zinc-800">
@@ -153,7 +153,7 @@ export function PositionsPanel({
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className="text-zinc-500">{t.sl ? formatPrice(t.sl, t.symbol) : '—'}</span>
-                            <button onClick={() => { setEditingId(t.id); setEditingType('sl'); setEditValue(t.sl || ""); }} className="text-primary hover:underline text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">MODIFY</button>
+                            <button onClick={() => { setEditingId(t.id); setEditingType('sl'); setEditValue(t.sl || ""); }} className="text-primary hover:underline text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">MODIFY</button>
                           </div>
                         )}
                       </td>
@@ -168,7 +168,7 @@ export function PositionsPanel({
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className="text-zinc-500">{t.tp ? formatPrice(t.tp, t.symbol) : '—'}</span>
-                            <button onClick={() => { setEditingId(t.id); setEditingType('tp'); setEditValue(t.tp || ""); }} className="text-primary hover:underline text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity">MODIFY</button>
+                            <button onClick={() => { setEditingId(t.id); setEditingType('tp'); setEditValue(t.tp || ""); }} className="text-primary hover:underline text-[9px] font-bold opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">MODIFY</button>
                           </div>
                         )}
                       </td>
@@ -178,7 +178,7 @@ export function PositionsPanel({
                         {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-1 px-2 text-right">
-                        <button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded">
+                        <button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded cursor-pointer">
                           <XCircle className="w-4 h-4" />
                         </button>
                       </td>
@@ -259,7 +259,7 @@ export function PositionsPanel({
                       </td>
                       <td className="py-1 px-2 text-zinc-600">{setDate ? format(setDate, 'MMM d, HH:mm') : '—'}</td>
                       <td className="py-1 px-2 text-right">
-                        <button onClick={() => deleteAlert(a.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded">
+                        <button onClick={() => deleteAlert(a.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded cursor-pointer">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </td>

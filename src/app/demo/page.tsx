@@ -172,16 +172,25 @@ export default function DemoPage() {
     applyGlobalSettings();
   }, [chartSettings, applyGlobalSettings]);
 
+  // Robust Resize Sync with UI transitions
   useEffect(() => {
     if (chartInstanceRef.current && chartContainerRef.current) {
-      setTimeout(() => {
+      // Immediate call for flex layout updates
+      chartInstanceRef.current.applyOptions({
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight
+      });
+
+      // Delayed call to capture final dimensions after CSS transitions (200ms)
+      const t = setTimeout(() => {
         if (chartInstanceRef.current && chartContainerRef.current) {
           chartInstanceRef.current.applyOptions({
             width: chartContainerRef.current.clientWidth,
             height: chartContainerRef.current.clientHeight
           });
         }
-      }, 50);
+      }, 250);
+      return () => clearTimeout(t);
     }
   }, [bottomPanelOpen]);
 
@@ -541,7 +550,7 @@ export default function DemoPage() {
       </div>
 
       <div className="flex-1 flex min-h-0 relative">
-        <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
+        <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] overflow-hidden">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
             <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
@@ -559,7 +568,7 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
-            <div className="flex-1 relative">
+            <div className="flex-1 relative min-h-0">
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
                   <Loader2 className="animate-spin text-primary" />
