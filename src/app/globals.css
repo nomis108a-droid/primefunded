@@ -111,3 +111,14 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/40;
 }
+
+/* Institutional Chart Branding Guard */
+/* Hides TradingView / Lightweight Charts attribution elements */
+div[class*="tv-lightweight-charts-logo"],
+div[class*="attribution"],
+a[href*="tradingview.com"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

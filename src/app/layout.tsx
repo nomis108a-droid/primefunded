@@ -1,3 +1,4 @@
+
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
@@ -22,20 +23,15 @@ export const metadata: Metadata = {
   keywords: ['prop firm', 'funded account', 'trading challenge', 'forex funding', 'institutional capital'],
   authors: [{ name: 'PrimeFunded Global' }],
   icons: {
-    icon: [
-      { url: 'https://picsum.photos/seed/pflogo-blue-silver/32/32', sizes: '32x32', type: 'image/png' },
-      { url: 'https://picsum.photos/seed/pflogo-blue-silver/16/16', sizes: '16x16', type: 'image/png' },
-    ],
-    shortcut: 'https://picsum.photos/seed/pflogo-blue-silver/32/32',
-    apple: [
-      { url: 'https://picsum.photos/seed/pflogo-blue-silver/180/180', sizes: '180x180', type: 'image/png' },
-    ],
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/apple-touch-icon.png',
   },
   robots: 'index, follow',
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://primefunded.com',
+    url: 'https://primefunded.fund',
     siteName: 'PrimeFunded',
     title: 'PrimeFunded | Trade with Institutional Capital',
     description: 'Get funded up to $200,000. Keep 80% of your profits. Start your challenge today.',
@@ -67,7 +63,6 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet" />
-        <link rel="apple-touch-icon" sizes="180x180" href="https://picsum.photos/seed/pflogo-blue-silver/180/180" />
       </head>
       <body className="font-body antialiased bg-background text-foreground">
         <FirebaseClientProvider>
