@@ -4,6 +4,7 @@ import { initializeApp, getApps, type FirebaseApp, getApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { 
   initializeFirestore, 
+  getFirestore,
   type Firestore, 
   persistentLocalCache, 
   persistentSingleTabManager 
@@ -22,6 +23,7 @@ let cachedFirebase: {
 /**
  * Initializes the Firebase Client App Instance with production services.
  * Modern configuration with experimentalForceOwningTab support to prevent multi-tab errors.
+ * Includes idempotency guard to prevent "already initialized" errors.
  */
 export function initializeFirebase(): {
   firebaseApp: FirebaseApp | null;
@@ -42,11 +44,19 @@ export function initializeFirebase(): {
     const auth = getAuth(firebaseApp);
     
     // Modern initialization with multi-tab conflict resolution
-    const firestore = initializeFirestore(firebaseApp, {
-      localCache: persistentLocalCache({
-        tabManager: persistentSingleTabManager({ forceOwnership: true })
-      })
-    });
+    // Wrapped in try/catch to handle cases where it's already initialized (e.g. by another module)
+    let firestore: Firestore;
+    try {
+      firestore = initializeFirestore(firebaseApp, {
+        localCache: persistentLocalCache({
+          tabManager: persistentSingleTabManager({ forceOwnership: true })
+        })
+      });
+    } catch (e) {
+      // If initializeFirestore fails (usually because it was already called), 
+      // return the existing instance.
+      firestore = getFirestore(firebaseApp);
+    }
 
     cachedFirebase = { firebaseApp, firestore, auth };
     return cachedFirebase;

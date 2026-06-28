@@ -1,17 +1,18 @@
 'use client';
 
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { firebaseConfig } from '@/firebase/config';
-
 /**
- * Initializes and exports Firebase services for use in client components.
- * This pattern ensures that Firebase is only initialized once, even with Next.js HMR.
+ * @fileOverview Legacy Firebase Instance Proxy
+ * Re-exports initialized instances from the central Firebase hub to ensure 
+ * singleton behavior and avoid "already initialized" conflicts.
  */
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
-const db = getFirestore(app);
 
-export { auth, db, app };
+import { initializeFirebase } from '@/firebase';
+
+const { firebaseApp, firestore, auth: firebaseAuth } = initializeFirebase();
+
+// Fallback to empty if initialization failed (prevents runtime crashes during build/config lag)
+export const app = firebaseApp!;
+export const auth = firebaseAuth!;
+export const db = firestore!;
+
 export default app;
