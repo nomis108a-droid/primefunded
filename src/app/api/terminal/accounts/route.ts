@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { RULES_CONFIG } from '@/lib/rulesConfig';
 
 const PLANS: Record<string, { balance: number; label: string }> = {
   "10k": { balance: 10000, label: "$10,000" },
@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Dynamic calculation based on Institutional Rules
-    const profitTarget = p.balance * ((rules.profitTarget || 10) / 100);
+    // profitTarget for 1-step-pro evaluation is 10%
+    const targetPct = rules.profitTarget || 10;
+    const profitTarget = p.balance * (targetPct / 100);
     const dailyLoss = p.balance * (rules.dailyDrawdown / 100);
     const maxLoss = p.balance * (rules.maxDrawdown / 100);
 

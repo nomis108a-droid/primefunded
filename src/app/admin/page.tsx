@@ -259,7 +259,7 @@ export default function AdminPage() {
                   <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Recent Activity</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
                     {adminData.orders.slice(0, 5).map((o: any) => {
-                      const orderDate = o.date ? new Date(o.date) : null;
+                      const orderDate = getTradeDate(o.submittedAt || o.date);
                       return (
                         <div key={o.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20 border border-white/5">
                           <div className="flex items-center gap-3">
@@ -283,7 +283,7 @@ export default function AdminPage() {
                   <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Users className="w-5 h-5 text-primary" /> New Traders</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
                     {adminData.users.slice(0, 5).map((u: any) => {
-                      const joinDate = u.joinDate ? new Date(u.joinDate) : null;
+                      const joinDate = getTradeDate(u.joinDate || u.createdAt);
                       return (
                         <div key={u.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/20 border border-white/5">
                           <div className="flex items-center gap-3">
@@ -406,7 +406,7 @@ export default function AdminPage() {
                     </thead>
                     <tbody className="divide-y divide-border/50">
                       {adminData.payouts.map((p: any) => {
-                        const payoutDate = p.date ? new Date(p.date) : null;
+                        const payoutDate = getTradeDate(p.date || p.createdAt);
                         return (
                           <tr key={p.id} className="hover:bg-white/5">
                             <td className="p-4 text-xs text-muted-foreground">{payoutDate && isValid(payoutDate) ? format(payoutDate, 'MMM d, HH:mm') : '—'}</td>
@@ -760,7 +760,7 @@ export default function AdminPage() {
                            {userDetail.payouts.length === 0 ? <p className="text-xs text-muted-foreground italic">No payout history.</p> : (
                              <div className="space-y-3">
                                {userDetail.payouts.map((p: any) => {
-                                 const pDate = p.date ? new Date(p.date) : null;
+                                 const pDate = getTradeDate(p.date || p.createdAt);
                                  return (
                                    <div key={p.id} className="flex justify-between items-center p-3 rounded-lg bg-secondary/20">
                                      <div><p className="text-xs font-bold">${parseFloat(p.amount).toLocaleString()}</p><p className="text-[10px] text-muted-foreground">{pDate && isValid(pDate) ? format(pDate, 'MMM d, yyyy') : ''}</p></div>

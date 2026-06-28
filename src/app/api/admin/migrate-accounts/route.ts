@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * @fileOverview Institutional Data Migration
@@ -55,6 +56,20 @@ export async function GET(req: NextRequest) {
       if (data.dailyLossResetAt === undefined) {
         updates.dailyLossResetAt = FieldValue.serverTimestamp();
         needsUpdate = true;
+      }
+
+      // 6. CORRECT PROFIT TARGET
+      const planKey = getPlanKey(updates.planType || data.planType || '1-step-pro');
+      const phaseKey = updates.phase || data.phase || 'evaluation';
+      const rules = RULES_CONFIG.plans[planKey]?.[phaseKey];
+      
+      if (rules && rules.profitTarget) {
+        const startBalance = parseFloat(String(data.startBalance || 100000));
+        const correctTarget = startBalance * (rules.profitTarget / 100);
+        if (data.profitTarget !== correctTarget) {
+          updates.profitTarget = correctTarget;
+          needsUpdate = true;
+        }
       }
 
       if (needsUpdate) {
