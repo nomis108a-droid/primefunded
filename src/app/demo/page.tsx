@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -17,7 +18,7 @@ import {
   Square, Triangle, Type, Pencil, Magnet, Undo, Trash2, Ruler,
   TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
   Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
-  ZoomIn, ZoomOut, AlertCircle
+  ZoomIn, ZoomOut, AlertCircle, Home, Eraser
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -289,6 +290,27 @@ export default function DemoPage() {
   const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "closed"), orderBy("closedAt", "desc"), limit(50)] : [], [user?.uid, currentAccountId]));
   const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("createdAt", "desc")] : [], [user?.uid]));
 
+  const handleZoomIn = () => {
+    if (chartInstanceRef.current) {
+      const timeScale = chartInstanceRef.current.timeScale();
+      timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing * 1.2 });
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (chartInstanceRef.current) {
+      const timeScale = chartInstanceRef.current.timeScale();
+      timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing / 1.2 });
+    }
+  };
+
+  const handleResetView = () => {
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.timeScale().fitContent();
+      chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
+    }
+  };
+
   if (authLoading) return <div className="fixed inset-0 bg-[#09090b] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
 
   return (
@@ -348,71 +370,69 @@ export default function DemoPage() {
 
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
             {/* TRADINGVIEW STYLE SIDEBAR */}
-            <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#161616] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl">
+            <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
-                {/* GROUP 1: CURSORS */}
                 <div className="flex flex-col gap-1 items-center w-full">
+                  {/* 1. Crosshair */}
                   <ToolIcon name="Crosshair" icon={<Crosshair />} active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} />
-                  <ToolIcon name="Dot" icon={<Circle className="fill-current scale-[0.3]" />} active={activeTool === 'dot'} onClick={() => setActiveTool('dot')} />
-                </div>
-                
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-
-                {/* GROUP 2: LINES */}
-                <div className="flex flex-col gap-1 items-center w-full">
+                  
+                  {/* 2. Trend Line */}
                   <ToolIcon name="Trend Line" icon={<Slash />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+                  
+                  {/* 3. Arrow */}
                   <ToolIcon name="Arrow" icon={<ArrowUpRight />} active={activeTool === 'arrow'} onClick={() => setActiveTool('arrow')} />
+                  
+                  {/* 4. Horizontal Line */}
                   <ToolIcon name="Horizontal Line" icon={<Minus />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+                  
+                  {/* 5. Vertical Line */}
                   <ToolIcon name="Vertical Line" icon={<div className="rotate-90"><Minus /></div>} active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} />
+                  
+                  {/* 6. Ray */}
                   <ToolIcon name="Ray" icon={<ArrowRight className="rotate-[-45deg]" />} active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} />
-                  <ToolIcon name="Extended Line" icon={<ArrowLeftRight />} active={activeTool === 'extended'} onClick={() => setActiveTool('extended')} />
+
+                  {/* 7. Parallel Channel */}
                   <ToolIcon name="Parallel Channel" icon={<Columns className="scale-75" />} active={activeTool === 'channel'} onClick={() => setActiveTool('channel')} />
-                </div>
 
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-
-                {/* GROUP 3: SHAPES */}
-                <div className="flex flex-col gap-1 items-center w-full">
+                  {/* 8. Rectangle */}
                   <ToolIcon name="Rectangle" icon={<Square />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-                  <ToolIcon name="Circle" icon={<Circle />} active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} />
-                  <ToolIcon name="Triangle" icon={<Triangle />} active={activeTool === 'triangle'} onClick={() => setActiveTool('triangle')} />
-                </div>
 
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-
-                {/* GROUP 4: FIBONACCI */}
-                <div className="flex flex-col gap-1 items-center w-full">
-                  <ToolIcon name="Fib Retracement" icon={<Activity className="scale-90" />} active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} />
-                  <ToolIcon name="Fib Extension" icon={<LayoutGrid className="scale-75" />} active={activeTool === 'fib-ext'} onClick={() => setActiveTool('fib-ext')} />
-                </div>
-
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-
-                {/* GROUP 5: ANNOTATION */}
-                <div className="flex flex-col gap-1 items-center w-full">
+                  {/* 9. Text */}
                   <ToolIcon name="Text" icon={<Type />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-                  <ToolIcon name="Note" icon={<StickyNote />} active={activeTool === 'note'} onClick={() => setActiveTool('note')} />
-                  <ToolIcon name="Price Label" icon={<Tag />} active={activeTool === 'price-label'} onClick={() => setActiveTool('price-label')} />
-                  <ToolIcon name="Arrow Marker" icon={<MousePointer2 />} active={activeTool === 'marker'} onClick={() => setActiveTool('marker')} />
-                </div>
 
-                <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+                  {/* 10. Circle */}
+                  <ToolIcon name="Circle" icon={<Circle />} active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} />
 
-                {/* GROUP 6: MEASUREMENT */}
-                <div className="flex flex-col gap-1 items-center w-full">
+                  {/* 11. Ruler / Measure */}
                   <ToolIcon name="Ruler / Measure" icon={<Ruler />} active={activeTool === 'measure'} onClick={() => setActiveTool('measure')} />
-                  <ToolIcon name="Long Position" icon={<TrendingUp className="text-emerald-500" />} active={activeTool === 'long'} onClick={() => setActiveTool('long')} />
-                  <ToolIcon name="Short Position" icon={<TrendingDown className="text-red-500" />} active={activeTool === 'short'} onClick={() => setActiveTool('short')} />
-                </div>
 
-                {/* BOTTOM UTILITIES */}
-                <div className="mt-auto flex flex-col gap-1 items-center w-full pb-4">
-                  <ToolIcon name="Lock Drawings" icon={drawingsLocked ? <Lock className="text-primary" /> : <Unlock />} onClick={() => setDrawingsLocked(!drawingsLocked)} />
-                  <ToolIcon name="Hide Drawings" icon={drawingsHidden ? <EyeOff className="text-primary" /> : <Eye />} onClick={() => setDrawingsHidden(!drawingsHidden)} />
-                  <ToolIcon name="Magnet Mode" icon={<Magnet className={cn(magnetMode && "text-primary")} />} onClick={() => setMagnetMode(!magnetMode)} />
-                  <ToolIcon name="Favorites" icon={<Star />} active={false} onClick={() => {}} />
                   <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
-                  <ToolIcon name="Delete All" icon={<Trash2 />} className="hover:text-destructive" onClick={() => setIsDeleteAllOpen(true)} />
+
+                  {/* 12. Zoom In */}
+                  <ToolIcon name="Zoom In" icon={<ZoomIn />} active={false} onClick={handleZoomIn} />
+
+                  {/* 13. Zoom Out */}
+                  <ToolIcon name="Zoom Out" icon={<ZoomOut />} active={false} onClick={handleZoomOut} />
+
+                  {/* 14. Home */}
+                  <ToolIcon name="Reset View" icon={<Home className="w-4 h-4" />} active={false} onClick={handleResetView} />
+
+                  <div className="h-[1px] bg-[#2a2a2a] my-2 w-8 shrink-0" />
+
+                  {/* 15. Lock */}
+                  <ToolIcon name="Lock Drawings" icon={drawingsLocked ? <Lock className="text-primary" /> : <Unlock />} onClick={() => setDrawingsLocked(!drawingsLocked)} />
+                  
+                  {/* 16. Magnet */}
+                  <ToolIcon name="Magnet Mode" icon={<Magnet className={cn(magnetMode && "text-primary")} />} onClick={() => setMagnetMode(!magnetMode)} />
+                  
+                  {/* 17. Eye */}
+                  <ToolIcon name="Hide Drawings" icon={drawingsHidden ? <EyeOff className="text-primary" /> : <Eye />} onClick={() => setDrawingsHidden(!drawingsHidden)} />
+                  
+                  {/* 18. Eraser */}
+                  <ToolIcon name="Eraser / Remove All" icon={<Eraser className="w-4 h-4" />} className="hover:text-destructive" onClick={() => setIsDeleteAllOpen(true)} />
+                  
+                  {/* 19. Favorites */}
+                  <ToolIcon name="Favorites" icon={<Star />} active={false} onClick={() => {}} />
                 </div>
               </TooltipProvider>
             </aside>
@@ -474,7 +494,7 @@ export default function DemoPage() {
         </aside>
       </div>
 
-      <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={() => {}} />
+      <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
       
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
@@ -506,8 +526,6 @@ export default function DemoPage() {
 }
 
 function ToolIcon({ name, icon, active = false, onClick, className }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void, className?: string }) {
-  const isInteractive = !!onClick;
-  
   return (
     <Tooltip>
       <TooltipTrigger asChild>
