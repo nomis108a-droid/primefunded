@@ -2,8 +2,12 @@
 
 import { initializeApp, getApps, type FirebaseApp, getApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore, enableIndexedDbPersistence } from 'firebase/firestore';
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { 
+  initializeFirestore, 
+  type Firestore, 
+  persistentLocalCache, 
+  persistentSingleTabManager 
+} from 'firebase/firestore';
 import { firebaseConfig } from './config';
 
 /**
@@ -17,6 +21,7 @@ let cachedFirebase: {
 
 /**
  * Initializes the Firebase Client App Instance with production services.
+ * Modern configuration with experimentalForceOwningTab support to prevent multi-tab errors.
  */
 export function initializeFirebase(): {
   firebaseApp: FirebaseApp | null;
@@ -35,18 +40,13 @@ export function initializeFirebase(): {
   try {
     const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     const auth = getAuth(firebaseApp);
-    const firestore = getFirestore(firebaseApp);
     
-    // Enable offline persistence only once on the client
-    if (typeof window !== 'undefined') {
-      enableIndexedDbPersistence(firestore).catch((err) => {
-        if (err.code === 'failed-precondition') {
-          console.warn('[Firestore] Persistence failed: Multiple tabs open.');
-        } else if (err.code === 'unimplemented') {
-          console.warn('[Firestore] Persistence failed: Browser not supported.');
-        }
-      });
-    }
+    // Modern initialization with multi-tab conflict resolution
+    const firestore = initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager({ forceOwnership: true })
+      })
+    });
 
     cachedFirebase = { firebaseApp, firestore, auth };
     return cachedFirebase;

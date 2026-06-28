@@ -220,7 +220,6 @@ export default function DemoPage() {
     const fetchHistory = async () => {
       if (!chartInstanceRef.current) return;
       setIsChartLoading(true);
-      console.log(`[Chart] Starting sync for ${selectedSymbol} ${selectedInterval} [${chartType}]`);
       
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}`);
@@ -448,7 +447,7 @@ export default function DemoPage() {
     if (!currentAccount) return { equity: 0, floatingPnL: 0 };
     let floating = 0;
     openTrades.forEach(trade => {
-      const pData = livePrices[trade.symbol];
+      const pData = livePrices[trade.symbol] || livePrices[trade.symbol?.toUpperCase()];
       if (pData) {
         const cp = trade.type === 'buy' ? pData.bid : pData.ask;
         const cSize = trade.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol) ? 1 : 100000;
@@ -528,20 +527,55 @@ export default function DemoPage() {
     } finally { setActionLoading(false); }
   }
 
-  async function closeTrade(tradeId: string, openedAt: any) {
+  async function closeTrade(tradeId: string) {
     if (!user) return;
-    const openDate = getTradeDate(openedAt);
+    const trade = openTrades.find(t => t.id === tradeId);
+    if (!trade) return;
+
+    const openDate = getTradeDate(trade.openedAt);
     if (openDate && differenceInSeconds(new Date(), openDate) < 120) {
       toast({ variant: "destructive", title: "Hold Time Violation", description: `Please wait ${120 - differenceInSeconds(new Date(), openDate)}s before closing.` });
       return;
     }
+
+    // Try multiple price lookups for resilience
+    const priceData = livePrices[trade.symbol] 
+      || livePrices[trade.symbol?.toUpperCase()]
+      || livePrices[selectedSymbol];
+    
+    let closePrice = trade.type === 'buy' 
+      ? (priceData?.bid || priceData?.price) 
+      : (priceData?.ask || priceData?.price);
+    
+    if (!closePrice || closePrice <= 0) {
+      try {
+        const res = await fetch('/api/terminal/live-prices');
+        const prices = await res.json();
+        closePrice = prices[trade.symbol]?.bid || prices[trade.symbol]?.price;
+        if (!closePrice) {
+          toast({ title: "Close Failed", description: "Could not get current price. Try again.", variant: "destructive" });
+          return;
+        }
+      } catch(e) {
+        toast({ title: "Close Failed", description: "Network error", variant: "destructive" });
+        return;
+      }
+    }
+
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ closePrice })
+      });
+      
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Rejected.");
-      toast({ title: "Position Closed", description: `PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
-    } catch (err: any) { toast({ variant: "destructive", title: "Closure Error", description: err.message }); }
+      toast({ title: "Position Closed", description: `${trade.symbol} closed successfully. PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
+    } catch (err: any) { 
+      toast({ variant: "destructive", title: "Closure Error", description: err.message }); 
+    }
   }
 
   const toggleIndicator = (id: string) => {
@@ -694,20 +728,6 @@ export default function DemoPage() {
       </header>
 
       <div className="flex-1 flex min-h-0 relative">
-        <aside className="w-12 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-4 gap-4 shrink-0">
-          <ToolIcon icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
-          <div className="w-8 h-px bg-zinc-800 my-1" />
-          <ToolIcon icon={<TrendingUp className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
-          <ToolIcon icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
-          <ToolIcon icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
-          <ToolIcon icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
-          
-          <div className="mt-auto flex flex-col gap-4">
-            <ToolIcon icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
-            <ToolIcon icon={<Eraser className="w-4 h-4" />} onClick={handleClearDrawings} />
-          </div>
-        </aside>
-
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b]">
           <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
             {SYMBOLS.map((s) => (
@@ -725,6 +745,21 @@ export default function DemoPage() {
           </div>
 
           <div className="flex-1 relative min-h-0 bg-[#09090b]">
+            {/* Tool Toolbar - Restored to Left Overlay */}
+            <aside className="absolute left-0 top-0 bottom-0 w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-4 z-10">
+              <ToolIcon icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
+              <div className="w-8 h-px bg-zinc-800 my-1" />
+              <ToolIcon icon={<TrendingUp className="w-4 h-4" />} active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} />
+              <ToolIcon icon={<Minus className="w-4 h-4" />} active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} />
+              <ToolIcon icon={<Square className="w-4 h-4" />} active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} />
+              <ToolIcon icon={<Type className="w-4 h-4" />} active={activeTool === 'text'} onClick={() => setActiveTool('text')} />
+              
+              <div className="mt-auto flex flex-col gap-4">
+                <ToolIcon icon={<Magnet className="w-4 h-4" />} active={magnetMode} onClick={() => setMagnetMode(!magnetMode)} />
+                <ToolIcon icon={<Eraser className="w-4 h-4" />} onClick={handleClearDrawings} />
+              </div>
+            </aside>
+
             {isChartLoading && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
                 <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
@@ -739,7 +774,7 @@ export default function DemoPage() {
             closedTrades={closedTrades} 
             alerts={alerts}
             livePrices={livePrices} 
-            closeTrade={closeTrade} 
+            closeTrade={(id) => closeTrade(id)} 
             deleteAlert={deleteAlert}
             user={user} 
             alertsLoading={alertsLoading}

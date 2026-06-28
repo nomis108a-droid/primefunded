@@ -6,6 +6,10 @@ const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
 };
 
+/**
+ * @fileOverview Institutional Trade Closure API
+ * Robust price matching with client-side override and symbol casing resilience.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -20,6 +24,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     } catch {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
+
+    const body = await req.json().catch(() => ({}));
+    const clientClosePrice = body.closePrice ? parseFloat(String(body.closePrice)) : null;
 
     const db = getAdminDb();
     const tradeRef = db.collection("demoTrades").doc(id);
@@ -39,13 +46,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }, { status: 400 });
     }
 
-    const priceSnap = await db.collection("livePrices").doc(trade.symbol).get();
-    if (!priceSnap.exists) return NextResponse.json({ error: "No price for symbol" }, { status: 400 });
-    const priceData = priceSnap.data()!;
-    const closePrice = trade.type === "buy" ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+    // ROBUST PRICE MATCHING
+    let closePrice = clientClosePrice;
+    
+    if (!closePrice) {
+      // Try multiple symbol variations in livePrices
+      const symbol = trade.symbol;
+      const priceDocs = [symbol, symbol.toUpperCase(), symbol.toLowerCase()];
+      let priceData = null;
+      
+      for (const s of priceDocs) {
+        const snap = await db.collection("livePrices").doc(s).get();
+        if (snap.exists) {
+          priceData = snap.data();
+          break;
+        }
+      }
+
+      if (!priceData) return NextResponse.json({ error: `No price for symbol ${symbol}` }, { status: 400 });
+      closePrice = trade.type === "buy" ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+    }
 
     const contractSize = CONTRACT_SIZE[trade.symbol] || 100000;
-    const pnl = (trade.type === "buy" ? closePrice - trade.openPrice : trade.openPrice - closePrice) * trade.lots * contractSize;
+    const pnl = (trade.type === "buy" ? (closePrice || 0) - trade.openPrice : trade.openPrice - (closePrice || 0)) * trade.lots * contractSize;
 
     const accRef = db.collection("demoAccounts").doc(trade.accountId);
 
