@@ -95,16 +95,13 @@ export default function DemoPage() {
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   
-  // Alert UI State
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [alertTargetPrice, setAlertTargetPrice] = useState("");
   const [alertCondition, setAlertCondition] = useState<"above" | "below">("above");
 
-  // Drawing Tool State
   const [activeTool, setActiveTool] = useState<string>('pointer');
   const [magnetMode, setMagnetMode] = useState(false);
   
-  // Indicator State
   const [indicatorState, setIndicatorState] = useState<Record<string, boolean>>({
     ema9: false, ema21: false, ema50: false, ema200: false,
     bb: false, rsi: false, macd: false, atr: false, volume: true, sessions: true
@@ -116,11 +113,8 @@ export default function DemoPage() {
   const currentCandleRef = useRef<any>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
   const drawingLinesRef = useRef<IPriceLine[]>([]);
-  
-  // Indicator Refs for series cleanup
   const indicatorSeriesRef = useRef<Record<string, ISeriesApi<any>>>({});
 
-  // Fixed Price Polling
   useEffect(() => {
     let isMounted = true;
     const fetchPrices = async () => {
@@ -138,7 +132,6 @@ export default function DemoPage() {
     return () => { isMounted = false; window.clearInterval(timer); };
   }, []);
 
-  // Initialize Chart
   useEffect(() => {
     if (!chartContainerRef.current) return;
     const chart = createChart(chartContainerRef.current, {
@@ -160,7 +153,6 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     setIsChartReady(true);
     
-    // Handle Drawing Clicks
     chart.subscribeClick((param) => {
       if (!param.point || !mainSeriesRef.current || activeTool === 'pointer' || !chartInstanceRef.current) return;
       
@@ -181,9 +173,7 @@ export default function DemoPage() {
           setActiveTool('pointer');
           toast({ title: "Drawing Placed", description: "Horizontal level added to chart." });
         }
-      } catch (e) {
-        // chart likely disposed
-      }
+      } catch (e) {}
     });
     
     const handleResize = () => {
@@ -212,7 +202,6 @@ export default function DemoPage() {
     };
   }, [selectedTimezone, activeTool]);
 
-  // Isolated Candle Fetch & Indicator Calculation & Series Switching
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
     let isMounted = true;
@@ -230,7 +219,6 @@ export default function DemoPage() {
         const candles = Array.isArray(data) ? data : (data.candles || []);
         if (candles.length > 0) {
           try {
-            // 1. Handle Series Switching
             if (mainSeriesRef.current) {
               chartInstanceRef.current.removeSeries(mainSeriesRef.current);
             }
@@ -270,7 +258,6 @@ export default function DemoPage() {
               });
             }
 
-            // 2. Set Data
             if (mainSeriesRef.current) {
               if (chartType === 'candles' || chartType === 'bars') {
                 mainSeriesRef.current.setData(candles);
@@ -279,7 +266,6 @@ export default function DemoPage() {
               }
             }
             
-            // 3. Render Indicators
             Object.values(indicatorSeriesRef.current).forEach(s => {
               try { chartInstanceRef.current?.removeSeries(s); } catch (e) {}
             });
@@ -288,7 +274,6 @@ export default function DemoPage() {
             const closes = candles.map((c: any) => c.close);
             const times = candles.map((c: any) => c.time);
 
-            // Session Shading
             if (indicatorState.sessions && !selectedInterval.includes('day')) {
                const sessionSeries = chartInstanceRef.current.addHistogramSeries({ 
                  priceScaleId: 'session_shading',
@@ -309,7 +294,6 @@ export default function DemoPage() {
                indicatorSeriesRef.current['sessions'] = sessionSeries;
             }
 
-            // Overlays
             const emaPeriods = { ema9: 9, ema21: 21, ema50: 50, ema200: 200 };
             const emaColors = { ema9: '#3b82f6', ema21: '#f59e0b', ema50: '#ec4899', ema200: '#8b5cf6' };
             Object.entries(emaPeriods).forEach(([key, period]) => {
@@ -333,7 +317,6 @@ export default function DemoPage() {
               indicatorSeriesRef.current['bb_u'] = u; indicatorSeriesRef.current['bb_l'] = l; indicatorSeriesRef.current['bb_m'] = m;
             }
 
-            // Sub-Panes
             if (indicatorState.volume) {
               const volSeries = chartInstanceRef.current.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
               chartInstanceRef.current.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
@@ -370,9 +353,7 @@ export default function DemoPage() {
             }
 
             chartInstanceRef.current.timeScale().fitContent();
-          } catch (e) {
-            // chart likely disposed
-          }
+          } catch (e) {}
         }
       } catch (err: any) {
         console.warn("[Chart] History unavailable:", err.message);
@@ -384,7 +365,6 @@ export default function DemoPage() {
     return () => { isMounted = false; };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, indicatorState]);
 
-  // Real-time Tick Sync
   useEffect(() => {
     if (!mainSeriesRef.current || !chartInstanceRef.current || !livePrices[selectedSymbol]) return;
     const price = livePrices[selectedSymbol].price;
@@ -408,9 +388,7 @@ export default function DemoPage() {
       } else {
         mainSeriesRef.current.update({ time: candleTime, value: price });
       }
-    } catch (e) {
-      // chart likely disposed
-    }
+    } catch (e) {}
   }, [livePrices[selectedSymbol], selectedSymbol, selectedInterval, chartType]);
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
@@ -457,7 +435,6 @@ export default function DemoPage() {
     return { equity: (currentAccount.balance || 0) + floating, floatingPnL: floating };
   }, [currentAccount, openTrades, livePrices]);
 
-  // Position & Alert Overlays
   useEffect(() => {
     if (!mainSeriesRef.current || !chartInstanceRef.current) return;
     
@@ -469,7 +446,6 @@ export default function DemoPage() {
       
       const pData = livePrices[selectedSymbol];
       
-      // Position Lines
       openTrades.filter(t => t.symbol === selectedSymbol).forEach(t => {
         let pnlText = "";
         if (pData) {
@@ -490,7 +466,6 @@ export default function DemoPage() {
         }
       });
 
-      // Alert Lines
       alerts.filter(a => a.symbol === selectedSymbol && a.status === 'active').forEach(a => {
         const line = mainSeriesRef.current?.createPriceLine({ 
           price: a.targetPrice, 
@@ -502,9 +477,7 @@ export default function DemoPage() {
         });
         if (line) priceLinesRef.current.push(line);
       });
-    } catch (e) {
-      // chart likely disposed
-    }
+    } catch (e) {}
   }, [openTrades, alerts, selectedSymbol, livePrices[selectedSymbol], chartType, isChartReady]);
 
   async function placeTrade(type: "buy" | "sell") {
@@ -528,53 +501,63 @@ export default function DemoPage() {
   }
 
   async function closeTrade(tradeId: string) {
-    if (!user) return;
-    const trade = openTrades.find(t => t.id === tradeId);
-    if (!trade) return;
+    try {
+      setActionLoading(true);
+      const trade = openTrades.find(t => t.id === tradeId);
+      if (!trade) return;
 
-    const openDate = getTradeDate(trade.openedAt);
-    if (openDate && differenceInSeconds(new Date(), openDate) < 120) {
-      toast({ variant: "destructive", title: "Hold Time Violation", description: `Please wait ${120 - differenceInSeconds(new Date(), openDate)}s before closing.` });
-      return;
-    }
-
-    // Try multiple price lookups for resilience
-    const priceData = livePrices[trade.symbol] 
-      || livePrices[trade.symbol?.toUpperCase()]
-      || livePrices[selectedSymbol];
-    
-    let closePrice = trade.type === 'buy' 
-      ? (priceData?.bid || priceData?.price) 
-      : (priceData?.ask || priceData?.price);
-    
-    if (!closePrice || closePrice <= 0) {
-      try {
-        const res = await fetch('/api/terminal/live-prices');
-        const prices = await res.json();
-        closePrice = prices[trade.symbol]?.bid || prices[trade.symbol]?.price;
-        if (!closePrice) {
-          toast({ title: "Close Failed", description: "Could not get current price. Try again.", variant: "destructive" });
-          return;
-        }
-      } catch(e) {
-        toast({ title: "Close Failed", description: "Network error", variant: "destructive" });
+      const openDate = getTradeDate(trade.openedAt);
+      if (openDate && differenceInSeconds(new Date(), openDate) < 120) {
+        toast({ variant: "destructive", title: "Hold Time Violation", description: `Please wait ${120 - differenceInSeconds(new Date(), openDate)}s before closing.` });
         return;
       }
-    }
 
-    try {
-      const token = await user.getIdToken();
+      const pricesRes = await fetch('/api/terminal/live-prices');
+      const prices = await pricesRes.json();
+      
+      const priceData = prices[trade.symbol] 
+        || prices[trade.symbol?.toUpperCase()]
+        || prices[trade.symbol?.replace('USD','USDT')]
+        || livePrices[trade.symbol]
+        || livePrices[selectedSymbol];
+
+      const closePrice = trade.type === 'buy'
+        ? (priceData?.bid || priceData?.price || 0)
+        : (priceData?.ask || priceData?.price || 0);
+
+      if (!closePrice || closePrice <= 0) {
+        toast({ 
+          title: "Cannot Close", 
+          description: `No live price available for ${trade.symbol}. Please try again.`,
+          variant: "destructive" 
+        });
+        return;
+      }
+
+      const token = await user?.getIdToken();
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Authorization': `Bearer ${token}` 
+        },
         body: JSON.stringify({ closePrice })
       });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Rejected.");
-      toast({ title: "Position Closed", description: `${trade.symbol} closed successfully. PnL: $${data.pnl?.toFixed(2) || '0.00'}` });
-    } catch (err: any) { 
-      toast({ variant: "destructive", title: "Closure Error", description: err.message }); 
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ 
+          title: "Close Failed", 
+          description: err.error || `Server error ${res.status}`,
+          variant: "destructive" 
+        });
+        return;
+      }
+      toast({ title: "✓ Position Closed", description: `${trade.symbol} closed at ${closePrice.toFixed(2)}` });
+    } catch (e: any) {
+      toast({ title: "Close Error", description: e.message, variant: "destructive" });
+    } finally {
+      setActionLoading(false);
     }
   }
 
@@ -745,7 +728,6 @@ export default function DemoPage() {
           </div>
 
           <div className="flex-1 relative min-h-0 bg-[#09090b]">
-            {/* Tool Toolbar - Restored to Left Overlay */}
             <aside className="absolute left-0 top-0 bottom-0 w-12 border-r border-zinc-800 bg-zinc-950/80 backdrop-blur-md flex flex-col items-center py-4 gap-4 z-10">
               <ToolIcon icon={<MousePointer2 className="w-4 h-4" />} active={activeTool === 'pointer'} onClick={() => setActiveTool('pointer')} />
               <div className="w-8 h-px bg-zinc-800 my-1" />
@@ -816,7 +798,6 @@ export default function DemoPage() {
         </aside>
       </div>
 
-      {/* Price Alert Modal */}
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
           <DialogHeader>
