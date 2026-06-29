@@ -32,7 +32,7 @@ export async function GET() {
 
   // ── TIINGO: Crypto (real-time, works on Vercel) ───────────────
   try {
-    const tickers = 'btcusd,ethusd,solusd,xrpusd,bnbusd,dogeusd,adausd';
+    const tickers = 'btcusd,ethusd,solusd,dogeusd,bnbusd';
     const r = await fetch(
       `https://api.tiingo.com/tiingo/crypto/prices?tickers=${tickers}&token=${tiingo}`,
       { cache:'no-store' }
