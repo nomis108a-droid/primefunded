@@ -19,7 +19,7 @@ import {
   TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
   Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
   ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
-  RefreshCw, Clock as ClockIcon
+  RefreshCw, Clock as ClockIcon, AlertTriangle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -62,6 +62,7 @@ export default function DemoPage() {
   const [isChartLoading, setIsChartLoading] = useState(true);
   const [isChartReady, setIsChartReady] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
+  const [isFallbackData, setIsFallbackData] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
   const [selectedTimezone, setSelectedTimezone] = useState("local");
@@ -109,17 +110,21 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!authLoading && !accountsLoading) {
+      console.log("[Terminal] Auth and Accounts resolved. User:", !!user);
       if (accounts.length > 0 && !currentAccountId) {
         setCurrentAccountId(accounts[0].id);
       }
       setPageReady(true);
     }
-  }, [authLoading, accountsLoading, accounts, currentAccountId]);
+  }, [authLoading, accountsLoading, accounts, currentAccountId, user]);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      if (!pageReady) setPageReady(true);
-    }, 5000);
+      if (!pageReady) {
+        console.warn("[Terminal] Initialization slow. Forcing page ready.");
+        setPageReady(true);
+      }
+    }, 8000);
     return () => clearTimeout(t);
   }, [pageReady]);
 
@@ -127,6 +132,7 @@ export default function DemoPage() {
   useEffect(() => {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
+    setIsFallbackData(false);
     if (chartInstanceRef.current) {
       chartInstanceRef.current.timeScale().scrollToPosition(0, false);
     }
@@ -191,6 +197,7 @@ export default function DemoPage() {
   useEffect(() => {
     if (!chartContainerRef.current || !pageReady) return;
     
+    console.log("[Chart] Initializing Lightweight Charts instance...");
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
@@ -234,16 +241,21 @@ export default function DemoPage() {
 
     const fetchHistory = async () => {
       if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
+        console.log(`[Chart] Loading ${selectedSymbol} from memory cache.`);
         setIsChartLoading(false);
         setChartError(null);
         setupSeries(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
       } else {
+        console.log(`[Chart] Initiating fresh fetch for ${selectedSymbol}.`);
         setIsChartLoading(true);
         setChartError(null);
       }
       
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => {
+        console.error("[Chart] Sync connection timed out after 10s.");
+        controller.abort();
+      }, 10000);
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -259,15 +271,20 @@ export default function DemoPage() {
         if (!isMounted || !chartInstanceRef.current) return;
 
         if (candles.length > 0) {
+          console.log(`[Chart] Successfully loaded ${candles.length} candles for ${selectedSymbol}. Fallback: ${!!data.isFallback}`);
           setupSeries(candles);
+          setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles, lastUpdated: Date.now() });
           currentCandleRef.current = candles[candles.length - 1];
           oldestTimestamp.current = candles[0].time;
+        } else {
+          console.warn(`[Chart] API returned empty candle set for ${selectedSymbol}.`);
         }
       } catch (err: any) {
         if (err.name === 'AbortError') {
           if (isMounted && !cached) setChartError("Sync connection timed out. Markets may be closed or slow.");
         } else {
+          console.error("[Chart] Fetch Error:", err);
           if (isMounted && !cached) setChartError(err.message || "Failed to establish market connection");
         }
       } finally {
@@ -353,7 +370,7 @@ export default function DemoPage() {
             if (closingTradesRef.current.has(t.id)) return;
             
             const pData = prices[t.symbol] || prices[t.symbol?.toUpperCase()];
-            if (!pData || !pData.bid || !pData.ask || isNaN(pData.bid) || isNaN(pData.ask)) return;
+            if (!pData || !pData.bid || !pData.ask || isNaN(pData.bid) || isNaN(pData.ask) || pData.bid <= 0 || pData.ask <= 0) return;
 
             const bid = pData.bid;
             const ask = pData.ask;
@@ -704,6 +721,15 @@ export default function DemoPage() {
                   <Button variant="outline" size="sm" className="h-9 px-6 font-bold" onClick={() => { setIsChartReady(false); setTimeout(() => setIsChartReady(true), 10); }}>
                     <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
                   </Button>
+                </div>
+              )}
+
+              {isFallbackData && !isChartLoading && !chartError && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[45] pointer-events-none">
+                  <div className="bg-amber-500/90 backdrop-blur-md text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-2xl flex items-center gap-2 border border-amber-400/50">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    Demo Data — Live Feed Unavailable
+                  </div>
                 </div>
               )}
               

@@ -18,6 +18,8 @@ export async function GET(req: NextRequest) {
   const oandaKey = process.env.OANDA_API_KEY;
   const oandaAccount = process.env.OANDA_ACCOUNT_ID;
 
+  console.log(`[Price-Feed] Running cron update. OANDA Config: Key=${!!oandaKey}, Account=${!!oandaAccount}`);
+
   try {
     const db = getAdminDb();
     
@@ -59,7 +61,8 @@ export async function GET(req: NextRequest) {
         });
       }
     } else {
-      console.warn('[OANDA-DEBUG] Sync skipped or failed. Verify OANDA_API_KEY in environment.');
+      const reason = oandaRes.status === 'rejected' ? oandaRes.reason : `HTTP ${oandaRes.value.status}`;
+      console.warn(`[OANDA-DEBUG] Sync skipped or failed: ${reason}`);
     }
 
     // 4. Atomic Commit to Firestore

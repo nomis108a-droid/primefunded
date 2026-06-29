@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Price Proxy (OANDA + Binance)
  * Fetches Crypto from Binance and Forex/Metals from OANDA.
+ * Includes explicit configuration logging.
  */
 
 export async function GET() {
@@ -14,7 +15,7 @@ export async function GET() {
 
   // Debug missing config in server logs
   if (!oandaKey || !oandaAccount) {
-    console.warn('[OANDA-DEBUG] Pricing configuration missing. OANDA_API_KEY or OANDA_ACCOUNT_ID is not set.');
+    console.warn(`[OANDA-DEBUG] Live pricing config missing. Key=${!!oandaKey}, Account=${!!oandaAccount}`);
   }
 
   try {
