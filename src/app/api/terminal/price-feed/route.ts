@@ -21,7 +21,9 @@ export async function GET(req: NextRequest) {
   try {
     const db = getAdminDb();
     
-    // 1. Fetch from Binance and OANDA
+    // 1. DUAL SOURCE FETCH:
+    // Binance handles Crypto (Free/Keyless)
+    // OANDA handles Forex & Metals (Requires OANDA_API_KEY)
     const [cryptoRes, oandaRes] = await Promise.allSettled([
       fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT"]'),
       oandaKey && oandaAccount 
@@ -34,31 +36,36 @@ export async function GET(req: NextRequest) {
     const batch = db.batch();
     const prices: Record<string, any> = {};
 
-    // 2. Sync Crypto
+    // 2. Sync Crypto (Binance)
+    // No API key required. We convert USDT symbols to USD format.
     if (cryptoRes.status === 'fulfilled' && cryptoRes.value.ok) {
       const data = await cryptoRes.value.json();
       data.forEach((item: any) => {
         const symbol = item.symbol.replace('USDT', 'USD');
         const price = parseFloat(item.price);
-        const spread = price * 0.0005;
+        const spread = price * 0.0005; // 0.05% Institutional Spread
         prices[symbol] = { price, bid: price - spread, ask: price + spread };
       });
     }
 
-    // 3. Sync Forex/Metals
+    // 3. Sync Forex/Metals (OANDA)
+    // Authenticated via process.env.OANDA_API_KEY
     if (oandaRes.status === 'fulfilled' && oandaRes.value.ok) {
       const data = await oandaRes.value.json();
       if (data.prices) {
         data.prices.forEach((p: any) => {
-          const symbol = p.instrument.replace('_', '');
+          const symbol = p.instrument.replace('_', ''); // XAU_USD -> XAUUSD
           const bid = parseFloat(p.bids[0].price);
           const ask = parseFloat(p.asks[0].price);
           prices[symbol] = { price: (bid + ask) / 2, bid, ask };
         });
       }
+    } else {
+      console.warn('[OANDA-DEBUG] Sync skipped or failed. Verify OANDA_API_KEY in environment.');
     }
 
-    // 4. Commit to Firestore
+    // 4. Atomic Commit to Firestore
+    // This allows the Risk Engine (cron) to run audits against the same price the user sees.
     Object.entries(prices).forEach(([symbol, data]) => {
       const ref = db.collection("livePrices").doc(symbol);
       batch.set(ref, {
