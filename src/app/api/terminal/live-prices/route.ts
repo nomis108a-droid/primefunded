@@ -28,13 +28,15 @@ export async function GET() {
     }
   } catch(e){ console.error('OANDA error:', e); }
 
-  // Binance - crypto
+  // Crypto - Binance first, CoinGecko fallback
   try {
     const r = await fetch(
       'https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","BNBUSDT","DOGEUSDT"]',
       { cache:'no-store' }
     );
+    if (!r.ok) throw new Error(`Binance blocked: ${r.status}`);
     const d = await r.json();
+    if (!Array.isArray(d)) throw new Error('Binance bad response');
     const m: Record<string,string> = {
       BTCUSDT:'BTCUSD',ETHUSDT:'ETHUSD',XRPUSDT:'XRPUSD',
       SOLUSDT:'SOLUSD',BNBUSDT:'BNBUSD',DOGEUSDT:'DOGEUSD'
@@ -45,7 +47,28 @@ export async function GET() {
       const p = parseFloat(i.price);
       prices[s] = { bid:+(p*0.999).toFixed(2), ask:+(p*1.001).toFixed(2), price:+p.toFixed(2), updatedAt: new Date().toISOString() };
     }
-  } catch(e){ console.error('Binance error:', e); }
+    console.log('Crypto: Binance OK');
+  } catch(e){
+    console.error('Binance failed, trying CoinGecko:', e);
+    try {
+      const r = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,ripple,solana,binancecoin,dogecoin&vs_currencies=usd',
+        { cache:'no-store' }
+      );
+      if (!r.ok) throw new Error(`CoinGecko error: ${r.status}`);
+      const d = await r.json();
+      const map: Record<string,string> = {
+        bitcoin:'BTCUSD', ethereum:'ETHUSD', ripple:'XRPUSD',
+        solana:'SOLUSD', binancecoin:'BNBUSD', dogecoin:'DOGEUSD'
+      };
+      for(const [id, sym] of Object.entries(map)){
+        const p = (d as any)[id]?.usd;
+        if(!p) continue;
+        prices[sym] = { bid:+(p*0.999).toFixed(2), ask:+(p*1.001).toFixed(2), price:+p.toFixed(2), updatedAt: new Date().toISOString() };
+      }
+      console.log('Crypto: CoinGecko OK');
+    } catch(e2){ console.error('CoinGecko also failed:', e2); }
+  }
 
   return NextResponse.json(prices, { headers:{ 'Cache-Control':'no-store' }});
 }
