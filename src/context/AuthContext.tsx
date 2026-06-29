@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
@@ -33,8 +34,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const router = useRouter();
 
   useEffect(() => {
+    // DEFENSIVE: Prevent crash if firebase auth is not initialized (e.g. missing API keys)
+    if (!auth) {
+      console.warn('[AuthProvider] Firebase Auth instance is null. Check environment variables.');
+      setLoading(false);
+      return;
+    }
+
     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
-      // FIX: Use the 'u' parameter from the callback, not the 'user' state variable
       setUser(u);
       
       // If no user is logged in, we are no longer loading
@@ -44,13 +51,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
 
-    return () => unsubscribeAuth();
+    return () => {
+      if (typeof unsubscribeAuth === 'function') {
+        unsubscribeAuth();
+      }
+    };
   }, []);
 
   useEffect(() => {
     let unsubscribeDoc: (() => void) | undefined;
 
-    if (user) {
+    if (user && db) {
       const userRef = doc(db, 'users', user.uid);
       unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
         if (snapshot.exists()) {
@@ -59,9 +70,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Once we have (or fail to have) user data, we are done loading
         setLoading(false);
       }, (err) => {
-        console.error("Error fetching user data:", err);
+        console.error("[AuthProvider] Error fetching user data:", err);
         setLoading(false);
       });
+    } else if (!user) {
+      // If user logs out, reset user data state
+      setUserData(null);
     }
 
     return () => {
@@ -70,6 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   const logout = async () => {
+    if (!auth) return;
     await signOut(auth);
     router.push('/login');
   };
