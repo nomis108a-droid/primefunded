@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -56,13 +55,13 @@ export default function DemoPage() {
   const { toast } = useToast();
   const branding = useBrandSettings();
 
-  const [pageReady, setPageReady] = useState(true);  // start ready
+  const [pageReady, setPageReady] = useState(false);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState(true);  // start ready
+  const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
-  const [isChartReady, setIsChartReady] = useState(true);  // start ready
+  const [isChartReady, setIsChartReady] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
-  const [isFallbackData, setIsFallbackData] = useState(true);  // start ready
+  const [isFallbackData, setIsFallbackData] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
   const [selectedTimezone, setSelectedTimezone] = useState("local");
@@ -74,16 +73,16 @@ export default function DemoPage() {
   const livePricesRef = useRef<Record<string, any>>({});
   const tiingoWsRef = useRef<WebSocket | null>(null);
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
-  const [isAlertModalOpen, setIsAlertModalOpen] = useState(true);  // start ready
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
   
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
-  const [magnetMode, setMagnetMode] = useState(true);  // start ready
-  const [drawingsLocked, setDrawingsLocked] = useState(true);  // start ready
-  const [drawingsHidden, setDrawingsHidden] = useState(true);  // start ready
-  const [isSettingsOpen, setIsSettingsOpen] = useState(true);  // start ready
-  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(true);  // start ready
+  const [magnetMode, setMagnetMode] = useState(false);
+  const [drawingsLocked, setDrawingsLocked] = useState(false);
+  const [drawingsHidden, setDrawingsHidden] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
   // Safety trackers
   const closingTradesRef = useRef<Set<string>>(new Set());
@@ -125,6 +124,10 @@ export default function DemoPage() {
       if (!pageReady) {
         console.warn("[Terminal] Initialization slow. Forcing page ready.");
         setPageReady(true);
+      }
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [pageReady]);
 
   // Tiingo WebSocket for tick-by-tick crypto
   useEffect(() => {
@@ -171,10 +174,6 @@ export default function DemoPage() {
     }
     connect();
     return () => { if (ws) ws.close(); };
-  }, [pageReady]);
-      }
-    }, 8000);
-    return () => clearTimeout(t);
   }, [pageReady]);
 
   // RESET state on symbol switch to prevent data ghosting
@@ -375,7 +374,7 @@ export default function DemoPage() {
   const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
   const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
 
-  const isPriceValid = useMemo(() => { // fixed
+  const isPriceValid = useMemo(() => {
     const p = livePrices[selectedSymbol];
     const allPrices = Object.keys(livePrices);
     if (allPrices.length === 0) return false;
@@ -411,7 +410,6 @@ export default function DemoPage() {
     if (!pageReady || !isChartReady) return;
     
     const fetchPrices = async () => {
-      console.log("[Prices] Fetching...");
       try {
         const res = await fetch('/api/terminal/live-prices');
         if (!res.ok) return;
@@ -565,7 +563,6 @@ export default function DemoPage() {
       // ── INSTITUTIONAL RETRY PROTOCOL (3 Attempts) ────────────────
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          console.log(`[${timestamp}] Fetching execution price (Attempt ${attempt}/3)...`);
           const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
           if (!pricesRes.ok) {
             const body = await pricesRes.text();
@@ -578,7 +575,6 @@ export default function DemoPage() {
           else throw new Error(`Symbol ${selectedSymbol} missing from live feed results`);
         } catch (e: any) {
           lastError = e;
-          console.warn(`[${timestamp}] Price fetch attempt ${attempt} failed: ${e.message}`);
           if (attempt < 3) {
             await new Promise(resolve => setTimeout(resolve, 1500));
           }
@@ -586,13 +582,6 @@ export default function DemoPage() {
       }
       
       if (!priceData || !priceData.price) { 
-        const received = Object.keys(pricesBody);
-        console.error(`[${timestamp}] FATAL PRICE SYNC ERROR:`, {
-          symbol: selectedSymbol,
-          error: lastError?.message,
-          receivedSymbols: received,
-          fullResponse: pricesBody
-        });
         toast({ 
           title: "Price Unavailable", 
           description: `Price unavailable for ${selectedSymbol} - unable to place trade right now. Please try again in a moment.`,
@@ -618,7 +607,6 @@ export default function DemoPage() {
       
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
     } catch(e: any) { 
-      console.error(`[${timestamp}] TERMINAL EXECUTION FAULT:`, e);
       toast({ title: "System Error", description: "Terminal connection fault. Check console for details.", variant: "destructive" }); 
     } finally { 
       setActionLoading(false); 
@@ -670,8 +658,6 @@ export default function DemoPage() {
     { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
     { id: 'favorites', name: 'Favorites', icon: Star }
   ];
-
-  // auth loading handled inline
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
@@ -778,6 +764,15 @@ export default function DemoPage() {
                 </div>
               )}
 
+              {isFallbackData && (
+                <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20">
+                  <div className="px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 backdrop-blur-md shadow-2xl">
+                    <AlertTriangle className="w-3 h-3" />
+                    Demo Data — Live Feed Unavailable
+                  </div>
+                </div>
+              )}
+
               <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
@@ -854,8 +849,47 @@ export default function DemoPage() {
       </div>
 
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
-      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm"><div className="p-6"><h2 className="text-xl font-bold mb-4">Set Price Alert</h2><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div></DialogContent></Dialog>
-      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}><DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden"><div className="p-6 space-y-4"><div className="flex items-center gap-3 text-destructive"><AlertCircle className="w-6 h-6" /><h2 className="text-xl font-headline font-bold">Clear Canvas?</h2></div><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div><DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter></DialogContent></Dialog>
+      
+      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Set Price Alert</DialogTitle>
+            <DialogDescription className="sr-only">Configure a new price alert for {selectedSymbol}.</DialogDescription>
+          </DialogHeader>
+          <div className="p-6">
+            <h2 className="text-xl font-bold mb-4">Set Price Alert</h2>
+            <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>
+              CREATE ALERT
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
+        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Clear All Drawings</DialogTitle>
+            <DialogDescription>Permanently delete all technical analysis drawings from the chart.</DialogDescription>
+          </DialogHeader>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3 text-destructive">
+              <AlertCircle className="w-6 h-6" />
+              <h2 className="text-xl font-headline font-bold">Clear Canvas?</h2>
+            </div>
+            <p className="text-sm text-zinc-400">
+              This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.
+            </p>
+          </div>
+          <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2">
+            <Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>
+              Clear All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
