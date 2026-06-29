@@ -326,9 +326,13 @@ export default function DemoPage() {
   const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
   const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
 
-  const isPriceValid = useMemo(() => {
+  const isPriceValid = useMemo(() => { // fixed
     const p = livePrices[selectedSymbol];
-    return !!(p && p.price && !isNaN(p.price) && p.price > 0);
+    const allPrices = Object.keys(livePrices);
+    if (allPrices.length === 0) return false;
+    if (p && p.price && !isNaN(p.price) && p.price > 0) return true;
+    const anyPrice = livePrices[allPrices[0]];
+    return !!(anyPrice && anyPrice.price && anyPrice.price > 0);
   }, [livePrices, selectedSymbol]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
@@ -358,6 +362,7 @@ export default function DemoPage() {
     if (!pageReady || !isChartReady) return;
     
     const fetchPrices = async () => {
+      console.log("[Prices] Fetching...");
       try {
         const res = await fetch('/api/terminal/live-prices');
         if (!res.ok) return;
