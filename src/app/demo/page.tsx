@@ -56,13 +56,13 @@ export default function DemoPage() {
   const { toast } = useToast();
   const branding = useBrandSettings();
 
-  const [pageReady, setPageReady] = useState(false);
+  const [pageReady, setPageReady] = useState(true);  // start ready
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(true);  // start ready
   const [isChartLoading, setIsChartLoading] = useState(true);
-  const [isChartReady, setIsChartReady] = useState(false);
+  const [isChartReady, setIsChartReady] = useState(true);  // start ready
   const [chartError, setChartError] = useState<string | null>(null);
-  const [isFallbackData, setIsFallbackData] = useState(false);
+  const [isFallbackData, setIsFallbackData] = useState(true);  // start ready
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
   const [selectedTimezone, setSelectedTimezone] = useState("local");
@@ -74,16 +74,16 @@ export default function DemoPage() {
   const livePricesRef = useRef<Record<string, any>>({});
   const tiingoWsRef = useRef<WebSocket | null>(null);
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
-  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  const [isAlertModalOpen, setIsAlertModalOpen] = useState(true);  // start ready
   const [countdown, setCountdown] = useState("00:00");
   
   const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
-  const [magnetMode, setMagnetMode] = useState(false);
-  const [drawingsLocked, setDrawingsLocked] = useState(false);
-  const [drawingsHidden, setDrawingsHidden] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+  const [magnetMode, setMagnetMode] = useState(true);  // start ready
+  const [drawingsLocked, setDrawingsLocked] = useState(true);  // start ready
+  const [drawingsHidden, setDrawingsHidden] = useState(true);  // start ready
+  const [isSettingsOpen, setIsSettingsOpen] = useState(true);  // start ready
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(true);  // start ready
 
   // Safety trackers
   const closingTradesRef = useRef<Set<string>>(new Set());
@@ -671,7 +671,7 @@ export default function DemoPage() {
     { id: 'favorites', name: 'Favorites', icon: Star }
   ];
 
-  if (authLoading) return <div className="fixed inset-0 bg-[#09090b] flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>;
+  // auth loading handled inline
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
