@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -125,7 +126,7 @@ export default function DemoPage() {
         console.warn("[Terminal] Initialization slow. Forcing page ready.");
         setPageReady(true);
       }
-    }, 8000);
+    }, 3000);
     return () => clearTimeout(t);
   }, [pageReady]);
 
@@ -301,9 +302,9 @@ export default function DemoPage() {
       }
       
       const timeoutId = setTimeout(() => {
-        console.error("[Chart] Sync connection timed out after 10s.");
+        console.error("[Chart] Sync connection timed out after 3s.");
         controller.abort();
-      }, 10000);
+      }, 3000);
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -375,13 +376,8 @@ export default function DemoPage() {
   const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
 
   const isPriceValid = useMemo(() => {
-    const p = livePrices[selectedSymbol];
-    const allPrices = Object.keys(livePrices);
-    if (allPrices.length === 0) return false;
-    if (p && p.price && !isNaN(p.price) && p.price > 0) return true;
-    const anyPrice = livePrices[allPrices[0]];
-    return !!(anyPrice && anyPrice.price && anyPrice.price > 0);
-  }, [livePrices, selectedSymbol]);
+    return Object.keys(livePrices).length > 0;
+  }, [livePrices]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
@@ -407,7 +403,7 @@ export default function DemoPage() {
   }, [user, selectedSymbol, toast]);
 
   useEffect(() => {
-    if (!pageReady || !isChartReady) return;
+    if (!pageReady) return;
     
     const fetchPrices = async () => {
       try {
@@ -481,7 +477,7 @@ export default function DemoPage() {
       clearInterval(interval); 
       document.removeEventListener('visibilitychange', handleVisibilityChange); 
     };
-  }, [pageReady, isChartReady, isChartLoading, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
+  }, [pageReady, isChartLoading, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol];
