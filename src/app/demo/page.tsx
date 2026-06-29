@@ -309,6 +309,11 @@ export default function DemoPage() {
   const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
   const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
 
+  const isPriceValid = useMemo(() => {
+    const p = livePrices[selectedSymbol];
+    return !!(p && p.price && !isNaN(p.price) && p.price > 0);
+  }, [livePrices, selectedSymbol]);
+
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
     try {
@@ -510,14 +515,16 @@ export default function DemoPage() {
       }
       
       if (!priceData || !priceData.price) { 
+        const received = Object.keys(pricesBody);
         console.error(`[${timestamp}] FATAL PRICE SYNC ERROR:`, {
           symbol: selectedSymbol,
           error: lastError?.message,
-          receivedSymbols: Object.keys(pricesBody)
+          receivedSymbols: received,
+          fullResponse: pricesBody
         });
         toast({ 
-          title: "Price Sync Error", 
-          description: `Unable to reach execution feed for ${selectedSymbol}. Status: ${lastError?.message || 'Incomplete Data'}. Please check your connection.`,
+          title: "Price Unavailable", 
+          description: `Price unavailable for ${selectedSymbol} - unable to place trade right now. Please try again in a moment.`,
           variant: "destructive" 
         }); 
         return; 
@@ -756,11 +763,21 @@ export default function DemoPage() {
                  <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
               </div>
               <div className="space-y-4">
-                <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading} className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50">
-                  {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 'BUY BY MARKET'}
+                <button 
+                  type="button" 
+                  onClick={() => placeTrade('buy')} 
+                  disabled={actionLoading || !isPriceValid} 
+                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
                 </button>
-                <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading} className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50">
-                  {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 'SELL BY MARKET'}
+                <button 
+                  type="button" 
+                  onClick={() => placeTrade('sell')} 
+                  disabled={actionLoading || !isPriceValid} 
+                  className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
                 </button>
               </div>
            </div>
