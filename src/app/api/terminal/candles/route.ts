@@ -1,159 +1,100 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from '@/lib/firebase-admin';
-import { Timestamp } from "firebase-admin/firestore";
 
 /**
- * @fileOverview Institutional Candle Server
- * Enhanced with support for 'before' (endTime) and custom limits for lazy loading.
+ * @fileOverview Institutional Candle Server (OANDA + Binance)
+ * Fetches real market history for Crypto (Binance) and Forex/Metals (OANDA).
  */
 
 const CRYPTO_MAP: Record<string, string> = {
-  "BTCUSD": "BTCUSDT",
-  "ETHUSD": "ETHUSDT",
-  "XRPUSD": "XRPUSDT",
-  "SOLUSD": "SOLUSDT",
-  "DOGEUSD": "DOGEUSDT",
-  "ADAUSD": "ADAUSDT",
-  "BNBUSD": "BNBUSDT"
+  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "XRPUSD": "XRPUSDT",
+  "SOLUSD": "SOLUSDT", "DOGEUSD": "DOGEUSDT", "ADAUSD": "ADAUSDT", "BNBUSD": "BNBUSDT"
 };
 
-const STOOQ_MAP: Record<string, string> = {
-  "XAUUSD": "xauusd",
-  "EURUSD": "eurusd",
-  "GBPUSD": "gbpusd",
-  "USDJPY": "usdjpy",
-  "AUDUSD": "audusd",
-  "USDCHF": "usdchf",
-  "XAGUSD": "xagusd"
+const OANDA_MAP: Record<string, string> = {
+  "XAUUSD": "XAU_USD", "EURUSD": "EUR_USD", "GBPUSD": "GBP_USD",
+  "USDJPY": "USD_JPY", "AUDUSD": "AUD_USD", "USDCHF": "USD_CHF"
 };
 
-const INTERVAL_MAP: Record<string, { binance: string, stooq: string }> = {
-  "1min": { binance: "1m", stooq: "5" },
-  "5min": { binance: "5m", stooq: "5" },
-  "15min": { binance: "15m", stooq: "15" },
-  "30min": { binance: "30m", stooq: "15" },
-  "1h": { binance: "1h", stooq: "60" },
-  "2h": { binance: "2h", stooq: "60" },
-  "4h": { binance: "4h", stooq: "240" },
-  "1day": { binance: "1d", stooq: "d" },
-  "1week": { binance: "1w", stooq: "w" },
-  "1month": { binance: "1M", stooq: "m" },
+const BINANCE_INTERVALS: Record<string, string> = {
+  "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "1h": "1h", "4h": "4h", "1day": "1d", "1week": "1w", "1month": "1M"
 };
 
-function generateFallbackCandles(basePrice: number, count: number, intervalSecs: number, endTime?: number) {
-  const candles = [];
-  const endTs = endTime || Math.floor(Date.now() / 1000);
-  let currentPrice = Number(basePrice) || 1.0;
-  
-  for (let i = count; i >= 0; i--) {
-    const time = Math.floor((endTs - i * intervalSecs) / intervalSecs) * intervalSecs;
-    const volatility = 0.0005;
-    const change = (Math.random() - 0.49) * currentPrice * volatility;
-    
-    const open = currentPrice;
-    const close = parseFloat((currentPrice + change).toFixed(5));
-    const high = parseFloat((Math.max(open, close) + Math.random() * currentPrice * 0.0002).toFixed(5));
-    const low = parseFloat((Math.min(open, close) - Math.random() * currentPrice * 0.0002).toFixed(5));
-    
-    candles.push({ time, open: parseFloat(open.toFixed(5)), high, low, close });
-    currentPrice = close;
-  }
-  return candles;
-}
+const OANDA_GRANULARITY: Record<string, string> = {
+  "1min": "M1", "5min": "M5", "15min": "M15", "30min": "M30", "1h": "H1", "4h": "H4", "1day": "D", "1week": "W", "1month": "M"
+};
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const symbol = searchParams.get("symbol") || "EURUSD";
     const interval = (searchParams.get("interval") || "1min").toLowerCase();
+    const limit = parseInt(searchParams.get("limit") || "500");
     const before = searchParams.get("before") ? parseInt(searchParams.get("before")!) : null;
-    const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 500;
-
-    const db = getAdminDb();
-    
-    const intervalSecondsMap: Record<string, number> = {
-      '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
-    };
-    const intervalSeconds = intervalSecondsMap[interval] || 300;
 
     let candles: any[] = [];
-    let isFallback = false;
 
-    // 1. Check Binance for Crypto
-    if (CRYPTO_MAP[symbol]) {
-      try {
-        const bInterval = INTERVAL_MAP[interval]?.binance || "1m";
-        let url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=${limit}`;
-        if (before) url += `&endTime=${before * 1000}`;
+    // 1. OANDA for Forex & Metals
+    if (OANDA_MAP[symbol]) {
+      const oandaKey = process.env.OANDA_API_KEY;
+      if (oandaKey) {
+        const instrument = OANDA_MAP[symbol];
+        const granularity = OANDA_GRANULARITY[interval] || "M1";
+        let url = `https://api-fxpractice.oanda.com/v3/instruments/${instrument}/candles?price=M&granularity=${granularity}&count=${limit}`;
+        if (before) {
+          const dt = new Date(before * 1000).toISOString();
+          url += `&to=${encodeURIComponent(dt)}`;
+        }
 
-        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        const res = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${oandaKey}` },
+          signal: AbortSignal.timeout(6000)
+        });
+
         if (res.ok) {
           const data = await res.json();
-          if (Array.isArray(data)) {
-            candles = data.map((v: any) => ({
-              time: Math.floor(v[0] / 1000),
-              open: parseFloat(v[1]),
-              high: parseFloat(v[2]),
-              low: parseFloat(v[3]),
-              close: parseFloat(v[4]),
-              volume: parseFloat(v[5])
-            }));
-          }
+          candles = (data.candles || []).map((c: any) => ({
+            time: Math.floor(new Date(c.time).getTime() / 1000),
+            open: parseFloat(c.mid.o),
+            high: parseFloat(c.mid.h),
+            low: parseFloat(c.mid.l),
+            close: parseFloat(c.mid.c),
+            volume: parseFloat(c.volume)
+          }));
         }
-      } catch (err) {
-        console.warn(`[Binance] Fetch failed for ${symbol}`);
       }
-    } 
-    // 2. Check Stooq for Forex/Metals (Note: Stooq CSV doesn't support pagination easily, we just fetch a larger chunk initially)
-    else if (STOOQ_MAP[symbol]) {
-      try {
-        const sInterval = INTERVAL_MAP[interval]?.stooq || "5";
-        const url = `https://stooq.com/q/d/l/?s=${STOOQ_MAP[symbol]}&i=${sInterval}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          const csv = await res.text();
-          const lines = csv.trim().split('\n');
-          if (lines.length > 1 && !csv.includes('html')) {
-            for (let i = 1; i < lines.length; i++) {
-              const parts = lines[i].split(',');
-              if (parts.length < 6) continue;
-              const [date, time, open, high, low, close] = parts;
-              const tsString = time ? `${date}T${time}` : `${date}T00:00:00`;
-              const ts = Math.floor(new Date(tsString).getTime() / 1000);
-              if (!isNaN(ts)) {
-                // If 'before' filter applied, filter on server to match logic
-                if (before && ts >= before) continue;
-                candles.push({ time: ts, open: parseFloat(open), high: parseFloat(high), low: parseFloat(low), close: parseFloat(close) });
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`[Stooq] Fetch failed for ${symbol}`);
+    }
+    // 2. BINANCE for Crypto
+    else if (CRYPTO_MAP[symbol]) {
+      const bInterval = BINANCE_INTERVALS[interval] || "1m";
+      let url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInterval}&limit=${limit}`;
+      if (before) url += `&endTime=${before * 1000}`;
+
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const data = await res.json();
+        candles = data.map((v: any) => ({
+          time: Math.floor(v[0] / 1000),
+          open: parseFloat(v[1]),
+          high: parseFloat(v[2]),
+          low: parseFloat(v[3]),
+          close: parseFloat(v[4]),
+          volume: parseFloat(v[5])
+        }));
       }
     }
 
-    // 3. Fallback: If no candles, generate synthetic data
-    if (candles.length === 0) {
-      isFallback = true;
-      try {
-        const priceDoc = await db.collection('livePrices').doc(symbol).get();
-        const basePrice = Number(priceDoc.data()?.price) || (symbol.includes('USD') ? 1.0 : 100.0);
-        candles = generateFallbackCandles(basePrice, limit, intervalSeconds, before || undefined);
-      } catch (err) {
-        candles = generateFallbackCandles(1.0, limit, intervalSeconds, before || undefined);
-      }
+    if (candles.length > 0) {
+      candles.sort((a, b) => a.time - b.time);
+      return NextResponse.json({ candles, isFallback: false });
     }
 
-    candles.sort((a, b) => a.time - b.time);
-    candles = candles.filter((v, i, a) => i === 0 || v.time > a[i - 1].time);
-    
-    if (candles.length > limit) candles = candles.slice(-limit);
-
-    return NextResponse.json({ candles, isFallback });
+    // Fallback: Return empty or synthetic if really needed, but OANDA/Binance should provide data
+    return NextResponse.json({ candles: [], isFallback: true });
 
   } catch (error: any) {
-    console.error('[Candle-API] Fatal Error:', error.message);
-    return NextResponse.json({ candles: generateFallbackCandles(1.0, 50, 60), isFallback: true });
+    console.error('[Candle-API] Error:', error.message);
+    return NextResponse.json({ candles: [], error: error.message }, { status: 500 });
   }
 }

@@ -4,17 +4,24 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 /**
- * @fileOverview Zero-Dependency Institutional Price Proxy
- * Fetches directly from high-availability free public APIs server-side.
- * Replaces the Railway bridge and Twelve Data for terminal UI pricing.
+ * @fileOverview Institutional Price Proxy (OANDA + Binance)
+ * Fetches Crypto from Binance and Forex/Metals from OANDA.
+ * Replaces Frankfurter and Metals.live for high-fidelity trading.
  */
 
 export async function GET() {
+  const oandaKey = process.env.OANDA_API_KEY;
+  const oandaAccount = process.env.OANDA_ACCOUNT_ID;
+
   try {
-    const [cryptoRes, forexRes, metalRes] = await Promise.allSettled([
-      fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT"]', { next: { revalidate: 0 } }),
-      fetch('https://api.frankfurter.app/latest?from=USD&to=EUR,GBP,JPY,AUD,CHF', { next: { revalidate: 0 } }),
-      fetch('https://api.metals.live/v1/spot/gold', { next: { revalidate: 0 } })
+    const [cryptoRes, oandaRes] = await Promise.allSettled([
+      fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","DOGEUSDT","ADAUSDT","BNBUSDT"]', { next: { revalidate: 0 } }),
+      oandaKey && oandaAccount 
+        ? fetch(`https://api-fxpractice.oanda.com/v3/accounts/${oandaAccount}/pricing?instruments=XAU_USD,EUR_USD,GBP_USD,USD_JPY,AUD_USD,USD_CHF`, {
+            headers: { 'Authorization': `Bearer ${oandaKey}` },
+            next: { revalidate: 0 }
+          })
+        : Promise.reject('OANDA Config Missing')
     ]);
 
     const results: Record<string, any> = {};
@@ -27,61 +34,25 @@ export async function GET() {
         const symbol = item.symbol.replace('USDT', 'USD');
         const price = parseFloat(item.price);
         if (isNaN(price) || price <= 0) return;
-
-        // Crypto Spread: 0.1%
-        const spread = price * 0.001;
-        results[symbol] = { 
-          price, 
-          bid: price - spread, 
-          ask: price + spread, 
-          updatedAt: now 
-        };
+        const spread = price * 0.0005; // 0.05% Spread
+        results[symbol] = { price, bid: price - spread, ask: price + spread, updatedAt: now };
       });
     }
 
-    // 2. Process Forex (Frankfurter)
-    if (forexRes.status === 'fulfilled' && forexRes.value.ok) {
-      const data = await forexRes.value.json();
-      const r = data.rates;
-      if (r) {
-        const pairs = [
-          { id: 'EURUSD', price: r.EUR ? 1 / r.EUR : 0 },
-          { id: 'GBPUSD', price: r.GBP ? 1 / r.GBP : 0 },
-          { id: 'USDJPY', price: r.JPY || 0 },
-          { id: 'AUDUSD', price: r.AUD ? 1 / r.AUD : 0 },
-          { id: 'USDCHF', price: r.CHF || 0 }
-        ];
-        pairs.forEach(p => {
-          if (p.price <= 0 || isNaN(p.price)) return;
-          // Forex Spread: 0.02%
-          const spread = p.price * 0.0002;
-          results[p.id] = { 
-            price: p.price, 
-            bid: p.price - spread, 
-            ask: p.price + spread, 
-            updatedAt: now 
-          };
+    // 2. Process Forex & Metals (OANDA)
+    if (oandaRes.status === 'fulfilled' && oandaRes.value.ok) {
+      const data = await oandaRes.value.json();
+      if (data.prices) {
+        data.prices.forEach((p: any) => {
+          const symbol = p.instrument.replace('_', '');
+          const bid = parseFloat(p.bids[0].price);
+          const ask = parseFloat(p.asks[0].price);
+          const price = (bid + ask) / 2;
+          results[symbol] = { price, bid, ask, updatedAt: now };
         });
       }
-    }
-
-    // 3. Process Gold (Metals.live)
-    if (metalRes.status === 'fulfilled' && metalRes.value.ok) {
-      const data = await metalRes.value.json();
-      // Metals.live returns an array of objects
-      if (Array.isArray(data) && data[0] && (data[0].gold || data[0].price)) {
-        const price = parseFloat(data[0].gold || data[0].price);
-        if (!isNaN(price) && price > 0) {
-          // Gold Spread: 0.05%
-          const spread = price * 0.0005;
-          results['XAUUSD'] = { 
-            price, 
-            bid: price - spread, 
-            ask: price + spread, 
-            updatedAt: now 
-          };
-        }
-      }
+    } else {
+      console.warn('[OANDA-Fetch-Failed]', oandaRes.status === 'rejected' ? oandaRes.reason : 'HTTP Error');
     }
 
     return NextResponse.json(results, { 

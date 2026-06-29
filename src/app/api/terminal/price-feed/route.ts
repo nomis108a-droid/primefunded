@@ -1,92 +1,78 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 /**
- * @fileOverview Institutional Price Server
- * One fetch, shared across all traders to synchronize demo environment pricing.
- * Intended to be triggered via Cron.
+ * @fileOverview Institutional Price Synchronizer (OANDA + Binance)
+ * Updates Firestore livePrices for SL/TP and Risk Engine audits.
+ * Triggered via Cron.
  */
-
-const SYMBOLS = [
-  { pair: "XAUUSD", td: "XAU/USD" },
-  { pair: "BTCUSD", td: "BTC/USD" },
-  { pair: "EURUSD", td: "EUR/USD" },
-  { pair: "GBPUSD", td: "GBP/USD" },
-  { pair: "USDJPY", td: "USD/JPY" },
-];
-
-const SPREADS: Record<string, number> = {
-  EURUSD: 0.00012, 
-  GBPUSD: 0.00015, 
-  USDJPY: 0.015, 
-  XAUUSD: 0.30, 
-  BTCUSD: 8,
-};
 
 export async function GET(req: NextRequest) {
   const apiKey = req.headers.get("x-api-key");
-  
   if (!process.env.TERMINAL_CRON_KEY || apiKey !== process.env.TERMINAL_CRON_KEY) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!process.env.TWELVE_DATA_API_KEY) {
-    return NextResponse.json({ error: "Configuration Error: Missing API Key" }, { status: 500 });
-  }
+  const oandaKey = process.env.OANDA_API_KEY;
+  const oandaAccount = process.env.OANDA_ACCOUNT_ID;
 
   try {
     const db = getAdminDb();
-    const symbolsParam = SYMBOLS.map(s => s.td).join(",");
-    const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbolsParam)}&apikey=${process.env.TWELVE_DATA_API_KEY}`;
-
-    const res = await fetch(url);
-    const data = await res.json();
-
-    // Check for Twelve Data errors
-    if (data.status === 'error') {
-      return NextResponse.json({ error: data.message }, { status: 400 });
-    }
+    
+    // 1. Fetch from Binance and OANDA
+    const [cryptoRes, oandaRes] = await Promise.allSettled([
+      fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT"]'),
+      oandaKey && oandaAccount 
+        ? fetch(`https://api-fxpractice.oanda.com/v3/accounts/${oandaAccount}/pricing?instruments=XAU_USD,EUR_USD,GBP_USD,USD_JPY,AUD_USD,USD_CHF`, {
+            headers: { 'Authorization': `Bearer ${oandaKey}` }
+          })
+        : Promise.reject('OANDA Config Missing')
+    ]);
 
     const batch = db.batch();
-    const results: Record<string, number> = {};
+    const prices: Record<string, any> = {};
 
-    for (const s of SYMBOLS) {
-      // Twelve Data returns a single object if 1 symbol, keyed object if multiple
-      const entry = SYMBOLS.length > 1 ? data[s.td] : data;
-      
-      if (!entry || !entry.close) {
-        console.warn(`[Price-Feed] No data for ${s.pair}`);
-        continue;
+    // 2. Sync Crypto
+    if (cryptoRes.status === 'fulfilled' && cryptoRes.value.ok) {
+      const data = await cryptoRes.value.json();
+      data.forEach((item: any) => {
+        const symbol = item.symbol.replace('USDT', 'USD');
+        const price = parseFloat(item.price);
+        const spread = price * 0.0005;
+        prices[symbol] = { price, bid: price - spread, ask: price + spread };
+      });
+    }
+
+    // 3. Sync Forex/Metals
+    if (oandaRes.status === 'fulfilled' && oandaRes.value.ok) {
+      const data = await oandaRes.value.json();
+      if (data.prices) {
+        data.prices.forEach((p: any) => {
+          const symbol = p.instrument.replace('_', '');
+          const bid = parseFloat(p.bids[0].price);
+          const ask = parseFloat(p.asks[0].price);
+          prices[symbol] = { price: (bid + ask) / 2, bid, ask };
+        });
       }
+    }
 
-      const price = parseFloat(entry.close);
-      const spread = SPREADS[s.pair] || 0.0001;
-
-      batch.set(db.collection("livePrices").doc(s.pair), {
-        pair: s.pair,
-        price,
-        bid: price,
-        ask: price + spread,
+    // 4. Commit to Firestore
+    Object.entries(prices).forEach(([symbol, data]) => {
+      const ref = db.collection("livePrices").doc(symbol);
+      batch.set(ref, {
+        pair: symbol,
+        ...data,
         updatedAt: Timestamp.now(),
       }, { merge: true });
-
-      results[s.pair] = price;
-    }
+    });
 
     await batch.commit();
     
-    return NextResponse.json({ 
-      ok: true, 
-      timestamp: new Date().toISOString(),
-      prices: results 
-    });
-
+    return NextResponse.json({ ok: true, synced: Object.keys(prices) });
   } catch (error: any) {
     console.error('[Price-Feed] Fatal Error:', error);
-    return NextResponse.json({ 
-      error: "Internal Server Error", 
-      details: error.message 
-    }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
