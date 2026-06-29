@@ -6,12 +6,16 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Price Proxy (OANDA + Binance)
  * Fetches Crypto from Binance and Forex/Metals from OANDA.
- * Replaces Frankfurter and Metals.live for high-fidelity trading.
  */
 
 export async function GET() {
   const oandaKey = process.env.OANDA_API_KEY;
   const oandaAccount = process.env.OANDA_ACCOUNT_ID;
+
+  // Debug missing config in server logs
+  if (!oandaKey || !oandaAccount) {
+    console.warn('[OANDA-DEBUG] Pricing configuration missing. OANDA_API_KEY or OANDA_ACCOUNT_ID is not set.');
+  }
 
   try {
     const [cryptoRes, oandaRes] = await Promise.allSettled([
@@ -34,7 +38,7 @@ export async function GET() {
         const symbol = item.symbol.replace('USDT', 'USD');
         const price = parseFloat(item.price);
         if (isNaN(price) || price <= 0) return;
-        const spread = price * 0.0005; // 0.05% Spread
+        const spread = price * 0.0005; 
         results[symbol] = { price, bid: price - spread, ask: price + spread, updatedAt: now };
       });
     }
@@ -52,7 +56,8 @@ export async function GET() {
         });
       }
     } else {
-      console.warn('[OANDA-Fetch-Failed]', oandaRes.status === 'rejected' ? oandaRes.reason : 'HTTP Error');
+      const reason = oandaRes.status === 'rejected' ? oandaRes.reason : `HTTP ${oandaRes.value.status}`;
+      console.warn('[OANDA-Fetch-Failed]', reason);
     }
 
     return NextResponse.json(results, { 

@@ -38,32 +38,40 @@ export async function GET(req: NextRequest) {
     // 1. OANDA for Forex & Metals
     if (OANDA_MAP[symbol]) {
       const oandaKey = process.env.OANDA_API_KEY;
-      if (oandaKey) {
-        const instrument = OANDA_MAP[symbol];
-        const granularity = OANDA_GRANULARITY[interval] || "M1";
-        let url = `https://api-fxpractice.oanda.com/v3/instruments/${instrument}/candles?price=M&granularity=${granularity}&count=${limit}`;
-        if (before) {
-          const dt = new Date(before * 1000).toISOString();
-          url += `&to=${encodeURIComponent(dt)}`;
-        }
-
-        const res = await fetch(url, {
-          headers: { 'Authorization': `Bearer ${oandaKey}` },
-          signal: AbortSignal.timeout(6000)
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          candles = (data.candles || []).map((c: any) => ({
-            time: Math.floor(new Date(c.time).getTime() / 1000),
-            open: parseFloat(c.mid.o),
-            high: parseFloat(c.mid.h),
-            low: parseFloat(c.mid.l),
-            close: parseFloat(c.mid.c),
-            volume: parseFloat(c.volume)
-          }));
-        }
+      if (!oandaKey) {
+        console.error(`[OANDA-DEBUG] Missing OANDA_API_KEY for symbol ${symbol}. Ensure it is set in environment variables.`);
+        return NextResponse.json({ candles: [], error: "OANDA_API_KEY is not configured on the server." }, { status: 500 });
       }
+
+      const instrument = OANDA_MAP[symbol];
+      const granularity = OANDA_GRANULARITY[interval] || "M1";
+      let url = `https://api-fxpractice.oanda.com/v3/instruments/${instrument}/candles?price=M&granularity=${granularity}&count=${limit}`;
+      if (before) {
+        const dt = new Date(before * 1000).toISOString();
+        url += `&to=${encodeURIComponent(dt)}`;
+      }
+
+      console.log(`[OANDA-DEBUG] Fetching ${instrument} candles from Practice API...`);
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${oandaKey}` },
+        signal: AbortSignal.timeout(8000)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[OANDA-DEBUG] OANDA API Error (${res.status}):`, errText);
+        return NextResponse.json({ candles: [], error: `OANDA API responded with ${res.status}` }, { status: res.status });
+      }
+
+      const data = await res.json();
+      candles = (data.candles || []).map((c: any) => ({
+        time: Math.floor(new Date(c.time).getTime() / 1000),
+        open: parseFloat(c.mid.o),
+        high: parseFloat(c.mid.h),
+        low: parseFloat(c.mid.l),
+        close: parseFloat(c.mid.c),
+        volume: parseFloat(c.volume)
+      }));
     }
     // 2. BINANCE for Crypto
     else if (CRYPTO_MAP[symbol]) {
@@ -90,11 +98,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ candles, isFallback: false });
     }
 
-    // Fallback: Return empty or synthetic if really needed, but OANDA/Binance should provide data
     return NextResponse.json({ candles: [], isFallback: true });
 
   } catch (error: any) {
-    console.error('[Candle-API] Error:', error.message);
+    console.error('[Candle-API] Fatal Error:', error.message);
     return NextResponse.json({ candles: [], error: error.message }, { status: 500 });
   }
 }
