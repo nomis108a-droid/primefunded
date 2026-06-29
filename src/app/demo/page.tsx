@@ -729,17 +729,6 @@ export default function DemoPage() {
                 </div>
               )}
 
-              {isFallbackData && !isChartLoading && !chartError && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[45] pointer-events-none">
-                  <div className="bg-amber-500/90 backdrop-blur-md text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-2xl flex items-center gap-2 border border-amber-400/50">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    Demo Data — Live Feed Unavailable
-                  </div>
-                </div>
-              )}
-              
-              <div ref={chartContainerRef} className="h-full w-full relative" />
-              
               <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
