@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -56,7 +55,7 @@ export default function DemoPage() {
   const { toast } = useToast();
   const branding = useBrandSettings();
 
-  const [pageReady, setPageReady] = useState(false);
+  const [pageReady, setPageReady] = useState(true);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
@@ -71,7 +70,6 @@ export default function DemoPage() {
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
-  const livePricesRef = useRef<Record<string, any>>({});
   const tiingoWsRef = useRef<WebSocket | null>(null);
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
@@ -103,7 +101,6 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
-  const isFetchingMore = useRef(false);
   const oldestTimestamp = useRef<number | null>(null);
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
@@ -112,25 +109,13 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!authLoading) {
-      console.log("[Terminal] Auth and Accounts resolved. User:", !!user);
       if (accounts.length > 0 && !currentAccountId) {
         setCurrentAccountId(accounts[0].id);
       }
-      setPageReady(true);
     }
   }, [authLoading, accountsLoading, accounts, currentAccountId, user]);
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (!pageReady) {
-        console.warn("[Terminal] Initialization slow. Forcing page ready.");
-        setPageReady(true);
-      }
-    }, 3000);
-    return () => clearTimeout(t);
-  }, [pageReady]);
-
-  // Tiingo WebSocket for tick-by-tick crypto
+  // Tiingo WebSocket for tick-by-tick crypto with Backoff Retry
   useEffect(() => {
     if (!pageReady) return;
     const TIINGO_KEY = "8714afae0f22f552048e829365d786a0c728715a";
@@ -139,40 +124,66 @@ export default function DemoPage() {
       "xrpusd":"XRPUSD","bnbusd":"BNBUSD","dogeusd":"DOGEUSD","adausd":"ADAUSD"
     };
     let ws: WebSocket;
+    let retryCount = 0;
+    const maxRetries = 5;
+
     function connect() {
+      if (retryCount >= maxRetries) {
+        console.warn("[Terminal] Tiingo WebSocket reached max retries. Falling back to REST polling only.");
+        return;
+      }
+
       ws = new WebSocket("wss://api.tiingo.com/crypto");
+      
       ws.onopen = () => {
+        retryCount = 0;
         ws.send(JSON.stringify({
           eventName: "subscribe",
           authorization: TIINGO_KEY,
           eventData: { thresholdLevel: 5, tickers: Object.keys(cryptoMap) }
         }));
-        console.log("Tiingo crypto WS connected");
+        console.log("[Terminal] Tiingo crypto feed connected.");
       };
+
       ws.onmessage = (evt) => {
-        const msg = JSON.parse(evt.data);
-        if (msg.messageType !== "A") return;
-        const [,, ticker,,,, price] = msg.data;
-        if (!ticker || !price) return;
-        const pair = cryptoMap[ticker.toLowerCase()];
-        if (!pair) return;
-        const p = parseFloat(price);
-        if (isNaN(p) || p <= 0) return;
-        const dec = ["XRPUSD","DOGEUSD","ADAUSD"].includes(pair) ? 4 : 2;
-        setLivePrices(prev => ({
-          ...prev,
-          [pair]: {
-            bid: +(p*0.999).toFixed(dec),
-            ask: +(p*1.001).toFixed(dec),
-            price: +p.toFixed(dec),
-            updatedAt: new Date().toISOString()
-          }
-        }));
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.messageType !== "A") return;
+          const [,, ticker,,,, price] = msg.data;
+          if (!ticker || !price) return;
+          const pair = cryptoMap[ticker.toLowerCase()];
+          if (!pair) return;
+          const p = parseFloat(price);
+          if (isNaN(p) || p <= 0) return;
+          const dec = ["XRPUSD","DOGEUSD","ADAUSD"].includes(pair) ? 4 : 2;
+          setLivePrices(prev => ({
+            ...prev,
+            [pair]: {
+              bid: +(p*0.999).toFixed(dec),
+              ask: +(p*1.001).toFixed(dec),
+              price: +p.toFixed(dec),
+              updatedAt: new Date().toISOString()
+            }
+          }));
+        } catch (e) {}
       };
-      ws.onclose = () => { setTimeout(connect, 3000); };
-      ws.onerror = (e) => { console.error("Tiingo WS error", e); };
+
+      ws.onclose = () => { 
+        if (retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(connect, 2000 * retryCount); // Exponential backoff
+        }
+      };
+
+      ws.onerror = () => {
+        if (retryCount === 0) {
+          console.warn("[Terminal] Tiingo WebSocket connection failed. Terminal will use REST fallback for execution prices.");
+        }
+      };
+      
       tiingoWsRef.current = ws;
     }
+
     connect();
     return () => { if (ws) ws.close(); };
   }, [pageReady]);
@@ -246,7 +257,6 @@ export default function DemoPage() {
   useEffect(() => {
     if (!chartContainerRef.current || !pageReady) return;
     
-    console.log("[Chart] Initializing Lightweight Charts instance...");
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
@@ -290,19 +300,16 @@ export default function DemoPage() {
 
     const fetchHistory = async () => {
       if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
-        console.log(`[Chart] Loading ${selectedSymbol} from memory cache.`);
         setIsChartLoading(false);
         setChartError(null);
         setupSeries(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
       } else {
-        console.log(`[Chart] Initiating fresh fetch for ${selectedSymbol}.`);
         setIsChartLoading(true);
         setChartError(null);
       }
       
       const timeoutId = setTimeout(() => {
-        console.error("[Chart] Sync connection timed out after 3s.");
         controller.abort();
       }, 3000);
 
@@ -320,20 +327,16 @@ export default function DemoPage() {
         if (!isMounted || !chartInstanceRef.current) return;
 
         if (candles.length > 0) {
-          console.log(`[Chart] Successfully loaded ${candles.length} candles for ${selectedSymbol}. Fallback: ${!!data.isFallback}`);
           setupSeries(candles);
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles, lastUpdated: Date.now() });
           currentCandleRef.current = candles[candles.length - 1];
           oldestTimestamp.current = candles[0].time;
-        } else {
-          console.warn(`[Chart] API returned empty candle set for ${selectedSymbol}.`);
         }
       } catch (err: any) {
         if (err.name === 'AbortError') {
           if (isMounted && !cached) setChartError("Sync connection timed out. Markets may be closed or slow.");
         } else {
-          console.error("[Chart] Fetch Error:", err);
           if (isMounted && !cached) setChartError(err.message || "Failed to establish market connection");
         }
       } finally {
@@ -397,9 +400,7 @@ export default function DemoPage() {
           description: `Position closed at ${exitPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}`
         });
       }
-    } catch (e) {
-      console.error("[Auto-Close] Error:", e);
-    }
+    } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
   useEffect(() => {
@@ -412,7 +413,6 @@ export default function DemoPage() {
         const prices = await res.json();
         setLivePrices(prices);
 
-        // ── Auto-Close Reactive Engine with Safety Guards ───
         if (openTrades && openTrades.length > 0) {
           openTrades.forEach(t => {
             if (closingTradesRef.current.has(t.id)) return;
@@ -484,7 +484,7 @@ export default function DemoPage() {
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(trade.symbol);
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD'].includes(trade.symbol);
     const contractSize = isForex ? 100000 : (trade.symbol === 'XAUUSD' ? 100 : 1);
     return diff * trade.lots * contractSize;
   }, [livePrices]);
@@ -546,7 +546,6 @@ export default function DemoPage() {
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
 
   async function placeTrade(type: 'buy' | 'sell') {
-    const timestamp = new Date().toISOString();
     try {
       setActionLoading(true);
       if (!user) { toast({ title: "Auth Required", variant: "destructive" }); return; }
@@ -554,26 +553,17 @@ export default function DemoPage() {
       
       let priceData = null;
       let pricesBody: any = {};
-      let lastError: any = null;
 
-      // ── INSTITUTIONAL RETRY PROTOCOL (3 Attempts) ────────────────
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
-          if (!pricesRes.ok) {
-            const body = await pricesRes.text();
-            throw new Error(`HTTP ${pricesRes.status}: ${body.slice(0, 100)}`);
-          }
+          if (!pricesRes.ok) throw new Error(`HTTP ${pricesRes.status}`);
           pricesBody = await pricesRes.json();
           priceData = pricesBody[selectedSymbol];
-          
           if (priceData && priceData.price && !isNaN(priceData.price)) break;
-          else throw new Error(`Symbol ${selectedSymbol} missing from live feed results`);
-        } catch (e: any) {
-          lastError = e;
-          if (attempt < 3) {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-          }
+          else throw new Error(`Symbol ${selectedSymbol} missing from feed`);
+        } catch (e) {
+          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 1500));
         }
       }
       
@@ -603,7 +593,7 @@ export default function DemoPage() {
       
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
     } catch(e: any) { 
-      toast({ title: "System Error", description: "Terminal connection fault. Check console for details.", variant: "destructive" }); 
+      toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); 
     } finally { 
       setActionLoading(false); 
     }
@@ -723,7 +713,7 @@ export default function DemoPage() {
         ))}
       </div>
 
-      <div className="flex-1 flex min-h-0 relative">
+      <div className="flex-1 flex min-0 relative">
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] overflow-hidden">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
             <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
