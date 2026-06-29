@@ -1,74 +1,51 @@
-
 import { NextResponse } from 'next/server';
-
 export const dynamic = 'force-dynamic';
 
-/**
- * @fileOverview Institutional Price Proxy (OANDA + Binance)
- * Fetches Crypto from Binance and Forex/Metals from OANDA.
- * Includes explicit configuration logging.
- */
-
 export async function GET() {
-  const oandaKey = process.env.OANDA_API_KEY;
-  const oandaAccount = process.env.OANDA_ACCOUNT_ID;
+  const prices: Record<string,any> = {};
+  const key = process.env.OANDA_API_KEY;
+  const acc = process.env.OANDA_ACCOUNT_ID;
 
-  // Debug missing config in server logs
-  if (!oandaKey || !oandaAccount) {
-    console.warn(`[OANDA-DEBUG] Live pricing config missing. Key=${!!oandaKey}, Account=${!!oandaAccount}`);
-  }
-
+  // OANDA - real live forex + gold
   try {
-    const [cryptoRes, oandaRes] = await Promise.allSettled([
-      fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","DOGEUSDT","ADAUSDT","BNBUSDT"]', { next: { revalidate: 0 } }),
-      oandaKey && oandaAccount 
-        ? fetch(`https://api-fxpractice.oanda.com/v3/accounts/${oandaAccount}/pricing?instruments=XAU_USD,EUR_USD,GBP_USD,USD_JPY,AUD_USD,USD_CHF`, {
-            headers: { 'Authorization': `Bearer ${oandaKey}` },
-            next: { revalidate: 0 }
-          })
-        : Promise.reject('OANDA Config Missing')
-    ]);
-
-    const results: Record<string, any> = {};
-    const now = new Date().toISOString();
-
-    // 1. Process Crypto (Binance)
-    if (cryptoRes.status === 'fulfilled' && cryptoRes.value.ok) {
-      const data = await cryptoRes.value.json();
-      data.forEach((item: any) => {
-        const symbol = item.symbol.replace('USDT', 'USD');
-        const price = parseFloat(item.price);
-        if (isNaN(price) || price <= 0) return;
-        const spread = price * 0.0005; 
-        results[symbol] = { price, bid: price - spread, ask: price + spread, updatedAt: now };
-      });
+    const instruments = 'XAU_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
+    const r = await fetch(
+      `https://api-fxpractice.oanda.com/v3/accounts/${acc}/pricing?instruments=${instruments}`,
+      { cache:'no-store', headers:{ 'Authorization':`Bearer ${key}` }}
+    );
+    const d = await r.json();
+    const map: Record<string,string> = {
+      'XAU_USD':'XAUUSD','EUR_USD':'EURUSD','GBP_USD':'GBPUSD',
+      'USD_JPY':'USDJPY','USD_CHF':'USDCHF','AUD_USD':'AUDUSD',
+      'USD_CAD':'USDCAD','NZD_USD':'NZDUSD'
+    };
+    for(const p of (d.prices||[])){
+      const sym = map[p.instrument];
+      if(!sym) continue;
+      const bid = parseFloat(p.bids?.[0]?.price||0);
+      const ask = parseFloat(p.asks?.[0]?.price||0);
+      prices[sym] = { bid:+bid.toFixed(5), ask:+ask.toFixed(5), price:+((bid+ask)/2).toFixed(5), updatedAt: new Date().toISOString() };
     }
+  } catch(e){ console.error('OANDA error:', e); }
 
-    // 2. Process Forex & Metals (OANDA)
-    if (oandaRes.status === 'fulfilled' && oandaRes.value.ok) {
-      const data = await oandaRes.value.json();
-      if (data.prices) {
-        data.prices.forEach((p: any) => {
-          const symbol = p.instrument.replace('_', '');
-          const bid = parseFloat(p.bids[0].price);
-          const ask = parseFloat(p.asks[0].price);
-          const price = (bid + ask) / 2;
-          results[symbol] = { price, bid, ask, updatedAt: now };
-        });
-      }
-    } else {
-      const reason = oandaRes.status === 'rejected' ? oandaRes.reason : `HTTP ${oandaRes.value.status}`;
-      console.warn('[OANDA-Fetch-Failed]', reason);
+  // Binance - crypto
+  try {
+    const r = await fetch(
+      'https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","BNBUSDT","DOGEUSDT"]',
+      { cache:'no-store' }
+    );
+    const d = await r.json();
+    const m: Record<string,string> = {
+      BTCUSDT:'BTCUSD',ETHUSDT:'ETHUSD',XRPUSDT:'XRPUSD',
+      SOLUSDT:'SOLUSD',BNBUSDT:'BNBUSD',DOGEUSDT:'DOGEUSD'
+    };
+    for(const i of d){
+      const s = m[i.symbol];
+      if(!s) continue;
+      const p = parseFloat(i.price);
+      prices[s] = { bid:+(p*0.999).toFixed(2), ask:+(p*1.001).toFixed(2), price:+p.toFixed(2), updatedAt: new Date().toISOString() };
     }
+  } catch(e){ console.error('Binance error:', e); }
 
-    return NextResponse.json(results, { 
-      headers: { 
-        'Cache-Control': 'no-store, max-age=0, must-revalidate',
-        'Pragma': 'no-cache'
-      } 
-    });
-  } catch (error: any) {
-    console.error('[Price-Proxy-Error]', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  return NextResponse.json(prices, { headers:{ 'Cache-Control':'no-store' }});
 }
