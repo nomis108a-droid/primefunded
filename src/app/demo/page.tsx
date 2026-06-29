@@ -111,7 +111,7 @@ export default function DemoPage() {
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
   useEffect(() => {
-    if (!authLoading && !accountsLoading) {
+    if (!authLoading) {
       console.log("[Terminal] Auth and Accounts resolved. User:", !!user);
       if (accounts.length > 0 && !currentAccountId) {
         setCurrentAccountId(accounts[0].id);
@@ -472,7 +472,7 @@ export default function DemoPage() {
     };
     
     fetchPrices();
-    const interval = setInterval(fetchPrices, 1500);
+    const interval = setInterval(fetchPrices, 2000);
     
     const handleVisibilityChange = () => { 
       if (document.visibilityState === 'visible') fetchPrices();
