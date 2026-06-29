@@ -37,7 +37,6 @@ export async function GET(req: NextRequest) {
     const prices: Record<string, any> = {};
 
     // 2. Sync Crypto (Binance)
-    // No API key required. We convert USDT symbols to USD format.
     if (cryptoRes.status === 'fulfilled' && cryptoRes.value.ok) {
       const data = await cryptoRes.value.json();
       data.forEach((item: any) => {
@@ -49,7 +48,6 @@ export async function GET(req: NextRequest) {
     }
 
     // 3. Sync Forex/Metals (OANDA)
-    // Authenticated via process.env.OANDA_API_KEY
     if (oandaRes.status === 'fulfilled' && oandaRes.value.ok) {
       const data = await oandaRes.value.json();
       if (data.prices) {
@@ -65,7 +63,6 @@ export async function GET(req: NextRequest) {
     }
 
     // 4. Atomic Commit to Firestore
-    // This allows the Risk Engine (cron) to run audits against the same price the user sees.
     Object.entries(prices).forEach(([symbol, data]) => {
       const ref = db.collection("livePrices").doc(symbol);
       batch.set(ref, {

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       const oandaKey = process.env.OANDA_API_KEY;
       if (!oandaKey) {
         console.error(`[OANDA-DEBUG] Missing OANDA_API_KEY for symbol ${symbol}. Ensure it is set in environment variables.`);
-        return NextResponse.json({ candles: [], error: "OANDA_API_KEY is not configured on the server." }, { status: 500 });
+        return NextResponse.json({ candles: [], error: "OANDA_API_KEY is not configured on the server." }, { status: 200 });
       }
 
       const instrument = OANDA_MAP[symbol];
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       if (!res.ok) {
         const errText = await res.text();
         console.error(`[OANDA-DEBUG] OANDA API Error (${res.status}):`, errText);
-        return NextResponse.json({ candles: [], error: `OANDA API responded with ${res.status}` }, { status: res.status });
+        return NextResponse.json({ candles: [], error: `OANDA API responded with ${res.status}` }, { status: 200 });
       }
 
       const data = await res.json();
@@ -102,6 +102,6 @@ export async function GET(req: NextRequest) {
 
   } catch (error: any) {
     console.error('[Candle-API] Fatal Error:', error.message);
-    return NextResponse.json({ candles: [], error: error.message }, { status: 500 });
+    return NextResponse.json({ candles: [], error: error.message }, { status: 200 });
   }
 }
