@@ -379,8 +379,6 @@ export default function DemoPage() {
 
             if (price && price > 0 && !isNaN(price)) {
               const cur = currentCandleRef.current;
-              // Defensive Check: If the current candle price is vastly different from incoming (e.g. crossing symbol boundary), 
-              // reset to prevent garbled charts.
               const isOutlier = cur && Math.abs(cur.close - price) / cur.close > 0.5;
 
               if (!cur || cur.time !== candleTime || isOutlier) {
@@ -478,16 +476,52 @@ export default function DemoPage() {
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
 
   async function placeTrade(type: 'buy' | 'sell') {
+    const timestamp = new Date().toISOString();
     try {
       setActionLoading(true);
       if (!user) { toast({ title: "Auth Required", variant: "destructive" }); return; }
       if (!currentAccountId) { toast({ title: "No Account Selected", variant: "destructive" }); return; }
       
-      const pricesRes = await fetch('/api/terminal/live-prices');
-      const prices = await pricesRes.json();
-      const priceData = prices[selectedSymbol];
+      let priceData = null;
+      let pricesBody: any = {};
+      let lastError: any = null;
+
+      // ── INSTITUTIONAL RETRY PROTOCOL (3 Attempts) ────────────────
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`[${timestamp}] Fetching execution price (Attempt ${attempt}/3)...`);
+          const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
+          if (!pricesRes.ok) {
+            const body = await pricesRes.text();
+            throw new Error(`HTTP ${pricesRes.status}: ${body.slice(0, 100)}`);
+          }
+          pricesBody = await pricesRes.json();
+          priceData = pricesBody[selectedSymbol];
+          
+          if (priceData && priceData.price && !isNaN(priceData.price)) break;
+          else throw new Error(`Symbol ${selectedSymbol} missing from live feed results`);
+        } catch (e: any) {
+          lastError = e;
+          console.warn(`[${timestamp}] Price fetch attempt ${attempt} failed: ${e.message}`);
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+        }
+      }
       
-      if (!priceData || !priceData.price) { toast({ title: "Price Sync Error", variant: "destructive" }); return; }
+      if (!priceData || !priceData.price) { 
+        console.error(`[${timestamp}] FATAL PRICE SYNC ERROR:`, {
+          symbol: selectedSymbol,
+          error: lastError?.message,
+          receivedSymbols: Object.keys(pricesBody)
+        });
+        toast({ 
+          title: "Price Sync Error", 
+          description: `Unable to reach execution feed for ${selectedSymbol}. Status: ${lastError?.message || 'Incomplete Data'}. Please check your connection.`,
+          variant: "destructive" 
+        }); 
+        return; 
+      }
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
       const token = await user.getIdToken(true);
@@ -506,7 +540,8 @@ export default function DemoPage() {
       
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
     } catch(e: any) { 
-      toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); 
+      console.error(`[${timestamp}] TERMINAL EXECUTION FAULT:`, e);
+      toast({ title: "System Error", description: "Terminal connection fault. Check console for details.", variant: "destructive" }); 
     } finally { 
       setActionLoading(false); 
     }
@@ -711,9 +746,9 @@ export default function DemoPage() {
               <div className="flex flex-col gap-2">
                  <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
                  <div className="flex items-center gap-2">
-                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><Minus className="w-4 h-4" /></button>
+                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><BottomPanelChevronDown className="w-4 h-4" /></button>
                     <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white" />
-                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><Plus className="w-4 h-4" /></button>
+                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><BottomPanelChevronUp className="w-4 h-4" /></button>
                  </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -750,4 +785,12 @@ function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon:
       <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">{name}</TooltipContent>
     </Tooltip>
   );
+}
+
+function BottomPanelChevronDown(props: any) {
+  return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>;
+}
+
+function BottomPanelChevronUp(props: any) {
+  return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>;
 }
