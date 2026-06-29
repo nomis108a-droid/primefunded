@@ -71,6 +71,8 @@ export default function DemoPage() {
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
+  const livePricesRef = useRef<Record<string, any>>({});
+  const tiingoWsRef = useRef<WebSocket | null>(null);
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
@@ -123,6 +125,53 @@ export default function DemoPage() {
       if (!pageReady) {
         console.warn("[Terminal] Initialization slow. Forcing page ready.");
         setPageReady(true);
+
+  // Tiingo WebSocket for tick-by-tick crypto
+  useEffect(() => {
+    if (!pageReady) return;
+    const TIINGO_KEY = "8714afae0f22f552048e829365d786a0c728715a";
+    const cryptoMap: Record<string,string> = {
+      "btcusd":"BTCUSD","ethusd":"ETHUSD","solusd":"SOLUSD",
+      "xrpusd":"XRPUSD","bnbusd":"BNBUSD","dogeusd":"DOGEUSD","adausd":"ADAUSD"
+    };
+    let ws: WebSocket;
+    function connect() {
+      ws = new WebSocket("wss://api.tiingo.com/crypto");
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          eventName: "subscribe",
+          authorization: TIINGO_KEY,
+          eventData: { thresholdLevel: 5, tickers: Object.keys(cryptoMap) }
+        }));
+        console.log("Tiingo crypto WS connected");
+      };
+      ws.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        if (msg.messageType !== "A") return;
+        const [,, ticker,,,, price] = msg.data;
+        if (!ticker || !price) return;
+        const pair = cryptoMap[ticker.toLowerCase()];
+        if (!pair) return;
+        const p = parseFloat(price);
+        if (isNaN(p) || p <= 0) return;
+        const dec = ["XRPUSD","DOGEUSD","ADAUSD"].includes(pair) ? 4 : 2;
+        setLivePrices(prev => ({
+          ...prev,
+          [pair]: {
+            bid: +(p*0.999).toFixed(dec),
+            ask: +(p*1.001).toFixed(dec),
+            price: +p.toFixed(dec),
+            updatedAt: new Date().toISOString()
+          }
+        }));
+      };
+      ws.onclose = () => { setTimeout(connect, 3000); };
+      ws.onerror = (e) => { console.error("Tiingo WS error", e); };
+      tiingoWsRef.current = ws;
+    }
+    connect();
+    return () => { if (ws) ws.close(); };
+  }, [pageReady]);
       }
     }, 8000);
     return () => clearTimeout(t);
