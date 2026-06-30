@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -12,13 +13,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { 
-  Loader2, ArrowLeft, Minus, Plus, Activity, Bell, Globe, Settings, 
-  Crosshair, Circle, Slash, ArrowUpRight, ArrowLeftRight, ArrowRight,
-  Square, Triangle, Type, Pencil, Magnet, Undo, Trash2, Ruler,
-  TrendingUp, TrendingDown, Eye, EyeOff, Lock, Unlock, Star, 
-  Columns, LayoutGrid, Search, StickyNote, Tag, MousePointer2, 
-  ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
-  RefreshCw, Clock as ClockIcon, AlertTriangle
+  Loader2, ArrowLeft, Minus, Activity, Bell, Globe, Settings, 
+  Crosshair, Circle, Slash, ArrowUpRight, ArrowRight,
+  Square, Type, Ruler, ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
+  RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Star, Eye, EyeOff, Magnet
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -56,7 +54,6 @@ export default function DemoPage() {
   const { toast } = useToast();
   const branding = useBrandSettings();
 
-  const [pageReady, setPageReady] = useState(true);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
@@ -105,15 +102,13 @@ export default function DemoPage() {
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
-  const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
+  const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (accounts.length > 0 && !currentAccountId) {
-        setCurrentAccountId(accounts[0].id);
-      }
+    if (!authLoading && accounts.length > 0 && !currentAccountId) {
+      setCurrentAccountId(accounts[0].id);
     }
-  }, [authLoading, accountsLoading, accounts, currentAccountId, user]);
+  }, [authLoading, accounts, currentAccountId]);
 
   useEffect(() => {
     currentCandleRef.current = null;
@@ -163,16 +158,7 @@ export default function DemoPage() {
   }, [chartSettings, applyGlobalSettings]);
 
   useEffect(() => {
-    if (chartInstanceRef.current && chartContainerRef.current) {
-      chartInstanceRef.current.applyOptions({
-        width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight
-      });
-    }
-  }, [bottomPanelOpen]);
-
-  useEffect(() => {
-    if (!chartContainerRef.current || !pageReady) return;
+    if (!chartContainerRef.current) return;
     
     let chart; 
     try { 
@@ -184,10 +170,14 @@ export default function DemoPage() {
         timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
       });
       chartInstanceRef.current = chart;
+      
+      const series = chartType === 'line' || chartType === 'area' 
+        ? (chartType === 'area' ? chart.addAreaSeries() : chart.addLineSeries())
+        : chart.addCandlestickSeries();
+      
+      mainSeriesRef.current = series;
       setIsChartReady(true);
-    } catch (e) { 
-      console.error("CHART CREATION FAILED:", e); 
-    }
+    } catch (e) {}
     
     applyGlobalSettings();
 
@@ -211,9 +201,8 @@ export default function DemoPage() {
       setIsChartReady(false);
       currentCandleRef.current = null;
     };
-  }, [pageReady]);
+  }, [chartType, applyGlobalSettings]);
 
-  // Robust decoupled data fetching
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
@@ -286,23 +275,15 @@ export default function DemoPage() {
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ 
-          closePrice: exitPrice,
-          closeReason: reason
-        }),
+        body: JSON.stringify({ closePrice: exitPrice, closeReason: reason }),
       });
       if (res.ok) {
-        toast({ 
-          title: reason === 'stop_loss' ? "Stop Loss Hit" : "Take Profit Hit",
-          description: `Position closed at ${exitPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}`
-        });
+        toast({ title: reason === 'stop_loss' ? "Stop Loss Hit" : "Take Profit Hit", description: `Position closed at ${exitPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
       }
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
   useEffect(() => {
-    if (!pageReady) return;
-    
     const fetchPrices = async () => {
       try {
         const res = await fetch('/api/terminal/live-prices');
@@ -313,9 +294,8 @@ export default function DemoPage() {
         if (openTrades && openTrades.length > 0) {
           openTrades.forEach(t => {
             if (closingTradesRef.current.has(t.id)) return;
-            
             const pData = prices[t.symbol] || prices[t.symbol?.toUpperCase()];
-            if (!pData || !pData.bid || !pData.ask || isNaN(pData.bid) || isNaN(pData.ask) || pData.bid <= 0 || pData.ask <= 0) return;
+            if (!pData || !pData.bid || !pData.ask) return;
 
             const bid = pData.bid;
             const ask = pData.ask;
@@ -323,11 +303,11 @@ export default function DemoPage() {
             let reason = "";
 
             if (t.type === 'buy') {
-              if (t.sl && bid <= t.sl && bid > 0) { triggeredPrice = t.sl; reason = "stop_loss"; }
-              else if (t.tp && bid >= t.tp && bid > 0) { triggeredPrice = t.tp; reason = "take_profit"; }
+              if (t.sl && bid <= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
+              else if (t.tp && bid >= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
             } else {
-              if (t.sl && ask >= t.sl && ask > 0) { triggeredPrice = t.sl; reason = "stop_loss"; }
-              else if (t.tp && ask <= t.tp && ask > 0) { triggeredPrice = t.tp; reason = "take_profit"; }
+              if (t.sl && ask >= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
+              else if (t.tp && ask <= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
             }
 
             if (triggeredPrice > 0) {
@@ -337,36 +317,31 @@ export default function DemoPage() {
           });
         }
 
-        try {
-          if (mainSeriesRef.current && chartInstanceRef.current && !isChartLoading) {
-            const secs = intervalSecondsMap[selectedInterval] || 60;
-            const now = Math.floor(Date.now() / 1000);
-            const candleTime = Math.floor(now / secs) * secs;
-            const price = prices[selectedSymbol]?.price;
+        if (mainSeriesRef.current && !isChartLoading) {
+          const secs = intervalSecondsMap[selectedInterval] || 60;
+          const now = Math.floor(Date.now() / 1000);
+          const candleTime = Math.floor(now / secs) * secs;
+          const price = prices[selectedSymbol]?.price;
 
-            if (price && price > 0 && !isNaN(price)) {
-              const cur = currentCandleRef.current;
-              const isOutlier = cur && Math.abs(cur.close - price) / cur.close > 0.5;
-
-              if (!cur || cur.time !== candleTime || isOutlier) {
-                currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
-              } else {
-                cur.high = Math.max(cur.high, price);
-                cur.low = Math.min(cur.low, price);
-                cur.close = price;
-              }
-              mainSeriesRef.current.update(currentCandleRef.current);
+          if (price && price > 0) {
+            const cur = currentCandleRef.current;
+            if (!cur || cur.time !== candleTime) {
+              currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
+            } else {
+              cur.high = Math.max(cur.high, price);
+              cur.low = Math.min(cur.low, price);
+              cur.close = price;
             }
+            mainSeriesRef.current.update(currentCandleRef.current);
           }
-        } catch (err) {}
+        }
       } catch (e) {}
     };
     
     fetchPrices();
     const interval = setInterval(fetchPrices, 3000);
-    
     return () => clearInterval(interval); 
-  }, [pageReady, isChartLoading, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
+  }, [isChartLoading, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol];
@@ -401,29 +376,13 @@ export default function DemoPage() {
       lines.push(entryLine);
 
       if (trade.sl) {
-        const slLine = mainSeriesRef.current!.createPriceLine({
-          price: trade.sl,
-          color: '#ef4444',
-          lineWidth: 1,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: `SL @ ${trade.sl}`,
-        });
+        const slLine = mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` });
         lines.push(slLine);
       }
-
       if (trade.tp) {
-        const tpLine = mainSeriesRef.current!.createPriceLine({
-          price: trade.tp,
-          color: '#10b981',
-          lineWidth: 1,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: `TP @ ${trade.tp}`,
-        });
+        const tpLine = mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` });
         lines.push(tpLine);
       }
-
       activePriceLinesRef.current.set(trade.id, lines);
     });
 
@@ -437,16 +396,12 @@ export default function DemoPage() {
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
-      if (!user) { toast({ title: "Auth Required", variant: "destructive" }); return; }
-      if (!currentAccountId) { toast({ title: "No Account Selected", variant: "destructive" }); return; }
+      if (!user) return;
+      if (!currentAccountId) return;
       
       const priceData = livePrices[selectedSymbol];
       if (!priceData || !priceData.price) { 
-        toast({ 
-          title: "Price Unavailable", 
-          description: `Price unavailable for ${selectedSymbol} - unable to place trade right now. Please try again in a moment.`,
-          variant: "destructive" 
-        }); 
+        toast({ title: "Price Unavailable", description: `Price unavailable for ${selectedSymbol} - unable to place trade right now.`, variant: "destructive" }); 
         return; 
       }
       
@@ -489,12 +444,12 @@ export default function DemoPage() {
       const prices = await pricesRes.json();
       const priceData = prices[trade.symbol] || prices[trade.symbol?.toUpperCase()] || livePrices[trade.symbol];
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
-      if (!closePrice || closePrice <= 0) { toast({ title: "Cannot Close", variant: "destructive" }); return; }
+      if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken();
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice, closeReason: "manual" }) });
-      if (!res.ok) { const err = await res.json().catch(() => ({})); toast({ title: "Close Failed", description: err.error || "Server error", variant: "destructive" }); return; }
+      if (!res.ok) return;
       toast({ title: "✓ Position Closed" });
-    } catch (e: any) { toast({ title: "Close Error", variant: "destructive" }); } finally { setActionLoading(false); }
+    } catch (e: any) { } finally { setActionLoading(false); }
   }
 
   const TOOLBAR_ITEMS = [
@@ -506,7 +461,6 @@ export default function DemoPage() {
     { id: 'ray', name: 'Ray', icon: () => <ArrowRight className="rotate-[-45deg] scale-75" /> },
     { id: 'rect', name: 'Rectangle', icon: Square },
     { id: 'text', name: 'Text', icon: Type },
-    { id: 'circle', name: 'Circle', icon: Circle },
     { id: 'measure', name: 'Ruler / Measure', icon: Ruler },
     { id: 'zoom-in', name: 'Zoom In', icon: ZoomIn, action: handleZoomIn },
     { id: 'zoom-out', name: 'Zoom Out', icon: ZoomOut, action: handleZoomOut },
@@ -605,7 +559,7 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
-            <div className="flex-1 relative min-h-0">
+            <div className="flex-1 relative min-h-0" ref={chartContainerRef}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
                   <Loader2 className="animate-spin text-primary" />
@@ -617,7 +571,7 @@ export default function DemoPage() {
                   <AlertCircle className="w-8 h-8 text-destructive mb-4" />
                   <h3 className="text-sm font-bold text-white mb-2">Sync Connection Interrupted</h3>
                   <p className="text-xs text-zinc-400 mb-6 max-w-[250px]">{chartError}</p>
-                  <Button variant="outline" size="sm" className="h-9 px-6 font-bold" onClick={() => { setIsChartReady(false); setTimeout(() => setIsChartReady(true), 10); }}>
+                  <Button variant="outline" size="sm" className="h-9 px-6 font-bold" onClick={() => { setIsChartReady(false); setChartError(null); }}>
                     <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
                   </Button>
                 </div>
@@ -635,11 +589,6 @@ export default function DemoPage() {
               <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
-              </div>
-
-              <div className="absolute bottom-4 left-4 z-10 opacity-20 pointer-events-none select-none flex items-center gap-2">
-                <Image src={branding.logoUrl} alt="PrimeFunded" width={28} height={28} className="rounded-full grayscale contrast-125" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-white/20">{branding.siteName}</span>
               </div>
 
               {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
@@ -676,9 +625,9 @@ export default function DemoPage() {
               <div className="flex flex-col gap-2">
                  <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
                  <div className="flex items-center gap-2">
-                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><BottomPanelChevronDown className="w-4 h-4" /></button>
+                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">-</button>
                     <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white" />
-                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800"><BottomPanelChevronUp className="w-4 h-4" /></button>
+                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">+</button>
                  </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -713,7 +662,7 @@ export default function DemoPage() {
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
           <DialogHeader>
             <DialogTitle>Set Price Alert</DialogTitle>
-            <DialogDescription className="sr-only">Configure a new price alert for {selectedSymbol}.</DialogDescription>
+            <DialogDescription>Configure a new price alert for {selectedSymbol}.</DialogDescription>
           </DialogHeader>
           <div className="p-6">
             <h2 className="text-xl font-bold mb-4">Set Price Alert</h2>
@@ -725,8 +674,8 @@ export default function DemoPage() {
       </Dialog>
 
       <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
-        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm p-0 overflow-hidden">
-          <DialogHeader className="sr-only">
+        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm">
+          <DialogHeader>
             <DialogTitle>Clear All Drawings</DialogTitle>
             <DialogDescription>Permanently delete all technical analysis drawings from the chart.</DialogDescription>
           </DialogHeader>
@@ -764,12 +713,4 @@ function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon:
       <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">{name}</TooltipContent>
     </Tooltip>
   );
-}
-
-function BottomPanelChevronDown(props: any) {
-  return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>;
-}
-
-function BottomPanelChevronUp(props: any) {
-  return <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>;
 }

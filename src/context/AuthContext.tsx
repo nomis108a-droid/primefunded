@@ -34,47 +34,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const router = useRouter();
 
   useEffect(() => {
-    // DEFENSIVE: Prevent crash if firebase auth is not initialized (e.g. missing API keys)
+    // DEFENSIVE: Prevent crash if firebase auth is not initialized or null
     if (!auth) {
-      console.warn('[AuthProvider] Firebase Auth instance is null. Check environment variables.');
+      console.warn('[AuthProvider] Firebase Auth instance is not available.');
       setLoading(false);
       return;
     }
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      
-      // If no user is logged in, we are no longer loading
-      if (!u) {
-        setUserData(null);
-        setLoading(false);
-      }
-    });
+    try {
+      const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+        setUser(u);
+        
+        // If no user is logged in, we are no longer loading profile data
+        if (!u) {
+          setUserData(null);
+          setLoading(false);
+        }
+      });
 
-    return () => {
-      if (typeof unsubscribeAuth === 'function') {
-        unsubscribeAuth();
-      }
-    };
+      return () => {
+        if (typeof unsubscribeAuth === 'function') {
+          unsubscribeAuth();
+        }
+      };
+    } catch (err) {
+      console.error('[AuthProvider] Auth subscription error:', err);
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     let unsubscribeDoc: (() => void) | undefined;
 
     if (user && db) {
-      const userRef = doc(db, 'users', user.uid);
-      unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
-        if (snapshot.exists()) {
-          setUserData(snapshot.data());
-        }
-        // Once we have (or fail to have) user data, we are done loading
+      try {
+        const userRef = doc(db, 'users', user.uid);
+        unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
+          if (snapshot.exists()) {
+            setUserData(snapshot.data());
+          }
+          setLoading(false);
+        }, (err) => {
+          console.error("[AuthProvider] Profile sync error:", err);
+          setLoading(false);
+        });
+      } catch (e) {
         setLoading(false);
-      }, (err) => {
-        console.error("[AuthProvider] Error fetching user data:", err);
-        setLoading(false);
-      });
+      }
     } else if (!user) {
-      // If user logs out, reset user data state
       setUserData(null);
     }
 
@@ -85,8 +92,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     if (!auth) return;
-    await signOut(auth);
-    router.push('/login');
+    try {
+      await signOut(auth);
+      router.push('/login');
+    } catch (e) {}
   };
 
   const contextValue = useMemo(() => ({
