@@ -70,7 +70,6 @@ export default function DemoPage() {
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
-  const tiingoWsRef = useRef<WebSocket | null>(null);
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
