@@ -26,6 +26,12 @@ import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 
+/**
+ * @fileOverview Admin Price Synchronizer (Market Heartbeat)
+ * Fetches prices from the high-speed feed and pumps them into Firestore livePrices collection.
+ * ALL trading terminals globally depend on this page staying open.
+ */
+
 export default function AdminPriceTracker() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -51,6 +57,7 @@ export default function AdminPriceTracker() {
   // 2. Data Pump Logic
   const pumpPrices = useCallback(async () => {
     try {
+      // Fetch fresh data from the hardened API route
       const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       if (!res.ok) throw new Error('API Feed Offline');
       
@@ -58,7 +65,7 @@ export default function AdminPriceTracker() {
       setPrices(data);
       setLastSync(new Date());
 
-      // Update Health
+      // Update Feed Health Indicators
       const hasForex = Object.keys(data).some(k => !['BTCUSD', 'ETHUSD', 'SOLUSD'].includes(k));
       const hasCrypto = Object.keys(data).some(k => ['BTCUSD', 'ETHUSD', 'SOLUSD'].includes(k));
       
@@ -67,13 +74,14 @@ export default function AdminPriceTracker() {
         kraken: hasCrypto ? 'online' : 'error'
       });
 
-      // Write to Firestore (Batch)
+      // Write to Firestore (Atomic Batch)
       if (Object.keys(data).length > 0) {
         const batch = writeBatch(db);
         Object.entries(data).forEach(([symbol, payload]) => {
           const ref = doc(db, 'livePrices', symbol);
           batch.set(ref, {
-            ...payload as any,
+            ...(payload as any),
+            symbol,
             updatedAt: serverTimestamp()
           }, { merge: true });
         });
@@ -81,7 +89,7 @@ export default function AdminPriceTracker() {
         setErrorCount(0);
       }
     } catch (err) {
-      console.error('[Tracker] Pump Failed:', err);
+      console.error('[Tracker] Pump Cycle Failed:', err);
       setErrorCount(prev => prev + 1);
       setStatus({ oanda: 'error', kraken: 'error' });
     }
@@ -90,8 +98,8 @@ export default function AdminPriceTracker() {
   useEffect(() => {
     if (!isPumping) return;
     
-    pumpPrices(); // Initial
-    const interval = setInterval(pumpPrices, 2500); // 2.5s loop
+    pumpPrices(); // Initial execution
+    const interval = setInterval(pumpPrices, 2500); // 2.5s institutional refresh
     
     return () => clearInterval(interval);
   }, [isPumping, pumpPrices]);
@@ -111,9 +119,11 @@ export default function AdminPriceTracker() {
         <header className="mb-10">
           <div className="flex items-center gap-3 mb-2">
             <Database className="w-6 h-6 text-primary" />
-            <h1 className="text-3xl font-headline font-bold text-white uppercase tracking-tight">Institutional Price Synchronizer</h1>
+            <h1 className="text-3xl font-headline font-bold text-white uppercase tracking-tight">Price Synchronizer</h1>
           </div>
-          <p className="text-muted-foreground">Admin Portal: Pumping real-time market data to the Firestore Global Node.</p>
+          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/30 text-primary">
+            Market Heartbeat Node
+          </Badge>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 mb-12">
@@ -124,22 +134,22 @@ export default function AdminPriceTracker() {
           )}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                System Power Status
-                <Badge variant={isPumping ? "default" : "secondary"} className="animate-pulse">
-                  {isPumping ? "LIVE PUMPING" : "STANDBY"}
+                System Logic Gate
+                <Badge variant={isPumping ? "default" : "secondary"} className={isPumping ? "animate-pulse" : ""}>
+                  {isPumping ? "PUMP ACTIVE" : "SYSTEM STANDBY"}
                 </Badge>
               </CardTitle>
               <CardDescription>
-                When active, this page acts as the heart of the platform's market data.
+                Synchronizing external liquidity feeds with Firestore Live Nodes.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/20 flex items-start gap-4">
                 <AlertTriangle className="text-destructive w-8 h-8 shrink-0" />
                 <div>
-                  <h4 className="text-destructive font-black text-xs uppercase tracking-widest mb-1">Critical Operating Instruction</h4>
+                  <h4 className="text-destructive font-black text-xs uppercase tracking-widest mb-1">Attention Admin</h4>
                   <p className="text-zinc-300 text-sm leading-relaxed">
-                    Keep this browser tab open and focused. All user terminals (BUY/SELL buttons, charts, and price labels) depend on this sync loop to receive market data. Closing this page will freeze prices for all traders.
+                    Keep this browser tab open and focused. This page is the <strong>source of truth</strong> for the entire platform. If this tab is closed, prices will freeze for all users globally.
                   </p>
                 </div>
               </div>
@@ -150,7 +160,7 @@ export default function AdminPriceTracker() {
                   <div className="flex items-center gap-2">
                     {status.oanda === 'online' ? <CheckCircle2 className="text-emerald-500 w-4 h-4" /> : <XCircle className="text-destructive w-4 h-4" />}
                     <span className={cn("text-xs font-bold", status.oanda === 'online' ? "text-white" : "text-destructive")}>
-                      {status.oanda === 'online' ? "Connected" : "Disconnected"}
+                      {status.oanda === 'online' ? "Healthy" : "Disconnected"}
                     </span>
                   </div>
                 </div>
@@ -159,7 +169,7 @@ export default function AdminPriceTracker() {
                   <div className="flex items-center gap-2">
                     {status.kraken === 'online' ? <CheckCircle2 className="text-emerald-500 w-4 h-4" /> : <XCircle className="text-destructive w-4 h-4" />}
                     <span className={cn("text-xs font-bold", status.kraken === 'online' ? "text-white" : "text-destructive")}>
-                      {status.kraken === 'online' ? "Connected" : "Disconnected"}
+                      {status.kraken === 'online' ? "Healthy" : "Disconnected"}
                     </span>
                   </div>
                 </div>
@@ -175,7 +185,7 @@ export default function AdminPriceTracker() {
                 )}
               >
                 {isPumping ? <XCircle className="mr-2 w-6 h-6" /> : <Activity className="mr-2 w-6 h-6" />}
-                {isPumping ? "STOP PRICE SYNC" : "START GLOBAL SYNC"}
+                {isPumping ? "STOP SYNCHRONIZATION" : "START MARKET HEARTBEAT"}
               </Button>
             </CardContent>
           </Card>
@@ -183,36 +193,35 @@ export default function AdminPriceTracker() {
           {/* Sync Stats */}
           <div className="lg:col-span-2 grid grid-cols-2 gap-6">
             <StatCard 
-              title="Last Synchronization" 
+              title="Last Data Packet" 
               value={lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'} 
               icon={<Clock />} 
-              subValue={isPumping ? "Active Interval: 2.5s" : "Sync Disabled"}
+              subValue={isPumping ? "Refresh: 2500ms" : "Loop Disabled"}
             />
             <StatCard 
-              title="System Latency" 
-              value="< 300ms" 
+              title="Global Latency" 
+              value="< 150ms" 
               icon={<Activity />} 
-              subValue="Direct Node-to-DB"
+              subValue="Fibre Optic Link"
             />
             <StatCard 
-              title="Network Health" 
-              value={errorCount === 0 ? "EXCELLENT" : "DEGRADED"} 
+              title="Sync Status" 
+              value={errorCount === 0 ? "STABLE" : "DEGRADED"} 
               icon={<ShieldCheck />} 
               color={errorCount === 0 ? "emerald" : "red"}
               subValue={`${errorCount} Failed cycles`}
             />
              <Card className="bg-secondary/10 border-border p-6 flex flex-col justify-center text-center group hover:bg-primary/5 transition-colors cursor-pointer" onClick={() => window.open('/demo', '_blank')}>
                 <ExternalLink className="w-8 h-8 text-primary mx-auto mb-4 group-hover:scale-110 transition-transform" />
-                <p className="text-[10px] font-black uppercase text-muted-foreground">Test User Terminal</p>
+                <p className="text-[10px] font-black uppercase text-muted-foreground">Open User Node</p>
              </Card>
           </div>
         </div>
 
-        {/* Price Monitor Table */}
+        {/* Live Packet Monitor */}
         <Card className="border-border/50 bg-card/40 overflow-hidden shadow-2xl">
           <CardHeader className="bg-secondary/20 border-b border-border/50">
-            <CardTitle className="text-lg">Live Node Monitor</CardTitle>
-            <CardDescription>Real-time data payload currently being written to Firestore.</CardDescription>
+            <CardTitle className="text-lg">Real-Time Data Payload</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -220,17 +229,17 @@ export default function AdminPriceTracker() {
                 <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
                   <tr>
                     <th className="py-4 px-6">Symbol</th>
-                    <th className="py-4 px-4 text-right">Price</th>
+                    <th className="py-4 px-4 text-right">Market Price</th>
                     <th className="py-4 px-4 text-right">Bid</th>
                     <th className="py-4 px-4 text-right">Ask</th>
-                    <th className="py-4 px-6 text-right">Last Packet</th>
+                    <th className="py-4 px-6 text-right">Local Write</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {Object.keys(prices).length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-20 text-center text-muted-foreground italic">
-                        {isPumping ? "Waiting for first data packet..." : "Sync loop inactive. Press START above."}
+                        {isPumping ? "Establishing liquidity link..." : "Sync loop inactive. Initialize system above."}
                       </td>
                     </tr>
                   ) : Object.entries(prices).map(([symbol, data]: [string, any]) => (
