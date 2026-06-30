@@ -167,32 +167,27 @@ export default function DemoPage() {
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight
       });
-      const t = setTimeout(() => {
-        if (chartInstanceRef.current && chartContainerRef.current) {
-          chartInstanceRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-            height: chartContainerRef.current.clientHeight
-          });
-        }
-      }, 250);
-      return () => clearTimeout(t);
     }
   }, [bottomPanelOpen]);
 
   useEffect(() => {
     if (!chartContainerRef.current || !pageReady) return;
     
-    let chart; try { chart = createChart(chartContainerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
-      grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight || 480,
-      timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
-    });
-    chartInstanceRef.current = chart;
-    console.log("CHART CREATED - isChartReady will be true now"); alert("CHART EFFECT RAN");
-    setIsChartReady(true);
-    } catch (e) { console.error("CHART CREATION FAILED:", e); (window as any).lastChartError = e; }
+    let chart; 
+    try { 
+      chart = createChart(chartContainerRef.current, {
+        layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
+        grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
+        width: chartContainerRef.current.clientWidth,
+        height: chartContainerRef.current.clientHeight || 480,
+        timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
+      });
+      chartInstanceRef.current = chart;
+      setIsChartReady(true);
+    } catch (e) { 
+      console.error("CHART CREATION FAILED:", e); 
+    }
+    
     applyGlobalSettings();
 
     const handleResize = () => { 
@@ -238,7 +233,7 @@ export default function DemoPage() {
       
       const timeoutId = setTimeout(() => {
         controller.abort();
-      }, 3000);
+      }, 5000);
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -557,7 +552,6 @@ export default function DemoPage() {
     { id: 'hline', name: 'Horizontal Line', icon: Minus },
     { id: 'vline', name: 'Vertical Line', icon: SeparatorVertical },
     { id: 'ray', name: 'Ray', icon: () => <ArrowRight className="rotate-[-45deg] scale-75" /> },
-    { id: 'channel', name: 'Parallel Channel', icon: Columns },
     { id: 'rect', name: 'Rectangle', icon: Square },
     { id: 'text', name: 'Text', icon: Type },
     { id: 'circle', name: 'Circle', icon: Circle },
