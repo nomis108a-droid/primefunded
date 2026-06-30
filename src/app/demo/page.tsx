@@ -213,7 +213,7 @@ export default function DemoPage() {
       setIsChartReady(false);
       currentCandleRef.current = null;
     };
-  }, [pageReady, applyGlobalSettings, selectedSymbol, selectedInterval, chartType]);
+  }, [pageReady]);
 
   useEffect(() => {
     if (!isChartReady || !chartInstanceRef.current) return;
