@@ -1,4 +1,3 @@
-
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +58,7 @@ export async function GET() {
 
     // 2. Kraken - Crypto (Free/Unlimited)
     try {
-      const pairs = 'XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD';
+      const pairs = 'XBTUSD,ETHUSD,SOLUSD';
       const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`, { 
         cache: 'no-store',
         signal: controller.signal
@@ -69,15 +68,14 @@ export async function GET() {
         const d = await r.json();
         const result = d.result || {};
         const map: Record<string, string> = {
-          'XXBTZUSD': 'BTCUSD', 'XETHZUSD': 'ETHUSD', 'SOLUSD': 'SOLUSD',
-          'XXRPZUSD': 'XRPUSD', 'ADAUSD': 'ADAUSD', 'DOGEUSD': 'DOGEUSD'
+          'XXBTZUSD': 'BTCUSD', 'XETHZUSD': 'ETHUSD', 'SOLUSD': 'SOLUSD'
         };
         for (const [krakenPair, data] of Object.entries(result)) {
           const sym = map[krakenPair];
           if (!sym) continue;
           const p = parseFloat((data as any).c?.[0]);
           if (!p || isNaN(p)) continue;
-          const dec = ['XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(sym) ? 4 : 2;
+          const dec = 2;
           prices[sym] = {
             bid: +(p * 0.999).toFixed(dec),
             ask: +(p * 1.001).toFixed(dec),

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -29,7 +28,7 @@ import { PositionsPanel } from './PositionsPanel';
 import { DrawingLayer } from "./DrawingLayer";
 import { ChartSettingsModal } from "./ChartSettingsModal";
 
-const SYMBOLS = ["XAUUSD", "XAGUSD", "XPTUSD", "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD", "ADAUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
+const SYMBOLS = ["XAUUSD", "XAGUSD", "XPTUSD", "BTCUSD", "ETHUSD", "SOLUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
   { label: '1m', value: '1min' }, { label: '5m', value: '5min' }, { label: '15m', value: '15min' },
   { label: '30m', value: '30min' }, { label: '1H', value: '1h' }, { label: '4H', value: '4h' },

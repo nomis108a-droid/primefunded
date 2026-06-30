@@ -1,10 +1,7 @@
-
 import { NextRequest, NextResponse } from "next/server";
 
 const CRYPTO_MAP: Record<string, string> = {
-  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "XRPUSD": "XRPUSD",
-  "SOLUSD": "SOLUSD", "DOGEUSD": "DOGEUSD", "ADAUSD": "ADAUSD",
-  "BNBUSD": "BNBUSD"
+  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "SOLUSD": "SOLUSD"
 };
 
 const OANDA_MAP: Record<string, string> = {
