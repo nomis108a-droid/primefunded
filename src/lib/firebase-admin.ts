@@ -4,14 +4,14 @@ import { getAuth } from 'firebase-admin/auth';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Configuration
- * Hardened initialization with environment variable safety checks.
+ * Hardened initialization with environment variable safety checks and Studio-resilience.
  */
 
 function getServiceAccount() {
   const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64 || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   
   if (!key) {
-    console.warn("[Firebase-Admin] CRITICAL: No service account key found in environment. verifyIdToken will rely on default project credentials.");
+    console.warn("[Firebase-Admin] WARNING: No service account key found in environment. The SDK will attempt to use default credentials.");
     return null;
   }
   
@@ -28,26 +28,31 @@ function getServiceAccount() {
 }
 
 const serviceAccount = getServiceAccount();
+const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
 
 // Initialize Firebase Admin with pf-admin name to prevent conflicts
-const adminApp: App = getApps().find(a => a.name === 'pf-admin') || initializeApp(
-  serviceAccount 
-    ? { credential: cert(serviceAccount) } 
-    : { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID }, 
-  'pf-admin'
-);
+function getAdminApp(): App {
+  const existingApp = getApps().find(a => a.name === 'pf-admin');
+  if (existingApp) return existingApp;
 
-export const adminDb = getFirestore(adminApp);
-export const adminAuth = getAuth(adminApp);
-
-export function getAdminDb() {
-  return adminDb;
+  return initializeApp(
+    serviceAccount 
+      ? { credential: cert(serviceAccount), projectId } 
+      : { projectId }, 
+    'pf-admin'
+  );
 }
 
-export function getAdminAuth() {
-  return adminAuth;
-}
+/**
+ * Ensures singleton instances of services
+ */
+export const getAdminDb = () => getFirestore(getAdminApp());
+export const getAdminAuth = () => getAuth(getAdminApp());
+
+// Re-export for convenience but recommend using getters
+export const adminDb = getAdminDb();
+export const adminAuth = getAdminAuth();
 
 export function getAdminServices() {
-  return { db: adminDb, auth: adminAuth };
+  return { db: getAdminDb(), auth: getAdminAuth() };
 }
