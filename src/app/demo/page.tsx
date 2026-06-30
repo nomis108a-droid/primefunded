@@ -50,7 +50,6 @@ const intervalSecondsMap: Record<string, number> = {
 
 
 export default function DemoPage() {
-  alert("COMPONENT RENDERED");
   const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const branding = useBrandSettings();
