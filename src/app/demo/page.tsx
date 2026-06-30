@@ -190,6 +190,7 @@ export default function DemoPage() {
       timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
     });
     chartInstanceRef.current = chart;
+    console.log("CHART CREATED - isChartReady will be true now");
     setIsChartReady(true);
     applyGlobalSettings();
 
