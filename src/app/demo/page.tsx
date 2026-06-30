@@ -190,7 +190,7 @@ export default function DemoPage() {
       timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
     });
     chartInstanceRef.current = chart;
-    console.log("CHART CREATED - isChartReady will be true now");
+    console.log("CHART CREATED - isChartReady will be true now"); alert("CHART EFFECT RAN");
     setIsChartReady(true);
     } catch (e) { console.error("CHART CREATION FAILED:", e); (window as any).lastChartError = e; }
     applyGlobalSettings();
