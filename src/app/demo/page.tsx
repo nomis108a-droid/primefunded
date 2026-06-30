@@ -45,7 +45,7 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
-// Global cache to prevent reference errors
+// Global cache to prevent reference errors and improve loading
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 export default function DemoPage() {
@@ -116,6 +116,7 @@ export default function DemoPage() {
     if (chartInstanceRef.current) {
       chartInstanceRef.current.timeScale().scrollToPosition(0, false);
       chartInstanceRef.current.timeScale().fitContent();
+      chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
     }
   }, [selectedSymbol]);
 
@@ -248,9 +249,9 @@ export default function DemoPage() {
                ? sorted 
                : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              
-             mainSeriesRef.current.setData([]);
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
+             chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
           }
           
           setIsFallbackData(!!data.isFallback);
@@ -301,7 +302,7 @@ export default function DemoPage() {
     let isMounted = true;
     const fetchPrices = async () => {
       try {
-        const res = await fetch('/api/terminal/live-prices');
+        const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
         if (!res.ok || !isMounted) return;
         const prices = await res.json();
         setLivePrices(prices);
@@ -309,7 +310,7 @@ export default function DemoPage() {
     };
     
     fetchPrices();
-    const interval = setInterval(fetchPrices, 3000);
+    const interval = setInterval(fetchPrices, 2000);
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
@@ -416,9 +417,7 @@ export default function DemoPage() {
       setActionLoading(true);
       if (!user || !currentAccountId) return;
       
-      // Force fresh token to prevent "Invalid session" errors
       const token = await user.getIdToken(true);
-      
       const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       const freshPrices = await pricesRes.json();
       const priceData = freshPrices[selectedSymbol] || livePrices[selectedSymbol];
@@ -462,9 +461,9 @@ export default function DemoPage() {
       setActionLoading(true);
       const trade = openTrades.find(t => t.id === tradeId);
       if (!trade) return;
-      const pricesRes = await fetch('/api/terminal/live-prices');
+      const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       const prices = await pricesRes.json();
-      const priceData = prices[trade.symbol] || prices[trade.symbol?.toUpperCase()] || livePrices[trade.symbol];
+      const priceData = prices[trade.symbol] || livePrices[trade.symbol];
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken();
