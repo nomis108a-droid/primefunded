@@ -49,6 +49,8 @@ export async function GET() {
               updatedAt: new Date().toISOString() 
             };
           }
+        } else {
+          console.warn(`[OANDA-DEBUG] Pricing error: ${r.status}`);
         }
       } catch (e) {
         console.warn('[LivePrices] OANDA fetch failed or timed out');

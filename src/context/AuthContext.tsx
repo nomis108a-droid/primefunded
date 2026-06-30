@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const router = useRouter();
 
   useEffect(() => {
-    // DEFENSIVE: Prevent crash if firebase auth is not initialized or null
+    // DEFENSIVE: Prevent crash if firebase auth is not initialized
     if (!auth) {
       console.warn('[AuthProvider] Firebase Auth instance is not available.');
       setLoading(false);

@@ -83,10 +83,15 @@ export async function GET(req: NextRequest) {
               low: parseFloat(c.mid.l),
               close: parseFloat(c.mid.c),
             }));
+          } else {
+            const errText = await res.text();
+            console.warn(`[OANDA-DEBUG] API error for ${symbol}: ${res.status} - ${errText}`);
           }
         } catch (e) {
           console.warn(`[Candles] OANDA fetch failed for ${symbol}`);
         }
+      } else {
+        console.warn(`[OANDA-DEBUG] Missing credentials for ${symbol}. KEY: ${!!oandaKey}, ACC: ${!!oandaAcc}`);
       }
     }
 
