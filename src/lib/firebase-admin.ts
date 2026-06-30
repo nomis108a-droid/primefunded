@@ -1,23 +1,34 @@
-
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Configuration
- * Hardened PEM key parsing to handle environment variable mangling in cloud workstations.
+ * Hardened to handle Base64-encoded JSON blobs for maximum portability
+ * and resistance to environment variable mangling.
  */
 
 function getServiceAccount() {
+  // 1. Primary Strategy: Base64 JSON Blob (The most robust method)
+  const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
+  if (b64Key) {
+    try {
+      const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
+      return JSON.parse(decoded);
+    } catch (e) {
+      console.error("[Firebase-Admin] ERROR: Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY_B64.");
+    }
+  }
+
+  // 2. Secondary Strategy: Individual PEM Variables (Fallback)
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY;
 
   if (projectId && clientEmail && privateKey) {
-    // Robust parsing for PEM keys often mangled by environment variable transport
     const formattedKey = privateKey
-      .replace(/\\n/g, '\n')      // Convert literal \n to real newlines
-      .replace(/^"(.*)"$/, '$1') // Remove wrapping quotes if present
+      .replace(/\\n/g, '\n')
+      .replace(/^"(.*)"$/, '$1')
       .trim();
 
     return {
@@ -27,24 +38,8 @@ function getServiceAccount() {
     };
   }
 
-  // Fallback to JSON/B64 patterns if individual fields are missing
-  const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64 || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  
-  if (!key) {
-    console.warn("[Firebase-Admin] WARNING: No explicit service account found. Falling back to default (ADC).");
-    return null;
-  }
-  
-  try {
-    if (key.trim().startsWith('{')) {
-      return JSON.parse(key);
-    }
-    const decoded = Buffer.from(key, 'base64').toString('utf-8');
-    return JSON.parse(decoded);
-  } catch (e) {
-    console.error("[Firebase-Admin] ERROR: Failed to parse service account key string.");
-    return null;
-  }
+  console.warn("[Firebase-Admin] WARNING: No explicit service account found. Administrative features may fail.");
+  return null;
 }
 
 const serviceAccount = getServiceAccount();
@@ -65,14 +60,14 @@ function getAdminApp(): App {
       }, 'pf-admin');
     } catch (err: any) {
       console.error("[Firebase-Admin] Initialization Failed:", err.message);
-      // Fallback attempt with basic config
+      // Fallback attempt with minimal config if possible
       return initializeApp({
-        projectId: serviceAccount.projectId
+        projectId: serviceAccount.projectId || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
       }, 'pf-admin');
     }
   }
 
-  // Fallback to basic project config (ADC/Default)
+  // Fallback to ADC/Default
   return initializeApp({
     projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
   }, 'pf-admin');
