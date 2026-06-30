@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -12,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw
 } from 'lucide-react';
 import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -52,6 +53,7 @@ export default function AdminPage() {
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], demoAccounts: [], demoTrades: [] 
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [showRetry, setShowRetry] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
 
@@ -71,31 +73,55 @@ export default function AdminPage() {
 
   const refreshData = useCallback(async () => {
     setIsLoading(true);
-    const res = await fetchAdminTerminalData();
-    if (res.success) {
-      setAdminData(res);
-      setIsAuthenticated(true);
-      setShowAdminModal(false);
-    } else {
-      if (res.error === "Unauthorized") {
+    try {
+      const res = await fetchAdminTerminalData();
+      if (res && res.success) {
+        setAdminData(res);
+        setIsAuthenticated(true);
+        setShowAdminModal(false);
+      } else {
         setIsAuthenticated(false);
         setShowAdminModal(true);
-      } else {
-        toast({ variant: "destructive", title: "Sync Error", description: res.error || "Failed to fetch terminal data." });
+        if (res && res.error && res.error !== "Unauthorized") {
+          toast({ variant: "destructive", title: "Sync Error", description: res.error });
+        }
       }
+    } catch (err: any) {
+      setIsAuthenticated(false);
+      setShowAdminModal(true);
+      toast({ variant: "destructive", title: "Network Fault", description: err.message || "Failed to reach terminal API." });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, [toast]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
+    
+    // Safety Timeout: If stuck in "Verifying" for 10s, force modal
+    const watchdog = setTimeout(() => {
+      if (!isAuthenticated && !showAdminModal) {
+        console.warn("[AdminWatchdog] Sync timed out. Forcing login modal.");
+        setShowAdminModal(true);
+        setIsLoading(false);
+      }
+    }, 10000);
+
+    // Show retry button after 5s
+    const retryTimer = setTimeout(() => setShowRetry(true), 5000);
+
     if (isVerified) {
       refreshData();
     } else {
       setShowAdminModal(true);
       setIsLoading(false);
     }
-  }, [refreshData]);
+
+    return () => {
+      clearTimeout(watchdog);
+      clearTimeout(retryTimer);
+    };
+  }, [refreshData, isAuthenticated, showAdminModal]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +134,12 @@ export default function AdminPage() {
       setAdminError("❌ Access Denied");
       setAdminPasswordInput('');
     }
+  };
+
+  const handleEmergencyReset = () => {
+    localStorage.removeItem('adminVerified');
+    document.cookie = 'admin_master=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    window.location.reload();
   };
 
   const handleRunMigration = async () => {
@@ -196,9 +228,24 @@ export default function AdminPage() {
 
   if (!isAuthenticated && !showAdminModal) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center">
-        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
-        <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Verifying Authorization...</p>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <div className="relative mb-6">
+          <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Fingerprint className="w-6 h-6 text-primary/40" />
+          </div>
+        </div>
+        <h2 className="text-xl font-headline font-bold text-white mb-2">Verifying Node Authorization</h2>
+        <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground animate-pulse mb-8">Establishing Secure Admin Link...</p>
+        
+        {showRetry && (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <p className="text-xs text-muted-foreground max-w-xs mx-auto italic">Authentication is taking longer than expected. This may be due to high latency or a session conflict.</p>
+            <Button variant="outline" size="sm" onClick={handleEmergencyReset} className="h-10 px-6 border-primary/20 text-primary font-bold hover:bg-primary/5">
+              <RotateCcw className="w-4 h-4 mr-2" /> Clear Session & Retry
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -634,6 +681,7 @@ export default function AdminPage() {
 
       {/* Admin Auth Modal */}
       <Dialog open={showAdminModal} onOpenChange={(open) => {
+        // Prevent closing the modal if not authenticated
         if (!isAuthenticated && !open) return;
         setShowAdminModal(open);
       }}>
@@ -659,6 +707,9 @@ export default function AdminPage() {
             </div>
             <Button type="submit" className="w-full h-14 font-black cyan-box-glow text-lg">AUTHENTICATE</Button>
           </form>
+          <div className="mt-6 pt-6 border-t border-white/5 text-center">
+             <button onClick={handleEmergencyReset} className="text-[10px] font-black uppercase text-muted-foreground hover:text-white transition-colors tracking-widest">Forgot session? Reset Access</button>
+          </div>
           <p className="text-[9px] text-center uppercase tracking-widest text-muted-foreground/30 mt-4">Unauthorized access is monitored and logged.</p>
         </DialogContent>
       </Dialog>

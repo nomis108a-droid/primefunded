@@ -1,3 +1,4 @@
+
 'use server';
 
 import { cookies } from 'next/headers';
@@ -37,13 +38,17 @@ function serializeData(data: any): any {
 
 /**
  * SECURITY HELPER: Verify Admin credentials
+ * Robustly checks for master token or session cookie authorization.
  */
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
+    
+    // 1. Check Master Override Token
     const masterToken = cookieStore.get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     
+    // 2. Check Firebase Session Cookie
     const token = cookieStore.get('session')?.value;
     if (!token) return false;
     
@@ -258,6 +263,10 @@ export async function fetchUserDetailAction(userId: string) {
   }
 }
 
+/**
+ * Main Administrative Sync Action
+ * Fetches all network data using Admin SDK privileges.
+ */
 export async function fetchAdminTerminalData() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
