@@ -14,7 +14,14 @@ function getServiceAccount() {
   if (b64Key) {
     try {
       const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
-      return JSON.parse(decoded);
+      const json = JSON.parse(decoded);
+      
+      // Robust private key cleaning: ensure literal \n are true newlines if they escaped JSON parsing
+      if (json.private_key) {
+        json.private_key = json.private_key.replace(/\\n/g, '\n');
+      }
+      
+      return json;
     } catch (e) {
       console.error("[Firebase-Admin] ERROR: Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY_B64.");
     }
