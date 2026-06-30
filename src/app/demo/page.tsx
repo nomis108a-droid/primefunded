@@ -45,7 +45,7 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
-// Global cache to prevent reference errors and improve performance
+// Global cache to prevent reference errors
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 export default function DemoPage() {
@@ -238,7 +238,7 @@ export default function DemoPage() {
         if (!isMounted) return;
 
         if (rawCandles.length > 0) {
-          // CRITICAL: Ensure data is sorted by time and has no duplicate timestamps
+          // Robust chronology guard: Ensure unique sorted timestamps
           const sorted = [...rawCandles]
             .sort((a: any, b: any) => a.time - b.time)
             .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
@@ -248,7 +248,6 @@ export default function DemoPage() {
                ? sorted 
                : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              
-             // Clear before setting to prevent overlaps or broken scales
              mainSeriesRef.current.setData([]);
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
@@ -417,6 +416,9 @@ export default function DemoPage() {
       setActionLoading(true);
       if (!user || !currentAccountId) return;
       
+      // Force fresh token to prevent "Invalid session" errors
+      const token = await user.getIdToken(true);
+      
       const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       const freshPrices = await pricesRes.json();
       const priceData = freshPrices[selectedSymbol] || livePrices[selectedSymbol];
@@ -429,7 +431,6 @@ export default function DemoPage() {
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
       console.log(`[Trade Execution] Sending Order - Symbol: ${selectedSymbol}, Price: ${executionPrice}, Lots: ${lots}, Type: ${type}`);
       
-      const token = await user.getIdToken(true);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -492,6 +493,8 @@ export default function DemoPage() {
     { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
     { id: 'favorites', name: 'Favorites', icon: Star }
   ];
+
+  if (!user && !authLoading) return null;
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
@@ -626,7 +629,6 @@ export default function DemoPage() {
             </div>
           </div>
           
-          {/* CRITICAL: PositionsPanel must render here to be visible below the chart */}
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
