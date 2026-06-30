@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -140,7 +141,11 @@ export default function DemoPage() {
       chart.priceScale(targetScaleId).applyOptions({ visible: true, mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, autoScale: chartSettings.scales.mode === 'auto', borderColor: chartSettings.canvas.scales.textColor + '44' });
       chart.priceScale(otherScaleId).applyOptions({ visible: false });
       chart.applyOptions({
-        layout: { background: { type: chartSettings.canvas.background.type === 'gradient' ? ColorType.VerticalGradient : ColorType.Solid, color: chartSettings.canvas.background.color }, textColor: chartSettings.canvas.scales.textColor, fontSize: chartSettings.canvas.scales.fontSize },
+        layout: { 
+          background: { type: ColorType.Solid, color: '#09090b' }, 
+          textColor: chartSettings.canvas.scales.textColor, 
+          fontSize: chartSettings.canvas.scales.fontSize 
+        },
         grid: { vertLines: { visible: chartSettings.scales.lines.gridVert && (chartSettings.canvas.grid.type === 'vertical' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.vert.color }, horzLines: { visible: chartSettings.scales.lines.gridHorz && (chartSettings.canvas.grid.type === 'horizontal' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.horz.color } },
         crosshair: { horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color }, vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color } },
         watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, text: chartSettings.canvas.watermark.text || branding.siteName }
@@ -313,8 +318,8 @@ export default function DemoPage() {
   }, []);
 
   useEffect(() => {
-    if (livePrices[selectedSymbol] && mainSeriesRef.current && !isChartLoading) {
-      const priceData = livePrices[selectedSymbol];
+    const priceData = livePrices[selectedSymbol];
+    if (priceData && mainSeriesRef.current && !isChartLoading) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
       const now = Math.floor(Date.now() / 1000);
       const candleTime = Math.floor(now / secs) * secs;
@@ -323,14 +328,17 @@ export default function DemoPage() {
       if (price && price > 0) {
         const cur = currentCandleRef.current;
         if (!cur || cur.time !== candleTime) {
-          if (cur && candleTime < cur.time) return; 
-          currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
+          if (!cur || candleTime > cur.time) {
+            currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
+          }
         } else {
           cur.high = Math.max(cur.high, price);
           cur.low = Math.min(cur.low, price);
           cur.close = price;
         }
-        mainSeriesRef.current.update(currentCandleRef.current);
+        if (currentCandleRef.current) {
+          mainSeriesRef.current.update(currentCandleRef.current);
+        }
       }
     }
 
