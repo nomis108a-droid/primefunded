@@ -22,9 +22,9 @@ export const metadata: Metadata = {
   keywords: ['prop firm', 'funded account', 'trading challenge', 'forex funding', 'institutional capital'],
   authors: [{ name: 'PrimeFunded Global' }],
   icons: {
-    icon: '/pf-logo.png',
+    icon: '/favicon.ico',
     shortcut: '/favicon.ico',
-    apple: '/pf-logo.png',
+    apple: '/favicon.ico',
   },
   robots: 'index, follow',
   openGraph: {
