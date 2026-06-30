@@ -29,20 +29,21 @@ export async function GET() {
     console.log('OANDA OK:', Object.keys(prices).length, 'symbols');
   } catch(e){ console.error('OANDA error:', e); }
 
-  // CoinCap - Crypto (100% free, no key, no rate limit, works on Vercel)
+  // Kraken - Crypto (100% free, unlimited, no key, works everywhere)
   try {
-    const ids = 'bitcoin,ethereum,solana,binance-coin,dogecoin,xrp,cardano';
-    const r = await fetch(`https://api.coincap.io/v2/assets?ids=${ids}`, { cache:'no-store' });
-    if (!r.ok) throw new Error(`CoinCap ${r.status}`);
+    const pairs = 'XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD';
+    const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`, { cache:'no-store' });
+    if (!r.ok) throw new Error(`Kraken ${r.status}`);
     const d = await r.json();
+    const result = d.result || {};
     const map: Record<string,string> = {
-      bitcoin:'BTCUSD', ethereum:'ETHUSD', solana:'SOLUSD',
-      'binance-coin':'BNBUSD', dogecoin:'DOGEUSD', xrp:'XRPUSD', cardano:'ADAUSD'
+      'XXBTZUSD':'BTCUSD', 'XETHZUSD':'ETHUSD', 'SOLUSD':'SOLUSD',
+      'XXRPZUSD':'XRPUSD', 'ADAUSD':'ADAUSD', 'DOGEUSD':'DOGEUSD'
     };
-    for(const item of (d.data||[])){
-      const sym = map[item.id];
+    for(const [krakenPair, data] of Object.entries(result)){
+      const sym = map[krakenPair];
       if(!sym) continue;
-      const p = parseFloat(item.priceUsd);
+      const p = parseFloat((data as any).c?.[0]);
       if(!p || isNaN(p)) continue;
       const dec = ['XRPUSD','DOGEUSD','ADAUSD'].includes(sym) ? 4 : 2;
       prices[sym] = {
@@ -52,8 +53,8 @@ export async function GET() {
         updatedAt: new Date().toISOString()
       };
     }
-    console.log('CoinCap OK:', Object.keys(prices).filter(k => ['BTCUSD','ETHUSD','SOLUSD'].includes(k)));
-  } catch(e){ console.error('CoinCap error:', e); }
+    console.log('Kraken OK:', Object.keys(prices).filter(k => ['BTCUSD','ETHUSD','SOLUSD'].includes(k)));
+  } catch(e){ console.error('Kraken error:', e); }
 
   return NextResponse.json(prices, { headers:{ 'Cache-Control':'no-store' }});
 }
