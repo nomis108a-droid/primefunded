@@ -238,7 +238,7 @@ export default function DemoPage() {
         if (!isMounted) return;
 
         if (rawCandles.length > 0) {
-          // ENSURE STRICT CHRONOLOGICAL ORDER AND NO DUPLICATES
+          // CRITICAL: Ensure data is sorted by time and has no duplicate timestamps
           const sorted = [...rawCandles]
             .sort((a: any, b: any) => a.time - b.time)
             .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
@@ -247,6 +247,9 @@ export default function DemoPage() {
              const formatted = (chartType === 'candles' || chartType === 'bars') 
                ? sorted 
                : sorted.map((c: any) => ({ time: c.time, value: c.close }));
+             
+             // Clear before setting to prevent overlaps or broken scales
+             mainSeriesRef.current.setData([]);
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
           }
@@ -270,8 +273,11 @@ export default function DemoPage() {
     return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
 
-  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
-  const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId)] : [], [user?.uid, currentAccountId]);
+  const { data: allTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+  
+  const openTrades = useMemo(() => allTrades.filter(t => t.status === 'open'), [allTrades]);
+  const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed').sort((a, b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0)), [allTrades]);
 
   const isPriceValid = useMemo(() => {
     return Object.keys(livePrices).length > 0;
@@ -411,7 +417,6 @@ export default function DemoPage() {
       setActionLoading(true);
       if (!user || !currentAccountId) return;
       
-      // FRESH PRICE FETCH: Eliminate execution drift
       const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       const freshPrices = await pricesRes.json();
       const priceData = freshPrices[selectedSymbol] || livePrices[selectedSymbol];
@@ -422,8 +427,6 @@ export default function DemoPage() {
       }
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
-      
-      // VERIFICATION LOG
       console.log(`[Trade Execution] Sending Order - Symbol: ${selectedSymbol}, Price: ${executionPrice}, Lots: ${lots}, Type: ${type}`);
       
       const token = await user.getIdToken(true);
@@ -447,7 +450,6 @@ export default function DemoPage() {
     }
   }
 
-  const { data: closedTrades } = useCollection<any>((user?.uid && currentAccountId) ? "demoTrades" : null, useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "closed"), orderBy("closedAt", "desc"), limit(50)] : [], [user?.uid, currentAccountId]));
   const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("createdAt", "desc")] : [], [user?.uid]));
 
   const handleZoomIn = () => { if (chartInstanceRef.current) { const timeScale = chartInstanceRef.current.timeScale(); timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing * 1.2 }); } };
@@ -560,10 +562,8 @@ export default function DemoPage() {
       </div>
 
       <div className="flex-1 flex min-h-0 relative">
-        {/* Main Workspace: Tools + Chart + Positions */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] overflow-hidden">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
-            {/* Toolbar */}
             <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
                 <div className="flex flex-col gap-0.5 items-center w-full">
@@ -580,7 +580,6 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
-            {/* Chart Area */}
             <div className="flex-1 relative min-h-0" ref={chartContainerRef}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
@@ -627,7 +626,7 @@ export default function DemoPage() {
             </div>
           </div>
           
-          {/* Bottom Positions Panel */}
+          {/* CRITICAL: PositionsPanel must render here to be visible below the chart */}
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
@@ -652,7 +651,6 @@ export default function DemoPage() {
           />
         </div>
 
-        {/* Right Sidebar: Order Entry */}
         <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}><TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800"><TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger><TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger></TabsList></Tabs>
            <div className="space-y-6">
@@ -699,7 +697,6 @@ export default function DemoPage() {
             <DialogDescription>Configure a new price alert for {selectedSymbol}.</DialogDescription>
           </DialogHeader>
           <div className="p-6">
-            <h2 className="text-xl font-bold mb-4">Set Price Alert</h2>
             <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>
               CREATE ALERT
             </Button>
