@@ -45,7 +45,6 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
-// Global cache to prevent reference errors and improve loading
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 export default function DemoPage() {
@@ -79,7 +78,6 @@ export default function DemoPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
-  // Safety trackers
   const closingTradesRef = useRef<Set<string>>(new Set());
 
   const [chartSettings, setChartSettings] = useState(() => {
@@ -114,8 +112,6 @@ export default function DemoPage() {
     oldestTimestamp.current = null;
     setIsFallbackData(false);
     if (chartInstanceRef.current) {
-      chartInstanceRef.current.timeScale().scrollToPosition(0, false);
-      chartInstanceRef.current.timeScale().fitContent();
       chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
     }
   }, [selectedSymbol]);
@@ -239,8 +235,11 @@ export default function DemoPage() {
         if (!isMounted) return;
 
         if (rawCandles.length > 0) {
-          // Robust chronology guard: Ensure unique sorted timestamps
           const sorted = [...rawCandles]
+            .map(c => ({
+              ...c,
+              time: typeof c.time === 'object' && c.time?.seconds ? c.time.seconds : Number(c.time)
+            }))
             .sort((a: any, b: any) => a.time - b.time)
             .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
 
@@ -251,7 +250,6 @@ export default function DemoPage() {
              
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
-             chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
           }
           
           setIsFallbackData(!!data.isFallback);
@@ -325,6 +323,7 @@ export default function DemoPage() {
       if (price && price > 0) {
         const cur = currentCandleRef.current;
         if (!cur || cur.time !== candleTime) {
+          if (cur && candleTime < cur.time) return; 
           currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
         } else {
           cur.high = Math.max(cur.high, price);
@@ -428,7 +427,6 @@ export default function DemoPage() {
       }
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
-      console.log(`[Trade Execution] Sending Order - Symbol: ${selectedSymbol}, Price: ${executionPrice}, Lots: ${lots}, Type: ${type}`);
       
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
