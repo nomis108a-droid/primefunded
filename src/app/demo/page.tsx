@@ -48,9 +48,9 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
-const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 export default function DemoPage() {
+  alert("COMPONENT RENDERED");
   const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const branding = useBrandSettings();
