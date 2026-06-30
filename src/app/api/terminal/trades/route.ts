@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       console.error('[Trade-API] Token verification failed:', err.code || 'UNKNOWN_ERROR', err.message);
       return NextResponse.json({ 
         error: "Execution Failed: Invalid or expired session", 
-        details: err.message,
+        details: `${err.code}: ${err.message}`,
         code: err.code 
       }, { status: 401 });
     }

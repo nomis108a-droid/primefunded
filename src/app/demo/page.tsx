@@ -288,7 +288,7 @@ export default function DemoPage() {
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
     try {
-      const token = await user.getIdToken();
+      const token = await user.getIdToken(true);
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
@@ -326,7 +326,6 @@ export default function DemoPage() {
 
       if (price && price > 0) {
         const cur = currentCandleRef.current;
-        // Logic check: only update if time matches or is strictly in the future
         if (!cur || Number(cur.time) !== candleTime) {
           if (!cur || candleTime > Number(cur.time)) {
             currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
@@ -336,7 +335,6 @@ export default function DemoPage() {
           cur.high = Math.max(cur.high, price);
           cur.low = Math.min(cur.low, price);
           cur.close = price;
-          // Important: Pass a shallow copy to series.update to ensure data integrity
           mainSeriesRef.current.update({ ...cur });
         }
       }
@@ -424,7 +422,9 @@ export default function DemoPage() {
       setActionLoading(true);
       if (!user || !currentAccountId) return;
       
+      // Force refresh token for session validity
       const token = await user.getIdToken(true);
+      
       const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       const freshPrices = await pricesRes.json();
       const priceData = freshPrices[selectedSymbol] || livePrices[selectedSymbol];
@@ -444,7 +444,11 @@ export default function DemoPage() {
       
       if (!res.ok) { 
         const err = await res.json().catch(() => ({})); 
-        toast({ title: "Execution Failed", description: err.error || `Server Error: ${res.status}`, variant: "destructive" }); 
+        toast({ 
+          title: "Execution Failed", 
+          description: err.details ? `${err.error}: ${err.details}` : (err.error || `Server Error: ${res.status}`), 
+          variant: "destructive" 
+        }); 
         return; 
       }
       
@@ -472,7 +476,7 @@ export default function DemoPage() {
       const priceData = prices[trade.symbol] || livePrices[trade.symbol];
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
-      const token = await user?.getIdToken();
+      const token = await user?.getIdToken(true);
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice, closeReason: "manual" }) });
       if (!res.ok) return;
       toast({ title: "✓ Position Closed" });

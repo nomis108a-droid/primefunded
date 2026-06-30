@@ -19,7 +19,7 @@ export async function GET() {
     // 1. OANDA - Forex + Metals
     if (key && acc) {
       try {
-        const instruments = 'XAU_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
+        const instruments = 'XAU_USD,XAG_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
         const r = await fetch(
           `https://api-fxpractice.oanda.com/v3/accounts/${acc}/pricing?instruments=${instruments}`,
           { 
@@ -32,7 +32,7 @@ export async function GET() {
         if (r.ok) {
           const d = await r.json();
           const map: Record<string, string> = {
-            'XAU_USD': 'XAUUSD', 'XPT_USD': 'XPTUSD',
+            'XAU_USD': 'XAUUSD', 'XAG_USD': 'XAGUSD', 'XPT_USD': 'XPTUSD',
             'EUR_USD': 'EURUSD', 'GBP_USD': 'GBPUSD', 'USD_JPY': 'USDJPY',
             'USD_CHF': 'USDCHF', 'AUD_USD': 'AUDUSD', 'USD_CAD': 'USDCAD', 'NZD_USD': 'NZDUSD'
           };

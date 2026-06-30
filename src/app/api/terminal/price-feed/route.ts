@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const [cryptoRes, oandaRes] = await Promise.allSettled([
       fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT"]', { signal: controller.signal }),
       oandaKey && oandaAccount 
-        ? fetch(`https://api-fxpractice.oanda.com/v3/accounts/${oandaAccount}/pricing?instruments=XAU_USD,EUR_USD,GBP_USD,USD_JPY,AUD_USD,USD_CHF`, {
+        ? fetch(`https://api-fxpractice.oanda.com/v3/accounts/${oandaAccount}/pricing?instruments=XAU_USD,XAG_USD,EUR_USD,GBP_USD,USD_JPY,AUD_USD,USD_CHF`, {
             headers: { 'Authorization': `Bearer ${oandaKey}` },
             signal: controller.signal
           })

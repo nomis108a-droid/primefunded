@@ -11,7 +11,7 @@ function getServiceAccount() {
   const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64 || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   
   if (!key) {
-    console.warn("[Firebase-Admin] CRITICAL: No service account key found in environment. verifyIdToken will fail.");
+    console.warn("[Firebase-Admin] CRITICAL: No service account key found in environment. verifyIdToken will rely on default project credentials.");
     return null;
   }
   
@@ -29,9 +29,11 @@ function getServiceAccount() {
 
 const serviceAccount = getServiceAccount();
 
-// Initialize Firebase Admin only once
+// Initialize Firebase Admin with pf-admin name to prevent conflicts
 const adminApp: App = getApps().find(a => a.name === 'pf-admin') || initializeApp(
-  serviceAccount ? { credential: cert(serviceAccount) } : {}, 
+  serviceAccount 
+    ? { credential: cert(serviceAccount) } 
+    : { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID }, 
   'pf-admin'
 );
 
