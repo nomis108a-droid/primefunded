@@ -6,14 +6,24 @@ const admin = require('firebase-admin');
  * into Firestore for the proprietary trading terminal.
  */
 
-// Initialize Firebase Admin
+// Initialize Firebase Admin with Robust Base64 Handling
 const serviceAccountKeyB64 = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
 if (!serviceAccountKeyB64) {
   console.error('FIREBASE_SERVICE_ACCOUNT_KEY_B64 is missing');
   process.exit(1);
 }
 
-const serviceAccount = JSON.parse(Buffer.from(serviceAccountKeyB64, 'base64').toString('utf-8'));
+let serviceAccount;
+try {
+  const decoded = Buffer.from(serviceAccountKeyB64, 'base64').toString('utf-8');
+  serviceAccount = JSON.parse(decoded);
+  if (serviceAccount.private_key) {
+    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n').trim();
+  }
+} catch (err) {
+  console.error('[Bridge] Failed to parse service account:', err.message);
+  process.exit(1);
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -59,12 +69,11 @@ async function flushBuffer() {
   }
 }
 
-// Flush updates every 500ms to keep Firestore overhead low while maintaining real-time feel
+// Flush updates every 500ms
 setInterval(flushBuffer, 500);
 
 /**
  * Binance Crypto REST Polling
- * Frequency: Every 2 seconds
  */
 async function pollBinanceCrypto() {
   try {
@@ -79,7 +88,6 @@ async function pollBinanceCrypto() {
         const price = parseFloat(item.price);
         const symbol = item.symbol.replace('USDT', 'USD');
         
-        // Institutional crypto spreads (approx 0.01%)
         const bid = price * 0.9999;
         const ask = price * 1.0001;
 
@@ -100,7 +108,6 @@ async function pollBinanceCrypto() {
 
 /**
  * Twelve Data FX/Metals Polling
- * Frequency: Every 10 seconds
  */
 async function pollTwelveData() {
   if (!TWELVE_DATA_API_KEY) {
@@ -123,10 +130,9 @@ async function pollTwelveData() {
       const price = parseFloat(entry.price);
       if (isNaN(price)) return;
 
-      const symbol = rawSymbol.replace('/', ''); // EUR/USD -> EURUSD
+      const symbol = rawSymbol.replace('/', ''); 
       const isMetal = symbol.includes('XAU') || symbol.includes('XAG');
       
-      // Tight institutional spreads
       const spreadFactor = isMetal ? 0.001 : 0.00005;
 
       priceBuffer.set(symbol, {
@@ -145,10 +151,8 @@ async function pollTwelveData() {
 
 // Start polling loops
 setInterval(pollBinanceCrypto, 2000);
-// Restored to 10s polling for accuracy
 setInterval(pollTwelveData, 10000);
 
-// Initial execution
 pollBinanceCrypto();
 pollTwelveData();
 

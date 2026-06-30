@@ -16,14 +16,23 @@ function getServiceAccount() {
       const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
       const json = JSON.parse(decoded);
       
-      // Robust private key cleaning: ensure literal \n are true newlines if they escaped JSON parsing
+      // PEM keys need real newlines. Handle double-escaped or literal \n characters.
       if (json.private_key) {
-        json.private_key = json.private_key.replace(/\\n/g, '\n');
+        let key = json.private_key;
+        
+        // Remove literal "\n" strings and ensure real newlines
+        key = key.replace(/\\n/g, '\n');
+        
+        // Strip any accidental wrapping quotes
+        key = key.trim().replace(/^"/, '').replace(/"$/, '');
+        
+        // Re-assign sanitized key
+        json.private_key = key;
       }
       
       return json;
-    } catch (e) {
-      console.error("[Firebase-Admin] ERROR: Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY_B64.");
+    } catch (e: any) {
+      console.error("[Firebase-Admin] FATAL: Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY_B64.", e.message);
     }
   }
 
@@ -45,7 +54,7 @@ function getServiceAccount() {
     };
   }
 
-  console.warn("[Firebase-Admin] WARNING: No explicit service account found. Administrative features may fail.");
+  console.warn("[Firebase-Admin] WARNING: No valid service account found. Administrative features may fail.");
   return null;
 }
 
@@ -67,14 +76,12 @@ function getAdminApp(): App {
       }, 'pf-admin');
     } catch (err: any) {
       console.error("[Firebase-Admin] Initialization Failed:", err.message);
-      // Fallback attempt with minimal config if possible
       return initializeApp({
-        projectId: serviceAccount.projectId || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+        projectId: serviceAccount?.projectId || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
       }, 'pf-admin');
     }
   }
 
-  // Fallback to ADC/Default
   return initializeApp({
     projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
   }, 'pf-admin');
