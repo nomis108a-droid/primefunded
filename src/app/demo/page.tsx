@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -243,7 +242,7 @@ export default function DemoPage() {
           const sorted = [...rawCandles]
             .map(c => ({
               ...c,
-              time: typeof c.time === 'object' && c.time?.seconds ? c.time.seconds : Number(c.time)
+              time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time)
             }))
             .sort((a: any, b: any) => a.time - b.time)
             .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
@@ -259,7 +258,7 @@ export default function DemoPage() {
           
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
-          currentCandleRef.current = sorted[sorted.length - 1];
+          currentCandleRef.current = { ...sorted[sorted.length - 1] };
           oldestTimestamp.current = sorted[0].time;
         }
       } catch (err: any) {
@@ -327,17 +326,18 @@ export default function DemoPage() {
 
       if (price && price > 0) {
         const cur = currentCandleRef.current;
-        if (!cur || cur.time !== candleTime) {
-          if (!cur || candleTime > cur.time) {
+        // Logic check: only update if time matches or is strictly in the future
+        if (!cur || Number(cur.time) !== candleTime) {
+          if (!cur || candleTime > Number(cur.time)) {
             currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
+            mainSeriesRef.current.update(currentCandleRef.current);
           }
         } else {
           cur.high = Math.max(cur.high, price);
           cur.low = Math.min(cur.low, price);
           cur.close = price;
-        }
-        if (currentCandleRef.current) {
-          mainSeriesRef.current.update(currentCandleRef.current);
+          // Important: Pass a shallow copy to series.update to ensure data integrity
+          mainSeriesRef.current.update({ ...cur });
         }
       }
     }
@@ -374,7 +374,7 @@ export default function DemoPage() {
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD'].includes(trade.symbol);
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD'].includes(trade.symbol);
     const contractSize = isForex ? 100000 : (trade.symbol === 'XAUUSD' ? 100 : 1);
     return diff * trade.lots * contractSize;
   }, [livePrices]);
