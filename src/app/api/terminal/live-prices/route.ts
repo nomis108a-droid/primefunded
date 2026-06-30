@@ -3,11 +3,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const prices: Record<string,any> = {};
-  const key    = process.env.OANDA_API_KEY;
-  const acc    = process.env.OANDA_ACCOUNT_ID;
-  const tiingo = process.env.TIINGO_API_KEY;
+  const key = process.env.OANDA_API_KEY;
+  const acc = process.env.OANDA_ACCOUNT_ID;
 
-  // ── OANDA: Forex + Gold + Platinum ───────────────────────────
+  // OANDA - Forex + Gold + Platinum (unlimited on practice account)
   try {
     const instruments = 'XAU_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
     const r = await fetch(
@@ -30,34 +29,31 @@ export async function GET() {
     console.log('OANDA OK:', Object.keys(prices).length, 'symbols');
   } catch(e){ console.error('OANDA error:', e); }
 
-  // ── TIINGO: Crypto (real-time, works on Vercel) ───────────────
+  // CoinCap - Crypto (100% free, no key, no rate limit, works on Vercel)
   try {
-    const tickers = 'btcusd,ethusd,solusd,dogeusd,bnbusd';
-    const r = await fetch(
-      `https://api.tiingo.com/tiingo/crypto/prices?tickers=${tickers}&token=${tiingo}`,
-      { cache:'no-store' }
-    );
-    if (!r.ok) throw new Error(`Tiingo ${r.status}: ${await r.text()}`);
+    const ids = 'bitcoin,ethereum,solana,binance-coin,dogecoin,xrp,cardano';
+    const r = await fetch(`https://api.coincap.io/v2/assets?ids=${ids}`, { cache:'no-store' });
+    if (!r.ok) throw new Error(`CoinCap ${r.status}`);
     const d = await r.json();
     const map: Record<string,string> = {
-      'btcusd':'BTCUSD','ethusd':'ETHUSD','solusd':'SOLUSD',
-      'xrpusd':'XRPUSD','bnbusd':'BNBUSD','dogeusd':'DOGEUSD','adausd':'ADAUSD'
+      bitcoin:'BTCUSD', ethereum:'ETHUSD', solana:'SOLUSD',
+      'binance-coin':'BNBUSD', dogecoin:'DOGEUSD', xrp:'XRPUSD', cardano:'ADAUSD'
     };
-    for(const item of d){
-      const sym = map[item.ticker?.toLowerCase()];
-      if(!sym || !item.priceData?.[0]) continue;
-      const p = parseFloat(item.priceData[0].price);
+    for(const item of (d.data||[])){
+      const sym = map[item.id];
+      if(!sym) continue;
+      const p = parseFloat(item.priceUsd);
       if(!p || isNaN(p)) continue;
       const dec = ['XRPUSD','DOGEUSD','ADAUSD'].includes(sym) ? 4 : 2;
       prices[sym] = {
-        bid:  +(p*0.999).toFixed(dec),
-        ask:  +(p*1.001).toFixed(dec),
+        bid:+(p*0.999).toFixed(dec),
+        ask:+(p*1.001).toFixed(dec),
         price:+p.toFixed(dec),
         updatedAt: new Date().toISOString()
       };
     }
-    console.log('Tiingo OK:', Object.keys(prices).filter(k => ['BTCUSD','ETHUSD','SOLUSD'].includes(k)));
-  } catch(e){ console.error('Tiingo error:', e); }
+    console.log('CoinCap OK:', Object.keys(prices).filter(k => ['BTCUSD','ETHUSD','SOLUSD'].includes(k)));
+  } catch(e){ console.error('CoinCap error:', e); }
 
   return NextResponse.json(prices, { headers:{ 'Cache-Control':'no-store' }});
 }
