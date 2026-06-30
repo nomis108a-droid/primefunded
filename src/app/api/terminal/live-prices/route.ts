@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * @fileOverview Institutional Live Price API
- * Hardened with timeouts to prevent 502 Gateway errors on slow upstream responses.
+ * Hardened with timeouts and shared AbortSignal to prevent 502 Gateway errors.
  */
 
 export async function GET() {
@@ -11,8 +11,9 @@ export async function GET() {
   const key = process.env.OANDA_API_KEY;
   const acc = process.env.OANDA_ACCOUNT_ID;
 
+  // Next.js Edge/Serverless timeout protection (7s total)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
 
   try {
     // 1. OANDA - Forex + Metals
@@ -55,13 +56,10 @@ export async function GET() {
 
     // 2. Kraken - Crypto (Free/Unlimited)
     try {
-      const cryptoController = new AbortController();
-      const cryptoTimeout = setTimeout(() => cryptoController.abort(), 5000);
-      
       const pairs = 'XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD';
       const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`, { 
         cache: 'no-store',
-        signal: cryptoController.signal
+        signal: controller.signal
       });
       
       if (r.ok) {
@@ -85,15 +83,16 @@ export async function GET() {
           };
         }
       }
-      clearTimeout(cryptoTimeout);
     } catch (e) {
       console.warn('[LivePrices] Kraken fetch failed or timed out');
     }
 
-    return NextResponse.json(prices, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json(prices, { 
+      headers: { 'Cache-Control': 'no-store' } 
+    });
   } catch (error) {
     console.error('[LivePrices] Fatal Route Error:', error);
-    return NextResponse.json(prices, { status: 200 }); // Return whatever we have to avoid 502
+    return NextResponse.json(prices, { status: 200 }); // Always return JSON
   } finally {
     clearTimeout(timeoutId);
   }

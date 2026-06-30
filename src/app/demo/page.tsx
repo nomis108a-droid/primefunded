@@ -48,6 +48,8 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
+// Global cache to prevent reference errors and improve performance
+const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 export default function DemoPage() {
   const { user, userData, loading: authLoading } = useAuth();
@@ -211,9 +213,8 @@ export default function DemoPage() {
     };
   }, [pageReady]);
 
+  // Robust decoupled data fetching
   useEffect(() => {
-    if (!isChartReady || !chartInstanceRef.current) return;
-    
     let isMounted = true;
     const controller = new AbortController();
     const cacheKey = `${selectedSymbol}-${selectedInterval}`;
@@ -223,16 +224,14 @@ export default function DemoPage() {
       if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
         setIsChartLoading(false);
         setChartError(null);
-        setupSeries(cached.candles);
+        if (mainSeriesRef.current) mainSeriesRef.current.setData(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
       } else {
         setIsChartLoading(true);
         setChartError(null);
       }
       
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 3000); // FIX: 3 second max wait
+      const timeoutId = setTimeout(() => controller.abort(), 3000); 
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -240,25 +239,28 @@ export default function DemoPage() {
         });
         
         clearTimeout(timeoutId);
+        if (!res.ok) throw new Error(`Network error: ${res.status}`);
         
-        if (!res.ok) throw new Error(`Network response error: ${res.status}`);
         const data = await res.json();
         const candles = data.candles || [];
         
-        if (!isMounted || !chartInstanceRef.current) return;
+        if (!isMounted) return;
 
         if (candles.length > 0) {
-          setupSeries(candles);
+          if (mainSeriesRef.current) {
+             const formatted = (chartType === 'candles' || chartType === 'bars') 
+               ? candles 
+               : candles.map((c: any) => ({ time: c.time, value: c.close }));
+             mainSeriesRef.current.setData(formatted);
+          }
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles, lastUpdated: Date.now() });
           currentCandleRef.current = candles[candles.length - 1];
           oldestTimestamp.current = candles[0].time;
         }
       } catch (err: any) {
-        if (err.name === 'AbortError') {
-          if (isMounted && !cached) setChartError("Sync connection timed out. Markets may be closed or slow.");
-        } else {
-          if (isMounted && !cached) setChartError(err.message || "Failed to establish market connection");
+        if (isMounted && !cached) {
+          setChartError(err.name === 'AbortError' ? "Connection timed out." : err.message);
         }
       } finally {
         clearTimeout(timeoutId);
@@ -266,41 +268,14 @@ export default function DemoPage() {
       }
     };
 
-    const setupSeries = (candles: any[]) => {
-      if (!chartInstanceRef.current) return;
-      if (mainSeriesRef.current) {
-        chartInstanceRef.current.removeSeries(mainSeriesRef.current);
-      }
-      const precision = selectedSymbol === "USDJPY" ? 3 : (selectedSymbol === "XAUUSD" || selectedSymbol === "BTCUSD" || selectedSymbol === "ETHUSD" ? 2 : 5);
-      const opts = { 
-        priceFormat: { 
-          type: 'price', 
-          precision,
-          minMove: 1 / Math.pow(10, precision)
-        }, 
-        lastValueVisible: chartSettings.scales.labels.currentPrice, 
-        title: chartSettings.scales.labels.ohlc ? selectedSymbol : '', 
-        ...chartSettings.canvas.candles 
-      };
-      if (chartType === 'candles') mainSeriesRef.current = chartInstanceRef.current.addCandlestickSeries(opts);
-      else if (chartType === 'bars') mainSeriesRef.current = chartInstanceRef.current.addBarSeries(opts);
-      else if (chartType === 'line') mainSeriesRef.current = chartInstanceRef.current.addLineSeries(opts);
-      else if (chartType === 'area') mainSeriesRef.current = chartInstanceRef.current.addAreaSeries({ ...opts, topColor: chartSettings.canvas.candles.upColor + '66', bottomColor: 'rgba(0,0,0,0)', lineColor: chartSettings.canvas.candles.upColor });
-      
-      if (mainSeriesRef.current) {
-        mainSeriesRef.current.setData(chartType === 'candles' || chartType === 'bars' ? candles : candles.map((c: any) => ({ time: c.time, value: c.close })));
-      }
-    };
-
-    fetchHistory();
+    if (isChartReady) fetchHistory();
     return () => { isMounted = false; controller.abort(); };
-  }, [isChartReady, selectedSymbol, selectedInterval, chartType, chartSettings.canvas.candles]);
+  }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
 
   const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId), where("status", "==", "open")] : [], [user?.uid, currentAccountId]);
   const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
 
   const isPriceValid = useMemo(() => {
-    // FIX: Make isPriceValid return true as soon as ANY price exists in livePrices object
     return Object.keys(livePrices).length > 0;
   }, [livePrices]);
 
@@ -327,7 +302,6 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!pageReady) return;
-    // FIX: Removed isChartReady condition from fetchPrices to let prices load independently
     
     const fetchPrices = async () => {
       try {
@@ -391,15 +365,7 @@ export default function DemoPage() {
     fetchPrices();
     const interval = setInterval(fetchPrices, 3000);
     
-    const handleVisibilityChange = () => { 
-      if (document.visibilityState === 'visible') fetchPrices();
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    
-    return () => { 
-      clearInterval(interval); 
-      document.removeEventListener('visibilitychange', handleVisibilityChange); 
-    };
+    return () => clearInterval(interval); 
   }, [pageReady, isChartLoading, selectedInterval, selectedSymbol, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
@@ -474,22 +440,7 @@ export default function DemoPage() {
       if (!user) { toast({ title: "Auth Required", variant: "destructive" }); return; }
       if (!currentAccountId) { toast({ title: "No Account Selected", variant: "destructive" }); return; }
       
-      let priceData = null;
-      let pricesBody: any = {};
-
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
-          if (!pricesRes.ok) throw new Error(`HTTP ${pricesRes.status}`);
-          pricesBody = await pricesRes.json();
-          priceData = pricesBody[selectedSymbol];
-          if (priceData && priceData.price && !isNaN(priceData.price)) break;
-          else throw new Error(`Symbol ${selectedSymbol} missing from feed`);
-        } catch (e) {
-          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 1500));
-        }
-      }
-      
+      const priceData = livePrices[selectedSymbol];
       if (!priceData || !priceData.price) { 
         toast({ 
           title: "Price Unavailable", 

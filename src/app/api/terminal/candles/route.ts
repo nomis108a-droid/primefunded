@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const CRYPTO_MAP: Record<string, string> = {
-  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "XRPUSD": "XRPUSDT",
-  "SOLUSD": "SOLUSDT", "DOGEUSD": "DOGEUSDT", "ADAUSD": "ADAUSD",
-  "BNBUSD": "BNBUSDT"
+  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "XRPUSD": "XRPUSD",
+  "SOLUSD": "SOLUSD", "DOGEUSD": "DOGEUSD", "ADAUSD": "ADAUSD",
+  "BNBUSD": "BNBUSD"
 };
 
 const OANDA_MAP: Record<string, string> = {
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
 
   let candles: any[] = [];
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 7000);
 
   try {
     // 1. OANDA: Forex + Metals
@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
 
     // 3. Fallback: Synthetic
     return NextResponse.json({
-      candles: generateSyntheticCandles(symbol, 100),
+      candles: generateSyntheticCandles(symbol, limit),
       isFallback: true
     });
 
