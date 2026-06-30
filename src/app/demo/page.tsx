@@ -292,7 +292,6 @@ export default function DemoPage() {
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
-  // Decoupled Price Fetching and Update Logic
   useEffect(() => {
     let isMounted = true;
     const fetchPrices = async () => {
@@ -309,7 +308,6 @@ export default function DemoPage() {
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  // Last Candle Update and Auto-Close Logic
   useEffect(() => {
     if (livePrices[selectedSymbol] && mainSeriesRef.current && !isChartLoading) {
       const priceData = livePrices[selectedSymbol];
@@ -411,18 +409,24 @@ export default function DemoPage() {
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
-      if (!user) return;
-      if (!currentAccountId) return;
+      if (!user || !currentAccountId) return;
       
-      const priceData = livePrices[selectedSymbol];
+      // FRESH PRICE FETCH: Eliminate execution drift
+      const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
+      const freshPrices = await pricesRes.json();
+      const priceData = freshPrices[selectedSymbol] || livePrices[selectedSymbol];
+      
       if (!priceData || !priceData.price) { 
-        toast({ title: "Price Unavailable", description: `Price unavailable for ${selectedSymbol} - unable to place trade right now.`, variant: "destructive" }); 
+        toast({ title: "Price Unavailable", description: `Price unavailable for ${selectedSymbol}.`, variant: "destructive" }); 
         return; 
       }
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
-      const token = await user.getIdToken(true);
       
+      // VERIFICATION LOG
+      console.log(`[Trade Execution] Sending Order - Symbol: ${selectedSymbol}, Price: ${executionPrice}, Lots: ${lots}, Type: ${type}`);
+      
+      const token = await user.getIdToken(true);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -644,7 +648,7 @@ export default function DemoPage() {
             user={user} 
             alertsLoading={alertsLoading}
             panelOpen={bottomPanelOpen}
-            setPanelOpen={setBottomPanelOpen}
+            setPanelOpen={setPanelOpen}
           />
         </div>
 
