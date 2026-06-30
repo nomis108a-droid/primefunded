@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -27,6 +28,7 @@ import { useBrandSettings } from '@/hooks/use-brand-settings';
 import { PositionsPanel } from './PositionsPanel';
 import { DrawingLayer } from "./DrawingLayer";
 import { ChartSettingsModal } from "./ChartSettingsModal";
+import { useLivePrices } from "@/hooks/useLivePrice";
 
 const SYMBOLS = ["XAUUSD", "XAGUSD", "XPTUSD", "BTCUSD", "ETHUSD", "SOLUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
 const TIMEFRAMES = [
@@ -65,7 +67,6 @@ export default function DemoPage() {
   const [lots, setLots] = useState(0.10);
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
-  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
@@ -77,6 +78,9 @@ export default function DemoPage() {
   const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+
+  // REAL-TIME FIRESTORE PUMP CONSUMPTION
+  const livePrices = useLivePrices(SYMBOLS);
 
   const closingTradesRef = useRef<Set<string>>(new Set());
 
@@ -301,22 +305,6 @@ export default function DemoPage() {
   }, [user, selectedSymbol, toast]);
 
   useEffect(() => {
-    let isMounted = true;
-    const fetchPrices = async () => {
-      try {
-        const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
-        if (!res.ok || !isMounted) return;
-        const prices = await res.json();
-        setLivePrices(prices);
-      } catch (e) {}
-    };
-    
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 2000);
-    return () => { isMounted = false; clearInterval(interval); };
-  }, []);
-
-  useEffect(() => {
     const priceData = livePrices[selectedSymbol];
     if (priceData && mainSeriesRef.current && !isChartLoading) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
@@ -422,12 +410,10 @@ export default function DemoPage() {
       setActionLoading(true);
       if (!user || !currentAccountId) return;
       
-      // Force refresh token for session validity
       const token = await user.getIdToken(true);
       
-      const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
-      const freshPrices = await pricesRes.json();
-      const priceData = freshPrices[selectedSymbol] || livePrices[selectedSymbol];
+      // Get most recent price from the snapshot state
+      const priceData = livePrices[selectedSymbol];
       
       if (!priceData || !priceData.price) { 
         toast({ title: "Price Unavailable", description: `Price unavailable for ${selectedSymbol}.`, variant: "destructive" }); 
@@ -436,6 +422,8 @@ export default function DemoPage() {
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
       
+      console.log(`[Trade Execution] Sending Order - Symbol: ${selectedSymbol}, Price: ${executionPrice}`);
+
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -471,9 +459,7 @@ export default function DemoPage() {
       setActionLoading(true);
       const trade = openTrades.find(t => t.id === tradeId);
       if (!trade) return;
-      const pricesRes = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
-      const prices = await pricesRes.json();
-      const priceData = prices[trade.symbol] || livePrices[trade.symbol];
+      const priceData = livePrices[trade.symbol];
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken(true);
