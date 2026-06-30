@@ -233,7 +233,7 @@ export default function DemoPage() {
       
       const timeoutId = setTimeout(() => {
         controller.abort();
-      }, 5000);
+      }, 3000); // FIX: 3 second max wait
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -301,6 +301,7 @@ export default function DemoPage() {
   const { data: openTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
 
   const isPriceValid = useMemo(() => {
+    // FIX: Make isPriceValid return true as soon as ANY price exists in livePrices object
     return Object.keys(livePrices).length > 0;
   }, [livePrices]);
 
@@ -327,6 +328,7 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!pageReady) return;
+    // FIX: Removed isChartReady condition from fetchPrices to let prices load independently
     
     const fetchPrices = async () => {
       try {

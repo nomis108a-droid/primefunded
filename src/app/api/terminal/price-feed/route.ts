@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
     await batch.commit();
     return NextResponse.json({ ok: true, synced: Object.keys(prices) });
   } catch (error: any) {
-    console.error('[Price-Feed] Fatal Error:', error);
+    console.error('[Price-Feed] Fatal Error:', error.message);
     return NextResponse.json({ error: error.message }, { status: 200 }); // Avoid 502
   } finally {
     clearTimeout(timeoutId);
