@@ -192,7 +192,7 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     console.log("CHART CREATED - isChartReady will be true now");
     setIsChartReady(true);
-    } catch (e) { console.error("CHART CREATION FAILED:", e); }
+    } catch (e) { console.error("CHART CREATION FAILED:", e); (window as any).lastChartError = e; }
     applyGlobalSettings();
 
     const handleResize = () => { 
