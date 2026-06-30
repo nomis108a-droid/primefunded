@@ -466,7 +466,7 @@ export default function DemoPage() {
     };
     
     fetchPrices();
-    const interval = setInterval(fetchPrices, 2000);
+    const interval = setInterval(fetchPrices, 10000);
     
     const handleVisibilityChange = () => { 
       if (document.visibilityState === 'visible') fetchPrices();
