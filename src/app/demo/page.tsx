@@ -555,9 +555,11 @@ export default function DemoPage() {
         ))}
       </div>
 
-      <div className="flex-1 flex min-0 relative">
+      <div className="flex-1 flex min-h-0 relative">
+        {/* Main Workspace: Tools + Chart + Positions */}
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] overflow-hidden">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
+            {/* Toolbar */}
             <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
                 <div className="flex flex-col gap-0.5 items-center w-full">
@@ -574,6 +576,7 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
+            {/* Chart Area */}
             <div className="flex-1 relative min-h-0" ref={chartContainerRef}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
@@ -620,13 +623,24 @@ export default function DemoPage() {
             </div>
           </div>
           
+          {/* Bottom Positions Panel */}
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
             alerts={alerts} 
             livePrices={livePrices} 
             closeTrade={closeTrade} 
-            deleteAlert={async () => {}} 
+            deleteAlert={async (id) => {
+              if (!user) return;
+              try {
+                const token = await user.getIdToken();
+                await fetch(`/api/terminal/alerts?id=${id}`, {
+                  method: 'DELETE',
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                toast({ title: "Alert Removed" });
+              } catch (e) {}
+            }} 
             user={user} 
             alertsLoading={alertsLoading}
             panelOpen={bottomPanelOpen}
@@ -634,6 +648,7 @@ export default function DemoPage() {
           />
         </div>
 
+        {/* Right Sidebar: Order Entry */}
         <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}><TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800"><TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger><TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger></TabsList></Tabs>
            <div className="space-y-6">
