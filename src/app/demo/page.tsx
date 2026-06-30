@@ -648,7 +648,7 @@ export default function DemoPage() {
             user={user} 
             alertsLoading={alertsLoading}
             panelOpen={bottomPanelOpen}
-            setPanelOpen={setPanelOpen}
+            setPanelOpen={setBottomPanelOpen}
           />
         </div>
 

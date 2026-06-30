@@ -129,7 +129,7 @@ export function PositionsPanel({
                   let pnl = 0;
                   if (pData) {
                     const cp = t.type === 'buy' ? pData.bid : pData.ask;
-                    const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'XRPUSD', 'SOLUSD', 'DOGEUSD', 'ADAUSD', 'BNBUSD'].includes(t.symbol) ? 1 : 100000;
+                    const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'SOLUSD'].includes(t.symbol) ? 1 : 100000;
                     pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
                   }
                   const openDate = getTradeDate(t.openedAt);
