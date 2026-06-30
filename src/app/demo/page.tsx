@@ -182,7 +182,7 @@ export default function DemoPage() {
   useEffect(() => {
     if (!chartContainerRef.current || !pageReady) return;
     
-    const chart = createChart(chartContainerRef.current, {
+    let chart; try { chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
       width: chartContainerRef.current.clientWidth,
@@ -192,6 +192,7 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     console.log("CHART CREATED - isChartReady will be true now");
     setIsChartReady(true);
+    } catch (e) { console.error("CHART CREATION FAILED:", e); }
     applyGlobalSettings();
 
     const handleResize = () => { 
