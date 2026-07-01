@@ -4,15 +4,17 @@ import { getAuth } from 'firebase-admin/auth';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Configuration
- * Hardened for Firebase Studio workstation and App Hosting environments.
- * Prioritizes Service Account Base64, falls back to ADC for Studio/Production.
+ * Hardened for both Local Development (Firebase Studio) and Production (App Hosting).
+ * Supports explicit Service Account via Base64 or built-in Application Default Credentials.
  */
 
 function getAdminApp(): App {
   const existingApp = getApps().find(a => a.name === 'pf-admin');
   if (existingApp) return existingApp;
 
-  // 1. Check for Base64 Service Account (Primary for Studio Dev/Vercel)
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
+
+  // 1. Check for Base64 Service Account (Used in local .env or Vercel)
   const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
   if (b64Key) {
     try {
@@ -30,28 +32,29 @@ function getAdminApp(): App {
       console.log(`[Firebase-Admin] Initializing with explicit Service Account: ${json.client_email}`);
       return initializeApp({
         credential: cert(json),
-        projectId: json.project_id || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+        projectId: json.project_id || projectId
       }, 'pf-admin');
     } catch (e: any) {
-      console.error("[Firebase-Admin] Base64 Parse Failed:", e.message);
+      console.warn("[Firebase-Admin] Base64 Parse Failed, falling back to ADC...");
     }
   }
 
   // 2. Fallback: Use Application Default Credentials (ADC)
-  // This is required for Firebase Studio workstations and App Hosting managed envs.
+  // Required for Firebase Studio (Cloud Workstations) and Firebase App Hosting.
   try {
-    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
-    console.log(`[Firebase-Admin] Falling back to ADC for Project: ${projectId}`);
+    console.log(`[Firebase-Admin] Authenticating with ADC for Project: ${projectId}`);
     
     return initializeApp({
       credential: credential.applicationDefault(),
       projectId: projectId
     }, 'pf-admin');
   } catch (err: any) {
-    console.warn("[Firebase-Admin] ADC Initialization Warning:", err.message);
-    // Emergency minimal initialization to prevent crash
+    console.error("[Firebase-Admin] FATAL: Authentication configuration missing.");
+    console.error("ACTION REQUIRED: If in Studio, run 'gcloud auth application-default login --no-launch-browser' in the terminal.");
+    
+    // Emergency minimal initialization to prevent boot-time crash
     return initializeApp({
-      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+      projectId: projectId
     }, 'pf-admin');
   }
 }
