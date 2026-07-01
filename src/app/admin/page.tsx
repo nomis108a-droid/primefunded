@@ -20,6 +20,8 @@ import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -67,6 +69,41 @@ export default function AdminPage() {
 
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'announcement' });
 
+  /**
+   * RECOVERY SYNC: Client-Side Fetch
+   * Used as a fallback if the Admin SDK (Server Action) fails in the dev environment.
+   */
+  const clientSideSync = async () => {
+    try {
+      const collections = [
+        'users', 'orders', 'payouts', 'referrals', 'broadcasts', 'breaches', 'demoAccounts', 'demoTrades'
+      ];
+      
+      const results: any = {};
+      
+      await Promise.all(collections.map(async (colName) => {
+        let q: any = collection(db, colName);
+        if (colName === 'demoTrades') {
+          q = query(collection(db, colName), orderBy('openedAt', 'desc'), limit(500));
+        }
+          
+        const snap = await getDocs(q);
+        results[colName] = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      }));
+      
+      results.success = true;
+      setAdminData(results);
+      toast({ title: "Client-Side Sync Active", description: "Dashboard synchronized via browser credentials." });
+    } catch (err: any) {
+      console.error("[Admin] Client-Side Sync Failed:", err);
+      toast({ 
+        variant: "destructive", 
+        title: "Sync Blocked", 
+        description: "You must be signed in as an authorized admin email to fetch data from this environment." 
+      });
+    }
+  };
+
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -74,14 +111,18 @@ export default function AdminPage() {
       if (res && res.success) {
         setAdminData(res);
       } else {
-        // Just toast error, don't kick user out of the dashboard
-        if (res && res.error) {
+        // DETECT CREDENTIAL FAILURE: If Server Action fails with metadata/token error, trigger Client-Side Fallback
+        if (res && res.error && (res.error.includes('metadata') || res.error.includes('token') || res.error.includes('500'))) {
+          console.warn("[Admin] Server Action Credentials Missing. Falling back to Client-Side SDK...");
+          await clientSideSync();
+        } else if (res && res.error) {
           toast({ variant: "destructive", title: "Sync Error", description: res.error });
         }
       }
     } catch (err: any) {
-      // Do not block access on connection errors
-      toast({ variant: "destructive", title: "Network Fault", description: err.message || "Failed to reach terminal API." });
+      // Fallback for direct network faults
+      console.warn("[Admin] Server Action Unreachable. Falling back to Client-Side SDK...");
+      await clientSideSync();
     } finally {
       setIsLoading(false);
     }
