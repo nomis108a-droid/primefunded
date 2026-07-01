@@ -1,7 +1,28 @@
-# Settings to manage and configure a Firebase App Hosting backend.
-# https://firebase.google.com/docs/app-hosting/configure
+# Firebase App Hosting Configuration
+# Documentation: https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
-  maxInstances: 1
+  minInstances: 0
+  maxInstances: 10
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  # Secrets and sensitive keys should be referenced here
+  # You must set these in the Firebase Console after connecting your backend
+  - variable: OANDA_API_KEY
+    secret: OANDA_API_KEY
+  - variable: OANDA_ACCOUNT_ID
+    secret: OANDA_ACCOUNT_ID
+  - variable: TERMINAL_CRON_KEY
+    secret: TERMINAL_CRON_KEY
+  
+  # Public configuration
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: studio-8383940162-6976e
+
+scripts:
+  # App Hosting handles 'npm run build' automatically
+  # but you can override commands here if needed
+  buildCommand: npm run build
