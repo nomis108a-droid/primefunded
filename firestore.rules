@@ -11,6 +11,7 @@ service cloud.firestore {
       );
     }
 
+    // PUBLIC LIQUIDITY: The price tracker (Admin) writes here, and all Terminals read.
     match /livePrices/{symbol} {
       allow read: if true;
       allow write: if true;

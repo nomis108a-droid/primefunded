@@ -1,22 +1,17 @@
+
 'use client';
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import { Navigation } from '@/components/Navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   Activity, 
-  RefreshCw, 
   AlertTriangle, 
-  Loader2, 
   Database, 
-  CheckCircle2, 
   XCircle,
-  Clock,
-  ShieldCheck,
   Zap,
-  TrendingUp,
   Fingerprint
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
@@ -28,6 +23,7 @@ import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-chart
 /**
  * @fileOverview Institutional Price Synchronizer (Market Heartbeat)
  * Synchronizes liquidity into Firestore to power all trading terminals globally.
+ * Uses high-frequency batch updates and real-time tick charts.
  */
 
 const SYMBOLS = [
@@ -42,7 +38,7 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
-  const historyRef = useRef<{ time: number, value: number }[]>([]);
+  const lastTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -75,21 +71,14 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   useEffect(() => {
     if (data?.price && seriesRef.current) {
       const now = Math.floor(Date.now() / 1000);
-      const newPoint = { time: now as any, value: data.price };
       
-      // Fix: Use series.update() instead of setData() to avoid "data must be asc ordered" error
-      // update() replaces existing timestamps, setData() requires strictly increasing unique timestamps
-      seriesRef.current.update(newPoint);
-      
-      // Update local history for tracking count (if needed)
-      const lastPoint = historyRef.current[historyRef.current.length - 1];
-      if (lastPoint && lastPoint.time === now) {
-        lastPoint.value = data.price;
-      } else {
-        historyRef.current = [...historyRef.current, newPoint].slice(-50);
+      // PERMANENT FIX: Ensure time is strictly non-decreasing
+      // Use series.update() to handle multi-ticks within the same second correctly
+      if (now >= lastTimeRef.current) {
+        seriesRef.current.update({ time: now as any, value: data.price });
+        lastTimeRef.current = now;
+        chartRef.current?.timeScale().fitContent();
       }
-      
-      chartRef.current?.timeScale().fitContent();
     }
   }, [data]);
 
@@ -110,13 +99,14 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   );
 });
 
+MiniChart.displayName = 'MiniChart';
+
 export default function AdminPriceTracker() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
   const [isPumping, setIsPumping] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [status, setStatus] = useState({ oanda: 'idle', binance: 'idle' });
-  const [errorCount, setErrorCount] = useState(0);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -138,7 +128,7 @@ export default function AdminPriceTracker() {
       const keys = Object.keys(data);
       // Hardened Status Detection: Online if any representative symbol has valid liquidity
       const oandaOnline = keys.some(k => OANDA_REPS.includes(k) && data[k]?.price > 0);
-      const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && data[k]?.price > 0);
+      const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && (data[k]?.price > 0 || data[k.replace('USD', 'USDT')]?.price > 0));
 
       setStatus({ 
         oanda: oandaOnline ? 'online' : 'error', 
@@ -148,16 +138,19 @@ export default function AdminPriceTracker() {
       if (keys.length > 0) {
         const batch = writeBatch(db);
         Object.entries(data).forEach(([symbol, payload]) => {
-          const ref = doc(db, 'livePrices', symbol.toUpperCase());
-          batch.set(ref, { ...(payload as any), symbol: symbol.toUpperCase(), updatedAt: serverTimestamp() }, { merge: true });
+          const docId = symbol.toUpperCase();
+          const ref = doc(db, 'livePrices', docId);
+          batch.set(ref, { 
+            ...(payload as any), 
+            symbol: docId, 
+            updatedAt: serverTimestamp() 
+          }, { merge: true });
         });
         batch.commit().catch(err => {
-          console.error('[Price-Sync] Firestore Write Failed:', err);
+          console.warn('[Price-Sync] Firestore Sync Delayed:', err.message);
         });
-        setErrorCount(0);
       }
     } catch (err) {
-      setErrorCount(prev => prev + 1);
       setStatus({ oanda: 'error', binance: 'error' });
     }
   }, [isPumping]);
@@ -214,40 +207,40 @@ export default function AdminPriceTracker() {
             "lg:col-span-2 relative overflow-hidden transition-all duration-300",
             isPumping ? "bg-card/40 border-border/50" : "bg-destructive/10 border-destructive/20"
           )}>
-             <CardContent className="p-6 flex items-start gap-4">
+             <div className="p-6 flex items-start gap-4">
                 <AlertTriangle className={cn("w-8 h-8 shrink-0", isPumping ? "text-primary" : "text-destructive animate-pulse")} />
                 <div>
                    <h3 className={cn("font-black text-sm uppercase tracking-tight mb-1", isPumping ? "text-primary" : "text-destructive")}>
                      {isPumping ? "Critical Uptime Node Active" : "PLATFORM LIQUIDITY HALTED"}
                    </h3>
                    <p className="text-zinc-300 text-xs leading-relaxed font-medium">
-                     Keep this tab open to maintain live trading for all users.
+                     Keep this tab open to maintain live trading for all users globally.
                    </p>
                 </div>
-             </CardContent>
+             </div>
           </Card>
 
           <Card className="bg-card/40 border-border/50">
-            <CardContent className="p-6 flex justify-between items-center h-full">
+            <div className="p-6 flex justify-between items-center h-full">
               <div className="space-y-4 w-full">
                 <FeedStatus label="OANDA (FX/Metals)" status={status.oanda} />
                 <FeedStatus label="BINANCE (Crypto)" status={status.binance} />
               </div>
-            </CardContent>
+            </div>
           </Card>
 
           <Card className="bg-card/40 border-border/50">
-            <CardContent className="p-6 text-center flex flex-col justify-center items-center h-full">
+            <div className="p-6 text-center flex flex-col justify-center items-center h-full">
                <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Last Sync</p>
                <h4 className="text-2xl font-headline font-bold text-white">{lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}</h4>
-            </CardContent>
+            </div>
           </Card>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
           {SYMBOLS.map(sym => (
             <Card key={sym} className="bg-card/30 border-border/50 p-4 hover:border-primary/30 transition-colors">
-              <MiniChart symbol={sym} data={prices[sym]} />
+              <MiniChart symbol={sym} data={prices[sym] || prices[sym.replace('USD', 'USDT')]} />
             </Card>
           ))}
         </div>
