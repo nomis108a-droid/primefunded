@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -304,6 +303,7 @@ export default function DemoPage() {
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
+  // LIVE CANDLE AND SL/TP MONITORING ENGINE
   useEffect(() => {
     const priceData = livePrices[selectedSymbol];
     if (priceData && mainSeriesRef.current && !isChartLoading) {
@@ -315,11 +315,14 @@ export default function DemoPage() {
       if (price && price > 0) {
         const cur = currentCandleRef.current;
         if (!cur || Number(cur.time) !== candleTime) {
+          // Transition to new candle
           if (!cur || candleTime > Number(cur.time)) {
-            currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
-            mainSeriesRef.current.update(currentCandleRef.current);
+            const nextCandle = { time: candleTime, open: price, high: price, low: price, close: price };
+            currentCandleRef.current = nextCandle;
+            mainSeriesRef.current.update(nextCandle);
           }
         } else {
+          // Update current candle ticks
           cur.high = Math.max(cur.high, price);
           cur.low = Math.min(cur.low, price);
           cur.close = price;
@@ -328,6 +331,7 @@ export default function DemoPage() {
       }
     }
 
+    // Monitor Open Positions for automated triggers (Liquidations/SL/TP)
     if (openTrades && openTrades.length > 0 && Object.keys(livePrices).length > 0) {
       openTrades.forEach(t => {
         if (closingTradesRef.current.has(t.id)) return;
@@ -411,8 +415,6 @@ export default function DemoPage() {
       if (!user || !currentAccountId) return;
       
       const token = await user.getIdToken(true);
-      
-      // Get most recent price from the snapshot state
       const priceData = livePrices[selectedSymbol];
       
       if (!priceData || !priceData.price) { 
@@ -422,8 +424,6 @@ export default function DemoPage() {
       
       const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
       
-      console.log(`[Trade Execution] Sending Order - Symbol: ${selectedSymbol}, Price: ${executionPrice}`);
-
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

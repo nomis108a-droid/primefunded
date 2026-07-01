@@ -35,6 +35,9 @@ const SYMBOLS = [
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD", "ADAUSD"
 ];
 
+const OANDA_REPS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"];
+const BINANCE_REPS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"];
+
 const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -43,28 +46,32 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
-    const chart = createChart(chartContainerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#71717a', fontSize: 10 },
-      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-      width: 180,
-      height: 60,
-      handleScroll: false,
-      handleScale: false,
-      timeScale: { visible: false },
-      rightPriceScale: { visible: false },
-    });
-    const series = chart.addAreaSeries({
-      lineColor: '#11b3f5',
-      topColor: 'rgba(17, 179, 245, 0.2)',
-      bottomColor: 'rgba(17, 179, 245, 0.0)',
-      lineWidth: 2,
-      crosshairMarkerVisible: false,
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-    chartRef.current = chart;
-    seriesRef.current = series;
-    return () => { chart.remove(); };
+    try {
+      const chart = createChart(chartContainerRef.current, {
+        layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#71717a', fontSize: 10 },
+        grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+        width: 180,
+        height: 60,
+        handleScroll: false,
+        handleScale: false,
+        timeScale: { visible: false },
+        rightPriceScale: { visible: false },
+      });
+      const series = chart.addAreaSeries({
+        lineColor: '#11b3f5',
+        topColor: 'rgba(17, 179, 245, 0.2)',
+        bottomColor: 'rgba(17, 179, 245, 0.0)',
+        lineWidth: 2,
+        crosshairMarkerVisible: false,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      chartRef.current = chart;
+      seriesRef.current = series;
+    } catch (e) {
+      console.error(`Chart init failed for ${symbol}`, e);
+    }
+    return () => { chartRef.current?.remove(); };
   }, []);
 
   useEffect(() => {
@@ -76,12 +83,16 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
     }
   }, [data]);
 
+  const priceFormatted = data?.price ? data.price.toLocaleString(undefined, { 
+    minimumFractionDigits: symbol.includes('JPY') ? 3 : (symbol.includes('USD') && !['BTCUSD', 'ETHUSD', 'BNBUSD'].includes(symbol) ? 5 : 2) 
+  }) : '---';
+
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-between items-end mb-1">
         <span className="font-bold text-white text-xs">{symbol}</span>
         <span className="font-mono text-[10px] text-primary tabular-nums">
-          {data?.price?.toLocaleString(undefined, { minimumFractionDigits: symbol.includes('JPY') ? 3 : (symbol.includes('USD') && !['BTCUSD', 'ETHUSD'].includes(symbol) ? 5 : 2) })}
+          {priceFormatted}
         </span>
       </div>
       <div ref={chartContainerRef} className="h-[60px] w-full" />
@@ -104,18 +115,26 @@ export default function AdminPriceTracker() {
   }, []);
 
   const pumpPrices = useCallback(async () => {
+    if (!isPumping) return;
+    
     try {
       const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       if (!res.ok) throw new Error('API Feed Offline');
       const data = await res.json();
+      
       setPrices(data);
       setLastSync(new Date());
 
-      const hasOanda = Object.keys(data).some(k => !['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(k));
-      const hasCrypto = Object.keys(data).some(k => ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(k));
-      setStatus({ oanda: hasOanda ? 'online' : 'error', binance: hasCrypto ? 'online' : 'error' });
+      const keys = Object.keys(data);
+      const oandaOnline = keys.some(k => OANDA_REPS.includes(k) && data[k]?.price > 0);
+      const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && data[k]?.price > 0);
 
-      if (Object.keys(data).length > 0) {
+      setStatus({ 
+        oanda: oandaOnline ? 'online' : 'error', 
+        binance: binanceOnline ? 'online' : 'error' 
+      });
+
+      if (keys.length > 0) {
         const batch = writeBatch(db);
         Object.entries(data).forEach(([symbol, payload]) => {
           const ref = doc(db, 'livePrices', symbol);
@@ -125,13 +144,17 @@ export default function AdminPriceTracker() {
         setErrorCount(0);
       }
     } catch (err) {
+      console.error('[Price-Sync] Pump failed:', err);
       setErrorCount(prev => prev + 1);
       setStatus({ oanda: 'error', binance: 'error' });
     }
-  }, []);
+  }, [isPumping]);
 
   useEffect(() => {
-    if (!isPumping) return;
+    if (!isPumping) {
+      setStatus({ oanda: 'idle', binance: 'idle' });
+      return;
+    }
     pumpPrices();
     const interval = setInterval(pumpPrices, 2000);
     return () => clearInterval(interval);
@@ -177,13 +200,20 @@ export default function AdminPriceTracker() {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-12">
-          <Card className="lg:col-span-2 bg-destructive/10 border-destructive/20 relative overflow-hidden">
+          <Card className={cn(
+            "lg:col-span-2 relative overflow-hidden transition-all duration-300",
+            isPumping ? "bg-card/40 border-border/50" : "bg-destructive/10 border-destructive/20"
+          )}>
              <CardContent className="p-6 flex items-start gap-4">
-                <AlertTriangle className="text-destructive w-8 h-8 shrink-0" />
+                <AlertTriangle className={cn("w-8 h-8 shrink-0", isPumping ? "text-primary" : "text-destructive animate-pulse")} />
                 <div>
-                   <h3 className="text-destructive font-black text-sm uppercase tracking-tight mb-1">Critical Uptime Node</h3>
+                   <h3 className={cn("font-black text-sm uppercase tracking-tight mb-1", isPumping ? "text-primary" : "text-destructive")}>
+                     {isPumping ? "Critical Uptime Node Active" : "PLATFORM LIQUIDITY HALTED"}
+                   </h3>
                    <p className="text-zinc-300 text-xs leading-relaxed font-medium">
-                     Keep this tab open and active. This page is the primary source of truth for the entire platform. Closing this tab will freeze prices for all traders globally.
+                     {isPumping 
+                       ? "This tab is the primary source of truth for the entire platform. Keep it open to maintain live trading for all users." 
+                       : "The heartbeat is currently stopped. All trading terminals globally will see frozen prices until resumed."}
                    </p>
                 </div>
              </CardContent>
@@ -192,8 +222,8 @@ export default function AdminPriceTracker() {
           <Card className="bg-card/40 border-border/50">
             <CardContent className="p-6 flex justify-between items-center h-full">
               <div className="space-y-4 w-full">
-                <FeedStatus label="OANDA FEED" status={status.oanda} />
-                <FeedStatus label="BINANCE FEED" status={status.binance} />
+                <FeedStatus label="OANDA (FX/Metals)" status={status.oanda} />
+                <FeedStatus label="BINANCE (Crypto)" status={status.binance} />
               </div>
             </CardContent>
           </Card>
@@ -226,9 +256,17 @@ function FeedStatus({ label, status }: { label: string, status: string }) {
     <div className="flex items-center justify-between">
       <span className="text-[9px] font-black text-zinc-500 tracking-widest">{label}</span>
       <div className="flex items-center gap-2">
-        <div className={cn("w-2 h-2 rounded-full", status === 'online' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-destructive animate-pulse")} />
-        <span className={cn("text-[10px] font-bold", status === 'online' ? "text-white" : "text-destructive")}>
-          {status === 'online' ? "ONLINE" : "OFFLINE"}
+        <div className={cn(
+          "w-2 h-2 rounded-full", 
+          status === 'online' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
+          status === 'idle' ? "bg-zinc-600" : "bg-destructive animate-pulse"
+        )} />
+        <span className={cn(
+          "text-[10px] font-bold", 
+          status === 'online' ? "text-white" : 
+          status === 'idle' ? "text-zinc-500" : "text-destructive"
+        )}>
+          {status === 'online' ? "ONLINE" : status === 'idle' ? "IDLE" : "OFFLINE"}
         </span>
       </div>
     </div>
