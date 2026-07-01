@@ -316,26 +316,29 @@ export default function DemoPage() {
       if (price && price > 0) {
         const cur = currentCandleRef.current;
         
-        // Use functional update to avoid stale closure if possible, 
-        // but lightweight-charts update is simple.
-        if (!cur || Number(cur.time) < candleTime) {
-          // Transition to new candle
-          const nextCandle = { 
-            time: candleTime, 
-            open: price, 
-            high: price, 
-            low: price, 
-            close: price 
-          };
-          currentCandleRef.current = nextCandle;
-          mainSeriesRef.current.update(nextCandle);
-        } else if (Number(cur.time) === candleTime) {
-          // Update current candle ticks in real-time
-          cur.high = Math.max(cur.high, price);
-          cur.low = Math.min(cur.low, price);
-          cur.close = price;
-          // IMPORTANT: Create a new object to ensure chart detects change
-          mainSeriesRef.current.update({ ...cur });
+        // Detect series type and update appropriately
+        if (chartType === 'area' || chartType === 'line') {
+          mainSeriesRef.current.update({ time: candleTime as any, value: price });
+        } else {
+          if (!cur || Number(cur.time) < candleTime) {
+            // Transition to new candle
+            const nextCandle = { 
+              time: candleTime, 
+              open: price, 
+              high: price, 
+              low: price, 
+              close: price 
+            };
+            currentCandleRef.current = nextCandle;
+            mainSeriesRef.current.update(nextCandle);
+          } else if (Number(cur.time) === candleTime) {
+            // Update current candle ticks in real-time
+            cur.high = Math.max(cur.high, price);
+            cur.low = Math.min(cur.low, price);
+            cur.close = price;
+            // Create fresh object for detection
+            mainSeriesRef.current.update({ ...cur });
+          }
         }
       }
     }
@@ -366,7 +369,7 @@ export default function DemoPage() {
         }
       });
     }
-  }, [livePrices, selectedSymbol, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose]);
+  }, [livePrices, selectedSymbol, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose, chartType]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol];

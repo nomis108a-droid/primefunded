@@ -55,6 +55,7 @@ export async function GET() {
     }
 
     // 2. Binance - Crypto (Standardized BTCUSD, ETHUSD etc.)
+    // We fetch USDT pairs and map them to USD for the terminal
     const binanceSymbols = '["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
     fetchPromises.push(
       fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(binanceSymbols)}`, { 
@@ -66,6 +67,7 @@ export async function GET() {
           if (Array.isArray(data)) {
             data.forEach(item => {
               const rawSym = item.symbol;
+              // Convert Binance USDT suffix to platform standard USD
               const sym = rawSym.replace('USDT', 'USD');
               const price = parseFloat(item.price);
               if (isNaN(price)) return;
