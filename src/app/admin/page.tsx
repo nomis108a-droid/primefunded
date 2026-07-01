@@ -145,15 +145,16 @@ export default function AdminPage() {
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === "93463962569392846256") {
+      // 1. Persist local auth
       localStorage.setItem('adminVerified', 'true');
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       setAdminError("");
       
-      // IMMEDIATE ACCESS - DO NOT WAIT FOR DATA
+      // 2. IMMEDIATE ACCESS - DO NOT WAIT FOR DATA
       setIsAuthenticated(true);
       setShowAdminModal(false);
       
-      // FETCH IN BACKGROUND
+      // 3. FETCH IN BACKGROUND
       refreshData();
     } else {
       setAdminError("❌ Access Denied");
