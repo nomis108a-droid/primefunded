@@ -9,20 +9,30 @@ runConfig:
   memoryMiB: 512
 
 env:
-  # Secrets and sensitive keys should be referenced here
-  # You must set these in the Firebase Console after connecting your backend
+  # Sensitive OANDA and API Credentials
   - variable: OANDA_API_KEY
     secret: OANDA_API_KEY
   - variable: OANDA_ACCOUNT_ID
     secret: OANDA_ACCOUNT_ID
   - variable: TERMINAL_CRON_KEY
     secret: TERMINAL_CRON_KEY
-  
-  # Public configuration
+
+  # Firebase Configuration
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: AIzaSyBPE16NXurynfkqSpytaeh1ba_3h7q6NMM
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: studio-8383940162-6976e.firebaseapp.com
   - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
     value: studio-8383940162-6976e
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    value: studio-8383940162-6976e.firebasestorage.app
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    value: "667427838842"
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    value: 1:667427838842:web:bc1a55f81c2f032cfc54c3
+  - variable: NEXT_PUBLIC_FIREBASE_DATABASE_URL
+    value: https://studio-8383940162-6976e-default-rtdb.asia-southeast1.firebasedatabase.app
 
 scripts:
   # App Hosting handles 'npm run build' automatically
-  # but you can override commands here if needed
   buildCommand: npm run build
