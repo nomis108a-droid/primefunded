@@ -1,3 +1,4 @@
+
 'use client';
 
 import { initializeApp, getApps, type FirebaseApp, getApp } from 'firebase/app';
@@ -6,8 +7,8 @@ import {
   initializeFirestore, 
   getFirestore,
   type Firestore, 
-  persistentLocalCache, 
-  persistentSingleTabManager 
+  persistentLocalCache,
+  memoryLocalCache
 } from 'firebase/firestore';
 import { firebaseConfig } from './config';
 
@@ -22,15 +23,13 @@ let cachedFirebase: {
 
 /**
  * Initializes the Firebase Client App Instance with production services.
- * Modern configuration with experimentalForceOwningTab support to prevent multi-tab errors.
- * Includes idempotency guard to prevent "already initialized" errors.
+ * Uses persistent cache with fallback to memory if multi-tab conflicts occur.
  */
 export function initializeFirebase(): {
   firebaseApp: FirebaseApp | null;
   firestore: Firestore | null;
   auth: Auth | null;
 } {
-  // Return cached instance if it exists
   if (cachedFirebase) return cachedFirebase;
 
   const isConfigMissing = !firebaseConfig.apiKey || firebaseConfig.apiKey === '';
@@ -43,18 +42,22 @@ export function initializeFirebase(): {
     const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     const auth = getAuth(firebaseApp);
     
-    // Modern initialization with multi-tab conflict resolution
-    // Wrapped in try/catch to handle cases where it's already initialized (e.g. by another module)
     let firestore: Firestore;
+    
+    // Check if we are in the Cloud Workstations / Firebase Studio environment
+    const isStudio = typeof window !== 'undefined' && 
+      (window.location.hostname.includes('cloudworkstations.dev') || 
+       window.location.hostname.includes('firebase-studio'));
+
     try {
+      // In Studio/Workstations, IndexedDB persistence can sometimes crash due to 
+      // how iframes and local storage interact. We use memory cache for stability.
       firestore = initializeFirestore(firebaseApp, {
-        localCache: persistentLocalCache({
-          tabManager: persistentSingleTabManager({ forceOwnership: true })
-        })
+        localCache: isStudio 
+          ? memoryLocalCache() 
+          : persistentLocalCache({}) 
       });
     } catch (e) {
-      // If initializeFirestore fails (usually because it was already called), 
-      // return the existing instance.
       firestore = getFirestore(firebaseApp);
     }
 
