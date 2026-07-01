@@ -29,7 +29,11 @@ import { DrawingLayer } from "./DrawingLayer";
 import { ChartSettingsModal } from "./ChartSettingsModal";
 import { useLivePrices } from "@/hooks/useLivePrice";
 
-const SYMBOLS = ["XAUUSD", "XAGUSD", "XPTUSD", "BTCUSD", "ETHUSD", "SOLUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF"];
+const SYMBOLS = [
+  "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
+  "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD", "ADAUSD"
+];
+
 const TIMEFRAMES = [
   { label: '1m', value: '1min' }, { label: '5m', value: '5min' }, { label: '15m', value: '15min' },
   { label: '30m', value: '30min' }, { label: '1H', value: '1h' }, { label: '4H', value: '4h' },
@@ -226,7 +230,7 @@ export default function DemoPage() {
         setChartError(null);
       }
       
-      const timeoutId = setTimeout(() => controller.abort(), 3000); 
+      const timeoutId = setTimeout(() => controller.abort(), 5000); 
 
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
@@ -285,7 +289,7 @@ export default function DemoPage() {
   const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed').sort((a, b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0)), [allTrades]);
 
   const isPriceValid = useMemo(() => {
-    const p = livePrices[selectedSymbol];
+    const p = livePrices[selectedSymbol.toUpperCase()];
     return !!(p && p.price > 0);
   }, [livePrices, selectedSymbol]);
 
@@ -306,7 +310,7 @@ export default function DemoPage() {
 
   // HIGH FIDELITY REAL-TIME CANDLE ENGINE
   useEffect(() => {
-    const priceData = livePrices[selectedSymbol];
+    const priceData = livePrices[selectedSymbol.toUpperCase()];
     if (priceData && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
       const now = Math.floor(Date.now() / 1000);
@@ -316,38 +320,27 @@ export default function DemoPage() {
       if (price && price > 0) {
         const cur = currentCandleRef.current;
         
-        // Detect series type and update appropriately
         if (chartType === 'area' || chartType === 'line') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
         } else {
           if (!cur || Number(cur.time) < candleTime) {
-            // Transition to new candle
-            const nextCandle = { 
-              time: candleTime, 
-              open: price, 
-              high: price, 
-              low: price, 
-              close: price 
-            };
+            const nextCandle = { time: candleTime, open: price, high: price, low: price, close: price };
             currentCandleRef.current = nextCandle;
             mainSeriesRef.current.update(nextCandle);
           } else if (Number(cur.time) === candleTime) {
-            // Update current candle ticks in real-time
             cur.high = Math.max(cur.high, price);
             cur.low = Math.min(cur.low, price);
             cur.close = price;
-            // Create fresh object for detection
             mainSeriesRef.current.update({ ...cur });
           }
         }
       }
     }
 
-    // Monitor Open Positions for automated triggers (Liquidations/SL/TP)
     if (openTrades && openTrades.length > 0 && Object.keys(livePrices).length > 0) {
       openTrades.forEach(t => {
         if (closingTradesRef.current.has(t.id)) return;
-        const pData = livePrices[t.symbol] || livePrices[t.symbol?.toUpperCase()];
+        const pData = livePrices[t.symbol.toUpperCase()];
         if (!pData || !pData.bid || !pData.ask) return;
 
         const bid = pData.bid;
@@ -372,12 +365,12 @@ export default function DemoPage() {
   }, [livePrices, selectedSymbol, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose, chartType]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
-    const priceData = livePrices[trade.symbol];
+    const priceData = livePrices[trade.symbol.toUpperCase()];
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD'].includes(trade.symbol);
-    const contractSize = isForex ? 100000 : (trade.symbol === 'XAUUSD' ? 100 : 1);
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(trade.symbol.toUpperCase());
+    const contractSize = isForex ? 100000 : (trade.symbol.toUpperCase() === 'XAUUSD' ? 100 : 1);
     return diff * trade.lots * contractSize;
   }, [livePrices]);
 
@@ -389,7 +382,7 @@ export default function DemoPage() {
     });
     activePriceLinesRef.current.clear();
 
-    openTrades.filter(t => t.symbol === selectedSymbol).forEach((trade) => {
+    openTrades.filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase()).forEach((trade) => {
       const lines: IPriceLine[] = [];
       const currentPnl = calculateOpenPnl(trade);
 
@@ -427,7 +420,7 @@ export default function DemoPage() {
       if (!user || !currentAccountId) return;
       
       const token = await user.getIdToken(true);
-      const priceData = livePrices[selectedSymbol];
+      const priceData = livePrices[selectedSymbol.toUpperCase()];
       
       if (!priceData || !priceData.price) { 
         toast({ title: "Price Unavailable", description: `Price unavailable for ${selectedSymbol}.`, variant: "destructive" }); 
@@ -439,7 +432,7 @@ export default function DemoPage() {
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol, type, lots, price: executionPrice, sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: parseFloat(tp) > 0 ? parseFloat(tp) : null })
+        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: parseFloat(tp) > 0 ? parseFloat(tp) : null })
       });
       
       if (!res.ok) { 
@@ -471,7 +464,7 @@ export default function DemoPage() {
       setActionLoading(true);
       const trade = openTrades.find(t => t.id === tradeId);
       if (!trade) return;
-      const priceData = livePrices[trade.symbol];
+      const priceData = livePrices[trade.symbol.toUpperCase()];
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken(true);
@@ -601,7 +594,6 @@ export default function DemoPage() {
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-md p-6 text-center">
                   <AlertCircle className="w-8 h-8 text-destructive mb-4" />
                   <h3 className="text-sm font-bold text-white mb-2">Sync Connection Interrupted</h3>
-                  <p className="text-xs text-zinc-400 mb-6 max-w-[250px]">{chartError}</p>
                   <Button variant="outline" size="sm" className="h-9 px-6 font-bold" onClick={() => { setIsChartReady(false); setChartError(null); }}>
                     <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
                   </Button>
@@ -703,7 +695,6 @@ export default function DemoPage() {
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
           <DialogHeader>
             <DialogTitle>Set Price Alert</DialogTitle>
-            <DialogDescription>Configure a new price alert for {selectedSymbol}.</DialogDescription>
           </DialogHeader>
           <div className="p-6">
             <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>
@@ -717,13 +708,8 @@ export default function DemoPage() {
         <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm">
           <DialogHeader>
             <DialogTitle>Clear All Drawings</DialogTitle>
-            <DialogDescription>Permanently delete all technical analysis drawings from the chart.</DialogDescription>
           </DialogHeader>
           <div className="p-6 space-y-4">
-            <div className="flex items-center gap-3 text-destructive">
-              <AlertCircle className="w-6 h-6" />
-              <h2 className="text-xl font-headline font-bold">Clear Canvas?</h2>
-            </div>
             <p className="text-sm text-zinc-400">
               This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.
             </p>

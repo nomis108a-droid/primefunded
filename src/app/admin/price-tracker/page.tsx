@@ -27,7 +27,7 @@ import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-chart
 
 /**
  * @fileOverview Institutional Price Synchronizer (Market Heartbeat)
- * High-frequency synchronization node that pumps external liquidity into Firestore.
+ * Synchronizes liquidity into Firestore to power all trading terminals globally.
  */
 
 const SYMBOLS = [
@@ -68,9 +68,7 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
       });
       chartRef.current = chart;
       seriesRef.current = series;
-    } catch (e) {
-      console.error(`Chart init failed for ${symbol}`, e);
-    }
+    } catch (e) {}
     return () => { chartRef.current?.remove(); };
   }, []);
 
@@ -126,7 +124,7 @@ export default function AdminPriceTracker() {
       setLastSync(new Date());
 
       const keys = Object.keys(data);
-      // Robust detection: if any known rep symbol has a price, feed is online
+      // Hardened Status Detection: Online if any representative symbol has valid liquidity
       const oandaOnline = keys.some(k => OANDA_REPS.includes(k) && data[k]?.price > 0);
       const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && data[k]?.price > 0);
 
@@ -138,14 +136,13 @@ export default function AdminPriceTracker() {
       if (keys.length > 0) {
         const batch = writeBatch(db);
         Object.entries(data).forEach(([symbol, payload]) => {
-          const ref = doc(db, 'livePrices', symbol);
-          batch.set(ref, { ...(payload as any), symbol, updatedAt: serverTimestamp() }, { merge: true });
+          const ref = doc(db, 'livePrices', symbol.toUpperCase());
+          batch.set(ref, { ...(payload as any), symbol: symbol.toUpperCase(), updatedAt: serverTimestamp() }, { merge: true });
         });
-        await batch.commit();
+        await batch.commit().catch(err => console.error('[Price-Sync] Firestore Write Failed:', err));
         setErrorCount(0);
       }
     } catch (err) {
-      console.error('[Price-Sync] Pump failed:', err);
       setErrorCount(prev => prev + 1);
       setStatus({ oanda: 'error', binance: 'error' });
     }
@@ -166,7 +163,6 @@ export default function AdminPriceTracker() {
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <Fingerprint className="w-12 h-12 text-primary/40 mb-4" />
         <h2 className="text-xl font-headline font-bold text-white mb-2">Restricted Access</h2>
-        <p className="text-xs text-muted-foreground uppercase tracking-widest">Admin credentials required.</p>
         <Button className="mt-8 px-10 rounded-xl" asChild><a href="/admin">Go to Terminal</a></Button>
       </div>
     );
@@ -187,7 +183,6 @@ export default function AdminPriceTracker() {
             </Badge>
           </div>
           <div className="text-right">
-             <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Status Control</p>
              <Button 
                 onClick={() => setIsPumping(!isPumping)}
                 variant={isPumping ? "destructive" : "default"}
@@ -212,9 +207,7 @@ export default function AdminPriceTracker() {
                      {isPumping ? "Critical Uptime Node Active" : "PLATFORM LIQUIDITY HALTED"}
                    </h3>
                    <p className="text-zinc-300 text-xs leading-relaxed font-medium">
-                     {isPumping 
-                       ? "This tab is the primary source of truth for the entire platform. Keep it open to maintain live trading for all users." 
-                       : "The heartbeat is currently stopped. All trading terminals globally will see frozen prices until resumed."}
+                     Keep this tab open to maintain live trading for all users.
                    </p>
                 </div>
              </CardContent>
@@ -233,9 +226,6 @@ export default function AdminPriceTracker() {
             <CardContent className="p-6 text-center flex flex-col justify-center items-center h-full">
                <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Last Sync</p>
                <h4 className="text-2xl font-headline font-bold text-white">{lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}</h4>
-               <p className={cn("text-[9px] font-bold mt-1", errorCount === 0 ? "text-emerald-500" : "text-destructive")}>
-                 {errorCount === 0 ? "STABLE CONNECTION" : `${errorCount} RETRIES`}
-               </p>
             </CardContent>
           </Card>
         </div>

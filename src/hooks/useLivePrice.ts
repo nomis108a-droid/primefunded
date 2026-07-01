@@ -23,11 +23,11 @@ export function useLivePrice(symbol: string) {
   useEffect(() => {
     if (!db || !symbol) return;
 
-    const unsub = onSnapshot(doc(db, 'livePrices', symbol), (snap) => {
+    const unsub = onSnapshot(doc(db, 'livePrices', symbol.toUpperCase()), (snap) => {
       if (snap.exists()) {
         const d = snap.data();
         setData({
-          symbol: d.symbol || symbol,
+          symbol: d.symbol || symbol.toUpperCase(),
           price: Number(d.price) || 0,
           bid: Number(d.bid) || Number(d.price) || 0,
           ask: Number(d.ask) || Number(d.price) || 0,
@@ -37,7 +37,7 @@ export function useLivePrice(symbol: string) {
     }, (err) => {
       if (err.code === 'permission-denied') {
         errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: `livePrices/${symbol}`,
+          path: `livePrices/${symbol.toUpperCase()}`,
           operation: 'get'
         } satisfies SecurityRuleContext));
       }
@@ -51,32 +51,36 @@ export function useLivePrice(symbol: string) {
 
 /**
  * Hook for multiple symbols subscription
- * Listens to all symbols in the provided list simultaneously.
+ * Optimized for high-frequency trading terminals.
  */
 export function useLivePrices(symbols: string[]) {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
+  const upperSymbols = symbols.map(s => s.toUpperCase());
 
   useEffect(() => {
-    if (!db || !symbols.length) return;
+    if (!db || !upperSymbols.length) return;
 
+    // Listen to entire collection for efficiency and map to requested symbols
     const unsub = onSnapshot(collection(db, 'livePrices'), (snap) => {
-      // Diagnostic log to confirm Firestore connectivity
-      console.log(`[useLivePrices] Feed update received at ${new Date().toLocaleTimeString()}. Docs in snapshot: ${snap.docs.length}`);
-      
       setPrices((prev) => {
         const next = { ...prev };
+        let updatedCount = 0;
+        
         snap.docs.forEach((d) => {
-          if (symbols.includes(d.id)) {
+          const docId = d.id.toUpperCase();
+          if (upperSymbols.includes(docId)) {
             const data = d.data();
-            next[d.id] = {
-              symbol: d.id,
+            next[docId] = {
+              symbol: docId,
               price: Number(data.price) || 0,
               bid: Number(data.bid) || Number(data.price) || 0,
               ask: Number(data.ask) || Number(data.price) || 0,
               updatedAt: data.updatedAt?.toDate() || null
             };
+            updatedCount++;
           }
         });
+        
         return next;
       });
     }, (err) => {
@@ -90,7 +94,7 @@ export function useLivePrices(symbols: string[]) {
     });
 
     return () => unsub();
-  }, [JSON.stringify(symbols)]);
+  }, [JSON.stringify(upperSymbols)]);
 
   return prices;
 }

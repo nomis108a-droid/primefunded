@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const CRYPTO_MAP: Record<string, string> = {
-  "BTCUSD": "BTCUSDT", "ETHUSD": "ETHUSDT", "SOLUSD": "SOLUSD"
+  "BTCUSD": "BTCUSDT", 
+  "ETHUSD": "ETHUSDT", 
+  "SOLUSD": "SOLUSDT",
+  "XRPUSD": "XRPUSDT",
+  "BNBUSD": "BNBUSDT",
+  "DOGEUSD": "DOGEUSDT",
+  "ADAUSD": "ADAUSDT"
 };
 
 const OANDA_MAP: Record<string, string> = {
   "XAUUSD": "XAU_USD", "XAGUSD": "XAG_USD", "XPTUSD": "XPT_USD",
   "EURUSD": "EUR_USD", "GBPUSD": "GBP_USD", "USDJPY": "USD_JPY",
-  "AUDUSD": "AUD_USD", "USDCHF": "USD_CHF"
+  "AUDUSD": "AUD_USD", "USDCHF": "USD_CHF", "USDCAD": "USD_CAD", "NZDUSD": "NZD_USD"
 };
 
 const OANDA_GRANULARITY: Record<string, string> = {
@@ -80,15 +86,10 @@ export async function GET(req: NextRequest) {
               low: parseFloat(c.mid.l),
               close: parseFloat(c.mid.c),
             }));
-          } else {
-            const errText = await res.text();
-            console.warn(`[OANDA-DEBUG] API error for ${symbol}: ${res.status} - ${errText}`);
           }
         } catch (e) {
           console.warn(`[Candles] OANDA fetch failed for ${symbol}`);
         }
-      } else {
-        console.warn(`[OANDA-DEBUG] Missing credentials for ${symbol}. KEY: ${!!oandaKey}, ACC: ${!!oandaAcc}`);
       }
     }
 
@@ -127,8 +128,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ 
       candles: generateSyntheticCandles(symbol, 100), 
-      isFallback: true,
-      error: "Timeout or route error"
+      isFallback: true
     });
   } finally {
     clearTimeout(timeoutId);

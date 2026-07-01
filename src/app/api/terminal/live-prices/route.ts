@@ -54,8 +54,7 @@ export async function GET() {
       );
     }
 
-    // 2. Binance - Crypto (Standardized BTCUSD, ETHUSD etc.)
-    // We fetch USDT pairs and map them to USD for the terminal
+    // 2. Binance - Crypto (Restored mapping for BTC, ETH, SOL, XRP, BNB, DOGE, ADA)
     const binanceSymbols = '["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
     fetchPromises.push(
       fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(binanceSymbols)}`, { 
@@ -67,14 +66,13 @@ export async function GET() {
           if (Array.isArray(data)) {
             data.forEach(item => {
               const rawSym = item.symbol;
-              // Convert Binance USDT suffix to platform standard USD
               const sym = rawSym.replace('USDT', 'USD');
               const price = parseFloat(item.price);
               if (isNaN(price)) return;
 
-              // Simulate institutional spread (approx 0.05%)
+              // Institutional spread simulation (Crypto: 0.05%)
               const spread = price * 0.00025;
-              const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'BNBUSD') ? 2 : 4;
+              const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'BNBUSD') ? 2 : (sym === 'DOGEUSD' || sym === 'ADAUSD') ? 4 : 2;
               
               prices[sym] = {
                 bid: +(price - spread).toFixed(dec),
@@ -84,8 +82,6 @@ export async function GET() {
               };
             });
           }
-        } else {
-           console.warn(`[LivePrices] Binance API returned error: ${r.status}`);
         }
       }).catch(e => console.warn('[LivePrices] Binance fetch network error'))
     );
