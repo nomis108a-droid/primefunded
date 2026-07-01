@@ -54,7 +54,7 @@ export async function GET() {
       );
     }
 
-    // 2. Binance - Crypto
+    // 2. Binance - Crypto (Standardized BTCUSD, ETHUSD etc.)
     const binanceSymbols = '["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
     fetchPromises.push(
       fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(binanceSymbols)}`, { 
@@ -82,8 +82,10 @@ export async function GET() {
               };
             });
           }
+        } else {
+           console.warn(`[LivePrices] Binance API returned error: ${r.status}`);
         }
-      }).catch(e => console.warn('[LivePrices] Binance fetch failed'))
+      }).catch(e => console.warn('[LivePrices] Binance fetch network error'))
     );
 
     await Promise.all(fetchPromises);

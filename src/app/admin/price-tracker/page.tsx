@@ -36,7 +36,7 @@ const SYMBOLS = [
 ];
 
 const OANDA_REPS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"];
-const BINANCE_REPS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"];
+const BINANCE_REPS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD"];
 
 const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -126,6 +126,7 @@ export default function AdminPriceTracker() {
       setLastSync(new Date());
 
       const keys = Object.keys(data);
+      // Robust detection: if any known rep symbol has a price, feed is online
       const oandaOnline = keys.some(k => OANDA_REPS.includes(k) && data[k]?.price > 0);
       const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && data[k]?.price > 0);
 

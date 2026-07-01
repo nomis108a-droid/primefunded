@@ -285,8 +285,9 @@ export default function DemoPage() {
   const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed').sort((a, b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0)), [allTrades]);
 
   const isPriceValid = useMemo(() => {
-    return Object.keys(livePrices).length > 0;
-  }, [livePrices]);
+    const p = livePrices[selectedSymbol];
+    return !!(p && p.price > 0);
+  }, [livePrices, selectedSymbol]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
@@ -303,10 +304,10 @@ export default function DemoPage() {
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
-  // LIVE CANDLE AND SL/TP MONITORING ENGINE
+  // HIGH FIDELITY REAL-TIME CANDLE ENGINE
   useEffect(() => {
     const priceData = livePrices[selectedSymbol];
-    if (priceData && mainSeriesRef.current && !isChartLoading) {
+    if (priceData && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
       const now = Math.floor(Date.now() / 1000);
       const candleTime = Math.floor(now / secs) * secs;
@@ -314,18 +315,26 @@ export default function DemoPage() {
 
       if (price && price > 0) {
         const cur = currentCandleRef.current;
-        if (!cur || Number(cur.time) !== candleTime) {
+        
+        // Use functional update to avoid stale closure if possible, 
+        // but lightweight-charts update is simple.
+        if (!cur || Number(cur.time) < candleTime) {
           // Transition to new candle
-          if (!cur || candleTime > Number(cur.time)) {
-            const nextCandle = { time: candleTime, open: price, high: price, low: price, close: price };
-            currentCandleRef.current = nextCandle;
-            mainSeriesRef.current.update(nextCandle);
-          }
-        } else {
-          // Update current candle ticks
+          const nextCandle = { 
+            time: candleTime, 
+            open: price, 
+            high: price, 
+            low: price, 
+            close: price 
+          };
+          currentCandleRef.current = nextCandle;
+          mainSeriesRef.current.update(nextCandle);
+        } else if (Number(cur.time) === candleTime) {
+          // Update current candle ticks in real-time
           cur.high = Math.max(cur.high, price);
           cur.low = Math.min(cur.low, price);
           cur.close = price;
+          // IMPORTANT: Create a new object to ensure chart detects change
           mainSeriesRef.current.update({ ...cur });
         }
       }
@@ -357,7 +366,7 @@ export default function DemoPage() {
         }
       });
     }
-  }, [livePrices, selectedSymbol, selectedInterval, isChartLoading, openTrades, handleAutoClose]);
+  }, [livePrices, selectedSymbol, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol];
