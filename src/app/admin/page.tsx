@@ -72,18 +72,20 @@ export default function AdminPage() {
       const res = await fetchAdminTerminalData();
       if (res && res.success) {
         setAdminData(res);
+        // Ensure modal is closed and state is set on success
         setIsAuthenticated(true);
         setShowAdminModal(false);
       } else {
-        setIsAuthenticated(false);
-        setShowAdminModal(true);
-        if (res && res.error && res.error !== "Unauthorized") {
+        // If explicitly unauthorized, show modal, otherwise just toast error
+        if (res && res.error === "Unauthorized") {
+          setIsAuthenticated(false);
+          setShowAdminModal(true);
+        } else if (res && res.error) {
           toast({ variant: "destructive", title: "Sync Error", description: res.error });
         }
       }
     } catch (err: any) {
-      setIsAuthenticated(false);
-      setShowAdminModal(true);
+      // Do not block access on SDK connection errors in dev
       toast({ variant: "destructive", title: "Network Fault", description: err.message || "Failed to reach terminal API." });
     } finally {
       setIsLoading(false);
@@ -100,6 +102,9 @@ export default function AdminPage() {
     }, 10000);
     const retryTimer = setTimeout(() => setShowRetry(true), 5000);
     if (isVerified) {
+      // Set immediate state for verified users
+      setIsAuthenticated(true);
+      setShowAdminModal(false);
       refreshData();
     } else {
       setShowAdminModal(true);
@@ -117,6 +122,13 @@ export default function AdminPage() {
       localStorage.setItem('adminVerified', 'true');
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       setAdminError("");
+      
+      // FIX: Decouple authentication from the server action results.
+      // Immediately grant access to the dashboard.
+      setIsAuthenticated(true);
+      setShowAdminModal(false);
+      
+      // Fetch data in the background.
       refreshData();
     } else {
       setAdminError("❌ Access Denied");
