@@ -94,7 +94,7 @@ export default function AdminPriceTracker() {
   const [prices, setPrices] = useState<Record<string, any>>({});
   const [isPumping, setIsPumping] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
-  const [status, setStatus] = useState({ oanda: 'idle', kraken: 'idle' });
+  const [status, setStatus] = useState({ oanda: 'idle', binance: 'idle' });
   const [errorCount, setErrorCount] = useState(0);
 
   useEffect(() => {
@@ -113,7 +113,7 @@ export default function AdminPriceTracker() {
 
       const hasOanda = Object.keys(data).some(k => !['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(k));
       const hasCrypto = Object.keys(data).some(k => ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(k));
-      setStatus({ oanda: hasOanda ? 'online' : 'error', kraken: hasCrypto ? 'online' : 'error' });
+      setStatus({ oanda: hasOanda ? 'online' : 'error', binance: hasCrypto ? 'online' : 'error' });
 
       if (Object.keys(data).length > 0) {
         const batch = writeBatch(db);
@@ -126,7 +126,7 @@ export default function AdminPriceTracker() {
       }
     } catch (err) {
       setErrorCount(prev => prev + 1);
-      setStatus({ oanda: 'error', kraken: 'error' });
+      setStatus({ oanda: 'error', binance: 'error' });
     }
   }, []);
 
@@ -193,7 +193,7 @@ export default function AdminPriceTracker() {
             <CardContent className="p-6 flex justify-between items-center h-full">
               <div className="space-y-4 w-full">
                 <FeedStatus label="OANDA FEED" status={status.oanda} />
-                <FeedStatus label="KRAKEN FEED" status={status.kraken} />
+                <FeedStatus label="BINANCE FEED" status={status.binance} />
               </div>
             </CardContent>
           </Card>
