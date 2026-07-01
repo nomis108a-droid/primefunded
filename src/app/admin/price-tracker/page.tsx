@@ -75,8 +75,20 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   useEffect(() => {
     if (data?.price && seriesRef.current) {
       const now = Math.floor(Date.now() / 1000);
-      historyRef.current = [...historyRef.current, { time: now, value: data.price }].slice(-50);
-      seriesRef.current.setData(historyRef.current);
+      const newPoint = { time: now as any, value: data.price };
+      
+      // Fix: Use series.update() instead of setData() to avoid "data must be asc ordered" error
+      // update() replaces existing timestamps, setData() requires strictly increasing unique timestamps
+      seriesRef.current.update(newPoint);
+      
+      // Update local history for tracking count (if needed)
+      const lastPoint = historyRef.current[historyRef.current.length - 1];
+      if (lastPoint && lastPoint.time === now) {
+        lastPoint.value = data.price;
+      } else {
+        historyRef.current = [...historyRef.current, newPoint].slice(-50);
+      }
+      
       chartRef.current?.timeScale().fitContent();
     }
   }, [data]);
@@ -139,7 +151,9 @@ export default function AdminPriceTracker() {
           const ref = doc(db, 'livePrices', symbol.toUpperCase());
           batch.set(ref, { ...(payload as any), symbol: symbol.toUpperCase(), updatedAt: serverTimestamp() }, { merge: true });
         });
-        await batch.commit().catch(err => console.error('[Price-Sync] Firestore Write Failed:', err));
+        batch.commit().catch(err => {
+          console.error('[Price-Sync] Firestore Write Failed:', err);
+        });
         setErrorCount(0);
       }
     } catch (err) {
