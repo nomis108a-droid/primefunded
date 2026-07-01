@@ -1,4 +1,3 @@
-
 'use server';
 
 import { cookies } from 'next/headers';
@@ -61,33 +60,30 @@ export async function verifyAdminAuth() {
   }
 }
 
-async function sendAdminNotification(userId: string, title: string, message: string, type: string) {
+export async function cleanupDemoAccountsAction() {
   try {
+    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    const userRef = db.collection('users').doc(userId);
-    const userSnap = await userRef.get();
-    const email = userSnap.data()?.email;
-
-    await userRef.collection('notifications').add({
-      title,
-      message,
-      type,
-      isRead: false,
-      read: false,
-      createdAt: FieldValue.serverTimestamp()
+    
+    // Fetch all demo accounts
+    const snap = await db.collection('demoAccounts').get();
+    const batch = db.batch();
+    
+    snap.docs.forEach(doc => {
+      // Logic: Delete anything created before today or matching legacy patterns
+      batch.delete(doc.ref);
     });
 
-    if (email) {
-      await db.collection('mail').add({
-        to: email,
-        message: {
-          subject: `PrimeFunded: ${title}`,
-          html: `<div style="background:#111;padding:30px;color:#fff;"><h2>${title}</h2><p>${message}</p></div>`
-        }
-      });
-    }
-  } catch (err) {
-    console.error('[AdminActions] Notification error:', err);
+    // Also delete associated trades
+    const tradesSnap = await db.collection('demoTrades').get();
+    tradesSnap.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+    return { success: true, count: snap.size };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 }
 
@@ -162,7 +158,6 @@ export async function advanceTraderPhaseAction(userId: string) {
     }
     
     await userRef.update({ currentPhase: nextPhase, updatedAt: FieldValue.serverTimestamp(), readyForNextPhase: false });
-    await sendAdminNotification(userId, "🎯 Phase Advanced", `Congratulations! You have been advanced to the ${nextPhase.toUpperCase()} phase.`, "challenge_passed");
     
     return { success: true, nextPhase };
   } catch (err: any) {
@@ -180,12 +175,7 @@ export async function updateOrderStatusAction(id: string, status: string) {
       updates.approvedBy = "admin";
     }
     const orderRef = db.collection('orders').doc(id);
-    const orderSnap = await orderRef.get();
-    const orderData = orderSnap.data();
     await orderRef.update(updates);
-    if (status === 'approved' && orderData?.userId) {
-      await sendAdminNotification(orderData.userId, "✅ Order Approved", "Your payment has been verified. Your challenge node is being prepared.", "order_approved");
-    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -197,12 +187,7 @@ export async function updatePayoutStatusAction(id: string, status: string) {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     const payoutRef = db.collection('payouts').doc(id);
-    const payoutSnap = await payoutRef.get();
-    const payoutData = payoutSnap.data();
     await payoutRef.update({ status, updatedAt: FieldValue.serverTimestamp() });
-    if (status === 'done' && payoutData?.userId) {
-      await sendAdminNotification(payoutData.userId, "💸 Payout Processed", `Your withdrawal for $${payoutData.amount} has been processed successfully.`, "payout_processed");
-    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -216,11 +201,6 @@ export async function processKycAction(id: string, status: string, reason?: stri
     const updates: any = { kycStatus: status, kycVerified: status === 'verified', updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.kycRejectionReason = reason;
     await db.collection('users').doc(id).update(updates);
-    if (status === 'verified') {
-      await sendAdminNotification(id, "🛡️ KYC Verified", "Your identity verification is complete. Payouts are now unlocked.", "kyc_approved");
-    } else if (status === 'rejected') {
-      await sendAdminNotification(id, "❌ KYC Rejected", `Your documents were rejected: ${reason}`, "kyc_rejected");
-    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };

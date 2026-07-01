@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * @fileOverview Institutional Live Price API
- * Hardened with timeouts and shared AbortSignal to prevent 502 Gateway errors.
+ * Expanded to support full asset list for OANDA (FX/Metals) and Kraken (Crypto).
+ * Hardened with timeouts and shared AbortSignal.
  */
 
 export async function GET() {
@@ -11,7 +12,6 @@ export async function GET() {
   const key = process.env.OANDA_API_KEY;
   const acc = process.env.OANDA_ACCOUNT_ID;
 
-  // Next.js Edge/Serverless timeout protection (7s total)
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 7000);
 
@@ -48,17 +48,15 @@ export async function GET() {
               updatedAt: new Date().toISOString() 
             };
           }
-        } else {
-          console.warn(`[OANDA-DEBUG] Pricing error: ${r.status}`);
         }
       } catch (e) {
         console.warn('[LivePrices] OANDA fetch failed or timed out');
       }
     }
 
-    // 2. Kraken - Crypto (Free/Unlimited)
+    // 2. Kraken - Crypto (Full Asset Coverage)
     try {
-      const pairs = 'XBTUSD,ETHUSD,SOLUSD';
+      const pairs = 'XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD,BNBUSD';
       const r = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`, { 
         cache: 'no-store',
         signal: controller.signal
@@ -68,17 +66,19 @@ export async function GET() {
         const d = await r.json();
         const result = d.result || {};
         const map: Record<string, string> = {
-          'XXBTZUSD': 'BTCUSD', 'XETHZUSD': 'ETHUSD', 'SOLUSD': 'SOLUSD'
+          'XXBTZUSD': 'BTCUSD', 'XETHZUSD': 'ETHUSD', 'SOLUSD': 'SOLUSD',
+          'XXRPZUSD': 'XRPUSD', 'ADAUSD': 'ADAUSD', 'XDGUSD': 'DOGEUSD', 'BNBUSD': 'BNBUSD'
         };
         for (const [krakenPair, data] of Object.entries(result)) {
           const sym = map[krakenPair];
           if (!sym) continue;
           const p = parseFloat((data as any).c?.[0]);
           if (!p || isNaN(p)) continue;
-          const dec = 2;
+          
+          const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'BNBUSD') ? 2 : 4;
           prices[sym] = {
-            bid: +(p * 0.999).toFixed(dec),
-            ask: +(p * 1.001).toFixed(dec),
+            bid: +(p * 0.9999).toFixed(dec),
+            ask: +(p * 1.0001).toFixed(dec),
             price: +p.toFixed(dec),
             updatedAt: new Date().toISOString()
           };
@@ -92,8 +92,7 @@ export async function GET() {
       headers: { 'Cache-Control': 'no-store' } 
     });
   } catch (error) {
-    console.error('[LivePrices] Fatal Route Error:', error);
-    return NextResponse.json(prices, { status: 200 }); // Always return JSON
+    return NextResponse.json(prices, { status: 200 }); 
   } finally {
     clearTimeout(timeoutId);
   }
