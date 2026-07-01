@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -72,20 +73,14 @@ export default function AdminPage() {
       const res = await fetchAdminTerminalData();
       if (res && res.success) {
         setAdminData(res);
-        // Ensure modal is closed and state is set on success
-        setIsAuthenticated(true);
-        setShowAdminModal(false);
       } else {
-        // If explicitly unauthorized, show modal, otherwise just toast error
-        if (res && res.error === "Unauthorized") {
-          setIsAuthenticated(false);
-          setShowAdminModal(true);
-        } else if (res && res.error) {
+        // Just toast error, don't kick user out of the dashboard
+        if (res && res.error) {
           toast({ variant: "destructive", title: "Sync Error", description: res.error });
         }
       }
     } catch (err: any) {
-      // Do not block access on SDK connection errors in dev
+      // Do not block access on connection errors
       toast({ variant: "destructive", title: "Network Fault", description: err.message || "Failed to reach terminal API." });
     } finally {
       setIsLoading(false);
@@ -94,15 +89,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
-    const watchdog = setTimeout(() => {
-      if (!isAuthenticated && !showAdminModal) {
-        setShowAdminModal(true);
-        setIsLoading(false);
-      }
-    }, 10000);
-    const retryTimer = setTimeout(() => setShowRetry(true), 5000);
     if (isVerified) {
-      // Set immediate state for verified users
       setIsAuthenticated(true);
       setShowAdminModal(false);
       refreshData();
@@ -110,11 +97,9 @@ export default function AdminPage() {
       setShowAdminModal(true);
       setIsLoading(false);
     }
-    return () => {
-      clearTimeout(watchdog);
-      clearTimeout(retryTimer);
-    };
-  }, [refreshData, isAuthenticated, showAdminModal]);
+    const retryTimer = setTimeout(() => setShowRetry(true), 5000);
+    return () => clearTimeout(retryTimer);
+  }, [refreshData]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,12 +108,11 @@ export default function AdminPage() {
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       setAdminError("");
       
-      // FIX: Decouple authentication from the server action results.
-      // Immediately grant access to the dashboard.
+      // IMMEDIATE ACCESS - DO NOT WAIT FOR DATA
       setIsAuthenticated(true);
       setShowAdminModal(false);
       
-      // Fetch data in the background.
+      // FETCH IN BACKGROUND
       refreshData();
     } else {
       setAdminError("❌ Access Denied");
@@ -177,7 +161,7 @@ export default function AdminPage() {
     return adminData.demoAccounts.filter((acc: any) => {
       const matchesStatus = demoFilter === 'all' || acc.status === demoFilter;
       const matchesSearch = !searchTerm || 
-        acc.userId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (acc.userId && acc.userId.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (acc.id && acc.id.toLowerCase().includes(searchTerm.toLowerCase()));
       return matchesStatus && matchesSearch;
     });
@@ -225,7 +209,7 @@ export default function AdminPage() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin mb-6" />
-        <h2 className="text-xl font-headline font-bold text-white mb-2">Verifying Node Authorization</h2>
+        <h2 className="text-xl font-headline font-bold text-white mb-2">Verifying Terminal Auth</h2>
         {showRetry && (
           <Button variant="outline" size="sm" onClick={handleEmergencyReset} className="h-10 px-6 mt-4">
             <RotateCcw className="w-4 h-4 mr-2" /> Clear Session & Retry
