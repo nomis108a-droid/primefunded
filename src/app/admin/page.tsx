@@ -345,7 +345,12 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                       <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                        <tr><th className="p-4">Trader / Node ID</th><th className="p-4">Balance</th><th className="p-4 text-right">Actions</th></tr>
+                        <tr>
+                          <th className="p-4">Trader / Node ID</th>
+                          <th className="p-4">Balance</th>
+                          <th className="p-4">Status</th>
+                          <th className="p-4 text-right">Actions</th>
+                        </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
                         {filteredDemoAccounts.map((acc: any) => (
@@ -355,8 +360,31 @@ export default function AdminPage() {
                                <p className="text-[10px] text-muted-foreground font-mono">{acc.id}</p>
                             </td>
                             <td className="p-4 font-bold text-white">${(acc.balance || 0).toLocaleString()}</td>
+                            <td className="p-4">
+                               <div className="flex flex-col gap-1">
+                                 <Badge 
+                                   variant={acc.status === 'blown' ? 'destructive' : acc.status === 'passed' ? 'default' : 'secondary'}
+                                   className={cn(
+                                     "uppercase text-[9px] font-black w-fit px-2",
+                                     acc.status === 'passed' && "bg-emerald-500 hover:bg-emerald-600 text-white border-none"
+                                   )}
+                                 >
+                                   {acc.status}
+                                 </Badge>
+                                 {acc.status === 'blown' && (
+                                   <p className="text-[10px] text-destructive/80 font-medium">
+                                     Reason: {acc.breachReason || 'Not recorded'}
+                                   </p>
+                                 )}
+                               </div>
+                            </td>
                             <td className="p-4 text-right">
-                               <Button variant="ghost" size="sm" onClick={() => handleViewUserDetail(acc.userId)}><ExternalLink className="w-3.5 h-3.5" /></Button>
+                               <button 
+                                 className="p-2 hover:bg-white/5 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                                 onClick={() => handleViewUserDetail(acc.userId)}
+                               >
+                                 <Eye className="w-4 h-4" />
+                               </button>
                             </td>
                           </tr>
                         ))}
@@ -450,9 +478,26 @@ export default function AdminPage() {
                       {userDetail.accounts.map((acc: any) => (
                         <Card key={acc.id} className="bg-card/40 border-border/50">
                           <CardHeader className="pb-4">
-                            <CardTitle className="text-lg flex justify-between items-center">
-                              {acc.label}
-                              <Badge variant={acc.status === 'blown' ? 'destructive' : 'default'} className="text-[8px] uppercase">{acc.status}</Badge>
+                            <CardTitle className="text-lg">
+                              <div className="flex justify-between items-start">
+                                <span className="flex-1">{acc.label}</span>
+                                <div className="flex flex-col items-end gap-1">
+                                  <Badge 
+                                    variant={acc.status === 'blown' ? 'destructive' : acc.status === 'passed' ? 'default' : 'secondary'}
+                                    className={cn(
+                                      "text-[8px] uppercase font-black px-2",
+                                      acc.status === 'passed' && "bg-emerald-500 text-white"
+                                    )}
+                                  >
+                                    {acc.status}
+                                  </Badge>
+                                  {acc.status === 'blown' && (
+                                    <span className="text-[9px] text-destructive font-medium italic">
+                                      {acc.breachReason || 'Reason: Not recorded'}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </CardTitle>
                           </CardHeader>
                           <CardContent>
