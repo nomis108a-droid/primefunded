@@ -210,7 +210,6 @@ export default function DemoPage() {
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
           
-          // BUG FIX 1: Guarded assignment. Only set history as "current" if it's actually newer than our live one.
           const lastHistCandle = sorted[sorted.length - 1];
           if (!currentCandleRef.current || lastHistCandle.time > currentCandleRef.current.time) {
             currentCandleRef.current = { ...lastHistCandle };
@@ -224,7 +223,6 @@ export default function DemoPage() {
     return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
 
-  // Simplified: Use existing indexed query (userId + openedAt) and filter in memory to avoid index requirements
   const tradeConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("openedAt", "desc")] : [], [user?.uid]);
   const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
   
@@ -233,7 +231,7 @@ export default function DemoPage() {
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
   const currentPriceData = useMemo(() => livePrices[selectedSymbol.toUpperCase()], [livePrices, selectedSymbol]);
-  const isPriceValid = useMemo(() => !!(currentPriceData && currentPriceData.price > 0), [currentPriceData]);
+  const isPriceValid = useMemo(() => !!(currentPriceData && Number(currentPriceData.price) > 0), [currentPriceData]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;

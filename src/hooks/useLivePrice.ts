@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { onSnapshot, collection, type Unsubscribe } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { useFirestore } from '@/firebase';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
@@ -18,48 +18,62 @@ export interface LivePrice {
  * Hook for multiple symbols subscription
  * Optimized for high-frequency trading terminals.
  * Listens to the entire livePrices collection and maps to requested symbols.
- * Automatically re-subscribes when tab visibility returns to ensure fresh data.
+ * Utilizes the useFirestore context for reliable connection management.
  */
 export function useLivePrices(symbols: string[]) {
+  const firestore = useFirestore();
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
   const unsubRef = useRef<Unsubscribe | null>(null);
 
-  // Use a string representation of symbols for the dependency array to ensure
-  // we only re-run when the list of symbols actually changes.
-  const symbolsKey = JSON.stringify(symbols.map(s => s.toUpperCase()));
+  // Memoize upper case symbols for comparison
+  const upperSymbols = useMemo(() => 
+    symbols.map(s => s.toUpperCase())
+  , [symbols]);
+
+  // Stable key for symbols to avoid effect re-runs if array reference changes but content is same
+  const symbolsKey = useMemo(() => 
+    JSON.stringify(upperSymbols)
+  , [upperSymbols]);
 
   useEffect(() => {
-    if (!db || !symbols.length) {
+    if (!firestore || !upperSymbols.length) {
       setPrices({});
       return;
     }
 
-    const upperSymbols = symbols.map(s => s.toUpperCase());
-
     /**
-     * Set up the Firestore listener and return the unsubscribe function.
-     * Captured variables: upperSymbols, db
+     * Set up the Firestore listener. 
+     * Subscription to the entire collection is most efficient for a multi-asset terminal.
      */
     const subscribeToLivePrices = () => {
-      // Direct collection listener is most efficient for a terminal with multiple active widgets
-      return onSnapshot(collection(db, 'livePrices'), (snap) => {
+      return onSnapshot(collection(firestore, 'livePrices'), (snap) => {
         const nextPrices: Record<string, LivePrice> = {};
         
         snap.docs.forEach((d) => {
           const docId = d.id.toUpperCase();
           if (upperSymbols.includes(docId)) {
             const data = d.data();
+            
+            // Robust date parsing for both Server Timestamps and REST ISO strings
+            let date = null;
+            if (data.updatedAt) {
+              if (typeof data.updatedAt.toDate === 'function') {
+                date = data.updatedAt.toDate();
+              } else {
+                date = new Date(data.updatedAt);
+              }
+            }
+
             nextPrices[docId] = {
               symbol: docId,
               price: Number(data.price) || 0,
               bid: Number(data.bid) || Number(data.price) || 0,
               ask: Number(data.ask) || Number(data.price) || 0,
-              updatedAt: data.updatedAt?.toDate() || null
+              updatedAt: date
             };
           }
         });
         
-        // Fully replace state with the current snapshot data for requested symbols
         setPrices(nextPrices);
       }, (err) => {
         console.error('[useLivePrices] Subscription error:', err);
@@ -75,10 +89,9 @@ export function useLivePrices(symbols: string[]) {
     // 1. Initial subscription
     unsubRef.current = subscribeToLivePrices();
 
-    // 2. Visibility change handler
+    // 2. Visibility change handler to ensure fresh data after tab suspension
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Tear down the old listener and re-subscribe fresh to force a data pull
         unsubRef.current?.();
         unsubRef.current = subscribeToLivePrices();
       }
@@ -92,7 +105,7 @@ export function useLivePrices(symbols: string[]) {
       unsubRef.current?.();
       unsubRef.current = null;
     };
-  }, [symbolsKey]);
+  }, [firestore, symbolsKey, upperSymbols]);
 
   return prices;
 }

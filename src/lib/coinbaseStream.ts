@@ -1,15 +1,14 @@
 /**
  * Crypto Price Feed via Kraken REST API
  * Replaces Coinbase WebSocket (blocked on Google Cloud IPs)
- * Kraken works reliably from Firebase/GCP infrastructure
  */
 import { getAdminDb } from '@/lib/firebase-admin';
 
 const KRAKEN_PAIRS: Record<string, string> = {
   'XXBTZUSD': 'BTCUSD',
   'XETHZUSD': 'ETHUSD',
-  'SOLUSDT':  'SOLUSD',
-  'XRPUSD':   'XRPUSD',
+  'SOLUSD':   'SOLUSD',
+  'XXRPZUSD': 'XRPUSD',
   'ADAUSD':   'ADAUSD',
   'XDGUSD':   'DOGEUSD',
 };
@@ -21,14 +20,13 @@ let bnbInterval: NodeJS.Timeout | null = null;
 
 async function fetchKrakenPrices() {
   try {
-    const pairs = Object.keys(KRAKEN_PAIRS).join(',');
-    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`, {
-      signal: AbortSignal.timeout(5000)
-    });
+    const res = await fetch(
+      'https://api.kraken.com/0/public/Ticker?pair=XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD',
+      { signal: AbortSignal.timeout(5000) }
+    );
     if (!res.ok) return;
     const data = await res.json();
-    if (data.error?.length > 0) return;
-
+    if (data.error?.length > 0) { console.error('[KrakenFeed] API error:', data.error); return; }
     const now = new Date().toISOString();
     Object.entries(data.result || {}).forEach(([krakenPair, ticker]: [string, any]) => {
       const symbol = KRAKEN_PAIRS[krakenPair];
@@ -38,8 +36,8 @@ async function fetchKrakenPrices() {
       const ask = parseFloat(ticker.a[0]);
       if (!price || isNaN(price)) return;
       cryptoPrices[symbol] = { price, bid, ask };
+      console.log(`[KrakenFeed] ${symbol} = ${price}`);
     });
-
     await writeCryptoPricesToFirestore();
   } catch (e: any) {
     console.error('[KrakenFeed] Fetch error:', e.message);
@@ -58,6 +56,7 @@ async function fetchBnbPrice() {
     if (!price || isNaN(price)) return;
     const spread = price * 0.0005;
     cryptoPrices['BNBUSD'] = { price, bid: price - spread, ask: price + spread };
+    console.log(`[BnbPolling] BNBUSD = ${price}`);
   } catch (e: any) {
     console.error('[BnbPolling] Fetch error:', e.message);
   }
@@ -72,8 +71,7 @@ async function writeCryptoPricesToFirestore() {
     const batch = db.batch();
     const now = new Date().toISOString();
     Object.entries(cryptoPrices).forEach(([symbol, data]) => {
-      const ref = db.collection('livePrices').doc(symbol);
-      batch.set(ref, { ...data, updatedAt: now }, { merge: true });
+      batch.set(db.collection('livePrices').doc(symbol), { ...data, updatedAt: now }, { merge: true });
     });
     await batch.commit();
     console.log(`[KrakenFeed] Commit finished in ${Date.now() - start}ms`);
@@ -86,14 +84,14 @@ async function writeCryptoPricesToFirestore() {
 
 export function startCoinbaseStream() {
   if (krakenInterval) return;
-  console.log('[KrakenFeed] Starting Kraken crypto price feed (3s interval)...');
+  console.log('[KrakenFeed] Starting Kraken crypto feed (3s interval)...');
   fetchKrakenPrices();
   krakenInterval = setInterval(fetchKrakenPrices, 3000);
 }
 
 export function startBnbPolling() {
   if (bnbInterval) return;
-  console.log('[BnbPolling] Starting BNB price polling via CoinGecko (10s interval)...');
+  console.log('[BnbPolling] Starting BNB polling via CoinGecko (10s interval)...');
   fetchBnbPrice();
   bnbInterval = setInterval(fetchBnbPrice, 10000);
 }
