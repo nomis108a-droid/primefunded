@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -83,9 +82,7 @@ export default function DemoPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
-  // High-Frequency Real-time Data Source from Firestore onSnapshot
   const livePrices = useLivePrices(SYMBOLS);
-
   const closingTradesRef = useRef<Set<string>>(new Set());
 
   const [chartSettings, setChartSettings] = useState(() => {
@@ -115,7 +112,6 @@ export default function DemoPage() {
     }
   }, [authLoading, accounts, currentAccountId]);
 
-  // Symbol change reset
   useEffect(() => {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
@@ -149,11 +145,7 @@ export default function DemoPage() {
       chart.priceScale(targetScaleId).applyOptions({ visible: true, mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, autoScale: chartSettings.scales.mode === 'auto', borderColor: chartSettings.canvas.scales.textColor + '44' });
       chart.priceScale(otherScaleId).applyOptions({ visible: false });
       chart.applyOptions({
-        layout: { 
-          background: { type: ColorType.Solid, color: '#09090b' }, 
-          textColor: chartSettings.canvas.scales.textColor, 
-          fontSize: chartSettings.canvas.scales.fontSize 
-        },
+        layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: chartSettings.canvas.scales.textColor, fontSize: chartSettings.canvas.scales.fontSize },
         grid: { vertLines: { visible: chartSettings.scales.lines.gridVert && (chartSettings.canvas.grid.type === 'vertical' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.vert.color }, horzLines: { visible: chartSettings.scales.lines.gridHorz && (chartSettings.canvas.grid.type === 'horizontal' || chartSettings.canvas.grid.type === 'both'), color: chartSettings.canvas.grid.horz.color } },
         crosshair: { horzLine: { labelVisible: chartSettings.scales.labels.currentPrice, color: chartSettings.canvas.crosshair.color }, vertLine: { labelVisible: chartSettings.scales.labels.ohlc, color: chartSettings.canvas.crosshair.color } },
         watermark: { visible: chartSettings.canvas.watermark.visible, color: chartSettings.canvas.watermark.color, text: chartSettings.canvas.watermark.text || branding.siteName }
@@ -169,7 +161,6 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
-    
     let chart; 
     try { 
       chart = createChart(chartContainerRef.current, {
@@ -180,37 +171,16 @@ export default function DemoPage() {
         timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
       });
       chartInstanceRef.current = chart;
-      
       const series = chartType === 'line' || chartType === 'area' 
         ? (chartType === 'area' ? chart.addAreaSeries() : chart.addLineSeries())
         : chart.addCandlestickSeries();
-      
       mainSeriesRef.current = series;
       setIsChartReady(true);
     } catch (e) {}
-    
     applyGlobalSettings();
-
-    const handleResize = () => { 
-      if (chartContainerRef.current && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ 
-          width: chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight 
-        });
-      }
-    };
+    const handleResize = () => { if (chartContainerRef.current && chartInstanceRef.current) { chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); } };
     window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartInstanceRef.current) { 
-        try { chartInstanceRef.current.remove(); } catch (e) {} 
-        chartInstanceRef.current = null; 
-      }
-      mainSeriesRef.current = null; 
-      setIsChartReady(false);
-      currentCandleRef.current = null;
-    };
+    return () => { window.removeEventListener('resize', handleResize); if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; } mainSeriesRef.current = null; setIsChartReady(false); currentCandleRef.current = null; };
   }, [chartType, applyGlobalSettings]);
 
   useEffect(() => {
@@ -218,85 +188,46 @@ export default function DemoPage() {
     const controller = new AbortController();
     const cacheKey = `${selectedSymbol}-${selectedInterval}`;
     const cached = candleDataCache.get(cacheKey);
-
     const fetchHistory = async () => {
       if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
         setIsChartLoading(false);
-        setChartError(null);
-        if (mainSeriesRef.current) {
-          mainSeriesRef.current.setData(cached.candles);
-        }
+        if (mainSeriesRef.current) mainSeriesRef.current.setData(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
-      } else {
-        setIsChartLoading(true);
-        setChartError(null);
-      }
-      
-      const timeoutId = setTimeout(() => controller.abort(), 5000); 
-
+      } else { setIsChartLoading(true); }
       try {
-        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, {
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, { signal: controller.signal });
         if (!res.ok) throw new Error(`Network error: ${res.status}`);
-        
         const data = await res.json();
         const rawCandles = data.candles || [];
-        
         if (!isMounted) return;
-
         if (rawCandles.length > 0) {
-          const sorted = [...rawCandles]
-            .map(c => ({
-              ...c,
-              time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time)
-            }))
-            .sort((a: any, b: any) => a.time - b.time)
-            .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
-
+          const sorted = [...rawCandles].map(c => ({ ...c, time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time) })).sort((a: any, b: any) => a.time - b.time).filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
           if (mainSeriesRef.current) {
-             const formatted = (chartType === 'candles' || chartType === 'bars') 
-               ? sorted 
-               : sorted.map((c: any) => ({ time: c.time, value: c.close }));
-             
+             const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
           }
-          
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
           currentCandleRef.current = { ...sorted[sorted.length - 1] };
           oldestTimestamp.current = sorted[0].time;
         }
-      } catch (err: any) {
-        if (isMounted && !cached) {
-          setChartError(err.name === 'AbortError' ? "Connection timed out." : err.message);
-        }
-      } finally {
-        clearTimeout(timeoutId);
-        if (isMounted) setIsChartLoading(false);
-      }
+      } catch (err: any) { if (isMounted && !cached) setChartError(err.message); } finally { if (isMounted) setIsChartLoading(false); }
     };
-
     if (isChartReady) fetchHistory();
     return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
 
-  const tradeConstraints = useMemo(() => (user?.uid && currentAccountId) ? [where("userId", "==", user.uid), where("accountId", "==", currentAccountId)] : [], [user?.uid, currentAccountId]);
-  const { data: allTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
+  // Simplified: Use existing indexed query (userId + openedAt) and filter in memory to avoid index requirements
+  const tradeConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("openedAt", "desc")] : [], [user?.uid]);
+  const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
   
-  const openTrades = useMemo(() => allTrades.filter(t => t.status === 'open'), [allTrades]);
-  const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed').sort((a, b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0)), [allTrades]);
+  const trades = useMemo(() => allUserTrades.filter(t => t.accountId === currentAccountId), [allUserTrades, currentAccountId]);
+  const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
+  const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
-  const currentPriceData = useMemo(() => {
-    return livePrices[selectedSymbol.toUpperCase()];
-  }, [livePrices, selectedSymbol]);
-
-  const isPriceValid = useMemo(() => {
-    return !!(currentPriceData && currentPriceData.price > 0);
-  }, [currentPriceData]);
+  const currentPriceData = useMemo(() => livePrices[selectedSymbol.toUpperCase()], [livePrices, selectedSymbol]);
+  const isPriceValid = useMemo(() => !!(currentPriceData && currentPriceData.price > 0), [currentPriceData]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
@@ -313,17 +244,14 @@ export default function DemoPage() {
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
-  // HIGH FIDELITY REAL-TIME CANDLE ENGINE
   useEffect(() => {
     if (currentPriceData && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
       const now = Math.floor(Date.now() / 1000);
       const candleTime = Math.floor(now / secs) * secs;
       const price = currentPriceData.price;
-
       if (price && price > 0) {
         const cur = currentCandleRef.current;
-        
         if (chartType === 'area' || chartType === 'line') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
         } else {
@@ -340,19 +268,15 @@ export default function DemoPage() {
         }
       }
     }
-
-    // Risk Engine: Real-time SL/TP monitoring
-    if (openTrades && openTrades.length > 0 && Object.keys(livePrices).length > 0) {
+    if (openTrades.length > 0 && Object.keys(livePrices).length > 0) {
       openTrades.forEach(t => {
         if (closingTradesRef.current.has(t.id)) return;
         const pData = livePrices[t.symbol.toUpperCase()];
         if (!pData || !pData.bid || !pData.ask) return;
-
         const bid = pData.bid;
         const ask = pData.ask;
         let triggeredPrice = 0;
         let reason = "";
-
         if (t.type === 'buy') {
           if (t.sl && bid <= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
           else if (t.tp && bid >= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
@@ -360,7 +284,6 @@ export default function DemoPage() {
           if (t.sl && ask >= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
           else if (t.tp && ask <= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
         }
-
         if (triggeredPrice > 0) {
           closingTradesRef.current.add(t.id);
           handleAutoClose(t.id, triggeredPrice, reason);
@@ -381,74 +304,38 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
-
-    activePriceLinesRef.current.forEach((lines) => {
-      lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line));
-    });
+    activePriceLinesRef.current.forEach((lines) => { lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line)); });
     activePriceLinesRef.current.clear();
-
     openTrades.filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase()).forEach((trade) => {
       const lines: IPriceLine[] = [];
       const currentPnl = calculateOpenPnl(trade);
-
-      const entryLine = mainSeriesRef.current!.createPriceLine({
-        price: trade.openPrice,
-        color: trade.type === 'buy' ? '#2962ff' : '#f57c00',
-        lineWidth: 1,
-        lineStyle: 0,
-        axisLabelVisible: true,
-        title: `${trade.lots.toFixed(2)}  ${currentPnl >= 0 ? '+' : ''}${currentPnl.toFixed(2)} USD`,
-      });
+      const entryLine = mainSeriesRef.current!.createPriceLine({ price: trade.openPrice, color: trade.type === 'buy' ? '#2962ff' : '#f57c00', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${trade.lots.toFixed(2)}  ${currentPnl >= 0 ? '+' : ''}${currentPnl.toFixed(2)} USD`, });
       lines.push(entryLine);
-
-      if (trade.sl) {
-        const slLine = mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` });
-        lines.push(slLine);
-      }
-      if (trade.tp) {
-        const tpLine = mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` });
-        lines.push(tpLine);
-      }
+      if (trade.sl) { const slLine = mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` }); lines.push(slLine); }
+      if (trade.tp) { const tpLine = mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` }); lines.push(tpLine); }
       activePriceLinesRef.current.set(trade.id, lines);
     });
-
-    return () => {
-      activePriceLinesRef.current.forEach((lines) => {
-        lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line));
-      });
-    };
+    return () => { activePriceLinesRef.current.forEach((lines) => { lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line)); }); };
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
 
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !currentPriceData) return;
-      
       const token = await user.getIdToken(true);
       const executionPrice = type === 'buy' ? (currentPriceData.ask || currentPriceData.price) : (currentPriceData.bid || currentPriceData.price);
-      
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: parseFloat(tp) > 0 ? parseFloat(tp) : null })
       });
-      
       if (!res.ok) { 
         const err = await res.json().catch(() => ({})); 
-        toast({ 
-          title: "Execution Failed", 
-          description: err.details ? `${err.error}: ${err.details}` : (err.error || `Server Error: ${res.status}`), 
-          variant: "destructive" 
-        }); 
+        toast({ title: "Execution Failed", description: err.details ? `${err.error}: ${err.details}` : (err.error || `Server Error: ${res.status}`), variant: "destructive" }); 
         return; 
       }
-      
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
-    } catch(e: any) { 
-      toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); 
-    } finally { 
-      setActionLoading(false); 
-    }
+    } catch(e: any) { toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); } finally { setActionLoading(false); }
   }
 
   const { data: alerts, loading: alertsLoading } = useCollection<any>(user?.uid ? "alerts" : null, useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("createdAt", "desc")] : [], [user?.uid]));
@@ -489,7 +376,6 @@ export default function DemoPage() {
     { id: 'magnet', name: 'Magnet', icon: Magnet, action: () => setMagnetMode(!magnetMode), active: magnetMode, toggle: true },
     { id: 'eye', name: 'Eye', icon: drawingsHidden ? EyeOff : Eye, action: () => setDrawingsHidden(!drawingsHidden), toggle: true },
     { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
-    { id: 'favorites', name: 'Favorites', icon: Star }
   ];
 
   if (!user && !authLoading) return null;
@@ -549,14 +435,7 @@ export default function DemoPage() {
 
       <div className="h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
         {TIMEFRAMES.map((tf) => (
-          <button
-            key={tf.value}
-            onClick={() => setSelectedInterval(tf.value)}
-            className={cn(
-              "px-3 h-6 flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest",
-              selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5"
-            )}
-          >
+          <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-3 h-6 flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5")}>
             {tf.label}
           </button>
         ))}
@@ -588,16 +467,6 @@ export default function DemoPage() {
                   <p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p>
                 </div>
               )}
-              {chartError && !isChartLoading && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/90 backdrop-blur-md p-6 text-center">
-                  <AlertCircle className="w-8 h-8 text-destructive mb-4" />
-                  <h3 className="text-sm font-bold text-white mb-2">Sync Connection Interrupted</h3>
-                  <Button variant="outline" size="sm" className="h-9 px-6 font-bold" onClick={() => { setIsChartReady(false); setChartError(null); }}>
-                    <RefreshCw className="w-4 h-4 mr-2" /> Retry Connection
-                  </Button>
-                </div>
-              )}
-
               {isFallbackData && (
                 <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20">
                   <div className="px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 backdrop-blur-md shadow-2xl">
@@ -606,12 +475,10 @@ export default function DemoPage() {
                   </div>
                 </div>
               )}
-
               <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
               </div>
-
               {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
                 <DrawingLayer 
                   chart={chartInstanceRef.current} 
@@ -625,7 +492,6 @@ export default function DemoPage() {
               )}
             </div>
           </div>
-          
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
@@ -636,10 +502,7 @@ export default function DemoPage() {
               if (!user) return;
               try {
                 const token = await user.getIdToken();
-                await fetch(`/api/terminal/alerts?id=${id}`, {
-                  method: 'DELETE',
-                  headers: { Authorization: `Bearer ${token}` }
-                });
+                await fetch(`/api/terminal/alerts?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
                 toast({ title: "Alert Removed" });
               } catch (e) {}
             }} 
@@ -666,20 +529,10 @@ export default function DemoPage() {
                  <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
               </div>
               <div className="space-y-4">
-                <button 
-                  type="button" 
-                  onClick={() => placeTrade('buy')} 
-                  disabled={actionLoading || !isPriceValid} 
-                  className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
                   {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
                 </button>
-                <button 
-                  type="button" 
-                  onClick={() => placeTrade('sell')} 
-                  disabled={actionLoading || !isPriceValid} 
-                  className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
+                <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
                   {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
                 </button>
               </div>
@@ -688,38 +541,17 @@ export default function DemoPage() {
       </div>
 
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
-      
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Set Price Alert</DialogTitle>
-          </DialogHeader>
-          <div className="p-6">
-            <Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>
-              CREATE ALERT
-            </Button>
-          </div>
+          <DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader>
+          <div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div>
         </DialogContent>
       </Dialog>
-
       <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
         <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Clear All Drawings</DialogTitle>
-          </DialogHeader>
-          <div className="p-6 space-y-4">
-            <p className="text-sm text-zinc-400">
-              This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.
-            </p>
-          </div>
-          <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2">
-            <Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>
-              Clear All
-            </Button>
-          </DialogFooter>
+          <DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader>
+          <div className="p-6 space-y-4"><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div>
+          <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

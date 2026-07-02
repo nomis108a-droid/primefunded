@@ -7,15 +7,6 @@ import { Timestamp } from 'firebase-admin/firestore';
  * Processes market orders for demo environments with strict risk guardrails.
  */
 
-const YAHOO_MAP: Record<string, string> = {
-  'XAUUSD': 'GC=F',
-  'BTCUSD': 'BTC-USD',
-  'ETHUSD': 'ETH-USD',
-  'EURUSD': 'EURUSD=X',
-  'GBPUSD': 'GBPUSD=X',
-  'USDJPY': 'JPY=X',
-};
-
 const MAX_LOTS: Record<string, number> = {
   '10k': 0.5,
   '25k': 1.25,
@@ -35,9 +26,7 @@ export async function POST(req: NextRequest) {
       // 1. Verify User Identity
       const decoded = await getAdminAuth().verifyIdToken(token);
       uid = decoded.uid;
-      console.log(`[Trade-API] Token verified successfully for UID: ${uid}`);
     } catch (err: any) {
-      // Detailed logging for server-side troubleshooting
       console.error('[Trade-API] Token verification failed:', err.code || 'UNKNOWN_ERROR', err.message);
       return NextResponse.json({ 
         error: "Execution Failed: Invalid or expired session", 
@@ -67,14 +56,21 @@ export async function POST(req: NextRequest) {
     if (status !== "active") return NextResponse.json({ error: `Account is currently ${status} and locked for execution.` }, { status: 400 });
 
     // 2. EXECUTION FREQUENCY RULE: 3 Minute minimum between trades
+    // Simplified: Fetch and sort in memory to avoid missing composite index errors
     const lastTradesSnap = await db.collection("demoTrades")
       .where("accountId", "==", accountId)
-      .orderBy("openedAt", "desc")
-      .limit(1)
       .get();
     
     if (!lastTradesSnap.empty) {
-      const latestTrade = lastTradesSnap.docs[0].data();
+      const sortedTrades = lastTradesSnap.docs
+        .map(d => d.data())
+        .sort((a: any, b: any) => {
+          const dateA = a.openedAt?.toDate?.() || (a.openedAt?.seconds ? new Date(a.openedAt.seconds * 1000) : new Date(a.openedAt));
+          const dateB = b.openedAt?.toDate?.() || (b.openedAt?.seconds ? new Date(b.openedAt.seconds * 1000) : new Date(b.openedAt));
+          return dateB.getTime() - dateA.getTime();
+        });
+
+      const latestTrade = sortedTrades[0];
       if (latestTrade && latestTrade.openedAt) {
         const timeVal = latestTrade.openedAt.toDate ? latestTrade.openedAt.toDate().getTime() : (latestTrade.openedAt.seconds ? latestTrade.openedAt.seconds * 1000 : new Date(latestTrade.openedAt).getTime());
         const diffMs = Date.now() - timeVal;
@@ -123,8 +119,6 @@ export async function POST(req: NextRequest) {
       ip: req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || 'unknown',
       userAgent: req.headers.get('user-agent') || 'unknown',
     });
-
-    console.log(`[Trade-API] Trade executed: ${tradeRef.id} for UID: ${uid}`);
 
     return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: executionPrice });
   } catch (error: any) {
