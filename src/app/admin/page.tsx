@@ -15,13 +15,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2
 } from 'lucide-react';
-import { fetchAdminTerminalData, advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction } from './actions';
+import { advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, Firestore } from 'firebase/firestore';
+
+/**
+ * CLIENT-SIDE SYNC ENGINE
+ * Replaces Server Action sync to bypass Admin SDK credential issues in dev environments.
+ */
+async function fetchAdminTerminalDataClient(firestore: Firestore) {
+  const collections = [
+    'users', 'orders', 'payouts', 'referrals', 'broadcasts', 'breaches', 'demoAccounts', 'demoTrades'
+  ];
+  
+  const results: any = {};
+  
+  await Promise.all(collections.map(async (colName) => {
+    try {
+      let q: any = collection(firestore, colName);
+      if (colName === 'demoTrades') {
+        q = query(collection(firestore, colName), orderBy('openedAt', 'desc'), limit(200));
+      }
+        
+      const snap = await getDocs(q);
+      results[colName] = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (e) {
+      console.warn(`[AdminSync] Could not fetch ${colName}:`, e);
+      results[colName] = [];
+    }
+  }));
+  
+  return { ...results, success: true };
+}
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -67,62 +96,17 @@ export default function AdminPage() {
   const [isUserDetailModalOpen, setIsUserDetailModalOpen] = useState(false);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
 
-  const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'announcement' });
-
-  /**
-   * RECOVERY SYNC: Client-Side Fetch
-   * Used as a fallback if the Admin SDK (Server Action) fails in the dev environment.
-   */
-  const clientSideSync = async () => {
-    try {
-      const collections = [
-        'users', 'orders', 'payouts', 'referrals', 'broadcasts', 'breaches', 'demoAccounts', 'demoTrades'
-      ];
-      
-      const results: any = {};
-      
-      await Promise.all(collections.map(async (colName) => {
-        let q: any = collection(db, colName);
-        if (colName === 'demoTrades') {
-          q = query(collection(db, colName), orderBy('openedAt', 'desc'), limit(500));
-        }
-          
-        const snap = await getDocs(q);
-        results[colName] = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      }));
-      
-      results.success = true;
-      setAdminData(results);
-      toast({ title: "Client-Side Sync Active", description: "Dashboard synchronized via browser credentials." });
-    } catch (err: any) {
-      console.error("[Admin] Client-Side Sync Failed:", err);
-      toast({ 
-        variant: "destructive", 
-        title: "Sync Blocked", 
-        description: "You must be signed in as an authorized admin email to fetch data from this environment." 
-      });
-    }
-  };
-
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetchAdminTerminalData();
+      // Use Client-Side SDK for data retrieval to bypass Server Action credential bottlenecks
+      const res = await fetchAdminTerminalDataClient(db);
       if (res && res.success) {
         setAdminData(res);
-      } else {
-        // DETECT CREDENTIAL FAILURE: If Server Action fails with metadata/token error, trigger Client-Side Fallback
-        if (res && res.error && (res.error.includes('metadata') || res.error.includes('token') || res.error.includes('500'))) {
-          console.warn("[Admin] Server Action Credentials Missing. Falling back to Client-Side SDK...");
-          await clientSideSync();
-        } else if (res && res.error) {
-          toast({ variant: "destructive", title: "Sync Error", description: res.error });
-        }
       }
     } catch (err: any) {
-      // Fallback for direct network faults
-      console.warn("[Admin] Server Action Unreachable. Falling back to Client-Side SDK...");
-      await clientSideSync();
+      console.error("[Admin] Sync fault:", err);
+      toast({ variant: "destructive", title: "Sync Error", description: "Insufficient administrative permissions." });
     } finally {
       setIsLoading(false);
     }
@@ -145,16 +129,11 @@ export default function AdminPage() {
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === "93463962569392846256") {
-      // 1. Persist local auth
       localStorage.setItem('adminVerified', 'true');
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       setAdminError("");
-      
-      // 2. IMMEDIATE ACCESS - DO NOT WAIT FOR DATA
       setIsAuthenticated(true);
       setShowAdminModal(false);
-      
-      // 3. FETCH IN BACKGROUND
       refreshData();
     } else {
       setAdminError("❌ Access Denied");
@@ -216,21 +195,6 @@ export default function AdminPage() {
     );
   }, [adminData.users, searchTerm]);
 
-  const handleAction = async (action: () => Promise<any>, successMsg: string) => {
-    setActionLoading(true);
-    try {
-      const res = await action();
-      if (res.success) {
-        toast({ title: successMsg });
-        refreshData();
-      } else throw new Error(res.error);
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Action Failed", description: err.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const handleViewUserDetail = async (userId: string) => {
     setUserDetailLoading(true);
     setIsUserDetailModalOpen(true);
@@ -286,18 +250,20 @@ export default function AdminPage() {
           </div>
           
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="bg-secondary/50 h-11 p-1 rounded-xl w-max">
-              <TabsTrigger value="overview" className="px-6 font-bold">Overview</TabsTrigger>
-              <TabsTrigger value="demo_nodes" className="px-6 font-bold">Trading Nodes</TabsTrigger>
-              <TabsTrigger value="passers" className="px-6 font-bold">Phase Passers</TabsTrigger>
-              <TabsTrigger value="orders" className="px-6 font-bold">Order Review</TabsTrigger>
-              <TabsTrigger value="payouts" className="px-6 font-bold">Payout Hub</TabsTrigger>
-              <TabsTrigger value="users" className="px-6 font-bold">User Directory</TabsTrigger>
-              <TabsTrigger value="referrals" className="px-6 font-bold">Referral Audit</TabsTrigger>
-              <TabsTrigger value="broadcasts" className="px-6 font-bold">Broadcasts</TabsTrigger>
-              <TabsTrigger value="kyc" className="px-6 font-bold">KYC Hub</TabsTrigger>
-              <TabsTrigger value="breaches" className="px-6 font-bold">Breaches</TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto no-scrollbar pb-2">
+              <TabsList className="bg-secondary/50 h-11 p-1 rounded-xl w-max flex">
+                <TabsTrigger value="overview" className="px-6 font-bold whitespace-nowrap">Overview</TabsTrigger>
+                <TabsTrigger value="demo_nodes" className="px-6 font-bold whitespace-nowrap">Trading Nodes</TabsTrigger>
+                <TabsTrigger value="passers" className="px-6 font-bold whitespace-nowrap">Phase Passers</TabsTrigger>
+                <TabsTrigger value="orders" className="px-6 font-bold whitespace-nowrap">Order Review</TabsTrigger>
+                <TabsTrigger value="payouts" className="px-6 font-bold whitespace-nowrap">Payout Hub</TabsTrigger>
+                <TabsTrigger value="users" className="px-6 font-bold whitespace-nowrap">User Directory</TabsTrigger>
+                <TabsTrigger value="referrals" className="px-6 font-bold whitespace-nowrap">Referral Audit</TabsTrigger>
+                <TabsTrigger value="broadcasts" className="px-6 font-bold whitespace-nowrap">Broadcasts</TabsTrigger>
+                <TabsTrigger value="kyc" className="px-6 font-bold whitespace-nowrap">KYC Hub</TabsTrigger>
+                <TabsTrigger value="breaches" className="px-6 font-bold whitespace-nowrap">Breaches</TabsTrigger>
+              </TabsList>
+            </div>
           </Tabs>
         </div>
 
