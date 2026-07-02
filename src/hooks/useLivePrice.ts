@@ -38,17 +38,18 @@ export function useLivePrices(symbols: string[]) {
 
     /**
      * Set up the Firestore listener and return the unsubscribe function.
+     * Captured variables: upperSymbols, db
      */
     const subscribeToLivePrices = () => {
       // Direct collection listener is most efficient for a terminal with multiple active widgets
       return onSnapshot(collection(db, 'livePrices'), (snap) => {
-        const updatedPrices: Record<string, LivePrice> = {};
+        const nextPrices: Record<string, LivePrice> = {};
         
         snap.docs.forEach((d) => {
           const docId = d.id.toUpperCase();
           if (upperSymbols.includes(docId)) {
             const data = d.data();
-            updatedPrices[docId] = {
+            nextPrices[docId] = {
               symbol: docId,
               price: Number(data.price) || 0,
               bid: Number(data.bid) || Number(data.price) || 0,
@@ -58,8 +59,8 @@ export function useLivePrices(symbols: string[]) {
           }
         });
         
-        // Atomic update of the entire state object to trigger a single re-render
-        setPrices(prev => ({ ...prev, ...updatedPrices }));
+        // Fully replace state with the current snapshot data for requested symbols
+        setPrices(nextPrices);
       }, (err) => {
         console.error('[useLivePrices] Subscription error:', err);
         if (err.code === 'permission-denied') {
@@ -77,7 +78,7 @@ export function useLivePrices(symbols: string[]) {
     // 2. Visibility change handler
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Tear down the old listener and re-subscribe fresh
+        // Tear down the old listener and re-subscribe fresh to force a data pull
         unsubRef.current?.();
         unsubRef.current = subscribeToLivePrices();
       }
