@@ -1,6 +1,13 @@
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
+
+/**
+ * @fileOverview Institutional Demo Audit Engine (V2)
+ * Evaluates internal demo accounts and trades against prop firm risk protocols.
+ * ENFORCES: 1% single floating loss, 3% daily drawdown, 6% max drawdown, 2m duration, 3m spacing.
+ */
 
 type TradeRecord = {
   id: string;
@@ -12,6 +19,7 @@ type TradeRecord = {
   lots?: number;
   symbol?: string;
   openPrice?: number;
+  ref: any;
   [key: string]: any;
 };
 
@@ -19,11 +27,12 @@ const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
 };
 
-/**
- * INSTITUTIONAL DEMO AUDIT ENGINE
- * Evaluates internal demo accounts and trades against prop firm risk protocols.
- * ENFORCES: 1% single floating loss, 3% daily drawdown, 6% max drawdown, 2m duration, 3m spacing.
- */
+function getTradeDate(time: any) {
+  if (!time) return null;
+  if (time.toDate) return time.toDate();
+  return new Date(time);
+}
+
 export async function auditDemoAccount(accountId: string) {
   const db = getAdminDb();
   const accRef = db.collection('demoAccounts').doc(accountId);
@@ -55,7 +64,7 @@ export async function auditDemoAccount(accountId: string) {
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
 
-  // 2. Calculate Real-time Equity & Floating Loss
+  // 2. Calculate Real-time Equity & Floating Loss (FIX 12)
   let totalFloatingPnl = 0;
   let maxSingleFloatingLoss = 0;
 
@@ -63,7 +72,7 @@ export async function auditDemoAccount(accountId: string) {
     const priceData = prices[t.symbol?.toUpperCase() || ''];
     if (!priceData) continue;
 
-    const exitPrice = t.type === 'buy' ? priceData.bid : priceData.ask;
+    const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
     
@@ -84,13 +93,13 @@ export async function auditDemoAccount(accountId: string) {
   // ── RULE 2: Daily Drawdown (3% of start balance) ──────────────
   const now = new Date();
   const sessionStart = new Date(now);
-  sessionStart.setUTCHours(2, 0, 0, 0); // 2:00 AM UTC reset
+  sessionStart.setUTCHours(2, 0, 0, 0); 
   if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1);
 
   let realizedLossToday = 0;
   closedTrades.forEach(t => {
-    const closedAt = t.closedAt?.toDate ? t.closedAt.toDate() : new Date(t.closedAt);
-    if (closedAt >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
+    const closedDate = getTradeDate(t.closedAt);
+    if (closedDate && closedDate >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
       realizedLossToday += Math.abs(parseFloat(String(t.pnl)));
     }
   });
@@ -115,12 +124,14 @@ export async function auditDemoAccount(accountId: string) {
   // ── RULE 5: Trade Duration (Min 2m) ──────────────────────────
   if (!breachReason) {
     for (const t of closedTrades) {
-      const open = t.openedAt?.toDate ? t.openedAt.toDate() : new Date(t.openedAt);
-      const close = t.closedAt?.toDate ? t.closedAt.toDate() : new Date(t.closedAt);
-      const duration = (close.getTime() - open.getTime()) / 1000;
-      if (duration < universal.minTradeDurationSeconds) {
-        breachReason = `Duration violation: Trade held for ${duration.toFixed(0)}s (Min 2m)`;
-        break;
+      const open = getTradeDate(t.openedAt);
+      const close = getTradeDate(t.closedAt);
+      if (open && close) {
+        const duration = (close.getTime() - open.getTime()) / 1000;
+        if (duration < universal.minTradeDurationSeconds) {
+          breachReason = `Duration violation: Trade ${t.id} held for ${duration.toFixed(0)}s (Min 2m)`;
+          break;
+        }
       }
     }
   }
@@ -138,7 +149,7 @@ export async function auditDemoAccount(accountId: string) {
 
     for (const t of openTrades) {
       const priceData = prices[t.symbol?.toUpperCase() || ''];
-      const exitPrice = priceData ? (t.type === 'buy' ? priceData.bid : priceData.ask) : t.openPrice;
+      const exitPrice = priceData ? (t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price)) : t.openPrice;
       const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
       const finalPnl = priceData ? (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize : 0;
 
@@ -153,17 +164,18 @@ export async function auditDemoAccount(accountId: string) {
 
     batch.update(db.collection('users').doc(userId), { accountStatus: 'breached' });
 
-    batch.set(db.collection('breaches').doc(`demo_${accountId}_${Date.now()}`), {
+    batch.set(db.collection('breaches').doc(), {
       accountId, userId, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), planType, phase
     });
 
-    batch.set(db.collection('notifications').doc(), {
+    batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
       userId, type: 'account_breached', title: '❌ Account Breached', 
       message: `Your demo account has been liquidated: ${breachReason}`, 
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
 
     await batch.commit();
+    sendBreachEmail(account.email || userId, breachReason);
     return { breached: true, reason: breachReason };
   }
 
@@ -172,12 +184,13 @@ export async function auditDemoAccount(accountId: string) {
     const batch = db.batch();
     batch.update(accRef, { status: 'passed', passedAt: FieldValue.serverTimestamp(), readyForNextPhase: true });
     batch.update(db.collection('users').doc(userId), { accountStatus: 'passed' });
-    batch.set(db.collection('notifications').doc(), {
+    batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
       userId, type: 'phase_passed', title: '✅ Challenge Passed!', 
       message: `Congratulations! You reached the profit target. Admin will review your performance.`, 
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
     await batch.commit();
+    sendChallengePassEmail(account.email || userId, account.name || "Trader", pKey, size);
     return { passed: true };
   }
 
@@ -186,10 +199,6 @@ export async function auditDemoAccount(accountId: string) {
   return { status: 'active', equity: currentEquity };
 }
 
-/**
- * Global Risk Auditor
- * Scans all active demo accounts for rule compliance.
- */
 export async function runDemoAudit() {
   const db = getAdminDb();
   const demoSnap = await db.collection('demoAccounts').where('status', '==', 'active').get();

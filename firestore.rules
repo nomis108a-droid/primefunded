@@ -10,89 +10,82 @@ service cloud.firestore {
       );
     }
 
-    // PUBLIC LIQUIDITY: The price tracker (Admin) writes here, and all Terminals read.
-    match /livePrices/{symbol} {
+    // PUBLIC READ ACCESS: Opened for Admin Dashboard Synchronization
+    // Protected by Master Password in the UI layer.
+    match /{document=**} {
       allow read: if true;
-      allow write: if true;
     }
 
+    // SECURE WRITES: Only Admins can modify global settings and accounts
     match /settings/{document=**} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
-    // ADMIN COLLECTIONS - OPENED FOR READ (Protected by master password in UI)
+    match /livePrices/{symbol} {
+      allow write: if true;
+    }
+
     match /demoAccounts/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /demoTrades/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /alerts/{id} {
-      allow read: if true;
       allow delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow update: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
     }
 
     match /referrals/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /payouts/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /orders/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /breaches/{id} {
-      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /certificates/{id} {
       allow write: if isAdmin();
     }
 
     match /notifications/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /referralCodes/{code} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /broadcasts/{id} {
-      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /users/{userId} {
-      allow read: if true;
       allow create: if request.auth != null;
       allow update: if isAdmin() || (request.auth != null && request.auth.uid == userId);
 
       match /{subcollection=**} {
-        allow read: if true;
         allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
       }
     }
     
     match /error_logs/{id} {
       allow create: if true;
-      allow read: if isAdmin();
     }
     
     match /activity_logs/{id} {
       allow create: if request.auth != null;
-      allow read: if isAdmin();
     }
   }
 }

@@ -9,8 +9,8 @@ import {
 } from '@/components/ui/popover';
 import { useAuth } from '@/context/AuthContext';
 import { useCollection, useFirestore } from '@/firebase';
-import { orderBy, limit, doc, updateDoc, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
-import { useMemo, useState } from 'react';
+import { orderBy, limit, doc, updateDoc, writeBatch, collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
+import { useMemo, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
@@ -19,26 +19,29 @@ export function NotificationBell() {
   const { user } = useAuth();
   const db = useFirestore();
   const [isOpen, setIsOpen] = useState(false);
+  const [localNotifications, setLocalNotifications] = useState<any[]>([]);
 
-  // FIXED: Limit to 10 and ensure correct ordering as requested
-  const constraints = useMemo(() => [
-    orderBy('createdAt', 'desc'),
-    limit(10)
-  ], []);
-
-  const { data: notifications, loading } = useCollection<any>(
-    user ? `users/${user.uid}/notifications` : null,
-    constraints
-  );
+  useEffect(() => {
+    if (!user || !db) return;
+    const q = query(
+      collection(db, 'users', user.uid, 'notifications'),
+      orderBy('createdAt', 'desc'),
+      limit(10)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setLocalNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [user, db]);
 
   const unreadCount = useMemo(() => 
-    notifications.filter(n => !n.isRead && n.read !== true).length
-  , [notifications]);
+    localNotifications.filter(n => !n.isRead).length
+  , [localNotifications]);
 
   const handleMarkAsRead = async (id: string) => {
     if (!user) return;
     const ref = doc(db, 'users', user.uid, 'notifications', id);
-    updateDoc(ref, { isRead: true, read: true });
+    updateDoc(ref, { isRead: true });
   };
 
   const handleMarkAllAsRead = async () => {
@@ -50,7 +53,7 @@ export function NotificationBell() {
     const snapshot = await getDocs(q);
     const batch = writeBatch(db);
     snapshot.docs.forEach((d) => {
-      batch.update(d.ref, { isRead: true, read: true });
+      batch.update(d.ref, { isRead: true });
     });
     await batch.commit();
   };
@@ -80,29 +83,24 @@ export function NotificationBell() {
           )}
         </div>
         <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-          {loading ? (
-            <div className="p-10 text-center flex flex-col items-center">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mb-2" />
-              <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Updating feed...</p>
-            </div>
-          ) : notifications.length === 0 ? (
+          {localNotifications.length === 0 ? (
             <div className="p-12 text-center flex flex-col items-center opacity-40">
               <Bell className="w-8 h-8 mb-2 text-muted-foreground" />
               <p className="text-[10px] uppercase font-bold tracking-widest">No new alerts</p>
             </div>
           ) : (
             <div className="divide-y divide-border/30">
-              {notifications.map((n) => (
+              {localNotifications.map((n) => (
                 <div 
                   key={n.id} 
                   className={cn(
                     "p-4 transition-all cursor-pointer group relative",
-                    (!n.isRead && n.read !== true) ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-secondary/20"
+                    !n.isRead ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-secondary/20"
                   )}
                   onClick={() => handleMarkAsRead(n.id)}
                 >
                   <div className="flex justify-between items-start gap-2 mb-1">
-                    <p className={cn("text-[11px] font-black uppercase tracking-tight", (!n.isRead && n.read !== true) ? "text-white" : "text-muted-foreground")}>
+                    <p className={cn("text-[11px] font-black uppercase tracking-tight", !n.isRead ? "text-white" : "text-muted-foreground")}>
                       {n.title}
                     </p>
                     <span className="text-[8px] font-bold text-muted-foreground uppercase whitespace-nowrap pt-0.5">
@@ -112,7 +110,7 @@ export function NotificationBell() {
                   <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2 pr-4">
                     {n.message}
                   </p>
-                  {(!n.isRead && n.read !== true) && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary" />}
+                  {!n.isRead && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary" />}
                 </div>
               ))}
             </div>

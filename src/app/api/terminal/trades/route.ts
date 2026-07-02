@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditDemoAccount } from '@/lib/rulesEngine';
+import { sendEmail } from '@/lib/email';
 
 /**
  * @fileOverview Institutional Order Execution API
- * Processes market orders for demo environments with strict risk guardrails.
+ * Processes market orders for demo environments with strict risk guardrails and commission engine.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -44,15 +45,15 @@ export async function POST(req: NextRequest) {
 
     const lots = parseFloat(String(rawLots));
     const executionPrice = parseFloat(String(clientPrice));
-
     const db = getAdminDb();
+    
+    // FIX 5: Simplified query fetch
     const accRef = db.collection("demoAccounts").doc(accountId);
     const accSnap = await accRef.get();
     
     if (!accSnap.exists) return NextResponse.json({ error: "Trading account not found" }, { status: 404 });
     const account = accSnap.data()!;
     if (account.userId !== uid) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
-    
     if (account.status !== "active") return NextResponse.json({ error: `Account is ${account.status}` }, { status: 400 });
 
     // 1. Lot Size Validation
@@ -62,34 +63,62 @@ export async function POST(req: NextRequest) {
       const num = parseInt(rawPlan.replace(/[^0-9]/g, ''));
       if (!isNaN(num)) planKey = `${num / 1000}k`;
     }
-    
     const maxAllowed = MAX_LOTS[planKey] || 0.5;
     if (lots > maxAllowed) {
       return NextResponse.json({ error: `Institutional Lot Violation: Max ${maxAllowed} for ${rawPlan}` }, { status: 400 });
     }
 
-    // 2. Record Trade
-    const tradeRef = await db.collection("demoTrades").add({
-      userId: uid,
-      accountId,
-      symbol: symbol.toUpperCase(),
-      type,
-      lots,
-      openPrice: executionPrice,
-      sl: sl ? parseFloat(String(sl)) : null,
-      tp: tp ? parseFloat(String(tp)) : null,
-      status: "open",
-      pnl: 0,
-      openedAt: Timestamp.now(),
-      closedAt: null,
-      closePrice: null,
+    // 2. Commission Engine (FIX 7)
+    const commission = (() => {
+      const sym = symbol.toUpperCase();
+      const isForex = !['XAUUSD','BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD','XAGUSD','XPTUSD'].includes(sym);
+      const isGold = sym === 'XAUUSD';
+      const isCrypto = ['BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD'].includes(sym);
+      
+      if (isForex) return lots * 5; // $5 per lot
+      if (isGold) return lots * 0.30; // $0.30 per lot
+      if (isCrypto) return (lots * executionPrice) * 0.0005; // 0.05%
+      return 0;
+    })();
+
+    // 3. Atomic Order Entry
+    const tradeRef = db.collection("demoTrades").doc();
+    await db.runTransaction(async (tx) => {
+      tx.set(tradeRef, {
+        userId: uid,
+        accountId,
+        symbol: symbol.toUpperCase(),
+        type,
+        lots,
+        openPrice: executionPrice,
+        commission,
+        sl: sl ? parseFloat(String(sl)) : null,
+        tp: tp ? parseFloat(String(tp)) : null,
+        status: "open",
+        pnl: 0,
+        openedAt: Timestamp.now(),
+        closedAt: null,
+        closePrice: null,
+      });
+
+      // Deduct commission from balance immediately
+      tx.update(accRef, {
+        balance: FieldValue.increment(-commission),
+        updatedAt: FieldValue.serverTimestamp()
+      });
     });
 
-    // 3. RUN AUDIT IMMEDIATELY
-    const audit = await auditDemoAccount(accountId);
-    if (audit?.breached) {
-      return NextResponse.json({ error: "Account Liquidated", details: audit.reason }, { status: 403 });
-    }
+    // 4. Verification Notification
+    await db.collection('users').doc(uid).collection('notifications').add({
+      title: '📈 Trade Opened',
+      message: `${type.toUpperCase()} ${lots} ${symbol} @ ${executionPrice.toFixed(5)}`,
+      type: 'trade_opened',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    // 5. Audit Engine Call
+    await auditDemoAccount(accountId);
 
     return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: executionPrice });
   } catch (error: any) {

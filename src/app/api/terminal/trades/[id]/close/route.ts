@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditDemoAccount } from '@/lib/rulesEngine';
+import { sendEmail } from '@/lib/email';
 
 const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
@@ -64,6 +65,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         balance: FieldValue.increment(pnl),
         updatedAt: FieldValue.serverTimestamp()
       });
+    });
+
+    // Notify User
+    await db.collection('users').doc(uid).collection('notifications').add({
+      title: '💼 Position Closed',
+      message: `${trade.symbol} closed at ${closePrice?.toFixed(5)}. PnL: $${pnl.toFixed(2)}`,
+      type: 'trade_closed',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
     });
 
     // RUN AUDIT IMMEDIATELY

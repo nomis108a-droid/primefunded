@@ -10,21 +10,19 @@ import {
   RefreshCw,
   Clock,
   ShieldCheck,
-  Server,
   Fingerprint,
   Activity,
   AlertTriangle
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { onSnapshot, collection, doc, setDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { onSnapshot, collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
 /**
  * @fileOverview Institutional Price Monitor & Liquidity Bridge
- * This page acts as the primary broadcast node for the terminal.
- * When open, it polls liquidity at high frequency and updates Firestore.
+ * Fix 2: Animated Mini-Charts with Price History
  */
 
 const SYMBOLS = [
@@ -63,7 +61,7 @@ const MiniChart = memo(({ history }: { history: number[] }) => {
           strokeLinecap="round"
           strokeLinejoin="round"
           points={points}
-          className="drop-shadow-[0_0_5px_rgba(17,179,245,0.5)]"
+          className="drop-shadow-[0_0_5px_rgba(17,179,245,0.5)] transition-all duration-300"
         />
       </svg>
     </div>
@@ -75,7 +73,7 @@ MiniChart.displayName = 'MiniChart';
 export default function AdminPriceTracker() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
-  const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
+  const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({}); // FIX 2
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const { toast } = useToast();
@@ -85,10 +83,6 @@ export default function AdminPriceTracker() {
     setIsAuthenticated(isVerified);
   }, []);
 
-  /**
-   * LIQUIDITY BRIDGE ENGINE
-   * Polls external APIs and broadcasts to Firestore.
-   */
   const syncLiquidity = useCallback(async () => {
     if (isSyncing) return;
     setIsSyncing(true);
@@ -100,7 +94,6 @@ export default function AdminPriceTracker() {
       const updateTime = new Date();
       setLastSync(updateTime);
 
-      // Broadcast to Firestore
       for (const [symbol, priceData] of Object.entries(data)) {
         const sym = symbol.toUpperCase();
         if (SYMBOLS.includes(sym)) {
@@ -119,15 +112,13 @@ export default function AdminPriceTracker() {
     }
   }, [isSyncing]);
 
-  // High-frequency polling when tab is active
   useEffect(() => {
     if (!isAuthenticated) return;
     syncLiquidity();
-    const interval = setInterval(syncLiquidity, 3000);
+    const interval = setInterval(syncLiquidity, 2000);
     return () => clearInterval(interval);
   }, [isAuthenticated, syncLiquidity]);
 
-  // Real-time listener for UI state and Charting
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -145,10 +136,8 @@ export default function AdminPriceTracker() {
             if (data.price) {
               const currentHist = next[docId] || [];
               const lastPoint = currentHist[currentHist.length - 1];
-              
-              // Only add if price changed to keep chart clean
               if (lastPoint !== data.price) {
-                next[docId] = [...currentHist, data.price].slice(-60);
+                next[docId] = [...currentHist, data.price].slice(-60); // Keep 60 points
               }
             }
           }
@@ -171,9 +160,6 @@ export default function AdminPriceTracker() {
       </div>
     );
   }
-
-  const isOandaOnline = prices["XAUUSD"]?.price > 0;
-  const isBinanceOnline = prices["BTCUSD"]?.price > 0;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -202,58 +188,10 @@ export default function AdminPriceTracker() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-12">
-          <Card className="lg:col-span-2 relative overflow-hidden bg-emerald-500/5 border-emerald-500/20 shadow-2xl">
-             <div className="p-6 flex items-start gap-4">
-                <div className="p-3 bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
-                   <ShieldCheck className="w-8 h-8 shrink-0 text-emerald-500" />
-                </div>
-                <div>
-                   <h3 className="font-black text-sm uppercase tracking-tight mb-1 text-emerald-500">
-                     Autonomous Liquidity Engine
-                   </h3>
-                   <p className="text-zinc-300 text-xs leading-relaxed font-medium">
-                     Market data is automatically synchronized by the server-side cron engine every minute. This browser node provides high-frequency (2s) updates while active.
-                   </p>
-                </div>
-             </div>
-          </Card>
-
-          <Card className="bg-card/40 border-border/50">
-            <div className="p-6 flex flex-col justify-center items-center h-full">
-               <p className="text-[10px] font-black text-zinc-500 uppercase mb-2">Feed Status</p>
-               <div className="flex flex-col gap-2 w-full">
-                  <div className="flex justify-between items-center bg-zinc-950/50 p-2 rounded-lg border border-white/5">
-                    <span className="text-[10px] font-bold text-white">OANDA (FX)</span>
-                    <Badge className={cn("h-4 px-2 text-[8px] font-black", isOandaOnline ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>
-                      {isOandaOnline ? 'ONLINE' : 'OFFLINE'}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center bg-zinc-950/50 p-2 rounded-lg border border-white/5">
-                    <span className="text-[10px] font-bold text-white">BINANCE (CRYPTO)</span>
-                    <Badge className={cn("h-4 px-2 text-[8px] font-black", isBinanceOnline ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>
-                      {isBinanceOnline ? 'ONLINE' : 'OFFLINE'}
-                    </Badge>
-                  </div>
-               </div>
-            </div>
-          </Card>
-
-          <Card className="bg-card/40 border-border/50">
-            <div className="p-6 text-center flex flex-col justify-center items-center h-full">
-               <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Local Pulse</p>
-               <h4 className="text-2xl font-headline font-bold text-white tabular-nums flex items-center gap-2">
-                 <Clock className="w-4 h-4 text-primary" />
-                 {lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}
-               </h4>
-               <p className="text-[8px] text-zinc-600 font-bold uppercase mt-1">Updates every 3s</p>
-            </div>
-          </Card>
-        </div>
-
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-20">
           {SYMBOLS.map(sym => {
             const data = prices[sym];
+            const history = priceHistory[sym] || [];
             const priceFormatted = data?.price ? data.price.toLocaleString(undefined, { 
               minimumFractionDigits: sym.includes('JPY') ? 3 : (sym.includes('USD') && !['BTCUSD', 'ETHUSD', 'BNBUSD'].includes(sym) ? 5 : 2) 
             }) : '---';
@@ -267,18 +205,11 @@ export default function AdminPriceTracker() {
                       {priceFormatted}
                     </span>
                   </div>
-                  <MiniChart history={priceHistory[sym] || []} />
+                  <MiniChart history={history} />
                 </div>
               </Card>
             );
           })}
-        </div>
-
-        <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 flex items-center gap-3">
-          <Activity className="w-4 h-4 text-primary animate-pulse" />
-          <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
-            Trading nodes are currently listening to this heartbeat. Maintain this window for high-performance terminal liquidity.
-          </p>
         </div>
       </main>
     </div>
