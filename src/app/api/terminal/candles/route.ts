@@ -26,6 +26,12 @@ const BINANCE_INTERVALS: Record<string, string> = {
   "1h": "1h", "4h": "4h", "1day": "1d", "1week": "1w", "1month": "1M"
 };
 
+/**
+ * Institutional Cache Layer
+ * Stores real non-synthetic data for 30s to prevent synthetic fallback flickering.
+ */
+const realCandleCache = new Map<string, { candles: any[], timestamp: number }>();
+
 function generateSyntheticCandles(symbol: string, count: number) {
   const candles = [];
   const secs = 60;
@@ -56,6 +62,7 @@ export async function GET(req: NextRequest) {
   const interval = (searchParams.get("interval") || "1min").toLowerCase();
   const limit = Math.min(parseInt(searchParams.get("limit") || "300"), 1000);
 
+  const cacheKey = `${symbol}-${interval}`;
   let candles: any[] = [];
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 7000);
@@ -116,16 +123,28 @@ export async function GET(req: NextRequest) {
     }
 
     if (candles.length > 0) {
+      realCandleCache.set(cacheKey, { candles, timestamp: Date.now() });
       return NextResponse.json({ candles, isFallback: false });
     }
 
-    // 3. Fallback: Synthetic
+    // 3. Fallback Check: Use last real data from cache if available (within 30s)
+    const cached = realCandleCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 30000) {
+      return NextResponse.json({ candles: cached.candles, isFallback: false });
+    }
+
+    // 4. Fallback: Synthetic
     return NextResponse.json({
       candles: generateSyntheticCandles(symbol, limit),
       isFallback: true
     });
 
   } catch (error) {
+    // Final desperate fallback to cache or synthetic
+    const cached = realCandleCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < 30000) {
+       return NextResponse.json({ candles: cached.candles, isFallback: false });
+    }
     return NextResponse.json({ 
       candles: generateSyntheticCandles(symbol, 100), 
       isFallback: true

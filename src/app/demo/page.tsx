@@ -209,7 +209,13 @@ export default function DemoPage() {
           }
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
-          currentCandleRef.current = { ...sorted[sorted.length - 1] };
+          
+          // BUG FIX 1: Guarded assignment. Only set history as "current" if it's actually newer than our live one.
+          const lastHistCandle = sorted[sorted.length - 1];
+          if (!currentCandleRef.current || lastHistCandle.time > currentCandleRef.current.time) {
+            currentCandleRef.current = { ...lastHistCandle };
+          }
+          
           oldestTimestamp.current = sorted[0].time;
         }
       } catch (err: any) { if (isMounted && !cached) setChartError(err.message); } finally { if (isMounted) setIsChartLoading(false); }
@@ -388,6 +394,11 @@ export default function DemoPage() {
             <Image src={branding.logoUrl} alt="Logo" width={24} height={24} className="rounded-full" />
             <span className="font-bold text-sm tracking-tight text-white">PrimeFunded Trade</span>
           </div>
+          {isFallbackData && (
+            <Badge variant="outline" className="h-6 px-2 text-[8px] font-black bg-amber-500/10 text-amber-500 border-amber-500/30 uppercase">
+              <AlertTriangle className="w-2.5 h-2.5 mr-1" /> Simulated Data
+            </Badge>
+          )}
           <Link href="/dashboard" className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-6 h-12">
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
           </Link>
