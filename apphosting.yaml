@@ -1,3 +1,4 @@
+
 # Firebase App Hosting Configuration
 # Documentation: https://firebase.google.com/docs/app-hosting/configure
 
@@ -32,6 +33,17 @@ env:
     value: 1:667427838842:web:bc1a55f81c2f032cfc54c3
   - variable: NEXT_PUBLIC_FIREBASE_DATABASE_URL
     value: https://studio-8383940162-6976e-default-rtdb.asia-southeast1.firebasedatabase.app
+
+# Automated Server-Side Sync Jobs
+# Note: Frequencies below 1 min require external loopers.
+# This setup ensures baseline liquidity even with zero active admins.
+crons:
+  - description: "Institutional Live Price Synchronizer"
+    schedule: "every 1 mins"
+    target:
+      path: /api/cron/price-sync
+      headers:
+        x-cron-key: primefunded_cron_2024
 
 scripts:
   # App Hosting handles 'npm run build' automatically

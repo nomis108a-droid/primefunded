@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
@@ -11,27 +12,28 @@ import {
   Database, 
   XCircle,
   Zap,
-  Fingerprint
+  Fingerprint,
+  RefreshCw,
+  Clock,
+  ShieldCheck,
+  Server
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 
 /**
- * @fileOverview Institutional Price Synchronizer (Market Heartbeat)
- * Synchronizes liquidity into Firestore to power all trading terminals globally.
- * Uses high-frequency batch updates and real-time tick charts.
+ * @fileOverview Institutional Price Monitor (Heartbeat Dashboard)
+ * Monitors server-side automated price sync jobs.
+ * This page is now a monitoring tool only; liquidity is synced by the server.
  */
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD", "ADAUSD"
 ];
-
-const OANDA_REPS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"];
-const BINANCE_REPS = ["BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD"];
 
 const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -70,8 +72,6 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   useEffect(() => {
     if (data?.price && seriesRef.current) {
       const now = Math.floor(Date.now() / 1000);
-      
-      // Handle multiple ticks within the same second correctly
       if (now >= lastTimeRef.current) {
         seriesRef.current.update({ time: now as any, value: data.price });
         lastTimeRef.current = now;
@@ -102,68 +102,31 @@ MiniChart.displayName = 'MiniChart';
 export default function AdminPriceTracker() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
-  const [isPumping, setIsPumping] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
-  const [status, setStatus] = useState({ oanda: 'idle', binance: 'idle' });
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     setIsAuthenticated(isVerified);
-    if (isVerified) setIsPumping(true);
   }, []);
 
-  const pumpPrices = useCallback(async () => {
-    if (!isPumping) return;
-    
-    try {
-      const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
-      if (!res.ok) throw new Error('API Feed Offline');
-      const data = await res.json();
-      
-      setPrices(data);
-      setLastSync(new Date());
-
-      const keys = Object.keys(data);
-      
-      // Refined Status Detection: Check specifically for representative assets
-      const oandaOnline = keys.some(k => OANDA_REPS.includes(k) && data[k]?.price > 0);
-      const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && data[k]?.price > 0);
-
-      setStatus({ 
-        oanda: oandaOnline ? 'online' : 'error', 
-        binance: binanceOnline ? 'online' : 'error' 
-      });
-
-      if (keys.length > 0) {
-        const batch = writeBatch(db);
-        Object.entries(data).forEach(([symbol, payload]) => {
-          const docId = symbol.toUpperCase();
-          const ref = doc(db, 'livePrices', docId);
-          batch.set(ref, { 
-            ...(payload as any), 
-            symbol: docId, 
-            updatedAt: serverTimestamp() 
-          }, { merge: true });
-        });
-        batch.commit().catch(err => {
-          console.warn('[Price-Sync] Firestore Sync Delayed:', err.message);
-        });
-      }
-    } catch (err) {
-      console.error('[Price-Sync] Critical Heartbeat Fault:', err);
-      setStatus({ oanda: 'error', binance: 'error' });
-    }
-  }, [isPumping]);
-
   useEffect(() => {
-    if (!isPumping) {
-      setStatus({ oanda: 'idle', binance: 'idle' });
-      return;
-    }
-    pumpPrices();
-    const interval = setInterval(pumpPrices, 2500);
-    return () => clearInterval(interval);
-  }, [isPumping, pumpPrices]);
+    if (!isAuthenticated) return;
+
+    // Listen to all symbols in real-time from Firestore (Synced by server)
+    const unsubs = SYMBOLS.map(sym => {
+      return onSnapshot(doc(db, 'livePrices', sym), (doc) => {
+        if (doc.exists()) {
+          const data = doc.data();
+          setPrices(prev => ({ ...prev, [sym]: data }));
+          if (data.updatedAt) {
+            setLastSync(data.updatedAt.toDate());
+          }
+        }
+      });
+    });
+
+    return () => unsubs.forEach(u => u());
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (
@@ -183,56 +146,57 @@ export default function AdminPriceTracker() {
           <div>
             <div className="flex items-center gap-3 mb-2">
               <Zap className="w-6 h-6 text-primary fill-primary" />
-              <h1 className="text-3xl font-headline font-bold text-white uppercase tracking-tight">Price Synchronizer</h1>
+              <h1 className="text-3xl font-headline font-bold text-white uppercase tracking-tight">System Heartbeat</h1>
             </div>
             <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/30 text-primary">
-              Institutional Market Heartbeat
+              Institutional Monitoring Node
             </Badge>
           </div>
-          <div className="text-right">
-             <Button 
-                onClick={() => setIsPumping(!isPumping)}
-                variant={isPumping ? "destructive" : "default"}
-                size="sm"
-                className="font-bold rounded-lg h-9 px-6"
-             >
-               {isPumping ? <XCircle className="w-4 h-4 mr-2" /> : <Activity className="w-4 h-4 mr-2" />}
-               {isPumping ? "STOP HEARTBEAT" : "START HEARTBEAT"}
-             </Button>
+          <div className="flex items-center gap-4">
+            <div className="text-right hidden md:block">
+              <p className="text-[10px] font-black uppercase text-emerald-500 flex items-center gap-2">
+                <Server className="w-3 h-3" /> Server-Side Sync Active
+              </p>
+              <p className="text-[8px] text-zinc-500 uppercase font-bold tracking-widest">Autonomous operation enabled</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-9 px-4 rounded-xl">
+              <RefreshCw className="w-4 h-4 mr-2" /> Refresh State
+            </Button>
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-12">
-          <Card className={cn(
-            "lg:col-span-2 relative overflow-hidden transition-all duration-300",
-            isPumping ? "bg-card/40 border-border/50" : "bg-destructive/10 border-destructive/20"
-          )}>
+          <Card className="lg:col-span-2 relative overflow-hidden bg-emerald-500/5 border-emerald-500/20">
              <div className="p-6 flex items-start gap-4">
-                <AlertTriangle className={cn("w-8 h-8 shrink-0", isPumping ? "text-primary" : "text-destructive animate-pulse")} />
+                <ShieldCheck className="w-8 h-8 shrink-0 text-emerald-500" />
                 <div>
-                   <h3 className={cn("font-black text-sm uppercase tracking-tight mb-1", isPumping ? "text-primary" : "text-destructive")}>
-                     {isPumping ? "Critical Uptime Node Active" : "PLATFORM LIQUIDITY HALTED"}
+                   <h3 className="font-black text-sm uppercase tracking-tight mb-1 text-emerald-500">
+                     Autonomous Liquidity Engine
                    </h3>
                    <p className="text-zinc-300 text-xs leading-relaxed font-medium">
-                     Keep this tab open to maintain live trading for all users globally. Prices are synchronized from OANDA (FX) and BINANCE (Crypto).
+                     Market data is automatically synchronized by the server-side cron engine every minute. You do not need to keep this tab open to maintain trading operations.
                    </p>
                 </div>
              </div>
           </Card>
 
           <Card className="bg-card/40 border-border/50">
-            <div className="p-6 flex justify-between items-center h-full">
-              <div className="space-y-4 w-full">
-                <FeedStatus label="OANDA (FX/Metals)" status={status.oanda} />
-                <FeedStatus label="BINANCE (Crypto)" status={status.binance} />
-              </div>
+            <div className="p-6 flex flex-col justify-center items-center h-full">
+               <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Network Status</p>
+               <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
+                 <h4 className="text-lg font-bold text-white uppercase">Operational</h4>
+               </div>
             </div>
           </Card>
 
           <Card className="bg-card/40 border-border/50">
             <div className="p-6 text-center flex flex-col justify-center items-center h-full">
-               <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Last Heartbeat</p>
-               <h4 className="text-2xl font-headline font-bold text-white tabular-nums">{lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}</h4>
+               <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Last Server Tick</p>
+               <h4 className="text-2xl font-headline font-bold text-white tabular-nums flex items-center gap-2">
+                 <Clock className="w-4 h-4 text-primary" />
+                 {lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}
+               </h4>
             </div>
           </Card>
         </div>
@@ -245,28 +209,6 @@ export default function AdminPriceTracker() {
           ))}
         </div>
       </main>
-    </div>
-  );
-}
-
-function FeedStatus({ label, status }: { label: string, status: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-[9px] font-black text-zinc-500 tracking-widest">{label}</span>
-      <div className="flex items-center gap-2">
-        <div className={cn(
-          "w-2 h-2 rounded-full", 
-          status === 'online' ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
-          status === 'idle' ? "bg-zinc-600" : "bg-destructive animate-pulse"
-        )} />
-        <span className={cn(
-          "text-[10px] font-bold", 
-          status === 'online' ? "text-white" : 
-          status === 'idle' ? "text-zinc-500" : "text-destructive"
-        )}>
-          {status === 'online' ? "ONLINE" : status === 'idle' ? "IDLE" : "OFFLINE"}
-        </span>
-      </div>
     </div>
   );
 }
