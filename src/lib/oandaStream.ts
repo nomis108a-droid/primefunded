@@ -9,6 +9,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 let latestOandaTicks: Record<string, { price: number; bid: number; ask: number }> = {};
 let lastWrittenOandaTicks: Record<string, string> = {};
+let tickCount = 0;
 
 /**
  * Returns the current captured ticks from the OANDA stream.
@@ -16,6 +17,12 @@ let lastWrittenOandaTicks: Record<string, string> = {};
 export function getLatestOandaTicks() {
   return latestOandaTicks;
 }
+
+// Tick Monitoring Heartbeat
+setInterval(() => {
+  console.log(`[OandaStream] Received ${tickCount} ticks in last 10s`);
+  tickCount = 0;
+}, 10000);
 
 /**
  * Establishes a persistent streaming connection to OANDA.
@@ -71,6 +78,7 @@ export async function startOandaStream() {
         try {
           const msg = JSON.parse(line);
           if (msg.type === 'PRICE') {
+            tickCount++;
             const symbol = msg.instrument.replace('_', '').toUpperCase();
             const bid = parseFloat(msg.bids[0].price);
             const ask = parseFloat(msg.asks[0].price);
@@ -118,11 +126,11 @@ export async function startOandaStream() {
 
 /**
  * Periodically flushes changed FX/Metal ticks to Firestore.
- * Throttled to 400ms to balance performance and database costs.
+ * Throttled to 150ms to balance performance and database costs.
  */
 export function startOandaThrottledFirestoreWrite() {
   const db = getAdminDb();
-  console.log('[OandaStream] Initializing 400ms throttled Firestore sync...');
+  console.log('[OandaStream] Initializing 150ms throttled Firestore sync...');
 
   setInterval(async () => {
     const symbols = Object.keys(latestOandaTicks);
@@ -155,5 +163,5 @@ export function startOandaThrottledFirestoreWrite() {
         console.warn('[OandaStream] Batch commit failed:', err.message);
       }
     }
-  }, 400);
+  }, 150);
 }
