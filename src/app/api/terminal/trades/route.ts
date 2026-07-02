@@ -5,14 +5,17 @@ import { Timestamp } from 'firebase-admin/firestore';
 /**
  * @fileOverview Institutional Order Execution API
  * Processes market orders for demo environments with strict risk guardrails.
+ * Hardened to avoid composite index requirements and handle metadata server faults.
  */
 
 const MAX_LOTS: Record<string, number> = {
+  '5k': 0.25,
   '10k': 0.5,
   '25k': 1.25,
   '50k': 2.5,
   '100k': 5.0,
   '200k': 10.0,
+  '300k': 15.0,
 };
 
 export async function POST(req: NextRequest) {
@@ -28,6 +31,16 @@ export async function POST(req: NextRequest) {
       uid = decoded.uid;
     } catch (err: any) {
       console.error('[Trade-API] Token verification failed:', err.code || 'UNKNOWN_ERROR', err.message);
+      
+      // Handle metadata server fault specifically for dev environment
+      if (err.message?.includes('metadata') || err.message?.includes('access token')) {
+        return NextResponse.json({ 
+          error: "Authentication Node Offline", 
+          details: "The terminal could not reach the security metadata server. Please ensure you are authorized via gcloud login.",
+          code: 'metadata_fault' 
+        }, { status: 401 });
+      }
+
       return NextResponse.json({ 
         error: "Execution Failed: Invalid or expired session", 
         details: `${err.code}: ${err.message}`,
@@ -56,24 +69,25 @@ export async function POST(req: NextRequest) {
     if (status !== "active") return NextResponse.json({ error: `Account is currently ${status} and locked for execution.` }, { status: 400 });
 
     // 2. EXECUTION FREQUENCY RULE: 3 Minute minimum between trades
-    // Simplified: Fetch and sort in memory to avoid missing composite index errors
+    // Optimization: Fetch by accountId only and sort in memory to avoid missing composite index errors (FAILED_PRECONDITION)
     const lastTradesSnap = await db.collection("demoTrades")
       .where("accountId", "==", accountId)
       .get();
     
     if (!lastTradesSnap.empty) {
-      const sortedTrades = lastTradesSnap.docs
-        .map(d => d.data())
-        .sort((a: any, b: any) => {
-          const dateA = a.openedAt?.toDate?.() || (a.openedAt?.seconds ? new Date(a.openedAt.seconds * 1000) : new Date(a.openedAt));
-          const dateB = b.openedAt?.toDate?.() || (b.openedAt?.seconds ? new Date(b.openedAt.seconds * 1000) : new Date(b.openedAt));
-          return dateB.getTime() - dateA.getTime();
-        });
+      const tradesData = lastTradesSnap.docs.map(d => {
+        const data = d.data();
+        const openedAt = data.openedAt;
+        const timeVal = openedAt?.toDate ? openedAt.toDate().getTime() : (openedAt?.seconds ? openedAt.seconds * 1000 : new Date(openedAt).getTime());
+        return { ...data, timeVal };
+      });
 
-      const latestTrade = sortedTrades[0];
-      if (latestTrade && latestTrade.openedAt) {
-        const timeVal = latestTrade.openedAt.toDate ? latestTrade.openedAt.toDate().getTime() : (latestTrade.openedAt.seconds ? latestTrade.openedAt.seconds * 1000 : new Date(latestTrade.openedAt).getTime());
-        const diffMs = Date.now() - timeVal;
+      // Sort by time descending to find the latest
+      const sorted = tradesData.sort((a, b) => b.timeVal - a.timeVal);
+      const latestTrade = sorted[0];
+
+      if (latestTrade && latestTrade.timeVal) {
+        const diffMs = Date.now() - latestTrade.timeVal;
         if (diffMs < 3 * 60 * 1000) {
           const remainingSecs = Math.ceil((3 * 60 * 1000 - diffMs) / 1000);
           return NextResponse.json({ 
@@ -86,13 +100,14 @@ export async function POST(req: NextRequest) {
 
     // 3. LOT SIZE VALIDATION (ANTI-CHEAT)
     const rawPlan = String(account.plan || '10k');
-    let planKey = rawPlan.toLowerCase().trim();
+    let planKey = rawPlan.toLowerCase().trim().replace('$', '');
     if (!planKey.includes('k')) {
       const numericPart = parseInt(rawPlan.replace(/[^0-9]/g, ''));
       if (!isNaN(numericPart)) {
         planKey = `${numericPart / 1000}k`;
       }
     }
+    
     const maxAllowed = MAX_LOTS[planKey] || 0.5;
     if (lots > maxAllowed) {
       return NextResponse.json({ 
@@ -105,7 +120,7 @@ export async function POST(req: NextRequest) {
     const tradeRef = await db.collection("demoTrades").add({
       userId: uid,
       accountId,
-      symbol,
+      symbol: symbol.toUpperCase(),
       type,
       lots,
       openPrice: executionPrice,
