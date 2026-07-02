@@ -372,7 +372,7 @@ export default function AdminPage() {
                                    {acc.status}
                                  </Badge>
                                  {acc.status === 'blown' && (
-                                   <p className="text-[10px] text-destructive/80 font-medium">
+                                   <p className="text-[10px] text-destructive/80 font-medium italic">
                                      Reason: {acc.breachReason || 'Not recorded'}
                                    </p>
                                  )}
@@ -493,7 +493,7 @@ export default function AdminPage() {
                                   </Badge>
                                   {acc.status === 'blown' && (
                                     <span className="text-[9px] text-destructive font-medium italic">
-                                      {acc.breachReason || 'Reason: Not recorded'}
+                                      Reason: {acc.breachReason || 'Not recorded'}
                                     </span>
                                   )}
                                 </div>
