@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { 
   Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2
 } from 'lucide-react';
@@ -18,7 +19,7 @@ import { advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAc
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
-import Link from 'link';
+import Link from 'next/link';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
 
@@ -65,6 +66,10 @@ export default function AdminPage() {
   const [userDetail, setUserDetail] = useState<any>(null);
   const [isUserDetailModalOpen, setIsUserDetailModalOpen] = useState(false);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
+
+  // Broadcast Modal State
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
+  const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
 
   /**
    * CLIENT-SIDE REFRESH ENGINE
@@ -129,11 +134,9 @@ export default function AdminPage() {
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       setAdminError("");
       
-      // IMMEDIATE ACCESS - DO NOT WAIT
       setIsAuthenticated(true);
       setShowAdminModal(false);
       
-      // Background sync
       refreshData();
     } else {
       setAdminError("❌ Access Denied");
@@ -158,6 +161,23 @@ export default function AdminPage() {
       } else throw new Error(res.error);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Error", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendBroadcast = async () => {
+    setActionLoading(true);
+    try {
+      const res = await sendGlobalBroadcastAction(broadcastForm);
+      if (res.success) {
+        toast({ title: "Broadcast Sent", description: "The platform announcement has been dispatched." });
+        setIsBroadcastModalOpen(false);
+        setBroadcastForm({ title: '', message: '', type: 'info' });
+        refreshData();
+      } else throw new Error(res.error);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Broadcast Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -194,6 +214,24 @@ export default function AdminPage() {
       !searchTerm || u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || u.email?.toLowerCase().includes(searchTerm.toLowerCase()) || u.uid?.includes(searchTerm)
     );
   }, [adminData.users, searchTerm]);
+
+  const sortedBroadcasts = useMemo(() => {
+    if (!adminData.broadcasts) return [];
+    return [...adminData.broadcasts].sort((a, b) => {
+      const dateA = getTradeDate(a.sentAt);
+      const dateB = getTradeDate(b.sentAt);
+      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+    });
+  }, [adminData.broadcasts]);
+
+  const sortedBreaches = useMemo(() => {
+    if (!adminData.breaches) return [];
+    return [...adminData.breaches].sort((a, b) => {
+      const dateA = getTradeDate(a.breachedAt || a.createdAt || a.date);
+      const dateB = getTradeDate(b.breachedAt || b.createdAt || b.date);
+      return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
+    });
+  }, [adminData.breaches]);
 
   const handleViewUserDetail = async (userId: string) => {
     setUserDetailLoading(true);
@@ -439,6 +477,116 @@ export default function AdminPage() {
               </Card>
             </div>
           )}
+
+          {activeTab === 'broadcasts' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-headline font-bold text-white">System Broadcasts</h2>
+                <Button className="font-bold rounded-xl" onClick={() => setIsBroadcastModalOpen(true)}>
+                  <Send className="w-4 h-4 mr-2" /> New Broadcast
+                </Button>
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                        <tr>
+                          <th className="p-4">Title</th>
+                          <th className="p-4">Message</th>
+                          <th className="p-4">Type</th>
+                          <th className="p-4 text-right">Sent Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {sortedBroadcasts.map((b: any) => {
+                          const date = getTradeDate(b.sentAt);
+                          return (
+                            <tr key={b.id} className="hover:bg-primary/5">
+                              <td className="p-4 font-bold text-white">{b.title}</td>
+                              <td className="p-4 text-muted-foreground max-w-xs truncate">
+                                {b.message?.length > 60 ? `${b.message.substring(0, 60)}...` : b.message}
+                              </td>
+                              <td className="p-4">
+                                <Badge variant="outline" className={cn(
+                                  "uppercase text-[9px] font-black",
+                                  b.type === 'warning' ? "border-amber-500/50 text-amber-500" :
+                                  b.type === 'success' ? "border-emerald-500/50 text-emerald-500" :
+                                  "border-primary/50 text-primary"
+                                )}>
+                                  {b.type || 'info'}
+                                </Badge>
+                              </td>
+                              <td className="p-4 text-right text-xs text-muted-foreground">
+                                {date && isValid(date) ? format(date, 'MMM d, HH:mm') : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {sortedBroadcasts.length === 0 && (
+                          <tr><td colSpan={4} className="p-20 text-center text-muted-foreground italic">No broadcasts sent yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'breaches' && (
+            <div className="space-y-6">
+              <h2 className="text-xl font-headline font-bold text-white">Risk Breach Log</h2>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                        <tr>
+                          <th className="p-4">User / Account ID</th>
+                          <th className="p-4">Reason</th>
+                          <th className="p-4">Rule Violated</th>
+                          <th className="p-4 text-right">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {sortedBreaches.map((br: any) => {
+                          const date = getTradeDate(br.breachedAt || br.createdAt || br.date);
+                          return (
+                            <tr key={br.id} className="hover:bg-destructive/5">
+                              <td className="p-4">
+                                <p className="font-mono text-xs text-destructive font-bold">{br.userId?.slice(0, 8)}...</p>
+                                <p className="text-[10px] text-muted-foreground font-mono">{br.accountId}</p>
+                              </td>
+                              <td className="p-4">
+                                <span className="text-white font-medium">{br.breachReason || br.reason || 'Manual Termination'}</span>
+                              </td>
+                              <td className="p-4">
+                                <Badge variant="destructive" className="uppercase text-[9px] font-black">
+                                  {br.planType || br.type || 'HARD BREACH'}
+                                </Badge>
+                              </td>
+                              <td className="p-4 text-right text-xs text-muted-foreground">
+                                {date && isValid(date) ? format(date, 'MMM d, HH:mm') : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {sortedBreaches.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="p-20 text-center flex flex-col items-center justify-center space-y-4">
+                              <ShieldCheck className="w-12 h-12 text-muted-foreground opacity-20" />
+                              <p className="text-muted-foreground italic">No breaches recorded.</p>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
       </main>
 
@@ -451,6 +599,55 @@ export default function AdminPage() {
             <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" autoFocus />
             <Button type="submit" className="w-full h-14 font-black cyan-box-glow text-lg">AUTHENTICATE</Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
+        <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-headline">New Global Broadcast</DialogTitle>
+            <DialogDescription>Send a notification to all registered traders on the platform.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Broadcast Title</Label>
+              <Input 
+                placeholder="e.g. Scheduled Maintenance" 
+                value={broadcastForm.title} 
+                onChange={e => setBroadcastForm({...broadcastForm, title: e.target.value})} 
+                className="bg-secondary/50"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Message Body</Label>
+              <Textarea 
+                placeholder="Details of the announcement..." 
+                value={broadcastForm.message} 
+                onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})}
+                className="bg-secondary/50 min-h-[120px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={broadcastForm.type} onValueChange={v => setBroadcastForm({...broadcastForm, type: v})}>
+                <SelectTrigger className="bg-secondary/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="info">Information (Blue)</SelectItem>
+                  <SelectItem value="warning">Warning (Amber)</SelectItem>
+                  <SelectItem value="success">Success (Emerald)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsBroadcastModalOpen(false)}>Cancel</Button>
+            <Button className="font-bold cyan-box-glow px-8" onClick={handleSendBroadcast} disabled={actionLoading || !broadcastForm.title || !broadcastForm.message}>
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+              Send Broadcast
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
