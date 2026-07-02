@@ -42,7 +42,7 @@ export async function auditDemoAccount(accountId: string) {
   const account = accSnap.data()!;
   if (account.status !== 'active') return { status: account.status };
 
-  const { userId, startBalance, balance, planType, phase } = account;
+  const { userId, startBalance, balance, planType, phase, email, name } = account;
   const initialBalance = parseFloat(String(startBalance || 100000));
   const currBalance = parseFloat(String(balance || initialBalance));
 
@@ -64,7 +64,7 @@ export async function auditDemoAccount(accountId: string) {
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
 
-  // 2. Calculate Real-time Equity & Floating Loss (FIX 12)
+  // 2. Calculate Real-time Equity & Floating Loss
   let totalFloatingPnl = 0;
   let maxSingleFloatingLoss = 0;
 
@@ -136,6 +136,18 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
+  // ── RULE 6: Execution Spacing (Min 3m) ────────────────────────
+  if (!breachReason) {
+    const sortedOpens = trades.map(t => getTradeDate(t.openedAt)).filter(d => !!d).sort((a: any, b: any) => a.getTime() - b.getTime());
+    for (let i = 1; i < sortedOpens.length; i++) {
+      const diff = (sortedOpens[i].getTime() - sortedOpens[i - 1].getTime()) / 1000;
+      if (diff < universal.maxExecutionFrequencySeconds) {
+        breachReason = `Frequency violation: Less than 3m spacing between executions (${diff.toFixed(0)}s)`;
+        break;
+      }
+    }
+  }
+
   // 3. EXECUTE BREACH PROTOCOL
   if (breachReason) {
     const batch = db.batch();
@@ -175,7 +187,7 @@ export async function auditDemoAccount(accountId: string) {
     });
 
     await batch.commit();
-    sendBreachEmail(account.email || userId, breachReason);
+    sendBreachEmail(email || userId, breachReason);
     return { breached: true, reason: breachReason };
   }
 
@@ -190,7 +202,7 @@ export async function auditDemoAccount(accountId: string) {
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
     await batch.commit();
-    sendChallengePassEmail(account.email || userId, account.name || "Trader", pKey, size);
+    sendChallengePassEmail(email || userId, name || "Trader", pKey, String(initialBalance));
     return { passed: true };
   }
 
@@ -201,13 +213,18 @@ export async function auditDemoAccount(accountId: string) {
 
 export async function runDemoAudit() {
   const db = getAdminDb();
-  const demoSnap = await db.collection('demoAccounts').where('status', '==', 'active').get();
+  const snapshot = await db.collection('demoAccounts').where('status', '==', 'active').get();
+  const results = { totalChecked: snapshot.size, breachesDetected: 0, passed: 0, errors: 0 };
   
-  const results = { checked: demoSnap.size, breaches: 0 };
-  for (const doc of demoSnap.docs) {
-    const res = await auditDemoAccount(doc.id);
-    if (res?.breached) results.breaches++;
-  }
-
+  await Promise.all(snapshot.docs.map(async (doc) => {
+    try {
+      const res = await auditDemoAccount(doc.id);
+      if (res?.breached) results.breachesDetected++;
+      else if (res?.passed) results.passed++;
+    } catch (err) {
+      results.errors++;
+    }
+  }));
+  
   return results;
 }

@@ -1,13 +1,16 @@
+export const runtime = 'nodejs';
+
 /**
  * @fileOverview Next.js Instrumentation Hook
  * Initializes background synchronization services on server startup.
  */
 
 export async function register() {
-  const dns = await import('dns');
-  dns.setDefaultResultOrder('ipv4first');
-
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // DNS preference must be inside the nodejs check to prevent Edge runtime crashes
+    const dns = await import('dns');
+    dns.setDefaultResultOrder('ipv4first');
+
     // Dynamic imports to ensure logic is only loaded in Node.js environment
     const { syncPricesAndAudit } = await import('@/lib/priceSync');
     const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
