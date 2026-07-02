@@ -7,13 +7,15 @@ export const dynamic = 'force-dynamic';
  * Hardened with timeouts and parallel fetch execution.
  */
 
+const CRYPTO_LIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT"];
+
 export async function GET() {
   const prices: Record<string, any> = {};
   const oandaKey = process.env.OANDA_API_KEY;
   const oandaAcc = process.env.OANDA_ACCOUNT_ID;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 7000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
     const fetchPromises = [];
@@ -46,18 +48,18 @@ export async function GET() {
                 bid: +bid.toFixed(5), 
                 ask: +ask.toFixed(5), 
                 price: +((bid + ask) / 2).toFixed(5), 
-                updatedAt: new Date().toISOString() 
+                source: 'oanda'
               };
             }
           }
-        }).catch(e => console.warn('[LivePrices] OANDA fetch failed'))
+        }).catch(e => console.warn('[LivePrices] OANDA sync failed'))
       );
     }
 
     // 2. Binance - Crypto
-    const binanceSymbols = '["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
+    const binanceUrl = `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(CRYPTO_LIST))}`;
     fetchPromises.push(
-      fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(binanceSymbols)}`, { 
+      fetch(binanceUrl, { 
         cache: 'no-store',
         signal: controller.signal
       }).then(async (r) => {
@@ -65,8 +67,7 @@ export async function GET() {
           const data = await r.json();
           if (Array.isArray(data)) {
             data.forEach(item => {
-              const rawSym = item.symbol;
-              const sym = rawSym.replace('USDT', 'USD');
+              const sym = item.symbol.replace('USDT', 'USD');
               const price = parseFloat(item.price);
               if (isNaN(price)) return;
 
@@ -78,15 +79,15 @@ export async function GET() {
                 bid: +(price - spread).toFixed(dec),
                 ask: +(price + spread).toFixed(dec),
                 price: +price.toFixed(dec),
-                updatedAt: new Date().toISOString()
+                source: 'binance'
               };
             });
           }
         }
-      }).catch(e => console.warn('[LivePrices] Binance fetch network error'))
+      }).catch(e => console.warn('[LivePrices] Binance sync network error'))
     );
 
-    await Promise.all(fetchPromises);
+    await Promise.allSettled(fetchPromises);
 
     return NextResponse.json(prices, { 
       headers: { 'Cache-Control': 'no-store' } 
