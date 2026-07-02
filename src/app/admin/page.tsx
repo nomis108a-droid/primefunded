@@ -13,9 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift
 } from 'lucide-react';
-import { advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction } from './actions';
+import { advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, giftAccountAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
@@ -46,6 +46,16 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
   );
 });
 
+const GIFT_OPTIONS = [
+  { id: '10k_eval', label: "Step 1 — $10,000 Challenge", balance: 10000, plan: "1-step-pro", phase: "evaluation" },
+  { id: '25k_eval', label: "Step 1 — $25,000 Challenge", balance: 25000, plan: "1-step-pro", phase: "evaluation" },
+  { id: '50k_eval', label: "Step 1 — $50,000 Challenge", balance: 50000, plan: "1-step-pro", phase: "evaluation" },
+  { id: '10k_instant', label: "Instant Funded — $10,000", balance: 10000, plan: "instant-funding", phase: "funded" },
+  { id: '25k_instant', label: "Instant Funded — $25,000", balance: 25000, plan: "instant-funding", phase: "funded" },
+  { id: '10k_funded', label: "Funded — $10,000", balance: 10000, plan: "1-step-pro", phase: "funded" },
+  { id: '25k_funded', label: "Funded — $25,000", balance: 25000, plan: "1-step-pro", phase: "funded" },
+];
+
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loggedInAdmin, setLoggedInAdmin] = useState<string | null>(null);
@@ -73,6 +83,11 @@ export default function AdminPage() {
   // Broadcast Modal State
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
+
+  // Gift Modal State
+  const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
+  const [giftForm, setGiftForm] = useState({ userId: '', optionId: '' });
+  const [userSearch, setUserSearch] = useState('');
 
   /**
    * CLIENT-SIDE REFRESH ENGINE
@@ -184,6 +199,36 @@ export default function AdminPage() {
     }
   };
 
+  const handleGiftAccount = async () => {
+    if (!giftForm.userId || !giftForm.optionId) {
+      toast({ variant: "destructive", title: "Missing Data", description: "Please select a user and an account type." });
+      return;
+    }
+    const option = GIFT_OPTIONS.find(o => o.id === giftForm.optionId);
+    if (!option) return;
+
+    setActionLoading(true);
+    try {
+      const res = await giftAccountAction(
+        giftForm.userId,
+        option.label,
+        option.balance,
+        option.plan,
+        option.phase
+      );
+      if (res.success) {
+        toast({ title: "Account Granted", description: "The node has been provisioned successfully." });
+        setIsGiftModalOpen(false);
+        setGiftForm({ userId: '', optionId: '' });
+        refreshData();
+      } else throw new Error(res.error);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Gifting Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleSendBroadcast = async () => {
     setActionLoading(true);
     try {
@@ -245,8 +290,8 @@ export default function AdminPage() {
   const sortedBreaches = useMemo(() => {
     if (!adminData.breaches) return [];
     return [...adminData.breaches].sort((a, b) => {
-      const dateA = getTradeDate(a.breachedAt || a.createdAt || a.date);
-      const dateB = getTradeDate(b.breachedAt || b.createdAt || b.date);
+      const dateA = getTradeDate(br.breachedAt || br.createdAt || br.date);
+      const dateB = getTradeDate(br.breachedAt || br.createdAt || br.date);
       return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
     });
   }, [adminData.breaches]);
@@ -310,6 +355,9 @@ export default function AdminPage() {
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleCleanupData} disabled={actionLoading} className="border-destructive/20 text-destructive hover:bg-destructive/5">
                   <Trash2 className="w-4 h-4 mr-2" /> Cleanup Environment
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setIsGiftModalOpen(true)} className="border-accent/20 text-accent hover:bg-accent/5">
+                  <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
                 <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
                   {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
@@ -702,6 +750,71 @@ export default function AdminPage() {
             <Button className="font-bold cyan-box-glow px-8" onClick={handleSendBroadcast} disabled={actionLoading || !broadcastForm.title || !broadcastForm.message}>
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
               Send Broadcast
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
+        <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-headline">Gift Account</DialogTitle>
+            <DialogDescription>Provision an institutional trading node directly to a user's terminal.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Search & Select User</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search by name or email..." 
+                  value={userSearch} 
+                  onChange={e => setUserSearch(e.target.value)}
+                  className="bg-secondary/50 pl-10"
+                />
+              </div>
+              <div className="max-h-40 overflow-y-auto border border-white/5 rounded-lg bg-secondary/20 mt-2 custom-scrollbar">
+                {adminData.users.filter((u: any) => 
+                  !userSearch || u.name?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase())
+                ).map((u: any) => (
+                  <button 
+                    key={u.id} 
+                    onClick={() => setGiftForm({...giftForm, userId: u.id})}
+                    className={cn(
+                      "w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition-colors border-b border-white/5 last:border-none",
+                      giftForm.userId === u.id && "bg-primary/10 text-primary font-bold"
+                    )}
+                  >
+                    <p className="font-bold">{u.name}</p>
+                    <p className="text-[10px] opacity-50">{u.email}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Account Type</Label>
+              <Select value={giftForm.optionId} onValueChange={v => setGiftForm({...giftForm, optionId: v})}>
+                <SelectTrigger className="bg-secondary/50">
+                  <SelectValue placeholder="Select plan type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {GIFT_OPTIONS.map(opt => (
+                    <SelectItem key={opt.id} value={opt.id}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button>
+            <Button 
+              className="font-black bg-primary text-black px-8" 
+              onClick={handleGiftAccount} 
+              disabled={actionLoading || !giftForm.userId || !giftForm.optionId}
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Gift className="w-4 h-4 mr-2" />}
+              Grant Account
             </Button>
           </DialogFooter>
         </DialogContent>

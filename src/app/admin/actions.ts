@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * INSTITUTIONAL HELPER: Serialization
@@ -57,6 +58,56 @@ export async function verifyAdminAuth() {
   } catch (error) {
     console.error('[AdminActions] Auth Verification Failed:', error);
     return false;
+  }
+}
+
+export async function giftAccountAction(userId: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
+  try {
+    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+    const db = getAdminDb();
+    
+    const planKey = getPlanKey(accountPlan);
+    const rules = RULES_CONFIG.plans[planKey]?.[currentPhase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    
+    // Calculate Fixed Dollar Thresholds for the Risk Engine
+    const profitTarget = startBalance * (rules.profitTarget || 10) / 100;
+    const dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
+    const maxLossLimitUsd = startBalance * (rules.maxDrawdown / 100);
+
+    const docRef = await db.collection("demoAccounts").add({
+      userId,
+      label: accountLabel,
+      startBalance,
+      balance: startBalance,
+      equity: startBalance,
+      plan: `${startBalance / 1000}k`, // standard internal key used for lot limits
+      planType: planKey,
+      phase: currentPhase,
+      profitTarget,
+      dailyLossLimitUsd,
+      dailyGrossLossUsd: 0,
+      maxLoss: maxLossLimitUsd,
+      status: 'active',
+      breachReason: null,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      lastResetAt: FieldValue.serverTimestamp(),
+      source: 'gifted',
+      giftedBy: 'admin'
+    });
+
+    // Notify User via subcollection (triggers real-time client listener)
+    await db.collection('users').doc(userId).collection('notifications').add({
+      title: '🎁 Account Gifted',
+      message: `Administrator has provisioned a new ${accountLabel} to your terminal.`,
+      type: 'account_gifted',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    return { success: true, accountId: docRef.id };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 }
 
@@ -189,8 +240,8 @@ export async function updatePayoutStatusAction(id: string, status: string) {
     const payoutRef = db.collection('payouts').doc(id);
     await payoutRef.update({ status, updatedAt: FieldValue.serverTimestamp() });
     return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (any) {
+    return { success: false, error: any.message };
   }
 }
 
