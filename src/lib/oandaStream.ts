@@ -77,11 +77,30 @@ export async function startOandaStream() {
             const price = (bid + ask) / 2;
 
             if (!isNaN(price)) {
-              latestOandaTicks[symbol] = {
-                price: +price.toFixed(5),
-                bid: +bid.toFixed(5),
-                ask: +ask.toFixed(5),
-              };
+              // Institutional Outlier Guard
+              const prevTick = latestOandaTicks[symbol];
+              let isOutlier = false;
+              if (prevTick) {
+                const diff = Math.abs(price - prevTick.price);
+                const pctChange = (diff / prevTick.price) * 100;
+                
+                // Metals often have higher volatility than FX pairs
+                const isMetal = symbol.includes('XAU') || symbol.includes('XAG') || symbol.includes('XPT');
+                const threshold = isMetal ? 1.0 : 0.5;
+
+                if (pctChange > threshold) {
+                  console.warn(`[OandaStream] Rejected outlier tick for ${symbol}: ${prevTick.price} -> ${price}`);
+                  isOutlier = true;
+                }
+              }
+
+              if (!isOutlier) {
+                latestOandaTicks[symbol] = {
+                  price: +price.toFixed(5),
+                  bid: +bid.toFixed(5),
+                  ask: +ask.toFixed(5),
+                };
+              }
             }
           }
         } catch (e) {
