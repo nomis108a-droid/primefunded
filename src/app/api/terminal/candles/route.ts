@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const CRYPTO_MAP: Record<string, string> = {
-  "BTCUSD": "BTCUSDT", 
-  "ETHUSD": "ETHUSDT", 
-  "SOLUSD": "SOLUSDT",
-  "XRPUSD": "XRPUSDT",
-  "BNBUSD": "BNBUSDT",
-  "DOGEUSD": "DOGEUSDT",
-  "ADAUSD": "ADAUSDT"
+  "BTCUSD": "XBTUSD", 
+  "ETHUSD": "ETHUSD", 
+  "SOLUSD": "SOLUSD",
+  "XRPUSD": "XRPUSD",
+  "BNBUSD": "BNBUSD",
+  "DOGEUSD": "DOGEUSD",
+  "ADAUSD": "ADAUSD"
 };
 
 const OANDA_MAP: Record<string, string> = {
@@ -19,11 +19,6 @@ const OANDA_MAP: Record<string, string> = {
 const OANDA_GRANULARITY: Record<string, string> = {
   "1min": "M1", "5min": "M5", "15min": "M15", "30min": "M30",
   "1h": "H1", "4h": "H4", "1day": "D", "1week": "W", "1month": "M"
-};
-
-const BINANCE_INTERVALS: Record<string, string> = {
-  "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m",
-  "1h": "1h", "4h": "4h", "1day": "1d", "1week": "1w", "1month": "1M"
 };
 
 /**
@@ -58,7 +53,7 @@ function generateSyntheticCandles(symbol: string, count: number) {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const symbol = searchParams.get("symbol") || "EURUSD";
+  const symbol = (searchParams.get("symbol") || "EURUSD").toUpperCase();
   const interval = (searchParams.get("interval") || "1min").toLowerCase();
   const limit = Math.min(parseInt(searchParams.get("limit") || "300"), 1000);
 
@@ -100,25 +95,39 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Binance: Crypto
+    // 2. Kraken: Crypto (Replaces blocked Binance)
     else if (CRYPTO_MAP[symbol]) {
       try {
-        const bInt = BINANCE_INTERVALS[interval] || "1m";
-        const url = `https://api.binance.com/api/v3/klines?symbol=${CRYPTO_MAP[symbol]}&interval=${bInt}&limit=${limit}`;
+        const pair = CRYPTO_MAP[symbol];
+        const intervalMap: Record<string, number> = {
+          "1min": 1, "5min": 5, "15min": 15, "30min": 30, "1h": 60, "4h": 240, "1day": 1440, "1week": 10080
+        };
+        const kInt = intervalMap[interval] || 1;
+        const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${kInt}`;
 
         const res = await fetch(url, { signal: controller.signal });
         if (res.ok) {
-          const data = await res.json();
-          candles = data.map((v: any) => ({
-            time: Math.floor(v[0] / 1000),
-            open: parseFloat(v[1]),
-            high: parseFloat(v[2]),
-            low: parseFloat(v[3]),
-            close: parseFloat(v[4]),
-          }));
+          const json = await res.json();
+          // Kraken response format: result: { "XXBTZUSD": [ [time, open, high, low, close...], ... ] }
+          const pairKey = Object.keys(json.result).find(k => k !== 'last');
+          if (pairKey) {
+            const data = json.result[pairKey];
+            candles = data.map((v: any) => ({
+              time: Number(v[0]),
+              open: parseFloat(v[1]),
+              high: parseFloat(v[2]),
+              low: parseFloat(v[3]),
+              close: parseFloat(v[4]),
+            })).sort((a: any, b: any) => a.time - b.time);
+            
+            // Limit to requested count
+            if (candles.length > limit) {
+              candles = candles.slice(-limit);
+            }
+          }
         }
       } catch (e) {
-        console.warn(`[Candles] Binance fetch failed for ${symbol}`);
+        console.warn(`[Candles] Kraken fetch failed for ${symbol}`);
       }
     }
 
@@ -140,7 +149,6 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
-    // Final desperate fallback to cache or synthetic
     const cached = realCandleCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 30000) {
        return NextResponse.json({ candles: cached.candles, isFallback: false });

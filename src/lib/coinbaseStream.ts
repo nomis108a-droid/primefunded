@@ -5,7 +5,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 /**
  * @fileOverview Institutional Coinbase WebSocket Stream & BNB Polling
  * Provides real-time crypto liquidity for the trading terminal with throttled Firestore updates.
- * BTC, ETH, SOL, XRP, ADA, DOGE are streamed via Coinbase.
+ * BTC, ETH, SOL, XRP, ADA, DOGE are streamed via Coinbase Advanced Trade Public WS.
  * BNB is polled via CoinGecko.
  */
 
@@ -34,41 +34,48 @@ export function getLatestCoinbaseTicks() {
 }
 
 /**
- * Initializes the Coinbase WebSocket connection and handles live price updates.
+ * Initializes the Coinbase WebSocket connection using the Advanced Trade Public Feed.
  */
 export function startCoinbaseStream() {
-  console.log("[CoinbaseStream] Starting connection attempt...");
+  console.log("[CoinbaseStream] Starting connection attempt to Advanced Trade Feed...");
   
-  const ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+  const ws = new WebSocket('wss://advanced-trade-api.coinbase.com/ws/public');
 
   ws.on('open', () => {
     console.log("[CoinbaseStream] Connection established.");
-    // Subscribe to the ticker channel for institutional pairs
     ws.send(JSON.stringify({
       "type": "subscribe",
       "product_ids": ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD", "DOGE-USD"],
-      "channels": ["ticker"]
+      "channel": "ticker"
     }));
   });
 
   ws.on('message', (data: string) => {
     try {
       const msg = JSON.parse(data.toString());
-      if (msg.type !== 'ticker' || !msg.product_id) return;
+      
+      // Advanced Trade Public Ticker message format:
+      // { "channel": "ticker", "events": [ { "tickers": [ { "product_id": "BTC-USD", "price": "..." } ] } ] }
+      if (msg.channel !== 'ticker' || !msg.events) return;
 
-      const symbol = msg.product_id.replace('-', ''); // e.g. BTC-USD -> BTCUSD
-      const price = parseFloat(msg.price);
-      if (isNaN(price)) return;
+      msg.events.forEach((event: any) => {
+        if (!event.tickers) return;
+        event.tickers.forEach((ticker: any) => {
+          const symbol = ticker.product_id.replace('-', '').toUpperCase();
+          const price = parseFloat(ticker.price);
+          if (isNaN(price)) return;
 
-      // Institutional spread simulation (0.025%)
-      const spread = price * 0.00025;
-      const dec = getPrecision(symbol);
+          // Institutional spread simulation (0.025%)
+          const spread = price * 0.00025;
+          const dec = getPrecision(symbol);
 
-      latestCoinbaseTicks[symbol] = {
-        price: +price.toFixed(dec),
-        bid: +(price - spread).toFixed(dec),
-        ask: +(price + spread).toFixed(dec)
-      };
+          latestCoinbaseTicks[symbol] = {
+            price: +price.toFixed(dec),
+            bid: +(price - spread).toFixed(dec),
+            ask: +(price + spread).toFixed(dec)
+          };
+        });
+      });
     } catch (e) {
       // Silently skip malformed messages
     }
@@ -102,7 +109,6 @@ export function startThrottledFirestoreWrite() {
 
   setInterval(async () => {
     if (isWriting) {
-      console.log('[CoinbaseStream] Skipped write cycle: previous write still in flight');
       return;
     }
 
@@ -132,11 +138,10 @@ export function startThrottledFirestoreWrite() {
 
     if (hasChanges) {
       isWriting = true;
-      const startTime = Date.now();
       try {
-        console.log('[CoinbaseStream] Commit starting');
+        const start = Date.now();
         await batch.commit();
-        console.log(`[CoinbaseStream] Commit finished in ${Date.now() - startTime}ms`);
+        console.log(`[CoinbaseStream] Commit finished in ${Date.now() - start}ms`);
       } catch (err: any) {
         console.warn("[CoinbaseStream] Batch commit failed:", err.message);
       } finally {

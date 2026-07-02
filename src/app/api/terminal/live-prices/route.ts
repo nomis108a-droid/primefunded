@@ -3,11 +3,11 @@ export const dynamic = 'force-dynamic';
 
 /**
  * @fileOverview Institutional Live Price API
- * Synchronizes liquidity from OANDA (Forex/Metals) and Binance (Crypto).
- * Hardened with timeouts and parallel fetch execution.
+ * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
+ * Replaced Binance with Kraken to bypass Google Cloud IP blocking.
  */
 
-const CRYPTO_LIST = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "ADAUSDT"];
+const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD,BNBUSD";
 
 export async function GET() {
   const prices: Record<string, any> = {};
@@ -56,40 +56,46 @@ export async function GET() {
       );
     }
 
-    // 2. Binance - Crypto
-    const binanceUrl = `https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(CRYPTO_LIST))}`;
+    // 2. Kraken - Crypto (Reliable REST source for institutional liquidity)
     fetchPromises.push(
-      fetch(binanceUrl, { 
+      fetch(`https://api.kraken.com/0/public/Ticker?pair=${KRAKEN_PAIRS}`, { 
         cache: 'no-store',
         signal: controller.signal
       }).then(async (r) => {
         if (r.ok) {
           const data = await r.json();
-          if (Array.isArray(data)) {
-            data.forEach(item => {
-              const sym = item.symbol.replace('USDT', 'USD');
-              const price = parseFloat(item.price);
+          const results = data.result;
+          if (results) {
+            // Map Kraken symbols back to our format
+            const kToPF: Record<string, string> = {
+              'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
+              'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',
+              'SOLUSD': 'SOLUSD', 'XRPUSD': 'XRPUSD',
+              'ADAUSD': 'ADAUSD', 'DOGEUSD': 'DOGEUSD', 'BNBUSD': 'BNBUSD'
+            };
+
+            Object.entries(results).forEach(([kSym, item]: [string, any]) => {
+              const sym = kToPF[kSym];
+              if (!sym) return;
+
+              const price = parseFloat(item.c[0]);
+              const bid = parseFloat(item.b[0]);
+              const ask = parseFloat(item.a[0]);
+              
               if (isNaN(price)) return;
 
-              // Institutional spread simulation (Crypto: 0.05%)
-              const spread = price * 0.00025;
-              const dec =
-                (sym === 'BTCUSD' || sym === 'ETHUSD') ? 2 :
-                (sym === 'BNBUSD' || sym === 'SOLUSD') ? 2 :
-                (sym === 'XRPUSD' || sym === 'ADAUSD') ? 4 :
-                (sym === 'DOGEUSD') ? 5 :
-                2;
-              
+              const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'BNBUSD' || sym === 'SOLUSD') ? 2 : (sym === 'DOGEUSD' ? 5 : 4);
+
               prices[sym] = {
-                bid: +(price - spread).toFixed(dec),
-                ask: +(price + spread).toFixed(dec),
+                bid: +bid.toFixed(dec),
+                ask: +ask.toFixed(dec),
                 price: +price.toFixed(dec),
-                source: 'binance'
+                source: 'kraken'
               };
             });
           }
         }
-      }).catch(e => console.warn('[LivePrices] Binance sync network error'))
+      }).catch(e => console.warn('[LivePrices] Kraken sync failed'))
     );
 
     await Promise.allSettled(fetchPromises);
