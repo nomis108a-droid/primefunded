@@ -1,17 +1,12 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import { auditDemoAccount } from '@/lib/rulesEngine';
 
 const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
 };
 
-/**
- * @fileOverview Institutional Trade Closure API
- * Robust price matching with client-side override and symbol casing resilience.
- * Enhanced with SL/TP trigger support and bypass for automated exits.
- */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -39,74 +34,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (trade.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (trade.status !== "open") return NextResponse.json({ error: "Already closed" }, { status: 400 });
 
-    // MINIMUM HOLD TIME RULE: 2 Minutes before manual close
-    // Automated triggers (SL, TP, Liquidation) bypass this rule
-    const isAuto = ["stop_loss", "take_profit", "liquidation", "daily_reset"].includes(closeReason);
-    
-    if (!isAuto) {
-      const openTime = trade.openedAt?.toDate?.() || new Date(trade.openedAt);
-      const holdTimeMs = Date.now() - openTime.getTime();
-      if (holdTimeMs < 2 * 60 * 1000) {
-        return NextResponse.json({ 
-          error: "Minimum Hold Time Violation", 
-          details: "Trades must be held for at least 2 minutes before manual closure." 
-        }, { status: 400 });
-      }
-    }
-
-    // ROBUST PRICE MATCHING
     let closePrice = clientClosePrice;
-    
     if (!closePrice) {
-      const symbol = trade.symbol;
-      const priceDocs = [symbol, symbol.toUpperCase(), symbol.toLowerCase()];
-      let priceData = null;
-      
-      for (const s of priceDocs) {
-        const snap = await db.collection("livePrices").doc(s).get();
-        if (snap.exists) {
-          priceData = snap.data();
-          break;
-        }
-      }
-
-      if (!priceData) return NextResponse.json({ error: `No price for symbol ${symbol}` }, { status: 400 });
-      closePrice = trade.type === "buy" ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+      const snap = await db.collection("livePrices").doc(trade.symbol.toUpperCase()).get();
+      if (!snap.exists) return NextResponse.json({ error: "No price feed" }, { status: 400 });
+      const pData = snap.data()!;
+      closePrice = trade.type === "buy" ? (pData.bid || pData.price) : (pData.ask || pData.price);
     }
 
-    const contractSize = CONTRACT_SIZE[trade.symbol] || 100000;
-    const pnl = (trade.type === "buy" ? (closePrice || 0) - trade.openPrice : trade.openPrice - (closePrice || 0)) * trade.lots * contractSize;
+    const contractSize = CONTRACT_SIZE[trade.symbol.toUpperCase()] || 100000;
+    const pnl = (trade.type === "buy" ? closePrice! - trade.openPrice : trade.openPrice - closePrice!) * trade.lots * contractSize;
 
     const accRef = db.collection("demoAccounts").doc(trade.accountId);
 
     await db.runTransaction(async (tx) => {
       const accSnap = await tx.get(accRef);
-      if (!accSnap.exists) throw new Error("Account not found during transaction");
-      
+      if (!accSnap.exists) throw new Error("Account missing");
       const account = accSnap.data()!;
-      const newBalance = account.balance + pnl;
-
-      const updates: any = {
-        balance: newBalance,
-        equity: newBalance,
-        updatedAt: FieldValue.serverTimestamp()
-      };
-
-      if (pnl < 0) {
-        updates.dailyGrossLossUsd = (account.dailyGrossLossUsd || 0) + Math.abs(pnl);
-      }
-
-      if (updates.dailyGrossLossUsd >= account.dailyLossLimitUsd) {
-        updates.status = "blown";
-        updates.breachReason = "daily_drawdown_breach";
-      } else if ((account.startBalance - newBalance) >= account.maxLoss) {
-        updates.status = "blown";
-        updates.breachReason = "max_drawdown_breach";
-      } 
-      else if (newBalance >= (account.startBalance + account.profitTarget) && account.status === 'active') {
-        updates.status = "passed";
-      }
-
+      
       tx.update(tradeRef, {
         status: "closed",
         closeReason,
@@ -115,10 +60,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         closedAt: Timestamp.now(),
       });
 
-      tx.update(accRef, updates);
+      tx.update(accRef, {
+        balance: FieldValue.increment(pnl),
+        updatedAt: FieldValue.serverTimestamp()
+      });
     });
 
-    return NextResponse.json({ ok: true, pnl, closePrice, closeReason });
+    // RUN AUDIT IMMEDIATELY
+    await auditDemoAccount(trade.accountId);
+
+    return NextResponse.json({ ok: true, pnl, closePrice });
   } catch (error: any) {
     console.error('[Close-Trade-API] Error:', error);
     return NextResponse.json({ error: "Internal Server Error", details: error.message }, { status: 500 });
