@@ -1,34 +1,21 @@
 import { getAdminDb } from '@/lib/firebase-admin';
-import { auditAccount, auditDemoAccount } from '@/lib/rulesEngine';
+import { runDemoAudit } from '@/lib/rulesEngine';
+import { NextResponse } from 'next/server';
 
 /**
- * @fileOverview Universal Breach Check API
- * Triggers risk evaluation for both MT5 nodes and Internal Demo nodes.
+ * @fileOverview Universal Risk Audit API
+ * Triggers risk evaluation for all active internal trading nodes.
  */
 
 export async function GET(req: Request) {
   try {
-    const db = getAdminDb();
-    
-    // 1. Check MT5 Accounts
-    const mt5Snap = await db.collection('mt5_accounts').where('status', '==', 'active').get();
-    for (const doc of mt5Snap.docs) {
-      await auditAccount({ id: doc.id, ...doc.data() }, true);
-    }
-
-    // 2. Check Demo Accounts
-    const demoSnap = await db.collection('demoAccounts').where('status', '==', 'active').get();
-    for (const doc of demoSnap.docs) {
-      await auditDemoAccount(doc.id);
-    }
-
-    return new Response(JSON.stringify({ 
+    const results = await runDemoAudit();
+    return NextResponse.json({ 
       success: true, 
-      checked: mt5Snap.size + demoSnap.size 
-    }), { status: 200 });
-
+      ...results
+    });
   } catch (error: any) {
-    return new Response(error.message, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
