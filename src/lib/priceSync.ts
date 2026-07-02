@@ -5,15 +5,43 @@ import { auditDemoAccount } from '@/lib/rulesEngine';
 /**
  * @fileOverview Institutional Price Synchronizer & Risk Auditor
  * Manages real-time market data ingestion and enforces account compliance.
+ * Hardened with distributed locking for multi-instance environments.
  */
 
 export async function syncPricesAndAudit() {
   const db = getAdminDb();
+
+  // 0. Leader Election Lock: Prevent concurrent syncs across multi-instance environments
+  try {
+    const lockRef = db.collection('_system').doc('priceSyncLock');
+    const lockSnap = await lockRef.get();
+    
+    if (lockSnap.exists) {
+      const data = lockSnap.data();
+      if (data?.lockedAt) {
+        const lockedAt = (data.lockedAt as Timestamp).toDate();
+        const diff = Date.now() - lockedAt.getTime();
+        // If the lock was acquired less than 5 seconds ago, skip execution
+        if (diff < 5000) {
+          return { success: true, skipped: true, reason: 'Another instance holds the lock' };
+        }
+      }
+    }
+
+    // Acquire or Renew Lock
+    await lockRef.set({
+      lockedAt: Timestamp.now(),
+      instanceId: process.env.K_REVISION || 'unknown'
+    });
+  } catch (err: any) {
+    console.warn('[PriceSync] Lock acquisition failed, proceeding with caution:', err.message);
+  }
+
   const prices: Record<string, any> = {};
 
   // 1. Define Institutional Instruments
   const instruments = 'XAU_USD,XAG_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
-  const cryptoSymbols = '["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
+  const cryptoSymbols = '["BTCUSDT","ETHUSDT","XRPUSDT","SOLUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
 
   try {
     // 2. Parallel Liquidity Fetch
@@ -30,25 +58,27 @@ export async function syncPricesAndAudit() {
     // Process Binance (Crypto)
     if (cryptoRes.status === 'fulfilled' && cryptoRes.value.ok) {
       const data = await cryptoRes.value.json();
-      data.forEach((item: any) => {
-        const symbol = item.symbol.replace('USDT', 'USD');
-        const price = parseFloat(item.price);
-        if (isNaN(price)) return;
+      if (Array.isArray(data)) {
+        data.forEach((item: any) => {
+          const symbol = item.symbol.replace('USDT', 'USD');
+          const price = parseFloat(item.price);
+          if (isNaN(price)) return;
 
-        // Institutional spread simulation (0.025%)
-        const spread = price * 0.00025;
-        const dec =
-          (symbol === 'BTCUSD' || symbol === 'ETHUSD') ? 2 :
-          (symbol === 'BNBUSD' || symbol === 'SOLUSD') ? 2 :
-          (symbol === 'XRPUSD' || symbol === 'ADAUSD') ? 4 :
-          (symbol === 'DOGEUSD') ? 5 : 2;
+          // Institutional spread simulation (0.025%)
+          const spread = price * 0.00025;
+          const dec =
+            (symbol === 'BTCUSD' || symbol === 'ETHUSD') ? 2 :
+            (symbol === 'BNBUSD' || symbol === 'SOLUSD') ? 2 :
+            (symbol === 'XRPUSD' || symbol === 'ADAUSD') ? 4 :
+            (symbol === 'DOGEUSD') ? 5 : 2;
 
-        prices[symbol] = {
-          price: +price.toFixed(dec),
-          bid: +(price - spread).toFixed(dec),
-          ask: +(price + spread).toFixed(dec)
-        };
-      });
+          prices[symbol] = {
+            price: +price.toFixed(dec),
+            bid: +(price - spread).toFixed(dec),
+            ask: +(price + spread).toFixed(dec)
+          };
+        });
+      }
     }
 
     // Process OANDA (Forex + Metals)
