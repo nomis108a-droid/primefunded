@@ -7,16 +7,16 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // Dynamic imports to ensure logic is only loaded in Node.js environment
     const { syncPricesAndAudit } = await import('@/lib/priceSync');
-    const { startBinanceStream, startThrottledFirestoreWrite } = await import('@/lib/binanceStream');
+    const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
     const { startOandaStream, startOandaThrottledFirestoreWrite } = await import('@/lib/oandaStream');
 
     /**
      * Institutional Background Liquidity Services
      */
     const initializeServices = () => {
-      // 1. Initialize Real-Time Crypto Stream (WebSocket)
-      startBinanceStream();
-      startThrottledFirestoreWrite();
+      // 1. Initialize Real-Time Crypto Stream (Coinbase WebSocket + CoinGecko Fallback)
+      startCoinbaseStream();
+      startBnbPolling();
 
       // 2. Initialize Real-Time FX/Metals Stream (HTTP Persistence)
       startOandaStream();
