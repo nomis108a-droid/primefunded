@@ -73,7 +73,12 @@ export async function GET() {
 
               // Institutional spread simulation (Crypto: 0.05%)
               const spread = price * 0.00025;
-              const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'BNBUSD') ? 2 : (sym === 'DOGEUSD' || sym === 'ADAUSD') ? 4 : 2;
+              const dec =
+                (sym === 'BTCUSD' || sym === 'ETHUSD') ? 2 :
+                (sym === 'BNBUSD' || sym === 'SOLUSD') ? 2 :
+                (sym === 'XRPUSD' || sym === 'ADAUSD') ? 4 :
+                (sym === 'DOGEUSD') ? 5 :
+                2;
               
               prices[sym] = {
                 bid: +(price - spread).toFixed(dec),
