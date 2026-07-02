@@ -10,6 +10,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 let latestOandaTicks: Record<string, { price: number; bid: number; ask: number }> = {};
 let lastWrittenOandaTicks: Record<string, string> = {};
 let tickCount = 0;
+let isWriting = false;
 
 /**
  * Returns the current captured ticks from the OANDA stream.
@@ -133,6 +134,11 @@ export function startOandaThrottledFirestoreWrite() {
   console.log('[OandaStream] Initializing 150ms throttled Firestore sync...');
 
   setInterval(async () => {
+    if (isWriting) {
+      console.log('[OandaStream] Skipped write cycle: previous write still in flight');
+      return;
+    }
+
     const symbols = Object.keys(latestOandaTicks);
     if (symbols.length === 0) return;
 
@@ -157,10 +163,16 @@ export function startOandaThrottledFirestoreWrite() {
     }
 
     if (hasChanges) {
+      isWriting = true;
+      const startTime = Date.now();
       try {
+        console.log('[OandaStream] Commit starting');
         await batch.commit();
+        console.log(`[OandaStream] Commit finished in ${Date.now() - startTime}ms`);
       } catch (err: any) {
         console.warn('[OandaStream] Batch commit failed:', err.message);
+      } finally {
+        isWriting = false;
       }
     }
   }, 150);

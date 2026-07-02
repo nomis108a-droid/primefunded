@@ -12,6 +12,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 let latestCoinbaseTicks: Record<string, { price: number; bid: number; ask: number }> = {};
 let lastWrittenTicks: Record<string, string> = {};
 let isThrottledWriteStarted = false;
+let isWriting = false;
 
 /**
  * Resolves per-symbol decimal precision matching institutional terminal standards.
@@ -100,6 +101,11 @@ export function startThrottledFirestoreWrite() {
   console.log("[CoinbaseStream] Initializing 400ms throttled Firestore sync...");
 
   setInterval(async () => {
+    if (isWriting) {
+      console.log('[CoinbaseStream] Skipped write cycle: previous write still in flight');
+      return;
+    }
+
     const symbols = Object.keys(latestCoinbaseTicks);
     if (symbols.length === 0) return;
 
@@ -125,10 +131,16 @@ export function startThrottledFirestoreWrite() {
     }
 
     if (hasChanges) {
+      isWriting = true;
+      const startTime = Date.now();
       try {
+        console.log('[CoinbaseStream] Commit starting');
         await batch.commit();
+        console.log(`[CoinbaseStream] Commit finished in ${Date.now() - startTime}ms`);
       } catch (err: any) {
         console.warn("[CoinbaseStream] Batch commit failed:", err.message);
+      } finally {
+        isWriting = false;
       }
     }
   }, 400);
