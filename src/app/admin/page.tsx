@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut
 } from 'lucide-react';
 import { advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAction, processKycAction, resetDemoAccountAction, fetchDemoTradesByAccount, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -22,6 +22,7 @@ import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
+import { ADMIN_EMAILS } from '@/lib/admin';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -47,7 +48,9 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loggedInAdmin, setLoggedInAdmin] = useState<string | null>(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminEmailInput, setAdminEmailInput] = useState('');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [adminError, setAdminError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
@@ -115,8 +118,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
-    if (isVerified) {
+    const email = localStorage.getItem('adminEmail');
+    if (isVerified && email) {
       setIsAuthenticated(true);
+      setLoggedInAdmin(email);
       setShowAdminModal(false);
       refreshData();
     } else {
@@ -129,23 +134,36 @@ export default function AdminPage() {
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPasswordInput === "93463962569392846256") {
-      localStorage.setItem('adminVerified', 'true');
-      document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
-      setAdminError("");
-      
-      setIsAuthenticated(true);
-      setShowAdminModal(false);
-      
-      refreshData();
-    } else {
-      setAdminError("❌ Access Denied");
-      setAdminPasswordInput('');
+    const MASTER_PASSWORD = '93463962569392846256';
+    
+    const isEmailAuthorized = ADMIN_EMAILS.map(e => e.toLowerCase()).includes(adminEmailInput.toLowerCase());
+    const isPasswordCorrect = adminPasswordInput === MASTER_PASSWORD;
+
+    if (!isEmailAuthorized) {
+      setAdminError('❌ Unauthorized email address');
+      return;
     }
+    if (!isPasswordCorrect) {
+      setAdminError('❌ Invalid master password');
+      return;
+    }
+
+    // Both correct — grant access
+    localStorage.setItem('adminVerified', 'true');
+    localStorage.setItem('adminEmail', adminEmailInput.toLowerCase());
+    document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
+    setAdminError('');
+    
+    setIsAuthenticated(true);
+    setLoggedInAdmin(adminEmailInput.toLowerCase());
+    setShowAdminModal(false);
+    
+    refreshData();
   };
 
   const handleEmergencyReset = () => {
     localStorage.removeItem('adminVerified');
+    localStorage.removeItem('adminEmail');
     document.cookie = 'admin_master=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     window.location.reload();
   };
@@ -279,17 +297,28 @@ export default function AdminPage() {
               <h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1>
               <p className="text-muted-foreground text-sm">Managing institutional trading nodes and risk compliance.</p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" asChild className="border-primary/20 text-primary">
-                <Link href="/admin/price-tracker"><Zap className="w-4 h-4 mr-2" /> Price Synchronizer</Link>
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleCleanupData} disabled={actionLoading} className="border-destructive/20 text-destructive hover:bg-destructive/5">
-                <Trash2 className="w-4 h-4 mr-2" /> Cleanup Environment
-              </Button>
-              <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
-                {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                Sync Network
-              </Button>
+            <div className="flex items-center gap-4">
+              {loggedInAdmin && (
+                <div className="flex flex-col items-end">
+                   <p className="text-[10px] font-black uppercase text-primary tracking-widest">Logged in as:</p>
+                   <p className="text-sm font-bold text-white">{loggedInAdmin}</p>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" asChild className="border-primary/20 text-primary">
+                  <Link href="/admin/price-tracker"><Zap className="w-4 h-4 mr-2" /> Price Synchronizer</Link>
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleCleanupData} disabled={actionLoading} className="border-destructive/20 text-destructive hover:bg-destructive/5">
+                  <Trash2 className="w-4 h-4 mr-2" /> Cleanup Environment
+                </Button>
+                <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
+                  {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  Sync Network
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleEmergencyReset} className="text-muted-foreground hover:text-white">
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
           </div>
           
@@ -594,9 +623,36 @@ export default function AdminPage() {
         <DialogContent className="bg-black/95 border-primary/30 text-white outline-none">
           <DialogHeader>
             <DialogTitle className="text-center font-headline text-2xl">System Authorization</DialogTitle>
+            <DialogDescription className="text-center text-xs text-muted-foreground">
+              Dual-factor administrative access required.
+            </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAdminAuth} className="space-y-6 pt-4">
-            <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" autoFocus />
+            <div className="space-y-4">
+               <div className="space-y-2">
+                 <Label className="text-xs uppercase font-bold tracking-widest text-primary">Admin Email</Label>
+                 <Input 
+                   type="email" 
+                   value={adminEmailInput} 
+                   onChange={(e) => setAdminEmailInput(e.target.value)} 
+                   placeholder="Enter your Gmail address" 
+                   className="h-12 bg-secondary/50 border-white/5" 
+                   required
+                 />
+               </div>
+               <div className="space-y-2">
+                 <Label className="text-xs uppercase font-bold tracking-widest text-primary">Master Password</Label>
+                 <Input 
+                   type="password" 
+                   value={adminPasswordInput} 
+                   onChange={(e) => setAdminPasswordInput(e.target.value)} 
+                   placeholder="••••••••" 
+                   className="h-14 text-center text-2xl font-mono" 
+                   required
+                 />
+               </div>
+            </div>
+            {adminError && <p className="text-center text-xs font-bold text-destructive animate-pulse">{adminError}</p>}
             <Button type="submit" className="w-full h-14 font-black cyan-box-glow text-lg">AUTHENTICATE</Button>
           </form>
         </DialogContent>

@@ -1,200 +1,99 @@
-import WebSocket from 'ws';
+/**
+ * Crypto Price Feed via Kraken REST API
+ * Replaces Coinbase WebSocket (blocked on Google Cloud IPs)
+ * Kraken works reliably from Firebase/GCP infrastructure
+ */
 import { getAdminDb } from '@/lib/firebase-admin';
-import { FieldValue } from 'firebase-admin/firestore';
 
-/**
- * @fileOverview Institutional Coinbase WebSocket Stream & BNB Polling
- * Provides real-time crypto liquidity for the trading terminal with throttled Firestore updates.
- * BTC, ETH, SOL, XRP, ADA, DOGE are streamed via Coinbase Advanced Trade Public WS.
- * BNB is polled via CoinGecko.
- */
+const KRAKEN_PAIRS: Record<string, string> = {
+  'XXBTZUSD': 'BTCUSD',
+  'XETHZUSD': 'ETHUSD',
+  'SOLUSDT':  'SOLUSD',
+  'XRPUSD':   'XRPUSD',
+  'ADAUSD':   'ADAUSD',
+  'XDGUSD':   'DOGEUSD',
+};
 
-let latestCoinbaseTicks: Record<string, { price: number; bid: number; ask: number }> = {};
-let lastWrittenTicks: Record<string, string> = {};
-let isThrottledWriteStarted = false;
+let cryptoPrices: Record<string, { price: number; bid: number; ask: number }> = {};
 let isWriting = false;
+let krakenInterval: NodeJS.Timeout | null = null;
+let bnbInterval: NodeJS.Timeout | null = null;
 
-/**
- * Resolves per-symbol decimal precision matching institutional terminal standards.
- */
-function getPrecision(symbol: string): number {
-  const s = symbol.toUpperCase();
-  if (s === 'BTCUSD' || s === 'ETHUSD') return 2;
-  if (s === 'BNBUSD' || s === 'SOLUSD') return 2;
-  if (s === 'XRPUSD' || s === 'ADAUSD') return 4;
-  if (s === 'DOGEUSD') return 5;
-  return 2;
-}
+async function fetchKrakenPrices() {
+  try {
+    const pairs = Object.keys(KRAKEN_PAIRS).join(',');
+    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pairs}`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.error?.length > 0) return;
 
-/**
- * Returns the current captured ticks from the Coinbase stream.
- */
-export function getLatestCoinbaseTicks() {
-  return latestCoinbaseTicks;
-}
+    const now = new Date().toISOString();
+    Object.entries(data.result || {}).forEach(([krakenPair, ticker]: [string, any]) => {
+      const symbol = KRAKEN_PAIRS[krakenPair];
+      if (!symbol) return;
+      const price = parseFloat(ticker.c[0]);
+      const bid = parseFloat(ticker.b[0]);
+      const ask = parseFloat(ticker.a[0]);
+      if (!price || isNaN(price)) return;
+      cryptoPrices[symbol] = { price, bid, ask };
+    });
 
-/**
- * Initializes the Coinbase WebSocket connection using the Advanced Trade Public Feed.
- */
-export function startCoinbaseStream() {
-  console.log("[CoinbaseStream] Starting connection attempt to Advanced Trade Feed...");
-  
-  const ws = new WebSocket('wss://advanced-trade-api.coinbase.com/ws/public');
-
-  ws.on('open', () => {
-    console.log("[CoinbaseStream] Connection established.");
-    ws.send(JSON.stringify({
-      "type": "subscribe",
-      "product_ids": ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "ADA-USD", "DOGE-USD"],
-      "channel": "ticker"
-    }));
-  });
-
-  ws.on('message', (data: string) => {
-    try {
-      const msg = JSON.parse(data.toString());
-      
-      // Advanced Trade Public Ticker message format:
-      // { "channel": "ticker", "events": [ { "tickers": [ { "product_id": "BTC-USD", "price": "..." } ] } ] }
-      if (msg.channel !== 'ticker' || !msg.events) return;
-
-      msg.events.forEach((event: any) => {
-        if (!event.tickers) return;
-        event.tickers.forEach((ticker: any) => {
-          const symbol = ticker.product_id.replace('-', '').toUpperCase();
-          const price = parseFloat(ticker.price);
-          if (isNaN(price)) return;
-
-          // Institutional spread simulation (0.025%)
-          const spread = price * 0.00025;
-          const dec = getPrecision(symbol);
-
-          latestCoinbaseTicks[symbol] = {
-            price: +price.toFixed(dec),
-            bid: +(price - spread).toFixed(dec),
-            ask: +(price + spread).toFixed(dec)
-          };
-        });
-      });
-    } catch (e) {
-      // Silently skip malformed messages
-    }
-  });
-
-  ws.on('error', (err) => {
-    console.error("[CoinbaseStream] WebSocket error:", err.message);
-  });
-
-  ws.on('close', () => {
-    console.log("[CoinbaseStream] WebSocket connection closed. Attempting institutional reconnection in 3s...");
-    setTimeout(startCoinbaseStream, 3000);
-  });
-
-  // Start the throttled writer only once
-  if (!isThrottledWriteStarted) {
-    startThrottledFirestoreWrite();
-    isThrottledWriteStarted = true;
+    await writeCryptoPricesToFirestore();
+  } catch (e: any) {
+    console.error('[KrakenFeed] Fetch error:', e.message);
   }
-
-  return ws;
 }
 
-/**
- * Periodically flushes changed ticks to Firestore.
- * Throttled to 400ms to balance performance and database costs.
- */
-export function startThrottledFirestoreWrite() {
-  const db = getAdminDb();
-  console.log("[CoinbaseStream] Initializing 400ms throttled Firestore sync...");
+async function fetchBnbPrice() {
+  try {
+    const res = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd',
+      { signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    const price = data?.binancecoin?.usd;
+    if (!price || isNaN(price)) return;
+    const spread = price * 0.0005;
+    cryptoPrices['BNBUSD'] = { price, bid: price - spread, ask: price + spread };
+  } catch (e: any) {
+    console.error('[BnbPolling] Fetch error:', e.message);
+  }
+}
 
-  setInterval(async () => {
-    if (isWriting) {
-      return;
-    }
-
-    const symbols = Object.keys(latestCoinbaseTicks);
-    if (symbols.length === 0) return;
-
+async function writeCryptoPricesToFirestore() {
+  if (isWriting || Object.keys(cryptoPrices).length === 0) return;
+  isWriting = true;
+  const start = Date.now();
+  try {
+    const db = getAdminDb();
     const batch = db.batch();
-    let hasChanges = false;
-
-    for (const symbol of symbols) {
-      const tick = latestCoinbaseTicks[symbol];
-      const tickStr = JSON.stringify(tick);
-
-      // Only write if the tick data actually changed
-      if (lastWrittenTicks[symbol] !== tickStr) {
-        const docRef = db.collection('livePrices').doc(symbol);
-        batch.set(docRef, {
-          ...tick,
-          pair: symbol,
-          updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
-
-        lastWrittenTicks[symbol] = tickStr;
-        hasChanges = true;
-      }
-    }
-
-    if (hasChanges) {
-      isWriting = true;
-      try {
-        const start = Date.now();
-        await batch.commit();
-        console.log(`[CoinbaseStream] Commit finished in ${Date.now() - start}ms`);
-      } catch (err: any) {
-        console.warn("[CoinbaseStream] Batch commit failed:", err.message);
-      } finally {
-        isWriting = false;
-      }
-    }
-  }, 400);
+    const now = new Date().toISOString();
+    Object.entries(cryptoPrices).forEach(([symbol, data]) => {
+      const ref = db.collection('livePrices').doc(symbol);
+      batch.set(ref, { ...data, updatedAt: now }, { merge: true });
+    });
+    await batch.commit();
+    console.log(`[KrakenFeed] Commit finished in ${Date.now() - start}ms`);
+  } catch (e: any) {
+    console.error('[KrakenFeed] Firestore write error:', e.message);
+  } finally {
+    isWriting = false;
+  }
 }
 
-/**
- * Autonomous Polling for BNBUSD (via CoinGecko)
- * Executed every 3 seconds to maintain BNB node liquidity.
- */
+export function startCoinbaseStream() {
+  if (krakenInterval) return;
+  console.log('[KrakenFeed] Starting Kraken crypto price feed (3s interval)...');
+  fetchKrakenPrices();
+  krakenInterval = setInterval(fetchKrakenPrices, 3000);
+}
+
 export function startBnbPolling() {
-  console.log("[BnbPolling] Starting 3s poll for BNBUSD via CoinGecko.");
-  const db = getAdminDb();
-  
-  setInterval(async () => {
-    try {
-      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd', {
-        headers: {
-          'User-Agent': 'PrimeFunded-Terminal/1.0',
-          'Accept': 'application/json'
-        }
-      });
-      if (!res.ok) return;
-      
-      const data = await res.json();
-      const price = data?.binancecoin?.usd;
-      if (!price) return;
-
-      // Institutional spread simulation (0.025%)
-      const spread = price * 0.00025;
-      const dec = 2; // BNBUSD precision
-
-      const tick = {
-        price: +price.toFixed(dec),
-        bid: +(price - spread).toFixed(dec),
-        ask: +(price + spread).toFixed(dec)
-      };
-
-      const tickStr = JSON.stringify(tick);
-      if (lastWrittenTicks['BNBUSD'] !== tickStr) {
-        const docRef = db.collection('livePrices').doc('BNBUSD');
-        await docRef.set({
-          ...tick,
-          pair: 'BNBUSD',
-          updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
-        lastWrittenTicks['BNBUSD'] = tickStr;
-      }
-    } catch (error: any) {
-      console.error('[BnbPolling] Polling error:', error.message, error.cause ? JSON.stringify(error.cause) : '');
-    }
-  }, 3000);
+  if (bnbInterval) return;
+  console.log('[BnbPolling] Starting BNB price polling via CoinGecko (10s interval)...');
+  fetchBnbPrice();
+  bnbInterval = setInterval(fetchBnbPrice, 10000);
 }

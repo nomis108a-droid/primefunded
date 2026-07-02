@@ -5,6 +5,10 @@ service cloud.firestore {
     // Helper: Check if user is in the authorized admin email list
     function isAdmin() {
       return request.auth != null && (
+        request.auth.token.email == "Pawanvish0907@gmail.com" ||
+        request.auth.token.email == "nomis108a@gmail.com" ||
+        request.auth.token.email == "radhakrishna200803@gmail.com" ||
+        request.auth.token.email == "rachithraj133@gmail.com" ||
         request.auth.token.email == "sitarama108a@gmail.com" ||
         request.auth.token.email == "sitarama108a-alt@gmail.com"
       );
