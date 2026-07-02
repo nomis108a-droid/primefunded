@@ -15,43 +15,9 @@ export interface LivePrice {
 }
 
 /**
- * Hook for a single symbol subscription
- */
-export function useLivePrice(symbol: string) {
-  const [data, setData] = useState<LivePrice | null>(null);
-
-  useEffect(() => {
-    if (!db || !symbol) return;
-
-    const unsub = onSnapshot(doc(db, 'livePrices', symbol.toUpperCase()), (snap) => {
-      if (snap.exists()) {
-        const d = snap.data();
-        setData({
-          symbol: d.symbol || symbol.toUpperCase(),
-          price: Number(d.price) || 0,
-          bid: Number(d.bid) || Number(d.price) || 0,
-          ask: Number(d.ask) || Number(d.price) || 0,
-          updatedAt: d.updatedAt?.toDate() || null
-        });
-      }
-    }, (err) => {
-      if (err.code === 'permission-denied') {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: `livePrices/${symbol.toUpperCase()}`,
-          operation: 'get'
-        } satisfies SecurityRuleContext));
-      }
-    });
-
-    return () => unsub();
-  }, [symbol]);
-
-  return data;
-}
-
-/**
  * Hook for multiple symbols subscription
  * Optimized for high-frequency trading terminals.
+ * Listens to the entire livePrices collection and maps to requested symbols.
  */
 export function useLivePrices(symbols: string[]) {
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
@@ -60,29 +26,26 @@ export function useLivePrices(symbols: string[]) {
   useEffect(() => {
     if (!db || !upperSymbols.length) return;
 
-    // Listen to entire collection for efficiency and map to requested symbols
+    // Direct collection listener is most efficient for a terminal with multiple active widgets
     const unsub = onSnapshot(collection(db, 'livePrices'), (snap) => {
-      setPrices((prev) => {
-        const next = { ...prev };
-        let updatedCount = 0;
-        
-        snap.docs.forEach((d) => {
-          const docId = d.id.toUpperCase();
-          if (upperSymbols.includes(docId)) {
-            const data = d.data();
-            next[docId] = {
-              symbol: docId,
-              price: Number(data.price) || 0,
-              bid: Number(data.bid) || Number(data.price) || 0,
-              ask: Number(data.ask) || Number(data.price) || 0,
-              updatedAt: data.updatedAt?.toDate() || null
-            };
-            updatedCount++;
-          }
-        });
-        
-        return next;
+      const updatedPrices: Record<string, LivePrice> = {};
+      
+      snap.docs.forEach((d) => {
+        const docId = d.id.toUpperCase();
+        if (upperSymbols.includes(docId)) {
+          const data = d.data();
+          updatedPrices[docId] = {
+            symbol: docId,
+            price: Number(data.price) || 0,
+            bid: Number(data.bid) || Number(data.price) || 0,
+            ask: Number(data.ask) || Number(data.price) || 0,
+            updatedAt: data.updatedAt?.toDate() || null
+          };
+        }
       });
+      
+      // Atomic update of the entire state object to trigger a single re-render
+      setPrices(prev => ({ ...prev, ...updatedPrices }));
     }, (err) => {
       console.error('[useLivePrices] Subscription error:', err);
       if (err.code === 'permission-denied') {

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
@@ -32,7 +31,7 @@ const SYMBOLS = [
 ];
 
 const OANDA_REPS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"];
-const BINANCE_REPS = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD"];
+const BINANCE_REPS = ["BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD"];
 
 const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -72,8 +71,7 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
     if (data?.price && seriesRef.current) {
       const now = Math.floor(Date.now() / 1000);
       
-      // PERMANENT FIX: Ensure time is strictly non-decreasing
-      // Use series.update() to handle multi-ticks within the same second correctly
+      // Handle multiple ticks within the same second correctly
       if (now >= lastTimeRef.current) {
         seriesRef.current.update({ time: now as any, value: data.price });
         lastTimeRef.current = now;
@@ -126,9 +124,10 @@ export default function AdminPriceTracker() {
       setLastSync(new Date());
 
       const keys = Object.keys(data);
-      // Hardened Status Detection: Online if any representative symbol has valid liquidity
+      
+      // Refined Status Detection: Check specifically for representative assets
       const oandaOnline = keys.some(k => OANDA_REPS.includes(k) && data[k]?.price > 0);
-      const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && (data[k]?.price > 0 || data[k.replace('USD', 'USDT')]?.price > 0));
+      const binanceOnline = keys.some(k => BINANCE_REPS.includes(k) && data[k]?.price > 0);
 
       setStatus({ 
         oanda: oandaOnline ? 'online' : 'error', 
@@ -151,6 +150,7 @@ export default function AdminPriceTracker() {
         });
       }
     } catch (err) {
+      console.error('[Price-Sync] Critical Heartbeat Fault:', err);
       setStatus({ oanda: 'error', binance: 'error' });
     }
   }, [isPumping]);
@@ -161,7 +161,7 @@ export default function AdminPriceTracker() {
       return;
     }
     pumpPrices();
-    const interval = setInterval(pumpPrices, 2000);
+    const interval = setInterval(pumpPrices, 2500);
     return () => clearInterval(interval);
   }, [isPumping, pumpPrices]);
 
@@ -214,7 +214,7 @@ export default function AdminPriceTracker() {
                      {isPumping ? "Critical Uptime Node Active" : "PLATFORM LIQUIDITY HALTED"}
                    </h3>
                    <p className="text-zinc-300 text-xs leading-relaxed font-medium">
-                     Keep this tab open to maintain live trading for all users globally.
+                     Keep this tab open to maintain live trading for all users globally. Prices are synchronized from OANDA (FX) and BINANCE (Crypto).
                    </p>
                 </div>
              </div>
@@ -231,8 +231,8 @@ export default function AdminPriceTracker() {
 
           <Card className="bg-card/40 border-border/50">
             <div className="p-6 text-center flex flex-col justify-center items-center h-full">
-               <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Last Sync</p>
-               <h4 className="text-2xl font-headline font-bold text-white">{lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}</h4>
+               <p className="text-[10px] font-black text-zinc-500 uppercase mb-1">Last Heartbeat</p>
+               <h4 className="text-2xl font-headline font-bold text-white tabular-nums">{lastSync ? format(lastSync, 'HH:mm:ss') : '--:--:--'}</h4>
             </div>
           </Card>
         </div>
@@ -240,7 +240,7 @@ export default function AdminPriceTracker() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
           {SYMBOLS.map(sym => (
             <Card key={sym} className="bg-card/30 border-border/50 p-4 hover:border-primary/30 transition-colors">
-              <MiniChart symbol={sym} data={prices[sym] || prices[sym.replace('USD', 'USDT')]} />
+              <MiniChart symbol={sym} data={prices[sym]} />
             </Card>
           ))}
         </div>

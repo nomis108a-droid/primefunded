@@ -82,7 +82,7 @@ export default function DemoPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
-  // REAL-TIME FIRESTORE PUMP CONSUMPTION
+  // High-Frequency Real-time Data Source
   const livePrices = useLivePrices(SYMBOLS);
 
   const closingTradesRef = useRef<Set<string>>(new Set());
@@ -114,6 +114,7 @@ export default function DemoPage() {
     }
   }, [authLoading, accounts, currentAccountId]);
 
+  // Symbol change reset
   useEffect(() => {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
@@ -323,11 +324,13 @@ export default function DemoPage() {
         if (chartType === 'area' || chartType === 'line') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
         } else {
+          // If a new period has started or no candle exists
           if (!cur || Number(cur.time) < candleTime) {
             const nextCandle = { time: candleTime, open: price, high: price, low: price, close: price };
             currentCandleRef.current = nextCandle;
             mainSeriesRef.current.update(nextCandle);
           } else if (Number(cur.time) === candleTime) {
+            // Update the existing candle period
             cur.high = Math.max(cur.high, price);
             cur.low = Math.min(cur.low, price);
             cur.close = price;
@@ -337,6 +340,7 @@ export default function DemoPage() {
       }
     }
 
+    // Risk Engine: Real-time SL/TP monitoring
     if (openTrades && openTrades.length > 0 && Object.keys(livePrices).length > 0) {
       openTrades.forEach(t => {
         if (closingTradesRef.current.has(t.id)) return;

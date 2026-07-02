@@ -54,7 +54,7 @@ export async function GET() {
       );
     }
 
-    // 2. Binance - Crypto (Restored mapping for BTC, ETH, SOL, XRP, BNB, DOGE, ADA)
+    // 2. Binance - Crypto
     const binanceSymbols = '["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT","ADAUSDT"]';
     fetchPromises.push(
       fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${encodeURIComponent(binanceSymbols)}`, { 
