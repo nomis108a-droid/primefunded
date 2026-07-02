@@ -1,33 +1,26 @@
-
 'use client';
 
-import { useEffect, useState, useCallback, useRef, memo } from 'react';
+import { useEffect, useState, memo } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
-  Activity, 
-  AlertTriangle, 
-  Database, 
-  XCircle,
   Zap,
-  Fingerprint,
   RefreshCw,
   Clock,
   ShieldCheck,
-  Server
+  Server,
+  Fingerprint
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { onSnapshot, collection } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 
 /**
  * @fileOverview Institutional Price Monitor (Heartbeat Dashboard)
- * Monitors server-side automated price sync jobs.
- * This page is now a monitoring tool only; liquidity is synced by the server.
+ * Monitors server-side automated price sync jobs with real-time SVG charts.
  */
 
 const SYMBOLS = [
@@ -35,82 +28,40 @@ const SYMBOLS = [
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD", "ADAUSD"
 ];
 
-const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
-  const historyRef = useRef<{ time: number, value: number }[]>([]);
+const MiniChart = memo(({ history }: { history: number[] }) => {
+  if (!history || history.length < 2) {
+    return (
+      <div className="h-[40px] w-full flex items-center justify-center">
+        <div className="w-full h-[1px] bg-zinc-800" />
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-    try {
-      const chart = createChart(chartContainerRef.current, {
-        layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#71717a', fontSize: 10 },
-        grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-        width: 180,
-        height: 60,
-        handleScroll: false,
-        handleScale: false,
-        timeScale: { visible: false },
-        rightPriceScale: { 
-          visible: false,
-          autoScale: true 
-        },
-      });
-      const series = chart.addAreaSeries({
-        lineColor: '#11b3f5',
-        topColor: 'rgba(17, 179, 245, 0.2)',
-        bottomColor: 'rgba(17, 179, 245, 0.0)',
-        lineWidth: 2,
-        crosshairMarkerVisible: false,
-        lastValueVisible: false,
-        priceLineVisible: false,
-      });
-      chartRef.current = chart;
-      seriesRef.current = series;
-    } catch (e) {}
-    return () => { chartRef.current?.remove(); };
-  }, []);
-
-  useEffect(() => {
-    if (data?.price && seriesRef.current) {
-      const now = Math.floor(Date.now() / 1000);
-      
-      // Update history buffer
-      const newPoint = { time: now, value: data.price };
-      
-      // Ensure we don't have duplicate timestamps which crashes the chart
-      const lastPoint = historyRef.current[historyRef.current.length - 1];
-      if (lastPoint && lastPoint.time === now) {
-        historyRef.current[historyRef.current.length - 1] = newPoint;
-      } else {
-        historyRef.current.push(newPoint);
-      }
-
-      // Limit to 50 points
-      if (historyRef.current.length > 50) {
-        historyRef.current = historyRef.current.slice(-50);
-      }
-
-      // Update series
-      seriesRef.current.setData(historyRef.current);
-      chartRef.current?.timeScale().fitContent();
-    }
-  }, [data]);
-
-  const priceFormatted = data?.price ? data.price.toLocaleString(undefined, { 
-    minimumFractionDigits: symbol.includes('JPY') ? 3 : (symbol.includes('USD') && !['BTCUSD', 'ETHUSD', 'BNBUSD'].includes(symbol) ? 5 : 2) 
-  }) : '---';
+  const min = Math.min(...history);
+  const max = Math.max(...history);
+  const range = max - min || 1;
+  const height = 40;
+  const width = 180;
+  
+  const points = history.map((val, i) => {
+    const x = (i / (history.length - 1)) * width;
+    const y = height - ((val - min) / range) * height;
+    return `${x},${y}`;
+  }).join(' ');
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between items-end mb-1">
-        <span className="font-bold text-white text-xs">{symbol}</span>
-        <span className="font-mono text-[10px] text-primary tabular-nums">
-          {priceFormatted}
-        </span>
-      </div>
-      <div ref={chartContainerRef} className="h-[60px] w-full" />
+    <div className="h-[40px] w-full mt-2">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
+        <polyline
+          fill="none"
+          stroke="#11b3f5"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points}
+          className="drop-shadow-[0_0_5px_rgba(17,179,245,0.5)]"
+        />
+      </svg>
     </div>
   );
 });
@@ -120,6 +71,7 @@ MiniChart.displayName = 'MiniChart';
 export default function AdminPriceTracker() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
+  const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({});
   const [lastSync, setLastSync] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -130,20 +82,45 @@ export default function AdminPriceTracker() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // Listen to all symbols in real-time from Firestore (Synced by server)
-    const unsubs = SYMBOLS.map(sym => {
-      return onSnapshot(doc(db, 'livePrices', sym), (doc) => {
-        if (doc.exists()) {
-          const data = doc.data();
-          setPrices(prev => ({ ...prev, [sym]: data }));
-          if (data.updatedAt) {
-            setLastSync(data.updatedAt.toDate());
+    // Listen to all symbols in real-time from Firestore
+    const unsub = onSnapshot(collection(db, 'livePrices'), (snapshot) => {
+      const newPrices: Record<string, any> = {};
+      let latestDate = null;
+
+      setPriceHistory(prev => {
+        const next = { ...prev };
+        snapshot.docs.forEach(d => {
+          const docId = d.id.toUpperCase();
+          if (SYMBOLS.includes(docId)) {
+            const data = d.data();
+            newPrices[docId] = data;
+            
+            if (data.price) {
+              const currentHist = next[docId] || [];
+              const lastVal = currentHist[currentHist.length - 1];
+              
+              // Add point if price changed
+              if (lastVal !== data.price) {
+                next[docId] = [...currentHist, data.price].slice(-60);
+              }
+            }
+
+            if (data.updatedAt) {
+              const date = data.updatedAt.toDate();
+              if (!latestDate || date > latestDate) latestDate = date;
+            }
           }
-        }
+        });
+        return next;
       });
+
+      setPrices(prev => ({ ...prev, ...newPrices }));
+      if (latestDate) setLastSync(latestDate);
+    }, (err) => {
+      console.error("[PriceTracker] Sync Error:", err);
     });
 
-    return () => unsubs.forEach(u => u());
+    return () => unsub();
   }, [isAuthenticated]);
 
   if (!isAuthenticated) {
@@ -151,7 +128,7 @@ export default function AdminPriceTracker() {
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <Fingerprint className="w-12 h-12 text-primary/40 mb-4" />
         <h2 className="text-xl font-headline font-bold text-white mb-2">Restricted Access</h2>
-        <Button className="mt-8 px-10 rounded-xl" asChild><a href="/admin">Go to Terminal</a></Button>
+        <Button className="mt-8 px-10 rounded-xl font-bold" asChild><a href="/admin">Go to Terminal</a></Button>
       </div>
     );
   }
@@ -177,7 +154,7 @@ export default function AdminPriceTracker() {
               </p>
               <p className="text-[8px] text-zinc-500 uppercase font-bold tracking-widest">Autonomous operation enabled</p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-9 px-4 rounded-xl">
+            <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-9 px-4 rounded-xl font-bold">
               <RefreshCw className="w-4 h-4 mr-2" /> Refresh State
             </Button>
           </div>
@@ -220,11 +197,26 @@ export default function AdminPriceTracker() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          {SYMBOLS.map(sym => (
-            <Card key={sym} className="bg-card/30 border-border/50 p-4 hover:border-primary/30 transition-colors">
-              <MiniChart symbol={sym} data={prices[sym]} />
-            </Card>
-          ))}
+          {SYMBOLS.map(sym => {
+            const data = prices[sym];
+            const priceFormatted = data?.price ? data.price.toLocaleString(undefined, { 
+              minimumFractionDigits: sym.includes('JPY') ? 3 : (sym.includes('USD') && !['BTCUSD', 'ETHUSD', 'BNBUSD'].includes(sym) ? 5 : 2) 
+            }) : '---';
+
+            return (
+              <Card key={sym} className="bg-card/30 border-border/50 p-4 hover:border-primary/30 transition-colors">
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-end mb-1">
+                    <span className="font-bold text-white text-xs">{sym}</span>
+                    <span className="font-mono text-[10px] text-primary tabular-nums">
+                      {priceFormatted}
+                    </span>
+                  </div>
+                  <MiniChart history={priceHistory[sym] || []} />
+                </div>
+              </Card>
+            );
+          })}
         </div>
       </main>
     </div>
