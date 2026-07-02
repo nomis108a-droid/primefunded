@@ -22,6 +22,8 @@ export function getLatestOandaTicks() {
  * Automatically reconnects on disconnection or failure.
  */
 export async function startOandaStream() {
+  console.log("[OandaStream] Starting connection attempt...");
+  
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const apiKey = process.env.OANDA_API_KEY;
 
@@ -33,8 +35,6 @@ export async function startOandaStream() {
   const instruments = 'XAU_USD,XAG_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
   const url = `https://stream-fxpractice.oanda.com/v3/accounts/${accountId}/pricing/stream?instruments=${instruments}`;
 
-  console.log('[OandaStream] Establishing persistent institutional pricing stream...');
-
   try {
     const response = await fetch(url, {
       headers: { 
@@ -43,9 +43,16 @@ export async function startOandaStream() {
       },
     });
 
-    if (!response.ok || !response.body) {
-      throw new Error(`OANDA Stream HTTP Error: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'No error body');
+      throw new Error(`OANDA Stream HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
     }
+
+    if (!response.body) {
+      throw new Error('OANDA Stream response body is null');
+    }
+
+    console.log('[OandaStream] Connection established. Processing institutional feed...');
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -55,7 +62,6 @@ export async function startOandaStream() {
       const { done, value } = await reader.read();
       if (done) break;
 
-      // Append new chunk to buffer and split by newlines for OANDA's line-delimited JSON
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
@@ -84,7 +90,7 @@ export async function startOandaStream() {
       }
     }
   } catch (err: any) {
-    console.error('[OandaStream] Streaming connection fault:', err.message);
+    console.error('[OandaStream] Streaming connection fault:', err.message || err);
   }
 
   console.log('[OandaStream] Reconnecting to institutional node in 3s...');
@@ -110,7 +116,6 @@ export function startOandaThrottledFirestoreWrite() {
       const tick = latestOandaTicks[symbol];
       const tickStr = JSON.stringify(tick);
 
-      // Only write if the tick data actually changed
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
         const docRef = db.collection('livePrices').doc(symbol);
         batch.set(docRef, {
