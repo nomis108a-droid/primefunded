@@ -290,8 +290,8 @@ export default function AdminPage() {
   const sortedBreaches = useMemo(() => {
     if (!adminData.breaches) return [];
     return [...adminData.breaches].sort((a, b) => {
-      const dateA = getTradeDate(br.breachedAt || br.createdAt || br.date);
-      const dateB = getTradeDate(br.breachedAt || br.createdAt || br.date);
+      const dateA = getTradeDate(a.breachedAt || a.createdAt || a.date);
+      const dateB = getTradeDate(b.breachedAt || b.createdAt || b.date);
       return (dateB?.getTime() || 0) - (dateA?.getTime() || 0);
     });
   }, [adminData.breaches]);
