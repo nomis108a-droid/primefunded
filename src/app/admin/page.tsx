@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -19,7 +18,7 @@ import { advanceTraderPhaseAction, updateOrderStatusAction, updatePayoutStatusAc
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
-import Link from 'next/link';
+import Link from 'link';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
 
@@ -205,8 +204,14 @@ export default function AdminPage() {
         setUserDetail(res);
       } else throw new Error(res.error);
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Fetch Failed", description: err.message });
-      setIsUserDetailModalOpen(false);
+      const msg = err.message || "";
+      if (msg.includes("Server Action") || msg.includes("not found on the server")) {
+        toast({ title: "App was updated — refreshing..." });
+        setTimeout(() => window.location.reload(), 1000);
+      } else {
+        toast({ variant: "destructive", title: "Fetch Failed", description: msg });
+        setIsUserDetailModalOpen(false);
+      }
     } finally {
       setUserDetailLoading(false);
     }
