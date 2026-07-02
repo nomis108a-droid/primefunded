@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -82,7 +83,7 @@ export default function DemoPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
-  // High-Frequency Real-time Data Source
+  // High-Frequency Real-time Data Source from Firestore onSnapshot
   const livePrices = useLivePrices(SYMBOLS);
 
   const closingTradesRef = useRef<Set<string>>(new Set());
@@ -289,10 +290,13 @@ export default function DemoPage() {
   const openTrades = useMemo(() => allTrades.filter(t => t.status === 'open'), [allTrades]);
   const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed').sort((a, b) => (b.closedAt?.seconds || 0) - (a.closedAt?.seconds || 0)), [allTrades]);
 
-  const isPriceValid = useMemo(() => {
-    const p = livePrices[selectedSymbol.toUpperCase()];
-    return !!(p && p.price > 0);
+  const currentPriceData = useMemo(() => {
+    return livePrices[selectedSymbol.toUpperCase()];
   }, [livePrices, selectedSymbol]);
+
+  const isPriceValid = useMemo(() => {
+    return !!(currentPriceData && currentPriceData.price > 0);
+  }, [currentPriceData]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
@@ -311,12 +315,11 @@ export default function DemoPage() {
 
   // HIGH FIDELITY REAL-TIME CANDLE ENGINE
   useEffect(() => {
-    const priceData = livePrices[selectedSymbol.toUpperCase()];
-    if (priceData && mainSeriesRef.current && !isChartLoading && isChartReady) {
+    if (currentPriceData && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
       const now = Math.floor(Date.now() / 1000);
       const candleTime = Math.floor(now / secs) * secs;
-      const price = priceData.price;
+      const price = currentPriceData.price;
 
       if (price && price > 0) {
         const cur = currentCandleRef.current;
@@ -324,13 +327,11 @@ export default function DemoPage() {
         if (chartType === 'area' || chartType === 'line') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
         } else {
-          // If a new period has started or no candle exists
           if (!cur || Number(cur.time) < candleTime) {
             const nextCandle = { time: candleTime, open: price, high: price, low: price, close: price };
             currentCandleRef.current = nextCandle;
             mainSeriesRef.current.update(nextCandle);
           } else if (Number(cur.time) === candleTime) {
-            // Update the existing candle period
             cur.high = Math.max(cur.high, price);
             cur.low = Math.min(cur.low, price);
             cur.close = price;
@@ -366,7 +367,7 @@ export default function DemoPage() {
         }
       });
     }
-  }, [livePrices, selectedSymbol, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose, chartType]);
+  }, [currentPriceData, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose, chartType, livePrices]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol.toUpperCase()];
@@ -421,17 +422,10 @@ export default function DemoPage() {
   async function placeTrade(type: 'buy' | 'sell') {
     try {
       setActionLoading(true);
-      if (!user || !currentAccountId) return;
+      if (!user || !currentAccountId || !currentPriceData) return;
       
       const token = await user.getIdToken(true);
-      const priceData = livePrices[selectedSymbol.toUpperCase()];
-      
-      if (!priceData || !priceData.price) { 
-        toast({ title: "Price Unavailable", description: `Price unavailable for ${selectedSymbol}.`, variant: "destructive" }); 
-        return; 
-      }
-      
-      const executionPrice = type === 'buy' ? (priceData.ask || priceData.price) : (priceData.bid || priceData.price);
+      const executionPrice = type === 'buy' ? (currentPriceData.ask || currentPriceData.price) : (currentPriceData.bid || currentPriceData.price);
       
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',

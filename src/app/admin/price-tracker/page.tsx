@@ -39,7 +39,7 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
-  const lastTimeRef = useRef<number>(0);
+  const historyRef = useRef<{ time: number, value: number }[]>([]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -52,7 +52,10 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
         handleScroll: false,
         handleScale: false,
         timeScale: { visible: false },
-        rightPriceScale: { visible: false },
+        rightPriceScale: { 
+          visible: false,
+          autoScale: true 
+        },
       });
       const series = chart.addAreaSeries({
         lineColor: '#11b3f5',
@@ -72,11 +75,26 @@ const MiniChart = memo(({ symbol, data }: { symbol: string, data: any }) => {
   useEffect(() => {
     if (data?.price && seriesRef.current) {
       const now = Math.floor(Date.now() / 1000);
-      if (now >= lastTimeRef.current) {
-        seriesRef.current.update({ time: now as any, value: data.price });
-        lastTimeRef.current = now;
-        chartRef.current?.timeScale().fitContent();
+      
+      // Update history buffer
+      const newPoint = { time: now, value: data.price };
+      
+      // Ensure we don't have duplicate timestamps which crashes the chart
+      const lastPoint = historyRef.current[historyRef.current.length - 1];
+      if (lastPoint && lastPoint.time === now) {
+        historyRef.current[historyRef.current.length - 1] = newPoint;
+      } else {
+        historyRef.current.push(newPoint);
       }
+
+      // Limit to 50 points
+      if (historyRef.current.length > 50) {
+        historyRef.current = historyRef.current.slice(-50);
+      }
+
+      // Update series
+      seriesRef.current.setData(historyRef.current);
+      chartRef.current?.timeScale().fitContent();
     }
   }, [data]);
 
