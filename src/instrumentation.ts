@@ -1,32 +1,36 @@
 /**
  * @fileOverview Next.js Instrumentation Hook
- * Initializes the background price synchronization loop on server startup.
+ * Initializes background synchronization services on server startup.
  */
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Dynamic import to ensure priceSync logic is only loaded in Node.js environment
+    // Dynamic imports to ensure logic is only loaded in Node.js environment
     const { syncPricesAndAudit } = await import('@/lib/priceSync');
+    const { startBinanceStream, startThrottledFirestoreWrite } = await import('@/lib/binanceStream');
 
     /**
-     * Institutional Background Sync Heartbeat
-     * Maintains a 2-second update frequency for market liquidity and risk auditing.
+     * Institutional Background Liquidity Services
      */
-    const startBackgroundLoop = () => {
-      // 1. Immediate execution on boot
-      syncPricesAndAudit().catch(e => console.error('[BackgroundSync] Initial execution failed:', e.message));
+    const initializeServices = () => {
+      // 1. Initialize Real-Time Crypto Stream
+      startBinanceStream();
+      startThrottledFirestoreWrite();
 
-      // 2. Continuous 2s loop
+      // 2. Immediate Risk & FX Audit
+      syncPricesAndAudit().catch(e => console.error('[BackgroundSync] Initial audit failed:', e.message));
+
+      // 3. Continuous 2s Risk & FX Heartbeat
       setInterval(() => {
         syncPricesAndAudit().catch(e => {
           // Log errors but do not crash the server process
-          console.error('[BackgroundSync] cycle failed:', e.message);
+          console.error('[BackgroundSync] Audit cycle failed:', e.message);
         });
       }, 2000);
 
-      console.log('[BackgroundSync] Institutional 2s price heartbeat initialized.');
+      console.log('[BackgroundSync] Institutional liquidity and risk services started.');
     };
 
-    startBackgroundLoop();
+    initializeServices();
   }
 }
