@@ -144,7 +144,12 @@ export function startBnbPolling() {
   
   setInterval(async () => {
     try {
-      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd', {
+        headers: {
+          'User-Agent': 'PrimeFunded-Terminal/1.0',
+          'Accept': 'application/json'
+        }
+      });
       if (!res.ok) return;
       
       const data = await res.json();
@@ -171,8 +176,8 @@ export function startBnbPolling() {
         }, { merge: true });
         lastWrittenTicks['BNBUSD'] = tickStr;
       }
-    } catch (e) {
-      console.error("[BnbPolling] Polling error:", e);
+    } catch (error: any) {
+      console.error('[BnbPolling] Polling error:', error.message, error.cause ? JSON.stringify(error.cause) : '');
     }
   }, 3000);
 }
