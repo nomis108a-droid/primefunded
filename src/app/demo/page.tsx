@@ -28,6 +28,7 @@ import { PositionsPanel } from './PositionsPanel';
 import { DrawingLayer } from "./DrawingLayer";
 import { ChartSettingsModal } from "./ChartSettingsModal";
 import { useLivePrices } from "@/hooks/useLivePrice";
+import { useTickStream } from "@/hooks/useTickStream";
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
@@ -82,7 +83,11 @@ export default function DemoPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
 
+  // INSTITUTIONAL FEED: useTickStream for actively viewed chart (high frequency)
+  const streamPrice = useTickStream(selectedSymbol);
+  // REGULAR FEED: useLivePrices for tab bar, PnL of other trades, and fallbacks
   const livePrices = useLivePrices(SYMBOLS);
+  
   const closingTradesRef = useRef<Set<string>>(new Set());
 
   const [chartSettings, setChartSettings] = useState(() => {
@@ -248,12 +253,16 @@ export default function DemoPage() {
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
+  // EFFECT 1: High-Frequency Chart Feed (SSE)
   useEffect(() => {
-    if (currentPriceData && mainSeriesRef.current && !isChartLoading && isChartReady) {
+    // Prefer the SSE stream for chart updates, fallback to Firestore
+    const activePrice = streamPrice || currentPriceData;
+    
+    if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const secs = intervalSecondsMap[selectedInterval] || 60;
       const now = Math.floor(Date.now() / 1000);
       const candleTime = Math.floor(now / secs) * secs;
-      const price = currentPriceData.price;
+      const price = activePrice.price;
       if (price && price > 0) {
         const cur = currentCandleRef.current;
         if (chartType === 'area' || chartType === 'line') {
@@ -272,6 +281,10 @@ export default function DemoPage() {
         }
       }
     }
+  }, [streamPrice, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType]);
+
+  // EFFECT 2: Risk Management UI Fallback (SL/TP Checks)
+  useEffect(() => {
     if (openTrades.length > 0 && Object.keys(livePrices).length > 0) {
       openTrades.forEach(t => {
         if (closingTradesRef.current.has(t.id)) return;
@@ -294,7 +307,7 @@ export default function DemoPage() {
         }
       });
     }
-  }, [currentPriceData, selectedInterval, isChartLoading, isChartReady, openTrades, handleAutoClose, chartType, livePrices]);
+  }, [livePrices, openTrades, handleAutoClose]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
     const priceData = livePrices[trade.symbol.toUpperCase()];

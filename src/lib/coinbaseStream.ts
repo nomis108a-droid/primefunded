@@ -18,6 +18,13 @@ let isWriting = false;
 let krakenInterval: NodeJS.Timeout | null = null;
 let bnbInterval: NodeJS.Timeout | null = null;
 
+/**
+ * Returns the current captured ticks from the crypto feed.
+ */
+export function getLatestCoinbaseTicks() {
+  return cryptoPrices;
+}
+
 async function fetchKrakenPrices() {
   try {
     const res = await fetch(
