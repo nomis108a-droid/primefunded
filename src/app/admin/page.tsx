@@ -21,36 +21,7 @@ import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, Firestore } from 'firebase/firestore';
-
-/**
- * CLIENT-SIDE SYNC ENGINE
- * Replaces Server Action sync to bypass Admin SDK credential issues in dev environments.
- */
-async function fetchAdminTerminalDataClient(firestore: Firestore) {
-  const collections = [
-    'users', 'orders', 'payouts', 'referrals', 'broadcasts', 'breaches', 'demoAccounts', 'demoTrades'
-  ];
-  
-  const results: any = {};
-  
-  await Promise.all(collections.map(async (colName) => {
-    try {
-      let q: any = collection(firestore, colName);
-      if (colName === 'demoTrades') {
-        q = query(collection(firestore, colName), orderBy('openedAt', 'desc'), limit(200));
-      }
-        
-      const snap = await getDocs(q);
-      results[colName] = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    } catch (e) {
-      console.warn(`[AdminSync] Could not fetch ${colName}:`, e);
-      results[colName] = [];
-    }
-  }));
-  
-  return { ...results, success: true };
-}
+import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -96,17 +67,43 @@ export default function AdminPage() {
   const [isUserDetailModalOpen, setIsUserDetailModalOpen] = useState(false);
   const [userDetailLoading, setUserDetailLoading] = useState(false);
 
+  /**
+   * CLIENT-SIDE REFRESH ENGINE
+   * Fetches data directly from Firestore using browser credentials to bypass server-side Admin SDK bottlenecks.
+   */
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Use Client-Side SDK for data retrieval to bypass Server Action credential bottlenecks
-      const res = await fetchAdminTerminalDataClient(db);
-      if (res && res.success) {
-        setAdminData(res);
-      }
+      const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'demoAccounts')),
+        getDocs(query(collection(db, 'demoTrades'), limit(200))),
+        getDocs(collection(db, 'orders')),
+        getDocs(collection(db, 'payouts')),
+        getDocs(collection(db, 'referrals')),
+        getDocs(collection(db, 'broadcasts')),
+        getDocs(collection(db, 'breaches')),
+      ]);
+      
+      setAdminData({
+        users: usersSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        demoAccounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        demoTrades: tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        broadcasts: broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        breaches: breachesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      });
     } catch (err: any) {
       console.error("[Admin] Sync fault:", err);
-      toast({ variant: "destructive", title: "Sync Error", description: "Insufficient administrative permissions." });
+      toast({ 
+        variant: "destructive", 
+        title: "Sync Error", 
+        description: err.code === 'permission-denied' 
+          ? "Permission Denied: Please ensure you are logged in with an authorized admin email." 
+          : err.message 
+      });
     } finally {
       setIsLoading(false);
     }
@@ -132,8 +129,12 @@ export default function AdminPage() {
       localStorage.setItem('adminVerified', 'true');
       document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
       setAdminError("");
+      
+      // IMMEDIATE ACCESS - DO NOT WAIT
       setIsAuthenticated(true);
       setShowAdminModal(false);
+      
+      // Background sync
       refreshData();
     } else {
       setAdminError("❌ Access Denied");
@@ -366,6 +367,45 @@ export default function AdminPage() {
               </Card>
             </div>
           )}
+
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              <div className="relative w-full max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input placeholder="Search name, email, or UID..." className="pl-10 h-10 bg-secondary/50 border-white/5" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                        <tr><th className="p-4">Trader Details</th><th className="p-4">Plan Status</th><th className="p-4">Joined</th><th className="p-4 text-right">Actions</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/50">
+                        {filteredUsers.map((u: any) => (
+                          <tr key={u.id} className="hover:bg-primary/5">
+                            <td className="p-4">
+                               <p className="font-bold text-white">{u.name}</p>
+                               <p className="text-xs text-muted-foreground">{u.email}</p>
+                               <p className="text-[9px] font-mono text-primary uppercase mt-1">UID: {u.uid}</p>
+                            </td>
+                            <td className="p-4">
+                               <Badge variant="outline" className="uppercase text-[9px] font-black">{u.tier || 'Bronze'}</Badge>
+                               <p className="text-[10px] text-muted-foreground mt-1">{u.accountStatus || 'No Account'}</p>
+                            </td>
+                            <td className="p-4 text-xs text-muted-foreground">{u.joinDate ? format(new Date(u.joinDate), 'MMM d, yyyy') : 'N/A'}</td>
+                            <td className="p-4 text-right">
+                               <Button variant="ghost" size="sm" onClick={() => handleViewUserDetail(u.id)}><Eye className="w-3.5 h-3.5" /></Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
       </main>
 
@@ -390,28 +430,70 @@ export default function AdminPage() {
           ) : userDetail && (
             <>
               <div className="p-8 border-b border-white/5 bg-secondary/10">
-                <h2 className="text-3xl font-headline font-bold mb-1">{userDetail.user.name}</h2>
-                <p className="text-sm text-muted-foreground">{userDetail.user.email}</p>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-3xl font-headline font-bold mb-1">{userDetail.user.name}</h2>
+                    <p className="text-sm text-muted-foreground">{userDetail.user.email}</p>
+                  </div>
+                  <Badge className="bg-primary text-black font-black uppercase text-[10px] tracking-widest">{userDetail.user.tier} TIER</Badge>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                 <Tabs defaultValue="nodes">
                   <TabsList className="bg-secondary/40 border border-white/5 mb-8">
                     <TabsTrigger value="nodes" className="font-bold">Nodes ({userDetail.accounts.length})</TabsTrigger>
                     <TabsTrigger value="ledger" className="font-bold">Execution Ledger ({userDetail.trades.length})</TabsTrigger>
+                    <TabsTrigger value="stats" className="font-bold">Performance</TabsTrigger>
                   </TabsList>
                   <TabsContent value="nodes">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {userDetail.accounts.map((acc: any) => (
                         <Card key={acc.id} className="bg-card/40 border-border/50">
                           <CardHeader className="pb-4">
-                            <CardTitle className="text-lg">{acc.label}</CardTitle>
+                            <CardTitle className="text-lg flex justify-between items-center">
+                              {acc.label}
+                              <Badge variant={acc.status === 'blown' ? 'destructive' : 'default'} className="text-[8px] uppercase">{acc.status}</Badge>
+                            </CardTitle>
                           </CardHeader>
                           <CardContent>
-                             <p className="font-bold font-mono">${acc.balance.toLocaleString()}</p>
+                             <div className="grid grid-cols-2 gap-4">
+                               <div>
+                                 <p className="text-[10px] text-muted-foreground uppercase font-bold">Balance</p>
+                                 <p className="font-bold font-mono">${(acc.balance || 0).toLocaleString()}</p>
+                               </div>
+                               <div>
+                                 <p className="text-[10px] text-muted-foreground uppercase font-bold">Equity</p>
+                                 <p className="font-bold font-mono text-primary">${(acc.equity || 0).toLocaleString()}</p>
+                               </div>
+                             </div>
+                             <Button variant="outline" size="sm" className="w-full mt-6 h-10 font-bold border-primary/20 text-primary" onClick={() => resetDemoAccountAction(acc.id).then(() => handleViewUserDetail(userDetail.user.id))}>
+                               <RotateCcw className="w-3.5 h-3.5 mr-2" /> Reset Node
+                             </Button>
                           </CardContent>
                         </Card>
                       ))}
                     </div>
+                  </TabsContent>
+                  <TabsContent value="ledger">
+                    <Card className="bg-card/40 border-border/50">
+                      <CardContent className="p-0">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-secondary/30 text-muted-foreground uppercase text-[9px] font-bold tracking-widest">
+                            <tr><th className="p-4">Symbol</th><th className="p-4">Type</th><th className="p-4">Lots</th><th className="p-4 text-right">P&L</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/50">
+                            {userDetail.trades.map((t: any) => (
+                              <tr key={t.id} className="hover:bg-white/5">
+                                <td className="p-4 font-bold text-white">{t.symbol}</td>
+                                <td className="p-4 uppercase">{t.type}</td>
+                                <td className="p-4 font-mono">{t.lots}</td>
+                                <td className={cn("p-4 text-right font-bold", t.pnl >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </CardContent>
+                    </Card>
                   </TabsContent>
                 </Tabs>
               </div>
