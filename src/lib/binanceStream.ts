@@ -7,7 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
  * Provides real-time crypto liquidity for the trading terminal with throttled Firestore updates.
  */
 
-const BINANCE_WS_URL = 'wss://stream.binance.com:9443';
+const BINANCE_WS_URL = 'wss://stream.binance.us:9443';
 const STREAMS = [
   'btcusdt@ticker',
   'ethusdt@ticker',
