@@ -785,6 +785,15 @@ export default function AdminPage() {
       {/* User Detail Inspect Modal */}
       <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
         <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white max-h-[85vh] overflow-y-auto">
+          <DialogHeader className="mb-4">
+            <DialogTitle className="text-3xl font-headline font-bold text-white">
+              {userDetailLoading ? "Scanning Node..." : userDetail?.user?.name || "Trader Profile"}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              {userDetail?.user?.email || "Detailed institutional node activity logs."}
+            </DialogDescription>
+          </DialogHeader>
+
           {userDetailLoading ? (
              <div className="py-20 flex flex-col items-center justify-center gap-4">
                <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -793,10 +802,6 @@ export default function AdminPage() {
           ) : userDetail && (
             <div className="space-y-8">
               <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-3xl font-headline font-bold text-white">{userDetail.user.name}</h2>
-                  <p className="text-muted-foreground">{userDetail.user.email}</p>
-                </div>
                 <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 py-1.5">{userDetail.user.tier} TRADER</Badge>
               </div>
 
@@ -868,11 +873,14 @@ export default function AdminPage() {
       {/* Image Preview Modal */}
       <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
         <DialogContent className="max-w-4xl bg-black/95 border-border overflow-hidden p-0">
+          <DialogHeader className="p-4 bg-zinc-900 border-b border-white/5">
+            <DialogTitle className="text-white font-headline text-lg">Document Verification Preview</DialogTitle>
+          </DialogHeader>
           <div className="relative aspect-video w-full">
             {previewImage && <Image src={previewImage} alt="Preview" fill className="object-contain" />}
           </div>
           <div className="flex justify-center gap-4 p-6 bg-zinc-900/50">
-            <Button variant="outline" className="font-bold" onClick={() => window.open(previewImage!, '_blank')}>
+            <Button variant="outline" className="font-bold text-white border-white/10" onClick={() => window.open(previewImage!, '_blank')}>
               <ExternalLink className="mr-2 w-4 h-4" /> Open in New Tab
             </Button>
             <Button variant="secondary" className="font-bold" onClick={() => setIsImageModalOpen(false)}>Close Preview</Button>
@@ -882,3 +890,4 @@ export default function AdminPage() {
     </div>
   );
 }
+
