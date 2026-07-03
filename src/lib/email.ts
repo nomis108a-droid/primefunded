@@ -47,5 +47,5 @@ export async function sendPayoutProcessedEmail(email: string, amount: string) {
   await sendMail(email, 'PrimeFunded: Payout Processed', baseTemplate('Payout Processed!', '<p style="color:#ccc">Your payout of ' + amount + ' has been processed successfully.</p>'));
 }
 export async function sendCredentialEmail(email: string, details: any) {
-  await sendMail(email, 'PrimeFunded: Account Credentials', baseTemplate('Your Account Credentials', '<p style="color:#ccc">Account details: ' + JSON.stringify(details) + '</p>'));
+  await sendMail(email, 'PrimeFunded: Your Account Credentials', baseTemplate('Your Account Credentials', '<p style="color:#ccc">Account details: ' + JSON.stringify(details) + '</p>'));
 }
