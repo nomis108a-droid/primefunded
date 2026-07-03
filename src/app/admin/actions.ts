@@ -42,7 +42,7 @@ export async function verifyAdminAuth() {
   }
 }
 
-export async function giftAccountAction(userId: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
+export async function giftAccountAction(userId: string, email: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
@@ -56,6 +56,7 @@ export async function giftAccountAction(userId: string, accountLabel: string, st
 
     const docRef = await db.collection("demoAccounts").add({
       userId,
+      email,
       label: accountLabel,
       startBalance,
       balance: startBalance,
@@ -105,6 +106,7 @@ export async function updateOrderStatusAction(id: string, status: string) {
       const balance = parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000;
       await giftAccountAction(
         order.userId,
+        order.email || 'unknown@primefunded.fund',
         `Phase 1 — ${order.accountSize} ${order.plan}`,
         balance,
         order.plan,

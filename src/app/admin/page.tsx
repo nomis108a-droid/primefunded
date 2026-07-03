@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, memo, useCallback } from 'react';
+import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,13 +13,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight
 } from 'lucide-react';
 import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, giftAccountAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
+import Image from 'next/image';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -72,6 +73,11 @@ export default function AdminPage() {
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [giftForm, setGiftForm] = useState({ userId: '', label: '', amount: '100000', plan: '1-step-pro', phase: 'evaluation' });
 
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+
+  const tabsListRef = useRef<HTMLDivElement>(null);
+
   const refreshData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -87,14 +93,14 @@ export default function AdminPage() {
       ]);
       
       setAdminData({
-        users: usersSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        users: usersSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.joinDate || 0).getTime() - new Date(a.joinDate || 0).getTime()),
         demoAccounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
         demoTrades: tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0)),
         payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
         referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
         broadcasts: broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        breaches: breachesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        breaches: breachesSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.breachedAt?.seconds || 0) - (a.breachedAt?.seconds || 0)),
       });
     } catch (err: any) {
       console.error("[Admin] Sync fault:", err);
@@ -178,7 +184,9 @@ export default function AdminPage() {
     if (!giftForm.userId || !giftForm.label) return;
     setActionLoading(true);
     try {
-      const res = await giftAccountAction(giftForm.userId, giftForm.label, parseInt(giftForm.amount), giftForm.plan, giftForm.phase);
+      const targetUser = adminData.users.find((u: any) => u.id === giftForm.userId);
+      const email = targetUser?.email || 'provisioned@primefunded.fund';
+      const res = await giftAccountAction(giftForm.userId, email, giftForm.label, parseInt(giftForm.amount), giftForm.plan, giftForm.phase);
       if (res.success) {
         toast({ title: "Account Provisioned Successfully" });
         setIsGiftModalOpen(false);
@@ -204,6 +212,13 @@ export default function AdminPage() {
       toast({ variant: "destructive", title: "Cleanup Failed", description: e.message });
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (tabsListRef.current) {
+      const amount = direction === 'left' ? -200 : 200;
+      tabsListRef.current.scrollBy({ left: amount, behavior: 'smooth' });
     }
   };
 
@@ -248,28 +263,81 @@ export default function AdminPage() {
             </div>
           </div>
           
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="bg-secondary/50 h-11 p-1 rounded-xl w-full justify-start overflow-x-auto no-scrollbar">
-              <TabsTrigger value="overview" className="px-6 font-bold">Overview</TabsTrigger>
-              <TabsTrigger value="nodes" className="px-6 font-bold">Trading Nodes</TabsTrigger>
-              <TabsTrigger value="passers" className="px-6 font-bold">Phase Passers</TabsTrigger>
-              <TabsTrigger value="orders" className="px-6 font-bold">Order Review</TabsTrigger>
-              <TabsTrigger value="payouts" className="px-6 font-bold">Payout Hub</TabsTrigger>
-              <TabsTrigger value="users" className="px-6 font-bold">User Directory</TabsTrigger>
-              <TabsTrigger value="referrals" className="px-6 font-bold">Referral Audit</TabsTrigger>
-              <TabsTrigger value="broadcasts" className="px-6 font-bold">Broadcasts</TabsTrigger>
-              <TabsTrigger value="kyc" className="px-6 font-bold">KYC Hub</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="relative flex items-center group">
+            <button onClick={() => scrollTabs('left')} className="absolute -left-4 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-zinc-900 border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList ref={tabsListRef} className="bg-secondary/50 h-11 p-1 rounded-xl w-full justify-start overflow-x-auto no-scrollbar">
+                <TabsTrigger value="overview" className="px-6 font-bold">Overview</TabsTrigger>
+                <TabsTrigger value="nodes" className="px-6 font-bold">Trading Nodes</TabsTrigger>
+                <TabsTrigger value="passers" className="px-6 font-bold">Phase Passers</TabsTrigger>
+                <TabsTrigger value="orders" className="px-6 font-bold">Order Review</TabsTrigger>
+                <TabsTrigger value="payouts" className="px-6 font-bold">Payout Hub</TabsTrigger>
+                <TabsTrigger value="users" className="px-6 font-bold">User Directory</TabsTrigger>
+                <TabsTrigger value="referrals" className="px-6 font-bold">Referral Audit</TabsTrigger>
+                <TabsTrigger value="breaches" className="px-6 font-bold">Breaches</TabsTrigger>
+                <TabsTrigger value="broadcasts" className="px-6 font-bold">Broadcasts</TabsTrigger>
+                <TabsTrigger value="kyc" className="px-6 font-bold">KYC Hub</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <button onClick={() => scrollTabs('right')} className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-zinc-900 border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {activeTab === 'overview' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <StatCard title="Active Traders" value={adminData.users.length} icon={<Users />} color="blue" />
-              <StatCard title="Total Volume" value={`$${(adminData.demoAccounts.reduce((acc: any, curr: any) => acc + (curr.balance || 0), 0) / 1000000).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
-              <StatCard title="Pending Orders" value={adminData.orders.filter((o: any) => o.status === 'pending').length} icon={<CreditCard />} color="amber" />
-              <StatCard title="Passed Challenges" value={adminData.demoAccounts.filter((a: any) => a.status === 'passed').length} icon={<Trophy />} color="purple" />
+            <div className="space-y-10">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard title="Active Traders" value={adminData.users.length} icon={<Users />} color="blue" />
+                <StatCard title="Total Volume" value={`$${(adminData.demoAccounts.reduce((acc: any, curr: any) => acc + (curr.balance || 0), 0) / 1000000).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
+                <StatCard title="Pending Orders" value={adminData.orders.filter((o: any) => o.status === 'pending').length} icon={<CreditCard />} color="amber" />
+                <StatCard title="Passed Challenges" value={adminData.demoAccounts.filter((a: any) => a.status === 'passed').length} icon={<Trophy />} color="purple" />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                 <Card className="bg-card/40 border-border/50">
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                      <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">Recent Orders</CardTitle>
+                      <Button variant="ghost" size="sm" className="text-[10px] uppercase font-bold h-7" onClick={() => setActiveTab('orders')}>View All</Button>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                       <table className="w-full text-xs text-left">
+                         <tbody className="divide-y divide-border/50">
+                           {adminData.orders.slice(0, 5).map((o: any) => (
+                             <tr key={o.id} className="hover:bg-white/5">
+                               <td className="p-4 font-bold text-white">{o.email}</td>
+                               <td className="p-4 text-primary">{o.plan} {o.accountSize}</td>
+                               <td className="p-4 text-right"><Badge variant="outline" className="uppercase text-[8px]">{o.status}</Badge></td>
+                             </tr>
+                           ))}
+                         </tbody>
+                       </table>
+                    </CardContent>
+                 </Card>
+
+                 <Card className="bg-card/40 border-border/50">
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                      <CardTitle className="text-sm font-bold uppercase tracking-widest text-primary">Recent Users</CardTitle>
+                      <Button variant="ghost" size="sm" className="text-[10px] uppercase font-bold h-7" onClick={() => setActiveTab('users')}>View All</Button>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                       <table className="w-full text-xs text-left">
+                         <tbody className="divide-y divide-border/50">
+                           {adminData.users.slice(0, 5).map((u: any) => (
+                             <tr key={u.id} className="hover:bg-white/5">
+                               <td className="p-4 font-bold text-white">{u.name}</td>
+                               <td className="p-4 text-muted-foreground">{u.email}</td>
+                               <td className="p-4 text-right text-[10px]">{u.joinDate ? format(new Date(u.joinDate), 'MMM d') : '—'}</td>
+                             </tr>
+                           ))}
+                         </tbody>
+                       </table>
+                    </CardContent>
+                 </Card>
+              </div>
             </div>
           )}
 
@@ -317,6 +385,7 @@ export default function AdminPage() {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
                     <tr>
+                      <th className="p-4">Order ID</th>
                       <th className="p-4">Trader / Plan</th>
                       <th className="p-4">Amount</th>
                       <th className="p-4">TX Hash</th>
@@ -328,6 +397,7 @@ export default function AdminPage() {
                   <tbody className="divide-y divide-border/50">
                     {adminData.orders.map((o: any) => (
                       <tr key={o.id} className="hover:bg-primary/5">
+                        <td className="p-4 font-mono text-[10px] text-muted-foreground">{o.id.slice(0, 8)}</td>
                         <td className="p-4">
                           <p className="font-bold text-white">{o.email}</p>
                           <p className="text-[10px] text-primary">{o.plan} {o.accountSize}</p>
@@ -336,9 +406,9 @@ export default function AdminPage() {
                         <td className="p-4 font-mono text-[10px] max-w-[100px] truncate">{o.txHash}</td>
                         <td className="p-4">
                           {o.paymentScreenshot ? (
-                            <a href={o.paymentScreenshot} target="_blank" className="text-primary hover:underline flex items-center gap-1 text-xs">
+                            <button onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }} className="text-primary hover:underline flex items-center gap-1 text-xs">
                               <ImageIcon className="w-3 h-3" /> View
-                            </a>
+                            </button>
                           ) : 'No Proof'}
                         </td>
                         <td className="p-4">
@@ -381,8 +451,8 @@ export default function AdminPage() {
                         <td className="p-4 font-bold text-white">{u.name}</td>
                         <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
                         <td className="p-4 flex flex-col gap-1">
-                          {u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-xs text-primary hover:underline">ID Proof</a>}
-                          {u.addressProofUrl && <a href={u.addressProofUrl} target="_blank" className="text-xs text-primary hover:underline">Address Proof</a>}
+                          {u.idProofUrl && <button onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">ID Proof</button>}
+                          {u.addressProofUrl && <button onClick={() => { setPreviewImage(u.addressProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">Address Proof</button>}
                         </td>
                         <td className="p-4">
                           <Badge variant="outline" className={cn("uppercase text-[8px]", u.kycStatus === 'verified' ? 'text-emerald-500 border-emerald-500' : u.kycStatus === 'rejected' ? 'text-destructive border-destructive' : 'text-amber-500 border-amber-500')}>
@@ -436,6 +506,35 @@ export default function AdminPage() {
             </Card>
           )}
 
+          {activeTab === 'breaches' && (
+            <Card className="bg-card/40 border-border/50">
+              <CardContent className="p-0">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                    <tr>
+                      <th className="p-4">Date</th>
+                      <th className="p-4">Trader Email</th>
+                      <th className="p-4">Plan / Phase</th>
+                      <th className="p-4">Breach Type</th>
+                      <th className="p-4">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {adminData.breaches.map((b: any) => (
+                      <tr key={b.id} className="hover:bg-destructive/5">
+                        <td className="p-4 text-xs text-muted-foreground">{b.breachedAt ? format(new Date(b.breachedAt.seconds * 1000), 'MMM d, HH:mm') : '—'}</td>
+                        <td className="p-4 font-bold text-white">{b.email || b.userId}</td>
+                        <td className="p-4 uppercase text-[10px]">{b.planType} / {b.phase}</td>
+                        <td className="p-4"><Badge variant="destructive" className="uppercase text-[8px]">{b.type || 'hard'}</Badge></td>
+                        <td className="p-4 text-xs text-muted-foreground max-w-xs">{b.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
           {activeTab === 'payouts' && (
             <Card className="bg-card/40 border-border/50">
               <CardContent className="p-0">
@@ -480,8 +579,10 @@ export default function AdminPage() {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
                       <tr>
+                        <th className="p-4">UID</th>
                         <th className="p-4">Trader Name</th>
                         <th className="p-4">Email</th>
+                        <th className="p-4">Phone</th>
                         <th className="p-4">Tier</th>
                         <th className="p-4">Joined</th>
                         <th className="p-4 text-right">Action</th>
@@ -490,8 +591,13 @@ export default function AdminPage() {
                     <tbody className="divide-y divide-border/50">
                       {filteredUsers.map((u: any) => (
                         <tr key={u.id} className="hover:bg-primary/5">
+                          <td className="p-4 font-mono text-[10px] flex items-center gap-2">
+                            {u.id.slice(0, 8)}...
+                            <button onClick={() => { navigator.clipboard.writeText(u.id); toast({ title: "UID Copied" }); }}><Copy className="w-3 h-3 text-muted-foreground hover:text-primary" /></button>
+                          </td>
                           <td className="p-4 font-bold text-white">{u.name}</td>
                           <td className="p-4 text-muted-foreground">{u.email}</td>
+                          <td className="p-4 text-muted-foreground text-xs">{u.phone || '—'}</td>
                           <td className="p-4"><Badge variant="outline">{u.tier || 'Bronze'}</Badge></td>
                           <td className="p-4 text-xs text-muted-foreground">{u.joinDate ? format(new Date(u.joinDate), 'MMM d, yyyy') : '—'}</td>
                           <td className="p-4 text-right">
@@ -747,6 +853,21 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Preview Modal */}
+      <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
+        <DialogContent className="max-w-4xl bg-black/95 border-border overflow-hidden p-0">
+          <div className="relative aspect-video w-full">
+            {previewImage && <Image src={previewImage} alt="Preview" fill className="object-contain" />}
+          </div>
+          <div className="flex justify-center gap-4 p-6 bg-zinc-900/50">
+            <Button variant="outline" className="font-bold" onClick={() => window.open(previewImage!, '_blank')}>
+              <ExternalLink className="mr-2 w-4 h-4" /> Open in New Tab
+            </Button>
+            <Button variant="secondary" className="font-bold" onClick={() => setIsImageModalOpen(false)}>Close Preview</Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
