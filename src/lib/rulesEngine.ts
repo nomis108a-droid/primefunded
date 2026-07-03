@@ -117,9 +117,27 @@ export async function auditDemoAccount(accountId: string) {
     breachReason = `Maximum drawdown violation: Equity fell below ${rules.maxDrawdown}% limit`;
   }
 
-  // ── RULE 4: Profit Target Check ──────────────────────────────
+  // ── RULE 4: Profit Target & Min Trading Days Check ────────────
+  
+  // Calculate Distinct Trading Days (02:00 UTC Boundary)
+  const tradingWindows = new Set<string>();
+  trades.forEach(t => {
+    const openDate = getTradeDate(t.openedAt);
+    if (openDate) {
+      const windowStart = new Date(openDate);
+      windowStart.setUTCHours(2, 0, 0, 0);
+      if (openDate.getUTCHours() < 2) windowStart.setUTCDate(windowStart.getUTCDate() - 1);
+      tradingWindows.add(windowStart.toISOString());
+    }
+  });
+  const distinctTradingDays = tradingWindows.size;
+
+  const minDaysRequired = rules.minTradingDays || rules.minTradingDaysBeforePayout || 0;
   const profitTarget = initialBalance * (rules.profitTarget || 10) / 100;
-  const isPassed = !breachReason && currBalance >= (initialBalance + profitTarget);
+  
+  const isPassed = !breachReason && 
+                   currBalance >= (initialBalance + profitTarget) && 
+                   distinctTradingDays >= minDaysRequired;
 
   // ── RULE 5: Trade Duration (Min 2m) ──────────────────────────
   if (!breachReason) {
