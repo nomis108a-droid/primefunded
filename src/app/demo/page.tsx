@@ -11,11 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { 
   Loader2, ArrowLeft, Minus, Activity, Bell, Globe, Settings, 
   Crosshair, Circle, Slash, ArrowUpRight, ArrowRight,
   Square, Type, Ruler, ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
-  RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Star, Eye, EyeOff, Magnet
+  RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Star, Eye, EyeOff, Magnet,
+  LayoutDashboard, TrendingUp, Wallet, Menu, X
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -29,6 +31,7 @@ import { DrawingLayer } from "./DrawingLayer";
 import { ChartSettingsModal } from "./ChartSettingsModal";
 import { useLivePrices } from "@/hooks/useLivePrice";
 import { useTickStream } from "@/hooks/useTickStream";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
@@ -57,6 +60,7 @@ export default function DemoPage() {
   const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const branding = useBrandSettings();
+  const isMobile = useIsMobile();
 
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -75,17 +79,18 @@ export default function DemoPage() {
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
   
-  const [bottomPanelOpen, setBottomPanelOpen] = useState(true);
+  const [bottomPanelOpen, setBottomPanelOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
   const [magnetMode, setMagnetMode] = useState(false);
   const [drawingsLocked, setDrawingsLocked] = useState(false);
   const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+  const [isDrawingOverlayOpen, setIsDrawingOverlayOpen] = useState(false);
+  const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
-  // INSTITUTIONAL FEED: useTickStream for actively viewed chart (high frequency)
+  // Price feeds
   const streamPrice = useTickStream(selectedSymbol);
-  // REGULAR FEED: useLivePrices for tab bar, PnL of other trades, and fallbacks
   const livePrices = useLivePrices(SYMBOLS);
   
   const closingTradesRef = useRef<Set<string>>(new Set());
@@ -111,11 +116,35 @@ export default function DemoPage() {
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
 
+  const selectedAccount = useMemo(() => 
+    accounts.find(a => a.id === currentAccountId) || accounts[0] || null
+  , [accounts, currentAccountId]);
+
   useEffect(() => {
     if (!authLoading && accounts.length > 0 && !currentAccountId) {
       setCurrentAccountId(accounts[0].id);
     }
   }, [authLoading, accounts, currentAccountId]);
+
+  const handleResize = useCallback(() => {
+    if (chartContainerRef.current && chartInstanceRef.current) {
+      const container = chartContainerRef.current;
+      chartInstanceRef.current.applyOptions({ 
+        width: container.clientWidth, 
+        height: container.clientHeight || (isMobile ? window.innerHeight * 0.45 : 480) 
+      });
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', () => {
+      setTimeout(handleResize, 300);
+    });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [handleResize]);
 
   useEffect(() => {
     currentCandleRef.current = null;
@@ -172,7 +201,7 @@ export default function DemoPage() {
         layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
         grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
         width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight || 480,
+        height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.45 : 480),
         timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
       });
       chartInstanceRef.current = chart;
@@ -181,12 +210,11 @@ export default function DemoPage() {
         : chart.addCandlestickSeries();
       mainSeriesRef.current = series;
       setIsChartReady(true);
+      setTimeout(handleResize, 100);
     } catch (e) {}
     applyGlobalSettings();
-    const handleResize = () => { if (chartContainerRef.current && chartInstanceRef.current) { chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); } };
-    window.addEventListener('resize', handleResize);
-    return () => { window.removeEventListener('resize', handleResize); if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; } mainSeriesRef.current = null; setIsChartReady(false); currentCandleRef.current = null; };
-  }, [chartType, applyGlobalSettings]);
+    return () => { if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; } mainSeriesRef.current = null; setIsChartReady(false); currentCandleRef.current = null; };
+  }, [chartType, applyGlobalSettings, isMobile, handleResize]);
 
   useEffect(() => {
     let isMounted = true;
@@ -253,9 +281,7 @@ export default function DemoPage() {
     } catch (e) {}
   }, [user, selectedSymbol, toast]);
 
-  // EFFECT 1: High-Frequency Chart Feed (SSE)
   useEffect(() => {
-    // Prefer the SSE stream for chart updates, fallback to Firestore
     const activePrice = streamPrice || currentPriceData;
     
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
@@ -283,7 +309,6 @@ export default function DemoPage() {
     }
   }, [streamPrice, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType]);
 
-  // EFFECT 2: Risk Management UI Fallback (SL/TP Checks)
   useEffect(() => {
     if (openTrades.length > 0 && Object.keys(livePrices).length > 0) {
       openTrades.forEach(t => {
@@ -352,6 +377,7 @@ export default function DemoPage() {
         return; 
       }
       toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
+      setIsOrderSheetOpen(false);
     } catch(e: any) { toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); } finally { setActionLoading(false); }
   }
 
@@ -395,38 +421,78 @@ export default function DemoPage() {
     { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
   ];
 
+  const OrderPanelContent = (
+    <div className="space-y-6">
+      <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
+        <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">
+          <TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger>
+          <TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <div className="space-y-6">
+        <div className="flex flex-col gap-2">
+          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">-</button>
+            <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white" />
+            <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">+</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
+          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
+        </div>
+        <div className="space-y-4">
+          <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
+          </button>
+          <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   if (!user && !authLoading) return null;
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
-      <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-4 bg-zinc-950 shrink-0 z-50">
-        <div className="flex items-center gap-6">
+      {/* Dynamic Header */}
+      <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-3 md:px-4 bg-zinc-950 shrink-0 z-50">
+        <div className="flex items-center gap-3 md:gap-6">
           <div className="flex items-center gap-2">
-            <Image src={branding.logoUrl} alt="Logo" width={24} height={24} className="rounded-full" />
-            <span className="font-bold text-sm tracking-tight text-white">PrimeFunded Trade</span>
+            <Image src={branding.logoUrl} alt="Logo" width={20} height={20} className="rounded-full" />
+            <span className="font-bold text-xs md:text-sm tracking-tight text-white hidden sm:inline">PrimeFunded Trade</span>
           </div>
-          {isFallbackData && (
-            <Badge variant="outline" className="h-6 px-2 text-[8px] font-black bg-amber-500/10 text-amber-500 border-amber-500/30 uppercase">
-              <AlertTriangle className="w-2.5 h-2.5 mr-1" /> Simulated Data
+          <Link href="/dashboard" className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-3 md:pl-6 h-12">
+            <ArrowLeft className="w-3 h-3" /> <span className="hidden sm:inline">Dashboard</span>
+          </Link>
+          {selectedAccount && isMobile && (
+            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[8px] font-black uppercase px-2 h-6 truncate max-w-[100px]">
+              {selectedAccount.label}
             </Badge>
           )}
-          <Link href="/dashboard" className="flex items-center gap-2 text-xs font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-6 h-12">
-            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
-          </Link>
         </div>
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}>
-            <Bell className="w-4 h-4" /> Set Alert
-          </Button>
-          <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
-            <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold">
-              <Globe className="w-3.5 h-3.5 mr-2" /><SelectValue />
-            </SelectTrigger>
-            <SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent>
-          </Select>
+        
+        <div className="flex items-center gap-2 md:gap-4">
+          {!isMobile && (
+            <>
+              <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}>
+                <Bell className="w-4 h-4" /> Set Alert
+              </Button>
+              <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
+                <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold">
+                  <Globe className="w-3.5 h-3.5 mr-2" /><SelectValue />
+                </SelectTrigger>
+                <SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </>
+          )}
+          
           <Select value={chartType} onValueChange={setChartType}>
-            <SelectTrigger className="bg-transparent border-none h-9 w-32 text-xs font-bold">
-              <Activity className="w-3.5 h-3.5 mr-2" /><SelectValue />
+            <SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold">
+              <Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="candles">Candles</SelectItem>
@@ -435,29 +501,49 @@ export default function DemoPage() {
               <SelectItem value="area">Area</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="ghost" size="sm" className="h-9 px-3 text-zinc-400" onClick={() => setIsSettingsOpen(true)}>
+
+          <Button variant="ghost" size="icon" className="h-9 w-9 text-zinc-400" onClick={() => setIsSettingsOpen(true)}>
             <Settings className="w-4 h-4" />
           </Button>
-          <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-            <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold">
-              <SelectValue placeholder="Select Account" />
-            </SelectTrigger>
-            <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
-          </Select>
+
+          {!isMobile && (
+            <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
+              <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold">
+                <SelectValue placeholder="Select Account" />
+              </SelectTrigger>
+              <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
+            </Select>
+          )}
         </div>
       </header>
 
-      <div className="h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
+      {/* Touch-Friendly Symbol Bar */}
+      <div className="h-11 md:h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {SYMBOLS.map((s) => (
-          <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center gap-3 transition-all border-b-2", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
-            <span className={cn("font-bold text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
+          <button 
+            key={s} 
+            onClick={() => setSelectedSymbol(s)} 
+            className={cn(
+              "px-4 h-full flex items-center justify-center transition-all border-b-2 shrink-0 min-w-[70px]", 
+              s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5"
+            )}
+          >
+            <span className={cn("font-bold text-[10px] md:text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
           </button>
         ))}
       </div>
 
-      <div className="h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar shrink-0">
+      {/* Touch-Friendly Timeframe Bar */}
+      <div className="h-10 md:h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {TIMEFRAMES.map((tf) => (
-          <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-3 h-6 flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5")}>
+          <button 
+            key={tf.value} 
+            onClick={() => setSelectedInterval(tf.value)} 
+            className={cn(
+              "px-3 h-7 md:h-6 min-w-[40px] flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", 
+              selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5"
+            )}
+          >
             {tf.label}
           </button>
         ))}
@@ -466,7 +552,8 @@ export default function DemoPage() {
       <div className="flex-1 flex min-h-0 relative">
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] overflow-hidden">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
-            <aside className="w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
+            {/* Desktop-only Drawing Tools Sidebar */}
+            <aside className="hidden lg:flex w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
                 <div className="flex flex-col gap-0.5 items-center w-full">
                   {TOOLBAR_ITEMS.map((item) => (
@@ -482,7 +569,8 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
-            <div className="flex-1 relative min-h-0" ref={chartContainerRef}>
+            {/* Main Chart Area */}
+            <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '45vh' : 'auto' }}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
                   <Loader2 className="animate-spin text-primary" />
@@ -490,17 +578,30 @@ export default function DemoPage() {
                 </div>
               )}
               {isFallbackData && (
-                <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20">
-                  <div className="px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 backdrop-blur-md shadow-2xl">
-                    <AlertTriangle className="w-3 h-3" />
-                    Demo Data — Live Feed Unavailable
+                <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20 w-full max-w-[200px] px-2">
+                  <div className="px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[8px] md:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 backdrop-blur-md shadow-2xl">
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Simulated Data Feed</span>
                   </div>
                 </div>
               )}
-              <div className="absolute right-[65px] top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
+              
+              {/* Floating Candle Countdown */}
+              <div className="absolute right-[10px] md:right-[65px] top-[10px] md:top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
-                <span className="font-mono text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
+                <span className="font-mono text-[9px] md:text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
               </div>
+
+              {/* Drawing Tools Overlay (Mobile) */}
+              {isMobile && (
+                <button 
+                  onClick={() => setIsDrawingOverlayOpen(true)}
+                  className="absolute left-3 top-3 z-30 w-10 h-10 bg-zinc-900/80 border border-zinc-700 rounded-full flex items-center justify-center text-white backdrop-blur-md shadow-xl"
+                >
+                  <Menu className="w-5 h-5" />
+                </button>
+              )}
+
               {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
                 <DrawingLayer 
                   chart={chartInstanceRef.current} 
@@ -514,6 +615,8 @@ export default function DemoPage() {
               )}
             </div>
           </div>
+
+          {/* Positions Panel (Scrollable/Collapsible) */}
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
@@ -535,40 +638,139 @@ export default function DemoPage() {
           />
         </div>
 
-        <aside className="w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}><TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800"><TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger><TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger></TabsList></Tabs>
-           <div className="space-y-6">
-              <div className="flex flex-col gap-2">
-                 <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
-                 <div className="flex items-center gap-2">
-                    <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">-</button>
-                    <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white" />
-                    <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">+</button>
-                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
-                 <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
-              </div>
-              <div className="space-y-4">
-                <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                  {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
-                </button>
-                <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                  {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
-                </button>
-              </div>
-           </div>
+        {/* Desktop-only Right Order Aside */}
+        <aside className="hidden lg:flex w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
+           {OrderPanelContent}
         </aside>
       </div>
 
+      {/* Mobile Bottom Navigation & Action FABs */}
+      {isMobile && (
+        <div className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around px-2 shrink-0 z-50 safe-area-bottom">
+          <Link href="/dashboard" className="flex flex-col items-center gap-1 text-zinc-500 hover:text-white transition-colors">
+            <LayoutDashboard className="w-5 h-5" />
+            <span className="text-[8px] font-black uppercase">Home</span>
+          </Link>
+          <button 
+            onClick={() => { setBottomPanelOpen(false); window.scrollTo(0, 0); }}
+            className={cn("flex flex-col items-center gap-1 transition-colors", !bottomPanelOpen ? "text-primary" : "text-zinc-500")}
+          >
+            <TrendingUp className="w-5 h-5" />
+            <span className="text-[8px] font-black uppercase">Chart</span>
+          </button>
+          <button 
+            onClick={() => setIsOrderSheetOpen(true)}
+            className="flex flex-col items-center gap-1 text-zinc-500 hover:text-primary transition-colors"
+          >
+            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-black shadow-lg -mt-8 border-4 border-zinc-950">
+               <ArrowRight className="w-5 h-5 rotate-[-45deg]" />
+            </div>
+            <span className="text-[8px] font-black uppercase mt-1">Trade</span>
+          </button>
+          <button 
+            onClick={() => setBottomPanelOpen(!bottomPanelOpen)}
+            className={cn("flex flex-col items-center gap-1 transition-colors relative", bottomPanelOpen ? "text-primary" : "text-zinc-500")}
+          >
+            <Wallet className="w-5 h-5" />
+            <span className="text-[8px] font-black uppercase">Positions</span>
+            {openTrades.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[8px] font-bold rounded-full flex items-center justify-center">
+                {openTrades.length}
+              </span>
+            )}
+          </button>
+          <Sheet>
+            <SheetTrigger asChild>
+              <button className="flex flex-col items-center gap-1 text-zinc-500">
+                <Menu className="w-5 h-5" />
+                <span className="text-[8px] font-black uppercase">Menu</span>
+              </button>
+            </SheetTrigger>
+            <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
+               <SheetHeader className="p-6 border-b border-zinc-800">
+                 <SheetTitle className="text-left font-headline font-bold">Node Menu</SheetTitle>
+               </SheetHeader>
+               <div className="p-4 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[9px] font-black uppercase text-zinc-500">Active Account</Label>
+                    <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
+                      <SelectTrigger className="h-12 bg-zinc-900 border-zinc-800 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                        {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsAlertModalOpen(true); }}>
+                    <Bell className="w-4 h-4" /> Price Alerts
+                  </Button>
+                  <Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsSettingsOpen(true); }}>
+                    <Settings className="w-4 h-4" /> Chart Settings
+                  </Button>
+                  <Link href="/referral" className="flex items-center gap-3 h-12 px-4 border border-zinc-800 rounded-lg text-sm font-medium hover:bg-white/5 transition-colors">
+                    <Users className="w-4 h-4" /> Affiliate Hub
+                  </Link>
+               </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+      )}
+
+      {/* Drawing Tools Overlay (Mobile) */}
+      <Dialog open={isDrawingOverlayOpen} onOpenChange={setIsDrawingOverlayOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-lg p-0 overflow-hidden h-[70vh] flex flex-col">
+          <DialogHeader className="p-6 border-b border-zinc-800">
+            <DialogTitle className="font-headline font-bold">Technical Analysis Tools</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            <div className="grid grid-cols-4 gap-2">
+              {TOOLBAR_ITEMS.map((item) => (
+                <button 
+                  key={item.id}
+                  onClick={() => { if (item.action) item.action(); else setActiveTool(item.id); setIsDrawingOverlayOpen(false); }}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-3 rounded-xl border transition-all gap-2",
+                    (item.toggle ? item.active : activeTool === item.id) 
+                      ? "bg-primary border-primary text-black" 
+                      : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <div className="scale-110">{typeof item.icon === 'function' ? <item.icon /> : <item.icon />}</div>
+                  <span className="text-[8px] font-black uppercase text-center">{item.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter className="p-4 bg-zinc-900/50 border-t border-zinc-800">
+            <Button className="w-full h-12 font-bold" onClick={() => setIsDrawingOverlayOpen(false)}>Close Overlay</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Order Entry Sheet (Mobile) */}
+      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
+        <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
+          <SheetHeader className="pb-4">
+            <div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" />
+            <SheetTitle className="text-center font-headline font-bold text-2xl">Execute Order</SheetTitle>
+          </SheetHeader>
+          <div className="pb-10 pt-4">
+            {OrderPanelContent}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Global Modals */}
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
+      
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
           <DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader>
           <div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div>
         </DialogContent>
       </Dialog>
+      
       <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
         <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm">
           <DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader>
