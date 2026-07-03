@@ -12,6 +12,10 @@ let lastWrittenOandaTicks: Record<string, string> = {};
 let tickCount = 0;
 let isWriting = false;
 
+// Module-level interval trackers to prevent duplication on reconnect
+let tickLogInterval: NodeJS.Timeout | null = null;
+let firestoreWriteInterval: NodeJS.Timeout | null = null;
+
 /**
  * Returns the current captured ticks from the OANDA stream.
  */
@@ -19,17 +23,20 @@ export function getLatestOandaTicks() {
   return latestOandaTicks;
 }
 
-// Tick Monitoring Heartbeat
-setInterval(() => {
-  console.log(`[OandaStream] Received ${tickCount} ticks in last 10s`);
-  tickCount = 0;
-}, 10000);
-
 /**
  * Establishes a persistent streaming connection to OANDA.
  * Automatically reconnects on disconnection or failure.
  */
 export async function startOandaStream() {
+  // 1. Singleton Guard for Tick Logger
+  if (tickLogInterval) {
+    clearInterval(tickLogInterval);
+  }
+  tickLogInterval = setInterval(() => {
+    console.log(`[OandaStream] Received ${tickCount} ticks in last 10s`);
+    tickCount = 0;
+  }, 10000);
+
   console.log("[OandaStream] Starting connection attempt...");
   
   const accountId = process.env.OANDA_ACCOUNT_ID;
@@ -130,12 +137,16 @@ export async function startOandaStream() {
  * Throttled to 150ms to balance performance and database costs.
  */
 export function startOandaThrottledFirestoreWrite() {
+  // 2. Singleton Guard for Firestore Writer
+  if (firestoreWriteInterval) {
+    clearInterval(firestoreWriteInterval);
+  }
+
   const db = getAdminDb();
   console.log('[OandaStream] Initializing 150ms throttled Firestore sync...');
 
-  setInterval(async () => {
+  firestoreWriteInterval = setInterval(async () => {
     if (isWriting) {
-      console.log('[OandaStream] Skipped write cycle: previous write still in flight');
       return;
     }
 
@@ -164,11 +175,8 @@ export function startOandaThrottledFirestoreWrite() {
 
     if (hasChanges) {
       isWriting = true;
-      const startTime = Date.now();
       try {
-        console.log('[OandaStream] Commit starting');
         await batch.commit();
-        console.log(`[OandaStream] Commit finished in ${Date.now() - startTime}ms`);
       } catch (err: any) {
         console.warn('[OandaStream] Batch commit failed:', err.message);
       } finally {
