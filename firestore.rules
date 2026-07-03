@@ -5,26 +5,49 @@ service cloud.firestore {
     // Helper: Check if user is in the authorized admin email list
     function isAdmin() {
       return request.auth != null && (
-        request.auth.token.email == "Pawanvish0907@gmail.com" ||
+        request.auth.token.email == "sitarama108a@gmail.com" ||
         request.auth.token.email == "nomis108a@gmail.com" ||
+        request.auth.token.email == "Pawanvish0907@gmail.com" ||
         request.auth.token.email == "radhakrishna200803@gmail.com" ||
         request.auth.token.email == "rachithraj133@gmail.com" ||
-        request.auth.token.email == "sitarama108a@gmail.com" ||
         request.auth.token.email == "sitarama108a-alt@gmail.com"
       );
     }
 
-    // PUBLIC READ ACCESS: Opened for Admin Dashboard Synchronization
-    // Protected by Master Password in the UI layer.
+    // Public read for system-wide sync (protected by app layer)
     match /{document=**} {
       allow read: if true;
     }
 
-    // SECURE WRITES: Only Admins can modify global settings and accounts
-    match /settings/{document=**} {
+    // Orders Collection: Users can create/read own, admins can manage all
+    match /orders/{id} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    // KYC and User Management
+    match /users/{userId} {
+      allow create: if request.auth != null;
+      allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow update: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+
+      match /notifications/{notifId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if isAdmin();
+      }
+    }
+
+    // Referrals and Commissions
+    match /referrals/{id} {
+      allow read: if isAdmin() || (request.auth != null && (
+        resource.data.referrerId == request.auth.uid || 
+        resource.data.referredUserId == request.auth.uid
+      ));
       allow write: if isAdmin();
     }
 
+    // Price Feeds and Terminal Data
     match /livePrices/{symbol} {
       allow write: if true;
     }
@@ -38,58 +61,13 @@ service cloud.firestore {
     }
 
     match /alerts/{id} {
-      allow delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || (request.auth != null && request.resource.data.userId == request.auth.uid);
-    }
-
-    match /referrals/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /payouts/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /orders/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /breaches/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /certificates/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /notifications/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /referralCodes/{code} {
-      allow write: if isAdmin();
-    }
-
-    match /broadcasts/{id} {
-      allow write: if isAdmin();
-    }
-
-    match /users/{userId} {
-      allow create: if request.auth != null;
-      allow update: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-
-      match /{subcollection=**} {
-        allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-      }
+      allow read, delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
     }
     
-    match /error_logs/{id} {
-      allow create: if true;
-    }
-    
-    match /activity_logs/{id} {
-      allow create: if request.auth != null;
+    // Global Settings
+    match /settings/{document=**} {
+      allow write: if isAdmin();
     }
   }
 }

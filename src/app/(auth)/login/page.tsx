@@ -1,11 +1,10 @@
-
 "use client";
 
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail, setPersistence, browserLocalPersistence } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,10 +23,6 @@ function LoginContent() {
   const [resetLoading, setResetLoading] = useState(false);
   const [view, setView] = useState<'login' | 'forgot'>('login');
   
-  const [failedAttempts, setFailedAttempts] = useState(0);
-  const [isLocked, setIsLocked] = useState(false);
-  const [lockRemaining, setLockRemaining] = useState(0);
-
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -42,59 +37,27 @@ function LoginContent() {
     }
   }, [user, authLoading, router, redirectTo]);
 
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isLocked && lockRemaining > 0) {
-      timer = setInterval(() => {
-        setLockRemaining((prev) => {
-          if (prev <= 1) {
-            setIsLocked(false);
-            setFailedAttempts(0);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isLocked, lockRemaining]);
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLocked) {
-      toast({
-        variant: "destructive",
-        title: "Account Locked",
-        description: `Too many failed attempts. Try again in ${lockRemaining}s.`,
-      });
-      return;
-    }
-
     setLoading(true);
     const sanitizedEmail = sanitizeInput(email);
 
     try {
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithEmailAndPassword(auth, sanitizedEmail, password);
+      toast({ title: "Welcome back!", description: "Accessing trading terminal..." });
       router.push(redirectTo);
     } catch (error: any) {
-      const newAttempts = failedAttempts + 1;
-      setFailedAttempts(newAttempts);
+      console.error(error);
+      let msg = "Invalid email or password. Please check your credentials.";
+      if (error.code === 'auth/user-not-found') msg = "No account found with this email.";
+      if (error.code === 'auth/wrong-password') msg = "Incorrect password. Try again or reset it.";
       
-      if (newAttempts >= 5) {
-        setIsLocked(true);
-        setLockRemaining(30);
-        toast({
-          variant: "destructive",
-          title: "Security Lockout",
-          description: "Too many failed attempts. Login disabled for 30 seconds.",
-        });
-      } else {
-        toast({
-          variant: "destructive",
-          title: "Login Failed",
-          description: error.message || "Invalid credentials. Please try again.",
-        });
-      }
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: msg,
+      });
     } finally {
       setLoading(false);
     }
@@ -103,27 +66,16 @@ function LoginContent() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      toast({ 
-        variant: "destructive", 
-        title: "Email Required", 
-        description: "Please enter your email to receive a recovery link." 
-      });
+      toast({ variant: "destructive", title: "Email Required", description: "Please enter your email to receive a recovery link." });
       return;
     }
     setResetLoading(true);
     try {
       await sendPasswordResetEmail(auth, sanitizeInput(email));
-      toast({
-        title: "Reset Link Sent",
-        description: "Password reset email sent! Check your inbox for instructions.",
-      });
+      toast({ title: "Reset Link Sent", description: "Check your inbox for password recovery instructions." });
       setView('login');
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Reset Failed",
-        description: error.message,
-      });
+      toast({ variant: "destructive", title: "Reset Failed", description: error.message });
     } finally {
       setResetLoading(false);
     }
@@ -135,14 +87,7 @@ function LoginContent() {
         <div className="absolute top-0 left-0 w-full h-full bg-grid-white opacity-20" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-12">
-            <Image 
-              src={logoUrl} 
-              alt={siteName}
-              width={50}
-              height={50}
-              className="rounded-full border-2 border-primary/20"
-              data-ai-hint="site logo"
-            />
+            <Image src={logoUrl} alt={siteName} width={50} height={50} className="rounded-full border-2 border-primary/20" />
             <span className="font-headline font-bold text-3xl tracking-tight text-white">{siteName}</span>
           </div>
           <h1 className="text-5xl font-headline font-bold mb-6 leading-tight text-white">
@@ -163,67 +108,29 @@ function LoginContent() {
               {view === 'login' ? 'Sign In' : 'Forgot Password'}
             </h2>
             <p className="text-muted-foreground mt-2">
-              {view === 'login' 
-                ? 'Enter your credentials to access your account' 
-                : 'Enter your email to receive a recovery link'}
+              {view === 'login' ? 'Enter your credentials to access your account' : 'Enter your email to receive a recovery link'}
             </p>
           </div>
-
-          {isLocked && (
-            <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-center gap-3 animate-pulse">
-              <ShieldAlert className="text-destructive w-5 h-5" />
-              <p className="text-xs font-bold text-destructive uppercase tracking-widest">
-                Security Lockout: {lockRemaining}s remaining
-              </p>
-            </div>
-          )}
           
           {view === 'login' ? (
             <form onSubmit={handleLogin} className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-foreground">Email Address</Label>
-                <Input 
-                  id="email" 
-                  type="email" 
-                  placeholder="trader@example.com" 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isLocked}
-                  className="h-12 bg-secondary/50 border-border/50 focus:border-primary/50 text-white"
-                />
+                <Label htmlFor="email">Email Address</Label>
+                <Input id="email" type="email" placeholder="trader@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-12 bg-secondary/50 border-border/50 text-white" />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">Password</Label>
-                  <button 
-                    type="button"
-                    onClick={() => setView('forgot')}
-                    className="text-xs text-primary font-bold hover:underline uppercase tracking-widest"
-                  >
-                    Forgot password?
-                  </button>
+                  <button type="button" onClick={() => setView('forgot')} className="text-xs text-primary font-bold hover:underline uppercase tracking-widest">Forgot password?</button>
                 </div>
                 <div className="relative">
-                  <Input 
-                    id="password" 
-                    type={showPassword ? "text" : "password"} 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    disabled={isLocked}
-                    className="h-12 bg-secondary/50 border-border/50 focus:border-primary/50 text-white pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white transition-colors"
-                  >
+                  <Input id="password" type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} required className="h-12 bg-secondary/50 border-border/50 text-white pr-10" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white">
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
-              <Button type="submit" className="w-full h-12 font-bold text-lg cyan-box-glow" disabled={loading || isLocked}>
+              <Button type="submit" className="w-full h-12 font-bold text-lg cyan-box-glow" disabled={loading}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                 {loading ? 'Authenticating...' : 'Sign In'}
               </Button>
@@ -234,15 +141,7 @@ function LoginContent() {
                 <Label htmlFor="reset-email">Email Address</Label>
                 <div className="relative">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input 
-                    id="reset-email" 
-                    type="email" 
-                    placeholder="trader@example.com" 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="h-12 pl-12 bg-secondary/50 border-border/50 focus:border-primary/50 text-white"
-                  />
+                  <Input id="reset-email" type="email" placeholder="trader@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-12 pl-12 bg-secondary/50 border-border/50 text-white" />
                 </div>
               </div>
               <div className="space-y-4">
@@ -250,11 +149,7 @@ function LoginContent() {
                   {resetLoading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                   {resetLoading ? 'Sending...' : 'Send Recovery Link'}
                 </Button>
-                <button 
-                  type="button" 
-                  onClick={() => setView('login')}
-                  className="w-full flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground hover:text-primary uppercase tracking-[0.2em] transition-colors"
-                >
+                <button type="button" onClick={() => setView('login')} className="w-full flex items-center justify-center gap-2 text-xs font-bold text-muted-foreground hover:text-primary uppercase tracking-[0.2em]">
                   <ChevronLeft className="w-3 h-3" /> Back to Login
                 </button>
               </div>
