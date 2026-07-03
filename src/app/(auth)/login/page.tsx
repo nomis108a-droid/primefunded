@@ -49,11 +49,16 @@ function LoginContent() {
       router.push(redirectTo);
     } catch (error: any) {
       console.error(error);
-      let msg = "Invalid email or password. Please check your credentials or reset your password.";
+      let msg = "Invalid email or password. Please try again or reset your password.";
       
-      if (error.code === 'auth/user-not-found') msg = "No account found with this email.";
-      if (error.code === 'auth/wrong-password') msg = "Incorrect password. Try again or reset it.";
-      if (error.code === 'auth/invalid-credential') msg = "Invalid credentials. Please verify your email and password.";
+      // Specifically handle the common generic error from Firebase v10+
+      if (error.code === 'auth/invalid-credential') {
+        msg = "Invalid email or password. Please check your credentials or reset your password.";
+      } else if (error.code === 'auth/user-not-found') {
+        msg = "No account found with this email.";
+      } else if (error.code === 'auth/too-many-requests') {
+        msg = "Too many failed attempts. Please try again later or reset your password.";
+      }
       
       toast({
         variant: "destructive",
