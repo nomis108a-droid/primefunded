@@ -5,6 +5,7 @@ import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
 /**
  * @fileOverview Institutional SSE Price Stream
  * Provides near-instant price delivery by reading directly from in-memory modules.
+ * Refreshes every 4 minutes to prevent gateway timeouts (App Hosting/Cloud Run).
  */
 
 export const dynamic = 'force-dynamic';
@@ -50,9 +51,20 @@ export async function GET(
         }
       }, 100);
 
+      // Graceful termination after 240s to avoid 504 Gateway Timeouts
+      const lifetimeTimeout = setTimeout(() => {
+        clearInterval(interval);
+        try {
+          controller.close();
+        } catch (e) {}
+      }, 240000);
+
       req.signal.onabort = () => {
         clearInterval(interval);
-        controller.close();
+        clearTimeout(lifetimeTimeout);
+        try {
+          controller.close();
+        } catch (e) {}
       };
     }
   });
