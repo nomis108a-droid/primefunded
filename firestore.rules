@@ -9,8 +9,7 @@ service cloud.firestore {
         request.auth.token.email == "nomis108a@gmail.com" ||
         request.auth.token.email == "Pawanvish0907@gmail.com" ||
         request.auth.token.email == "radhakrishna200803@gmail.com" ||
-        request.auth.token.email == "rachithraj133@gmail.com" ||
-        request.auth.token.email == "sitarama108a-alt@gmail.com"
+        request.auth.token.email == "rachithraj133@gmail.com"
       );
     }
 
@@ -21,8 +20,8 @@ service cloud.firestore {
 
     // Orders Collection: Users can create/read own, admins can manage all
     match /orders/{id} {
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
@@ -53,10 +52,12 @@ service cloud.firestore {
     }
 
     match /demoAccounts/{id} {
+      allow read: if true;
       allow write: if isAdmin();
     }
 
     match /demoTrades/{id} {
+      allow read: if true;
       allow write: if isAdmin();
     }
 
@@ -67,6 +68,7 @@ service cloud.firestore {
     
     // Global Settings
     match /settings/{document=**} {
+      allow read: if true;
       allow write: if isAdmin();
     }
   }

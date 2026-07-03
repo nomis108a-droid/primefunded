@@ -49,9 +49,11 @@ function LoginContent() {
       router.push(redirectTo);
     } catch (error: any) {
       console.error(error);
-      let msg = "Invalid email or password. Please check your credentials.";
+      let msg = "Invalid email or password. Please check your credentials or reset your password.";
+      
       if (error.code === 'auth/user-not-found') msg = "No account found with this email.";
       if (error.code === 'auth/wrong-password') msg = "Incorrect password. Try again or reset it.";
+      if (error.code === 'auth/invalid-credential') msg = "Invalid credentials. Please verify your email and password.";
       
       toast({
         variant: "destructive",
