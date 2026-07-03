@@ -72,6 +72,7 @@ export default function DashboardPage() {
   const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
   // 1. Fetch Demo Accounts
   const accountConstraints = useMemo(() => {
@@ -86,6 +87,24 @@ export default function DashboardPage() {
     user?.uid ? 'demoAccounts' : null,
     accountConstraints
   );
+
+  // Filter visible accounts (non-blown)
+  const visibleAccounts = useMemo(() => 
+    accounts.filter((a: any) => a.status !== 'blown')
+  , [accounts]);
+
+  // Set default selected account
+  useEffect(() => {
+    if (visibleAccounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(visibleAccounts[0].id);
+    } else if (visibleAccounts.length > 0 && !visibleAccounts.find(a => a.id === selectedAccountId)) {
+      setSelectedAccountId(visibleAccounts[0].id);
+    }
+  }, [visibleAccounts, selectedAccountId]);
+
+  const selectedAccount = useMemo(() => 
+    visibleAccounts.find(a => a.id === selectedAccountId) || null
+  , [visibleAccounts, selectedAccountId]);
 
   // 2. Fetch Trades
   const tradeConstraints = useMemo(() => {
@@ -168,7 +187,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Proper loading state to prevent blank screen
   if (authLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center">
@@ -203,91 +221,116 @@ export default function DashboardPage() {
             <h2 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Active Challenges</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {accountsLoading ? (
-              [1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-3xl bg-secondary/20" />)
-            ) : accounts.length === 0 ? (
-              <Card className="col-span-full border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6">
-                 <Terminal className="w-16 h-16 text-muted-foreground opacity-20" />
-                 <div className="max-w-sm">
-                   <h3 className="text-xl font-bold text-white mb-2">No active challenges</h3>
-                   <p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p>
-                 </div>
-                 <Button className="font-bold cyan-box-glow px-10 h-12 rounded-xl" asChild>
-                   <Link href="/challenges">Buy a Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
-                 </Button>
-              </Card>
-            ) : (
-              accounts.map((acc: any) => {
-                const pnl = (acc.balance || 0) - (acc.startBalance || 0);
-                const targetGap = (acc.profitTarget || 0) - (acc.startBalance || 0);
-                const progress = targetGap > 0 ? Math.min(100, Math.max(0, (pnl / targetGap) * 100)) : 0;
-                
-                return (
-                  <Card key={acc.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group shadow-xl">
-                    <div className={cn(
-                      "absolute top-0 left-0 w-full h-1.5",
-                      acc.status === 'blown' ? "bg-destructive" : acc.status === 'passed' ? "bg-amber-500" : "bg-primary"
-                    )} />
-                    <CardHeader className="pb-4">
-                      <div className="flex justify-between items-start">
-                         <Badge className={cn(
-                           "uppercase text-[9px] font-black border-none px-3 py-1",
-                           acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : 
-                           acc.status === 'blown' ? "bg-destructive/20 text-destructive" :
-                           "bg-amber-500/20 text-amber-500"
-                         )}>
-                           {acc.status || 'Active'}
-                         </Badge>
-                         <span className="text-[10px] font-mono text-muted-foreground">ID: {acc.id?.slice(0, 8)}</span>
-                      </div>
-                      <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{acc.label}</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-6">
-                       <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
-                          <div>
-                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Balance</p>
-                             <p className="text-lg font-bold text-white font-mono">${(acc.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-                          </div>
-                          <div>
-                             <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">P&L</p>
-                             <p className={cn("text-lg font-bold font-mono", pnl >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                               {pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                             </p>
-                          </div>
-                       </div>
-                       
-                       <div className="space-y-2">
-                         <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
-                           <span className="text-muted-foreground">Profit Progress</span>
-                           <span className="text-white">${(acc.profitTarget || 0).toLocaleString()} Target</span>
-                         </div>
-                         <Progress value={progress} className="h-1.5" />
-                       </div>
+          {accountsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-3xl bg-secondary/20" />)}
+            </div>
+          ) : visibleAccounts.length === 0 ? (
+            <Card className="border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6">
+               <Terminal className="w-16 h-16 text-muted-foreground opacity-20" />
+               <div className="max-w-sm">
+                 <h3 className="text-xl font-bold text-white mb-2">No active challenges</h3>
+                 <p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p>
+               </div>
+               <Button className="font-bold cyan-box-glow px-10 h-12 rounded-xl" asChild>
+                 <Link href="/challenges">Buy a Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
+               </Button>
+            </Card>
+          ) : (
+            <div className="space-y-6">
+              {/* Account Selector Pill Row */}
+              <div className="flex flex-wrap gap-2">
+                {visibleAccounts.map((acc: any) => (
+                  <button
+                    key={acc.id}
+                    onClick={() => setSelectedAccountId(acc.id)}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                      selectedAccountId === acc.id 
+                        ? "bg-primary text-black border-primary shadow-[0_0_15px_rgba(17,179,245,0.4)]" 
+                        : "bg-secondary/50 text-muted-foreground border-border/50 hover:border-primary/30"
+                    )}
+                  >
+                    {acc.label}
+                  </button>
+                ))}
+              </div>
 
-                       <div className="grid grid-cols-2 gap-4 pt-2">
-                          <div className="p-3 rounded-xl bg-secondary/30 border border-border">
-                             <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
-                             <p className="text-xs font-bold text-white">${(acc.dailyLoss || 0).toLocaleString()}</p>
+              {/* Single Card View for Selected Account */}
+              <div className="max-w-md">
+                {selectedAccount && (
+                  (() => {
+                    const acc = selectedAccount;
+                    const pnl = (acc.balance || 0) - (acc.startBalance || 0);
+                    const targetGap = (acc.profitTarget || 0) - (acc.startBalance || 0);
+                    const progress = targetGap > 0 ? Math.min(100, Math.max(0, (pnl / targetGap) * 100)) : 0;
+                    
+                    return (
+                      <Card key={acc.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group shadow-xl">
+                        <div className={cn(
+                          "absolute top-0 left-0 w-full h-1.5",
+                          acc.status === 'passed' ? "bg-amber-500" : "bg-primary"
+                        )} />
+                        <CardHeader className="pb-4">
+                          <div className="flex justify-between items-start">
+                             <Badge className={cn(
+                               "uppercase text-[9px] font-black border-none px-3 py-1",
+                               acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : 
+                               "bg-amber-500/20 text-amber-500"
+                             )}>
+                               {acc.status || 'Active'}
+                             </Badge>
+                             <span className="text-[10px] font-mono text-muted-foreground">ID: {acc.id?.slice(0, 8)}</span>
                           </div>
-                          <div className="p-3 rounded-xl bg-secondary/30 border border-border">
-                             <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
-                             <p className="text-xs font-bold text-white">${(acc.maxLoss || 0).toLocaleString()}</p>
-                          </div>
-                       </div>
-                    </CardContent>
-                    <CardFooter className="pt-2 pb-6 px-6">
-                       <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild disabled={acc.status === 'blown'}>
-                          <Link href={`/demo?accountId=${acc.id}`}>
-                            <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
-                          </Link>
-                       </Button>
-                    </CardFooter>
-                  </Card>
-                );
-              })
-            )}
-          </div>
+                          <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{acc.label}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-6">
+                           <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
+                              <div>
+                                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Balance</p>
+                                 <p className="text-lg font-bold text-white font-mono">${(acc.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                              </div>
+                              <div>
+                                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">P&L</p>
+                                 <p className={cn("text-lg font-bold font-mono", pnl >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                                   {pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                 </p>
+                              </div>
+                           </div>
+                           
+                           <div className="space-y-2">
+                             <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                               <span className="text-muted-foreground">Profit Progress</span>
+                               <span className="text-white">${(acc.profitTarget || 0).toLocaleString()} Target</span>
+                             </div>
+                             <Progress value={progress} className="h-1.5" />
+                           </div>
+
+                           <div className="grid grid-cols-2 gap-4 pt-2">
+                              <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                                 <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
+                                 <p className="text-xs font-bold text-white">${(acc.dailyLoss || 0).toLocaleString()}</p>
+                              </div>
+                              <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                                 <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
+                                 <p className="text-xs font-bold text-white">${(acc.maxLoss || 0).toLocaleString()}</p>
+                              </div>
+                           </div>
+                        </CardContent>
+                        <CardFooter className="pt-2 pb-6 px-6">
+                           <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild>
+                              <Link href={`/demo?accountId=${acc.id}`}>
+                                <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
+                              </Link>
+                           </Button>
+                        </CardFooter>
+                      </Card>
+                    );
+                  })()
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* 2. STATS ROW */}
