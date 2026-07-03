@@ -246,3 +246,48 @@ export async function runDemoAudit() {
   
   return results;
 }
+
+/**
+ * Targeted Audit Engine: Open Positions Only
+ * Replaces full-network scanning with high-frequency monitoring of accounts with live exposure.
+ */
+export async function auditActiveOpenPositions() {
+  const db = getAdminDb();
+  
+  // 1. Target accounts with open exposure via indexed status query
+  const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
+  
+  // 2. Extract distinct accountIds
+  const accountIds = new Set<string>();
+  openTradesSnap.docs.forEach(doc => {
+    const data = doc.data();
+    if (data.accountId) accountIds.add(data.accountId);
+  });
+  
+  const idArray = Array.from(accountIds);
+  const results = { 
+    totalOpenPositionAccounts: idArray.length, 
+    breachesDetected: 0, 
+    passed: 0, 
+    errors: 0 
+  };
+
+  // 3. Process in concurrent batches of 25 to balance speed and connection health
+  const BATCH_SIZE = 25;
+  for (let i = 0; i < idArray.length; i += BATCH_SIZE) {
+    const batchIds = idArray.slice(i, i + BATCH_SIZE);
+    
+    await Promise.all(batchIds.map(async (accountId) => {
+      try {
+        const res = await auditDemoAccount(accountId);
+        if (res?.breached) results.breachesDetected++;
+        else if (res?.passed) results.passed++;
+      } catch (err) {
+        console.error(`[RiskAudit] Targeted audit failed for Node ${accountId}:`, err);
+        results.errors++;
+      }
+    }));
+  }
+
+  return results;
+}
