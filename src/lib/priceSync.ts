@@ -1,15 +1,16 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { auditDemoAccount } from '@/lib/rulesEngine';
+import { auditActiveOpenPositions } from '@/lib/rulesEngine';
 
 /**
  * @fileOverview Institutional Risk Auditor
- * Fix 12: Real-time Floating Equity Audit
+ * Targeted Audit Engine: Monitors only nodes with active exposure.
  */
 
 export async function syncPricesAndAudit() {
   const db = getAdminDb();
 
+  // Concurrency Lock: Prevents overlapping cycles in multi-instance environments
   try {
     const lockRef = db.collection('_system').doc('priceSyncLock');
     const lockSnap = await lockRef.get();
@@ -34,25 +35,15 @@ export async function syncPricesAndAudit() {
   }
 
   try {
-    const activeAccounts = await db.collection('demoAccounts')
-      .where('status', '==', 'active')
-      .get();
-
-    if (activeAccounts.empty) {
-      return { success: true, audited: 0 };
-    }
-
-    const auditPromises = activeAccounts.docs.map(doc => 
-      auditDemoAccount(doc.id).catch(err => {
-        console.error(`[RiskAudit] Audit failed for Node ${doc.id}:`, err.message);
-      })
-    );
-
-    await Promise.allSettled(auditPromises);
+    // TARGETED AUDIT: Only check accounts that actually have open trades (exposure)
+    // This is significantly more efficient than scanning all active accounts
+    const result = await auditActiveOpenPositions();
+    
+    console.log('[PriceSync] Audit cycle:', result);
 
     return { 
       success: true, 
-      audited: activeAccounts.size 
+      ...result
     };
 
   } catch (error: any) {
