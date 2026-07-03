@@ -116,6 +116,7 @@ export function PositionsPanel({
                   <th className="py-1.5 px-2">Entry</th>
                   <th className="py-1.5 px-2">S/L</th>
                   <th className="py-1.5 px-2">T/P</th>
+                  <th className="py-1.5 px-2">Commission</th>
                   <th className="py-1.5 px-2">Open Time</th>
                   <th className="py-1.5 px-2 text-right">PnL (USD)</th>
                   <th className="py-1.5 px-2 text-right">Action</th>
@@ -123,7 +124,7 @@ export function PositionsPanel({
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {openTrades.length === 0 ? (
-                  <tr><td colSpan={9} className="py-10 text-center italic text-zinc-600">No active positions.</td></tr>
+                  <tr><td colSpan={10} className="py-10 text-center italic text-zinc-600">No active positions.</td></tr>
                 ) : openTrades.map((t) => {
                   const pData = livePrices[t.symbol];
                   let pnl = 0;
@@ -173,6 +174,8 @@ export function PositionsPanel({
                         )}
                       </td>
 
+                      <td className="py-1 px-2 font-mono text-zinc-500 text-[10px]">-{(t.commissionOpen || t.commission || 0).toFixed(2)}</td>
+
                       <td className="py-1 px-2 font-mono text-zinc-500 text-[10px]">{openDate ? format(openDate, 'HH:mm:ss') : '—'}</td>
                       <td className={cn("py-1 px-2 text-right font-mono font-bold tabular-nums", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>
                         {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -200,6 +203,7 @@ export function PositionsPanel({
                   <th className="py-1.5 px-2">Close</th>
                   <th className="py-1.5 px-2">Duration</th>
                   <th className="py-1.5 px-2 text-right">PnL</th>
+                  <th className="py-1.5 px-2 text-right">Commission</th>
                   <th className="py-1.5 px-2 text-right">Date</th>
                 </tr>
               </thead>
@@ -219,6 +223,7 @@ export function PositionsPanel({
                       <td className={cn("py-1 px-2 text-right font-mono font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
                         {(t.pnl || 0).toLocaleString()}
                       </td>
+                      <td className="py-1 px-2 text-right font-mono text-zinc-500 text-[10px]">-{(t.commission || 0).toFixed(2)}</td>
                       <td className="py-1 px-2 text-right text-zinc-600">{cDate ? format(cDate, 'MMM d, HH:mm') : '—'}</td>
                     </tr>
                   );
