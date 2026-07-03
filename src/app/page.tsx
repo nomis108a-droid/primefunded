@@ -41,6 +41,16 @@ export default function Home() {
               <span className="font-headline font-bold text-2xl tracking-tight text-white">{branding.siteName}</span>
             </Link>
           </motion.div>
+
+          {/* Mobile Buttons */}
+          <div className="flex md:hidden items-center gap-2">
+            <Button variant="outline" size="sm" className="h-9 font-bold border-white/10" asChild>
+              <Link href="/login">Login</Link>
+            </Button>
+            <Button size="sm" className="h-9 font-bold cyan-box-glow" asChild>
+              <Link href={user ? "/challenges" : "/signup"}>Get Funded</Link>
+            </Button>
+          </div>
           
           <div className="hidden md:flex items-center gap-8">
             <Link href={user ? "/challenges" : "/login?redirect=/challenges"} className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors">Challenges</Link>

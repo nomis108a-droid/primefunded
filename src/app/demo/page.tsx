@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -17,12 +16,12 @@ import {
   Loader2, ArrowLeft, Minus, Activity, Bell, Globe, Settings, 
   Crosshair, Circle, Slash, ArrowUpRight, ArrowRight,
   Square, Type, Ruler, ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
-  RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Star, Eye, EyeOff, Magnet,
-  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle
+  RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Magnet,
+  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle, Users
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { where, orderBy, limit } from "firebase/firestore";
+import { where, orderBy } from "firebase/firestore";
 import { createChart, ColorType, IChartApi, ISeriesApi, PriceScaleMode, IPriceLine } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -132,7 +131,7 @@ export default function DemoPage() {
       const container = chartContainerRef.current;
       chartInstanceRef.current.applyOptions({ 
         width: container.clientWidth, 
-        height: container.clientHeight || (isMobile ? window.innerHeight * 0.45 : 480) 
+        height: container.clientHeight || (isMobile ? window.innerHeight * 0.42 : 480) 
       });
     }
   }, [isMobile]);
@@ -202,7 +201,7 @@ export default function DemoPage() {
         layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
         grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
         width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.45 : 480),
+        height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.42 : 480),
         timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
       });
       chartInstanceRef.current = chart;
@@ -458,7 +457,7 @@ export default function DemoPage() {
   if (!user && !authLoading) return null;
 
   return (
-    <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
+    <div className="fixed inset-0 h-[100dvh] w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
       {/* Dynamic Header */}
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-3 md:px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-3 md:gap-6">
@@ -575,7 +574,7 @@ export default function DemoPage() {
             </aside>
 
             {/* Main Chart Area */}
-            <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '45vh' : 'auto' }}>
+            <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '42vh' : 'auto', maxHeight: isMobile ? '42vh' : 'none' }}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
                   <Loader2 className="animate-spin text-primary" />
@@ -643,8 +642,8 @@ export default function DemoPage() {
           />
         </div>
 
-        {/* Desktop-only Right Order Aside */}
-        <aside className="hidden lg:flex w-80 border-l border-zinc-800 bg-zinc-950 p-6 flex-col gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
+        {/* Right Order Aside (Visible on Desktop and Tablet) */}
+        <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-6 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            {OrderPanelContent}
         </aside>
       </div>
@@ -754,7 +753,7 @@ export default function DemoPage() {
       </Dialog>
 
       {/* Order Entry Sheet (Mobile) */}
-      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
+      <Sheet open={isOrderSheetOpen} onValueChange={setIsOrderSheetOpen}>
         <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
           <SheetHeader className="pb-4">
             <div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" />
