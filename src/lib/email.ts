@@ -1,4 +1,4 @@
-import { adminDb as db } from '@/lib/firebase-admin';
+import { adminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
 const FROM = 'PrimeFunded <primefundedfund@gmail.com>';
@@ -8,7 +8,7 @@ function baseTemplate(title: string, body: string) {
 }
 
 async function sendMail(to: string, subject: string, html: string) {
-  await db.collection('mail').add({ from: FROM, to, message: { subject, html }, createdAt: FieldValue.serverTimestamp() });
+  await adminDb.collection('mail').add({ from: FROM, to, message: { subject, html }, createdAt: FieldValue.serverTimestamp() });
 }
 
 export async function sendBreachEmail(email: string, breachDetails: string) {
