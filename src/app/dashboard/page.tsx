@@ -31,6 +31,8 @@ import { NotificationBell } from '@/components/NotificationBell';
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
+import { TradingDaysCalendar } from '@/components/TradingDaysCalendar';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 const MetricCard = memo(function MetricCard({ 
   title, 
@@ -124,7 +126,16 @@ export default function DashboardPage() {
   const openTrades = useMemo(() => allTrades.filter(t => t.status === 'open'), [allTrades]);
   const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed'), [allTrades]);
 
-  // 4. Live Prices for Open Trade P&L Calculation
+  // 4. Rule Lookup
+  const minTradingDays = useMemo(() => {
+    if (!selectedAccount) return 0;
+    const planKey = getPlanKey(selectedAccount.planType || selectedAccount.plan || '1-step-pro');
+    const phase = selectedAccount.phase || 'evaluation';
+    const rules = RULES_CONFIG.plans[planKey]?.[phase];
+    return rules?.minTradingDays || rules?.minTradingDaysBeforePayout || 0;
+  }, [selectedAccount]);
+
+  // 5. Live Prices for Open Trade P&L Calculation
   useEffect(() => {
     let isMounted = true;
     const fetchPrices = async () => {
@@ -144,7 +155,7 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // 5. Compute Stats from Closed History
+  // 6. Compute Stats from Closed History
   const stats = useMemo(() => {
     if (closedTrades.length === 0) return { total: 0, winRate: 0, totalPnl: 0, best: 0, worst: 0 };
     const wins = closedTrades.filter(t => (t.pnl || 0) > 0);
@@ -161,14 +172,14 @@ export default function DashboardPage() {
   }, [closedTrades]);
 
   const calculateOpenPnl = (trade: any) => {
-    const priceData = livePrices[trade.symbol];
+    const priceData = livePrices[trade.symbol.toUpperCase()];
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
     
     // Contract size approximation
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD'].includes(trade.symbol);
-    const contractSize = isForex ? 100000 : (trade.symbol === 'XAUUSD' ? 100 : 1);
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(trade.symbol.toUpperCase());
+    const contractSize = isForex ? 100000 : (trade.symbol.toUpperCase() === 'XAUUSD' ? 100 : 1);
     return diff * trade.lots * contractSize;
   };
 
@@ -256,78 +267,81 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* Single Card View for Selected Account */}
-              <div className="max-w-md">
-                {selectedAccount && (
-                  (() => {
-                    const acc = selectedAccount;
-                    const pnl = (acc.balance || 0) - (acc.startBalance || 0);
-                    const targetGap = (acc.profitTarget || 0) - (acc.startBalance || 0);
-                    const progress = targetGap > 0 ? Math.min(100, Math.max(0, (pnl / targetGap) * 100)) : 0;
-                    
-                    return (
-                      <Card key={acc.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group shadow-xl">
-                        <div className={cn(
-                          "absolute top-0 left-0 w-full h-1.5",
-                          acc.status === 'passed' ? "bg-amber-500" : "bg-primary"
-                        )} />
-                        <CardHeader className="pb-4">
-                          <div className="flex justify-between items-start">
-                             <Badge className={cn(
-                               "uppercase text-[9px] font-black border-none px-3 py-1",
-                               acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : 
-                               "bg-amber-500/20 text-amber-500"
-                             )}>
-                               {acc.status || 'Active'}
-                             </Badge>
-                             <span className="text-[10px] font-mono text-muted-foreground">ID: {acc.id?.slice(0, 8)}</span>
-                          </div>
-                          <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{acc.label}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                           <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
-                              <div>
-                                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Balance</p>
-                                 <p className="text-lg font-bold text-white font-mono">${(acc.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-                              </div>
-                              <div>
-                                 <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">P&L</p>
-                                 <p className={cn("text-lg font-bold font-mono", pnl >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                                   {pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                 </p>
-                              </div>
+              {/* Grid View for Account Detail & Calendar */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-1">
+                  {selectedAccount && (
+                    <Card key={selectedAccount.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group shadow-xl h-full">
+                      <div className={cn(
+                        "absolute top-0 left-0 w-full h-1.5",
+                        selectedAccount.status === 'passed' ? "bg-amber-500" : "bg-primary"
+                      )} />
+                      <CardHeader className="pb-4">
+                        <div className="flex justify-between items-start">
+                           <Badge className={cn(
+                             "uppercase text-[9px] font-black border-none px-3 py-1",
+                             selectedAccount.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : 
+                             "bg-amber-500/20 text-amber-500"
+                           )}>
+                             {selectedAccount.status || 'Active'}
+                           </Badge>
+                           <span className="text-[10px] font-mono text-muted-foreground">ID: {selectedAccount.id?.slice(0, 8)}</span>
+                        </div>
+                        <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{selectedAccount.label}</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-6">
+                         <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">
+                            <div>
+                               <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">Balance</p>
+                               <p className="text-lg font-bold text-white font-mono">${(selectedAccount.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                            </div>
+                            <div>
+                               <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1">P&L</p>
+                               <p className={cn("text-lg font-bold font-mono", (selectedAccount.balance - selectedAccount.startBalance) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                                 {(selectedAccount.balance - selectedAccount.startBalance) >= 0 ? '+' : ''}${(selectedAccount.balance - selectedAccount.startBalance).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                               </p>
+                            </div>
+                         </div>
+                         
+                         <div className="space-y-2">
+                           <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
+                             <span className="text-muted-foreground">Profit Progress</span>
+                             <span className="text-white">${(selectedAccount.profitTarget || 0).toLocaleString()} Target</span>
                            </div>
-                           
-                           <div className="space-y-2">
-                             <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest">
-                               <span className="text-muted-foreground">Profit Progress</span>
-                               <span className="text-white">${(acc.profitTarget || 0).toLocaleString()} Target</span>
-                             </div>
-                             <Progress value={progress} className="h-1.5" />
-                           </div>
+                           <Progress value={Math.min(100, Math.max(0, (((selectedAccount.balance - selectedAccount.startBalance) / ((selectedAccount.profitTarget || 1) - selectedAccount.startBalance)) * 100)))} className="h-1.5" />
+                         </div>
 
-                           <div className="grid grid-cols-2 gap-4 pt-2">
-                              <div className="p-3 rounded-xl bg-secondary/30 border border-border">
-                                 <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
-                                 <p className="text-xs font-bold text-white">${(acc.dailyLoss || 0).toLocaleString()}</p>
-                              </div>
-                              <div className="p-3 rounded-xl bg-secondary/30 border border-border">
-                                 <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
-                                 <p className="text-xs font-bold text-white">${(acc.maxLoss || 0).toLocaleString()}</p>
-                              </div>
-                           </div>
-                        </CardContent>
-                        <CardFooter className="pt-2 pb-6 px-6">
-                           <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild>
-                              <Link href={`/demo?accountId=${acc.id}`}>
-                                <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
-                              </Link>
-                           </Button>
-                        </CardFooter>
-                      </Card>
-                    );
-                  })()
-                )}
+                         <div className="grid grid-cols-2 gap-4 pt-2">
+                            <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                               <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
+                               <p className="text-xs font-bold text-white">${(selectedAccount.dailyLossLimitUsd || 0).toLocaleString()}</p>
+                            </div>
+                            <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                               <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
+                               <p className="text-xs font-bold text-white">${(selectedAccount.maxLoss || 0).toLocaleString()}</p>
+                            </div>
+                         </div>
+                      </CardContent>
+                      <CardFooter className="pt-2 pb-6 px-6">
+                         <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild>
+                            <Link href={`/demo?accountId=${selectedAccount.id}`}>
+                              <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
+                            </Link>
+                         </Button>
+                      </CardFooter>
+                    </Card>
+                  )}
+                </div>
+
+                <div className="lg:col-span-2">
+                   {selectedAccountId && (
+                     <TradingDaysCalendar 
+                       accountId={selectedAccountId} 
+                       trades={allTrades.filter(t => t.accountId === selectedAccountId)} 
+                       minTradingDays={minTradingDays} 
+                     />
+                   )}
+                </div>
               </div>
             </div>
           )}
