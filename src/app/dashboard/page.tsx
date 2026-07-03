@@ -440,15 +440,16 @@ export default function DashboardPage() {
                       <th className="py-4 px-4">Lots</th>
                       <th className="py-4 px-4">Entry</th>
                       <th className="py-4 px-4">Exit Price</th>
+                      <th className="py-4 px-4">Commission</th>
                       <th className="py-4 px-4">Closed At</th>
                       <th className="py-4 px-6 text-right">Final P&L</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {tradesLoading ? (
-                      [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={7} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                      [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={8} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
                     ) : closedTrades.length === 0 ? (
-                      <tr><td colSpan={7} className="py-20 text-center text-muted-foreground italic text-sm">No historical records found.</td></tr>
+                      <tr><td colSpan={8} className="py-20 text-center text-muted-foreground italic text-sm">No historical records found.</td></tr>
                     ) : (
                       closedTrades.slice(0, 50).map((t: any) => {
                         const closedDate = getTradeDate(t.closedAt);
@@ -464,6 +465,7 @@ export default function DashboardPage() {
                             <td className="py-4 px-4 font-mono text-zinc-400">{t.lots}</td>
                             <td className="py-4 px-4 font-mono text-xs text-muted-foreground">${t.openPrice.toLocaleString()}</td>
                             <td className="py-4 px-4 font-mono text-xs text-white">${t.closePrice?.toLocaleString()}</td>
+                            <td className="py-4 px-4 font-mono text-xs text-muted-foreground">-${(t.commission || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td className="py-4 px-4 text-xs text-muted-foreground">
                                {closedDate && isValid(closedDate) ? format(closedDate, 'MMM d, HH:mm') : '—'}
                             </td>
