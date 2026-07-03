@@ -17,7 +17,7 @@ import {
   Crosshair, Circle, Slash, ArrowUpRight, ArrowRight,
   Square, Type, Ruler, ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
   RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Magnet,
-  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle, Users
+  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle, Users, Eye, EyeOff
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
