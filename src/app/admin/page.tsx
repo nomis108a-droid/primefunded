@@ -70,7 +70,7 @@ export default function AdminPage() {
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
-  const [giftForm, setGiftForm] = useState({ userId: '', optionId: '' });
+  const [giftForm, setGiftForm] = useState({ userId: '', label: '', amount: '100000', plan: '1-step-pro', phase: 'evaluation' });
 
   const refreshData = useCallback(async () => {
     setIsLoading(true);
@@ -78,7 +78,7 @@ export default function AdminPage() {
       const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
         getDocs(collection(db, 'users')),
         getDocs(collection(db, 'demoAccounts')),
-        getDocs(query(collection(db, 'demoTrades'), limit(200))),
+        getDocs(query(collection(db, 'demoTrades'), limit(500), orderBy('openedAt', 'desc'))),
         getDocs(collection(db, 'orders')),
         getDocs(collection(db, 'payouts')),
         getDocs(collection(db, 'referrals')),
@@ -136,6 +136,14 @@ export default function AdminPage() {
     refreshData();
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('adminVerified');
+    localStorage.removeItem('adminEmail');
+    document.cookie = 'admin_master=; path=/; max-age=0';
+    setIsAuthenticated(false);
+    window.location.reload();
+  };
+
   const handleOrderAction = async (id: string, status: string) => {
     setActionLoading(true);
     try {
@@ -166,9 +174,46 @@ export default function AdminPage() {
     }
   };
 
+  const handleGiftAccount = async () => {
+    if (!giftForm.userId || !giftForm.label) return;
+    setActionLoading(true);
+    try {
+      const res = await giftAccountAction(giftForm.userId, giftForm.label, parseInt(giftForm.amount), giftForm.plan, giftForm.phase);
+      if (res.success) {
+        toast({ title: "Account Provisioned Successfully" });
+        setIsGiftModalOpen(false);
+        refreshData();
+      } else throw new Error(res.error);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Gifting Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    if (!confirm("Are you sure? This will delete ALL demo accounts across the network.")) return;
+    setActionLoading(true);
+    try {
+      const res = await cleanupDemoAccountsAction();
+      if (res.success) {
+        toast({ title: "Environment Sanitized", description: `Deleted ${res.count} demo nodes.` });
+        refreshData();
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Cleanup Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const kycApplications = useMemo(() => 
     adminData.users.filter((u: any) => u.kycStatus === 'pending' || u.kycStatus === 'verified' || u.kycStatus === 'rejected')
   , [adminData.users]);
+
+  const filteredUsers = useMemo(() => 
+    adminData.users.filter((u: any) => u.email.toLowerCase().includes(searchTerm.toLowerCase()) || u.name.toLowerCase().includes(searchTerm.toLowerCase()))
+  , [adminData.users, searchTerm]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -177,25 +222,43 @@ export default function AdminPage() {
         <div className="p-8 shrink-0 border-b border-white/5">
           <div className="flex justify-between items-start mb-6">
             <div>
-              <h1 className="text-4xl font-headline font-bold mb-1 text-white">Administrative Terminal</h1>
+              <div className="flex items-center gap-3 mb-1">
+                 <h1 className="text-4xl font-headline font-bold text-white">Administrative Terminal</h1>
+                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">{loggedInAdmin}</Badge>
+              </div>
               <p className="text-muted-foreground text-sm">Institutional Node Control & Compliance Hub.</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={refreshData} disabled={isLoading}>
+              <Button variant="outline" size="sm" className="h-10 px-4" asChild>
+                <Link href="/admin/price-tracker"><Activity className="w-4 h-4 mr-2" /> Price Synchronizer</Link>
+              </Button>
+              <Button variant="outline" size="sm" className="h-10 px-4 border-destructive/20 text-destructive hover:bg-destructive/10" onClick={handleCleanup} disabled={actionLoading}>
+                <Trash2 className="w-4 h-4 mr-2" /> Cleanup Environment
+              </Button>
+              <Button size="sm" className="h-10 px-6 font-bold bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
+                <Gift className="w-4 h-4 mr-2" /> Gift Account
+              </Button>
+              <Button variant="outline" size="sm" className="h-10 px-4" onClick={refreshData} disabled={isLoading}>
                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                 Sync Network
+              </Button>
+              <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-white" onClick={handleLogout}>
+                <LogOut className="w-4 h-4" />
               </Button>
             </div>
           </div>
           
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="bg-secondary/50 h-11 p-1 rounded-xl">
+            <TabsList className="bg-secondary/50 h-11 p-1 rounded-xl w-full justify-start overflow-x-auto no-scrollbar">
               <TabsTrigger value="overview" className="px-6 font-bold">Overview</TabsTrigger>
+              <TabsTrigger value="nodes" className="px-6 font-bold">Trading Nodes</TabsTrigger>
+              <TabsTrigger value="passers" className="px-6 font-bold">Phase Passers</TabsTrigger>
               <TabsTrigger value="orders" className="px-6 font-bold">Order Review</TabsTrigger>
-              <TabsTrigger value="kyc" className="px-6 font-bold">KYC Hub</TabsTrigger>
-              <TabsTrigger value="referrals" className="px-6 font-bold">Referral Audit</TabsTrigger>
+              <TabsTrigger value="payouts" className="px-6 font-bold">Payout Hub</TabsTrigger>
               <TabsTrigger value="users" className="px-6 font-bold">User Directory</TabsTrigger>
-              <TabsTrigger value="breaches" className="px-6 font-bold">Breaches</TabsTrigger>
+              <TabsTrigger value="referrals" className="px-6 font-bold">Referral Audit</TabsTrigger>
+              <TabsTrigger value="broadcasts" className="px-6 font-bold">Broadcasts</TabsTrigger>
+              <TabsTrigger value="kyc" className="px-6 font-bold">KYC Hub</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -204,10 +267,48 @@ export default function AdminPage() {
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <StatCard title="Active Traders" value={adminData.users.length} icon={<Users />} color="blue" />
+              <StatCard title="Total Volume" value={`$${(adminData.demoAccounts.reduce((acc: any, curr: any) => acc + (curr.balance || 0), 0) / 1000000).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
               <StatCard title="Pending Orders" value={adminData.orders.filter((o: any) => o.status === 'pending').length} icon={<CreditCard />} color="amber" />
-              <StatCard title="KYC Requests" value={adminData.users.filter((u: any) => u.kycStatus === 'pending').length} icon={<Fingerprint />} color="purple" />
-              <StatCard title="Hard Breaches" value={adminData.breaches.length} icon={<Skull />} color="red" />
+              <StatCard title="Passed Challenges" value={adminData.demoAccounts.filter((a: any) => a.status === 'passed').length} icon={<Trophy />} color="purple" />
             </div>
+          )}
+
+          {activeTab === 'nodes' && (
+            <Card className="bg-card/40 border-border/50">
+              <CardContent className="p-0">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                    <tr>
+                      <th className="p-4">Account ID</th>
+                      <th className="p-4">User</th>
+                      <th className="p-4">Balance</th>
+                      <th className="p-4">Equity</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {adminData.demoAccounts.map((a: any) => (
+                      <tr key={a.id} className="hover:bg-primary/5">
+                        <td className="p-4 font-mono text-xs">{a.id.slice(0, 8)}</td>
+                        <td className="p-4 text-white font-bold">{a.userId.slice(0, 8)}...</td>
+                        <td className="p-4 font-mono">${(a.balance || 0).toLocaleString()}</td>
+                        <td className="p-4 font-mono text-primary">${(a.equity || 0).toLocaleString()}</td>
+                        <td className="p-4"><Badge className={cn("uppercase text-[8px]", a.status === 'active' ? 'bg-emerald-500' : 'bg-destructive')}>{a.status}</Badge></td>
+                        <td className="p-4 text-right">
+                           <Button variant="ghost" size="icon" onClick={async () => {
+                             if(confirm("Reset this account to starting balance?")) {
+                               await resetDemoAccountAction(a.id);
+                               refreshData();
+                             }
+                           }}><RotateCcw className="w-3.5 h-3.5" /></Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'orders' && (
@@ -334,9 +435,116 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           )}
+
+          {activeTab === 'payouts' && (
+            <Card className="bg-card/40 border-border/50">
+              <CardContent className="p-0">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                    <tr>
+                      <th className="p-4">Trader</th>
+                      <th className="p-4">Amount</th>
+                      <th className="p-4">Method</th>
+                      <th className="p-4">Address</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {adminData.payouts.map((p: any) => (
+                      <tr key={p.id} className="hover:bg-primary/5">
+                        <td className="p-4 font-bold text-white">{p.email}</td>
+                        <td className="p-4 font-mono text-emerald-500">${p.amount}</td>
+                        <td className="p-4 text-xs">{p.method}</td>
+                        <td className="p-4 font-mono text-[10px] truncate max-w-[150px]">{p.address}</td>
+                        <td className="p-4"><Badge className="uppercase text-[8px]">{p.status}</Badge></td>
+                        <td className="p-4 text-right">
+                           <Button size="sm" className="h-8 bg-emerald-600">Done</Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              <div className="relative max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input placeholder="Search name or email..." className="pl-10 bg-secondary/30" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Trader Name</th>
+                        <th className="p-4">Email</th>
+                        <th className="p-4">Tier</th>
+                        <th className="p-4">Joined</th>
+                        <th className="p-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {filteredUsers.map((u: any) => (
+                        <tr key={u.id} className="hover:bg-primary/5">
+                          <td className="p-4 font-bold text-white">{u.name}</td>
+                          <td className="p-4 text-muted-foreground">{u.email}</td>
+                          <td className="p-4"><Badge variant="outline">{u.tier || 'Bronze'}</Badge></td>
+                          <td className="p-4 text-xs text-muted-foreground">{u.joinDate ? format(new Date(u.joinDate), 'MMM d, yyyy') : '—'}</td>
+                          <td className="p-4 text-right">
+                            <Button variant="ghost" size="sm" className="text-primary h-8" onClick={async () => {
+                              setUserDetailLoading(true);
+                              setIsUserDetailModalOpen(true);
+                              const res = await fetchUserDetailAction(u.id);
+                              if (res.success) setUserDetail(res);
+                              setUserDetailLoading(false);
+                            }}>Inspect Node</Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'broadcasts' && (
+            <div className="space-y-6">
+              <div className="flex justify-end">
+                <Button className="bg-primary text-black font-bold" onClick={() => setIsBroadcastModalOpen(true)}><Send className="w-4 h-4 mr-2" /> New Broadcast</Button>
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Title</th>
+                        <th className="p-4">Type</th>
+                        <th className="p-4">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {adminData.broadcasts.map((b: any) => (
+                        <tr key={b.id} className="hover:bg-primary/5">
+                          <td className="p-4 font-bold text-white">{b.title}</td>
+                          <td className="p-4"><Badge variant="secondary" className="uppercase text-[8px]">{b.type}</Badge></td>
+                          <td className="p-4 text-xs text-muted-foreground">{b.sentAt ? format(new Date(b.sentAt.seconds * 1000), 'MMM d, HH:mm') : 'Recently'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
       </main>
 
+      {/* Admin Auth Modal */}
       <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
         <DialogContent className="bg-black/95 border-primary/30 text-white outline-none">
           <DialogHeader>
@@ -356,6 +564,189 @@ export default function AdminPage() {
             {adminError && <p className="text-center text-xs font-bold text-destructive animate-pulse">{adminError}</p>}
             <Button type="submit" className="w-full h-14 font-black cyan-box-glow text-lg">AUTHENTICATE</Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gift Account Modal */}
+      <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
+        <DialogContent className="bg-card border-primary/20 text-white">
+          <DialogHeader>
+            <DialogTitle>Provision Manual Node</DialogTitle>
+            <DialogDescription>Manually gift a demo account to a user ID.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Target User UID</Label>
+              <Input placeholder="Enter Firestore UID" value={giftForm.userId} onChange={e => setGiftForm({...giftForm, userId: e.target.value})} className="bg-secondary/50" />
+            </div>
+            <div className="space-y-2">
+              <Label>Account Label</Label>
+              <Input placeholder="e.g. Free $100k Challenge" value={giftForm.label} onChange={e => setGiftForm({...giftForm, label: e.target.value})} className="bg-secondary/50" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Start Balance</Label>
+                <Select value={giftForm.amount} onValueChange={v => setGiftForm({...giftForm, amount: v})}>
+                  <SelectTrigger className="bg-secondary/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10000">$10,000</SelectItem>
+                    <SelectItem value="25000">$25,000</SelectItem>
+                    <SelectItem value="50000">$50,000</SelectItem>
+                    <SelectItem value="100000">$100,000</SelectItem>
+                    <SelectItem value="200000">$200,000</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Plan Type</Label>
+                <Select value={giftForm.plan} onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+                  <SelectTrigger className="bg-secondary/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
+                    <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
+                    <SelectItem value="3-step-classic">3-Step Classic</SelectItem>
+                    <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button>
+            <Button className="bg-primary text-black font-bold" onClick={handleGiftAccount} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Wand2 className="w-4 h-4 mr-2" />}
+              Provision Node
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Broadcast Modal */}
+      <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
+        <DialogContent className="bg-card border-primary/20 text-white">
+          <DialogHeader>
+            <DialogTitle>Send Global Broadcast</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Announcement Title</Label>
+              <Input value={broadcastForm.title} onChange={e => setBroadcastForm({...broadcastForm, title: e.target.value})} className="bg-secondary/50" />
+            </div>
+            <div className="space-y-2">
+              <Label>Message Content</Label>
+              <Textarea value={broadcastForm.message} onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})} className="bg-secondary/50 min-h-[100px]" />
+            </div>
+            <div className="space-y-2">
+              <Label>Notification Type</Label>
+              <Select value={broadcastForm.type} onValueChange={v => setBroadcastForm({...broadcastForm, type: v})}>
+                <SelectTrigger className="bg-secondary/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="info">General Info</SelectItem>
+                  <SelectItem value="warning">Maintenance Warning</SelectItem>
+                  <SelectItem value="success">Profit Payout Proof</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsBroadcastModalOpen(false)}>Cancel</Button>
+            <Button className="bg-primary text-black font-bold" onClick={async () => {
+              setActionLoading(true);
+              await sendGlobalBroadcastAction(broadcastForm);
+              setActionLoading(false);
+              setIsBroadcastModalOpen(false);
+              refreshData();
+            }} disabled={actionLoading}>Send Announcement</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Detail Inspect Modal */}
+      <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white max-h-[85vh] overflow-y-auto">
+          {userDetailLoading ? (
+             <div className="py-20 flex flex-col items-center justify-center gap-4">
+               <Loader2 className="w-8 h-8 animate-spin text-primary" />
+               <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Deep Scanning Node Data...</p>
+             </div>
+          ) : userDetail && (
+            <div className="space-y-8">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-3xl font-headline font-bold text-white">{userDetail.user.name}</h2>
+                  <p className="text-muted-foreground">{userDetail.user.email}</p>
+                </div>
+                <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 py-1.5">{userDetail.user.tier} TRADER</Badge>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-xl bg-secondary/30 border border-border">
+                  <p className="text-[10px] font-black uppercase text-muted-foreground mb-1">KYC Status</p>
+                  <p className="text-lg font-bold text-white">{userDetail.user.kycStatus || 'None'}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-secondary/30 border border-border">
+                  <p className="text-[10px] font-black uppercase text-muted-foreground mb-1">Referral Code</p>
+                  <p className="text-lg font-bold text-primary font-mono">{userDetail.user.referralCode}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-secondary/30 border border-border">
+                  <p className="text-[10px] font-black uppercase text-muted-foreground mb-1">Total Payouts</p>
+                  <p className="text-lg font-bold text-emerald-500">${userDetail.payouts.reduce((a:any, c:any)=>a+parseFloat(c.amount||0),0).toLocaleString()}</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary border-b border-primary/20 pb-2">Trading Nodes</h3>
+                <div className="grid grid-cols-1 gap-3">
+                   {userDetail.accounts.map((a: any) => (
+                     <div key={a.id} className="p-4 rounded-xl bg-white/5 border border-white/5 flex justify-between items-center group hover:border-primary/30 transition-colors">
+                        <div>
+                          <p className="font-bold text-white">{a.label}</p>
+                          <p className="text-[10px] font-mono text-muted-foreground">ID: {a.id}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-mono text-sm font-bold">${(a.balance || 0).toLocaleString()}</p>
+                          <Badge variant="outline" className="text-[8px] uppercase">{a.status}</Badge>
+                        </div>
+                     </div>
+                   ))}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary border-b border-primary/20 pb-2">Recent Node Logs</h3>
+                <div className="overflow-x-auto rounded-xl border border-white/5 bg-black/40">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-white/5 text-muted-foreground uppercase text-[10px] font-bold">
+                      <tr>
+                        <th className="p-3">Symbol</th>
+                        <th className="p-3">Type</th>
+                        <th className="p-3">Lots</th>
+                        <th className="p-3 text-right">PnL</th>
+                        <th className="p-3">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userDetail.trades.slice(0, 10).map((t: any) => (
+                        <tr key={t.id} className="border-t border-white/5">
+                          <td className="p-3 font-bold">{t.symbol}</td>
+                          <td className="p-3 uppercase">{t.type}</td>
+                          <td className="p-3">{t.lots}</td>
+                          <td className={cn("p-3 text-right font-mono font-bold", (t.pnl||0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl||0).toLocaleString()}</td>
+                          <td className="p-3 text-muted-foreground">{t.openedAt ? format(new Date(t.openedAt), 'MMM d') : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
