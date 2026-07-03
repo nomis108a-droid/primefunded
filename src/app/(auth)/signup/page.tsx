@@ -28,6 +28,19 @@ const SignupSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
+/**
+ * Deterministic numeric ID generator
+ */
+function getShortId(uid: string): string {
+  if (!uid) return "00000000";
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++) {
+    hash = ((hash << 5) - hash) + uid.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString().slice(0, 8).padStart(8, '0');
+}
+
 function SignupContent() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -113,7 +126,7 @@ function SignupContent() {
       const userCredential = await createUserWithEmailAndPassword(auth, sanitizedEmail, password);
       const user = userCredential.user;
       
-      const numericUid = Math.floor(10000000 + Math.random() * 90000000).toString();
+      const traderId = getShortId(user.uid);
       const referralCode = Math.random().toString(36).substring(2, 10).toUpperCase();
 
       let referredByUid = null;
@@ -137,8 +150,8 @@ function SignupContent() {
       }
 
       const userData = {
-        uid: numericUid,
-        traderId: numericUid,
+        uid: traderId,
+        traderId,
         authUid: user.uid,
         referralCode,
         codeChangesCount: 0,

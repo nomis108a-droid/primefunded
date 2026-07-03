@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -227,7 +228,15 @@ export default function AdminPage() {
   , [adminData.users]);
 
   const filteredUsers = useMemo(() => 
-    adminData.users.filter((u: any) => u.email.toLowerCase().includes(searchTerm.toLowerCase()) || u.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    adminData.users.filter((u: any) => {
+      const term = searchTerm.toLowerCase();
+      return (
+        u.email?.toLowerCase().includes(term) || 
+        u.name?.toLowerCase().includes(term) ||
+        u.traderId?.includes(searchTerm) ||
+        u.phone?.includes(searchTerm)
+      );
+    })
   , [adminData.users, searchTerm]);
 
   return (
@@ -572,14 +581,14 @@ export default function AdminPage() {
             <div className="space-y-6">
               <div className="relative max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Search name or email..." className="pl-10 bg-secondary/30" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                <Input placeholder="Search name, email, phone or trader ID..." className="pl-10 bg-secondary/30" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
               <Card className="bg-card/40 border-border/50">
                 <CardContent className="p-0">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
                       <tr>
-                        <th className="p-4">UID</th>
+                        <th className="p-4">TRADER ID</th>
                         <th className="p-4">Trader Name</th>
                         <th className="p-4">Email</th>
                         <th className="p-4">Phone</th>
@@ -591,9 +600,9 @@ export default function AdminPage() {
                     <tbody className="divide-y divide-border/50">
                       {filteredUsers.map((u: any) => (
                         <tr key={u.id} className="hover:bg-primary/5">
-                          <td className="p-4 font-mono text-[10px] flex items-center gap-2">
-                            {u.id.slice(0, 8)}...
-                            <button onClick={() => { navigator.clipboard.writeText(u.id); toast({ title: "UID Copied" }); }}><Copy className="w-3 h-3 text-muted-foreground hover:text-primary" /></button>
+                          <td className="p-4 font-mono text-[11px] flex items-center gap-2">
+                            {u.traderId || u.id.slice(0, 8)}
+                            <button onClick={() => { navigator.clipboard.writeText(u.traderId || u.id); toast({ title: "ID Copied" }); }}><Copy className="w-3 h-3 text-muted-foreground hover:text-primary" /></button>
                           </td>
                           <td className="p-4 font-bold text-white">{u.name}</td>
                           <td className="p-4 text-muted-foreground">{u.email}</td>

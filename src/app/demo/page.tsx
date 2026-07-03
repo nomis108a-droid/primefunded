@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -17,7 +18,7 @@ import {
   Crosshair, Circle, Slash, ArrowUpRight, ArrowRight,
   Square, Type, Ruler, ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
   RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Star, Eye, EyeOff, Magnet,
-  LayoutDashboard, TrendingUp, Wallet, Menu, X
+  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -468,6 +469,10 @@ export default function DemoPage() {
           <Link href="/dashboard" className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-3 md:pl-6 h-12">
             <ArrowLeft className="w-3 h-3" /> <span className="hidden sm:inline">Dashboard</span>
           </Link>
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/5">
+            <UserCircle className="w-3 h-3 text-primary" />
+            <span className="text-[10px] font-black uppercase text-zinc-400">ID: {userData?.traderId || '--------'}</span>
+          </div>
           {selectedAccount && isMobile && (
             <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[8px] font-black uppercase px-2 h-6 truncate max-w-[100px]">
               {selectedAccount.label}

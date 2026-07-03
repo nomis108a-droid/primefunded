@@ -41,6 +41,19 @@ const ProfileSchema = z.object({
   country: z.string().min(2, "Country is required"),
 });
 
+/**
+ * Deterministic numeric ID generator
+ */
+function getShortId(uid: string): string {
+  if (!uid) return "00000000";
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++) {
+    hash = ((hash << 5) - hash) + uid.charCodeAt(i);
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString().slice(0, 8).padStart(8, '0');
+}
+
 export default function ProfilePage() {
   const { user, userData } = useAuth();
   const { toast } = useToast();
@@ -56,20 +69,19 @@ export default function ProfilePage() {
   });
 
   useEffect(() => {
-    if (userData) {
+    if (userData && user) {
       setFormData({
         name: userData.name || '',
         phone: userData.phone || '',
         country: userData.country || ''
       });
       
-      // Auto-repair missing 8-digit numeric UID
-      if (user && (!userData.uid || userData.uid.length > 10)) {
-        const numericUid = Math.floor(10000000 + Math.random() * 90000000).toString();
+      // Auto-repair/Set short numeric traderId if missing
+      const shortId = getShortId(user.uid);
+      if (!userData.traderId || userData.traderId !== shortId) {
         const userRef = doc(db, 'users', user.uid);
         updateDoc(userRef, { 
-          uid: numericUid,
-          traderId: numericUid,
+          traderId: shortId,
           updatedAt: serverTimestamp() 
         });
       }
@@ -89,7 +101,6 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    // Validation
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
       toast({ variant: "destructive", title: "Invalid format", description: "Please use JPG, PNG or WebP." });
@@ -161,10 +172,10 @@ export default function ProfilePage() {
   };
 
   const copyTraderId = () => {
-    const idToCopy = userData?.uid || userData?.traderId;
+    const idToCopy = userData?.traderId || getShortId(user?.uid || "");
     if (idToCopy) {
       navigator.clipboard.writeText(idToCopy);
-      toast({ title: "Copied!", description: "Trader UID copied to clipboard." });
+      toast({ title: "Copied!", description: "Trader ID copied to clipboard." });
     }
   };
 
@@ -222,10 +233,10 @@ export default function ProfilePage() {
                     onClick={copyTraderId}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-primary">UID:</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-primary">TRADER ID:</span>
                       <Copy className="w-3 h-3 text-muted-foreground group-hover:text-primary transition-colors" />
                     </div>
-                    <span className="font-mono text-sm font-bold text-white">{userData?.uid || userData?.traderId || '--------'}</span>
+                    <span className="font-mono text-sm font-bold text-white">{userData?.traderId || getShortId(user?.uid || "")}</span>
                   </div>
                 </div>
 
