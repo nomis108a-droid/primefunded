@@ -736,7 +736,7 @@ export default function DemoPage() {
         </div>
 
         {/* Right Order Aside (Visible on Desktop and Tablet) */}
-        <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-6 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
+        <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            {OrderPanelContent}
         </aside>
       </div>

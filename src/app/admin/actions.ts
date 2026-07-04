@@ -28,9 +28,12 @@ function serializeData(data: any): any {
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
+    
+    // 1. Master Token Check
     const masterToken = cookieStore.get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     
+    // 2. Session Cookie Check
     const token = cookieStore.get('session')?.value;
     if (token) {
       const auth = getAdminAuth();
@@ -40,7 +43,7 @@ export async function verifyAdminAuth() {
       } catch {}
     }
     
-    // Fallback: check Firebase ID token from Authorization header
+    // 3. Fallback: check Firebase ID token from Authorization header
     const { headers } = await import('next/headers');
     const headerStore = await headers();
     const authHeader = headerStore.get('authorization') || '';
@@ -49,6 +52,10 @@ export async function verifyAdminAuth() {
       const decoded = await getAdminAuth().verifyIdToken(idToken);
       if (decoded.email && ADMIN_EMAILS.includes(decoded.email)) return true;
     }
+
+    // 4. Persistence Fallback: check admin_email cookie
+    const adminEmail = cookieStore.get('admin_email')?.value;
+    if (adminEmail && ADMIN_EMAILS.includes(adminEmail)) return true;
     
     return false;
   } catch (error) {

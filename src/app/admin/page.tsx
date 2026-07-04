@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -117,6 +116,8 @@ export default function AdminPage() {
     if (isVerified && email) {
       setIsAuthenticated(true);
       setLoggedInAdmin(email);
+      // Set persistence cookie to prevent "Unauthorized" error in Server Actions
+      document.cookie = `admin_email=${email}; path=/; max-age=86400; SameSite=Lax`;
       refreshData();
     } else {
       setShowAdminModal(true);
@@ -136,7 +137,11 @@ export default function AdminPage() {
     }
     localStorage.setItem('adminVerified', 'true');
     localStorage.setItem('adminEmail', adminEmailInput.toLowerCase());
-    document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400';
+    
+    // Set explicit administrative cookies for Server Action validation
+    document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax';
+    document.cookie = `admin_email=${adminEmailInput.toLowerCase()}; path=/; max-age=86400; SameSite=Lax`;
+    
     setIsAuthenticated(true);
     setLoggedInAdmin(adminEmailInput.toLowerCase());
     setShowAdminModal(false);
@@ -147,6 +152,7 @@ export default function AdminPage() {
     localStorage.removeItem('adminVerified');
     localStorage.removeItem('adminEmail');
     document.cookie = 'admin_master=; path=/; max-age=0';
+    document.cookie = 'admin_email=; path=/; max-age=0';
     setIsAuthenticated(false);
     window.location.reload();
   };
@@ -890,4 +896,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
