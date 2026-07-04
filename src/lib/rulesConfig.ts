@@ -23,13 +23,14 @@ export const RULES_CONFIG = {
         dailyDrawdown: 3,
         maxDrawdown: 6,
         minTradingDays: 5,
-        maxSingleTradeLoss: 3 // Hard Breach as per spec
+        maxSingleTradeLoss: 3 
       },
       funded: {
         dailyDrawdown: 3,
         maxDrawdown: 6,
         minTradingDaysBeforePayout: 5,
-        maxSingleTradeLoss: 3
+        maxSingleTradeLoss: 3,
+        maxFloatingLoss: 1
       }
     },
     "2-step-classic": {
@@ -51,7 +52,8 @@ export const RULES_CONFIG = {
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDaysBeforePayout: 5,
-        maxSingleTradeLoss: 3
+        maxSingleTradeLoss: 3,
+        maxFloatingLoss: 1
       }
     },
     "3-step-classic": {
@@ -81,7 +83,7 @@ export const RULES_CONFIG = {
         maxDrawdown: 8,
         minTradingDaysBeforePayout: 5,
         maxSingleTradeLoss: 3,
-        maxFloatingLoss: 1 // 1% symbol auto-close in funded
+        maxFloatingLoss: 1 
       }
     },
     "instant-funding": {
@@ -100,7 +102,7 @@ export const RULES_CONFIG = {
         maxDrawdown: 5,
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
-        minTradingDaysBeforePayout: 7,
+        minTradingDaysBeforePayout: 5,
         minDailyTrades: 3,
         minTradesPerSymbolForPayout: 5
       }
