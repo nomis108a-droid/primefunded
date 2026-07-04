@@ -5,6 +5,7 @@ import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
@@ -13,6 +14,7 @@ import { useAuth } from '@/context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
+import { db } from '@/lib/firebase';
 
 const planData = {
   '1-step': [
@@ -175,7 +177,26 @@ const RULES = {
 
 const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { tier: any, planName: string, delay: number }) {
   const [isOpen, setIsOpen] = useState(false);
-  const finalPrice = tier.price;
+  const { user } = useAuth();
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const [coupon5k, setCoupon5k] = useState('');
+  const [coupon5kError, setCoupon5kError] = useState('');
+  const [coupon5kLoading, setCoupon5kLoading] = useState(false);
+  const [coupon5kExpired, setCoupon5kExpired] = useState(false);
+
+  const isFree5kTier = planName === '2-step' && tier.size === '$5,000';
+
+  useEffect(() => {
+    if (!isFree5kTier) return;
+    const checkExpiry = async () => {
+      const { getDocs, collection } = await import('firebase/firestore');
+      const snap = await getDocs(collection(db, 'giveaways'));
+      if (snap.size >= 500) setCoupon5kExpired(true);
+    };
+    checkExpiry();
+  }, [isFree5kTier]);
 
   return (
     <motion.div
@@ -199,11 +220,19 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
 
         <CardContent className="flex-1 flex flex-col">
           <div className="text-center mb-6">
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-3xl font-headline font-bold text-white">
-                ${finalPrice}
-              </span>
-            </div>
+            {isFree5kTier ? (
+              <div className="text-center">
+                <span className="text-3xl font-black text-primary line-through opacity-40">$39</span>
+                <div className="text-3xl font-black text-green-400">FREE</div>
+                <div className="text-[10px] text-zinc-400 uppercase tracking-widest">With Coupon Code</div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-3xl font-headline font-bold text-white">
+                  ${tier.price}
+                </span>
+              </div>
+            )}
           </div>
           
           <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
@@ -245,11 +274,57 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
         </CardContent>
 
         <CardFooter className="pt-4 pb-8 px-6">
-          <Button className="w-full h-11 font-bold rounded-xl cyan-box-glow cursor-pointer" asChild>
-            <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${finalPrice}`}>
-              Start Challenge
-            </Link>
-          </Button>
+          {isFree5kTier ? (
+            coupon5kExpired ? (
+              <div className="w-full py-3 text-center text-red-400 font-bold text-sm border border-red-400/30 rounded-lg bg-red-400/5">
+                🚫 Offer Expired — All 500 Slots Claimed
+              </div>
+            ) : (
+              <div className="space-y-2 w-full">
+                <Input
+                  placeholder="Enter coupon code (e.g. PRIME500)"
+                  value={coupon5k}
+                  onChange={e => { setCoupon5k(e.target.value.toUpperCase()); setCoupon5kError(''); }}
+                  className="bg-zinc-900 border-zinc-700 text-white h-11 text-center font-mono tracking-widest uppercase"
+                />
+                {coupon5kError && <p className="text-red-400 text-xs text-center font-bold">{coupon5kError}</p>}
+                <Button
+                  className="w-full h-12 font-black cyan-box-glow"
+                  disabled={coupon5kLoading}
+                  onClick={async () => {
+                    if (!user) { router.push('/login?redirect=/challenges'); return; }
+                    if (coupon5k !== 'PRIME500') { setCoupon5kError('Invalid coupon code'); return; }
+                    setCoupon5kLoading(true);
+                    try {
+                      const token = await user.getIdToken();
+                      const res = await fetch('/api/giveaway/claim', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ code: 'PRIME500' })
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      toast({ title: '🎉 Account Granted!', description: 'Check your dashboard for your free $5,000 account.' });
+                      router.push('/dashboard');
+                    } catch (err: any) {
+                      setCoupon5kError(err.message);
+                    } finally {
+                      setCoupon5kLoading(false);
+                    }
+                  }}
+                >
+                  {coupon5kLoading ? 'Claiming...' : 'Claim Free Account'}
+                </Button>
+                <p className="text-[9px] text-zinc-500 text-center">500 slots only • Expires when full</p>
+              </div>
+            )
+          ) : (
+            <Button className="w-full h-11 font-bold rounded-xl cyan-box-glow cursor-pointer" asChild>
+              <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${tier.price}`}>
+                Start Challenge
+              </Link>
+            </Button>
+          )}
         </CardFooter>
       </Card>
     </motion.div>

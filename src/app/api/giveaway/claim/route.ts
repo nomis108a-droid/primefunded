@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       // Check total claims
       const giveawaysSnap = await tx.get(db.collection('giveaways'));
       if (giveawaysSnap.size >= 500) {
-        throw new Error("Sorry, all 500 accounts have been claimed!");
+        throw new Error("Offer expired: All 500 free slots have been claimed!");
       }
 
       // Check if user already claimed
