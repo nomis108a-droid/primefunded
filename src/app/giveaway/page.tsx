@@ -24,7 +24,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
-import { collection, query, getDocs, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -37,7 +37,6 @@ export default function GiveawayPage() {
   
   const [coupon, setCoupon] = useState('');
   const [claiming, setRequesting] = useState(false);
-  const [claimCount, setClaimCount] = useState(0);
   const [hasClaimed, setHasClaimed] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
@@ -48,7 +47,7 @@ export default function GiveawayPage() {
 
   // 1. Countdown Timer Effect
   useEffect(() => {
-    const target = new Date('2026-07-06T12:30:00Z'); // 6PM IST = 12:30 UTC
+    const target = new Date('2026-07-05T12:30:00Z'); // 6PM IST = 12:30 UTC (July 5, 2026)
     const tick = () => {
       const now = new Date();
       const diff = target.getTime() - now.getTime();
@@ -68,14 +67,8 @@ export default function GiveawayPage() {
     return () => clearInterval(t);
   }, []);
 
-  // 2. Monitor Claim Count & User Status
+  // 2. Monitor User Status
   useEffect(() => {
-    // Listen to total giveaway count
-    const unsubCount = onSnapshot(collection(db, 'giveaways'), (snap) => {
-      setClaimCount(snap.size);
-    });
-
-    // Check if current user has already claimed
     let unsubUser: any;
     if (user?.uid) {
       const q = query(collection(db, 'giveaways'), where('userId', '==', user.uid));
@@ -85,7 +78,6 @@ export default function GiveawayPage() {
     }
 
     return () => {
-      unsubCount();
       if (unsubUser) unsubUser();
     };
   }, [user]);
@@ -129,8 +121,6 @@ export default function GiveawayPage() {
       setRequesting(false);
     }
   };
-
-  const spotsRemaining = Math.max(0, 500 - claimCount);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -212,7 +202,7 @@ export default function GiveawayPage() {
                   <div className="flex justify-between items-start mb-2">
                     <CardTitle className="text-2xl font-headline font-bold text-white uppercase tracking-tight">Claim Your Node</CardTitle>
                     <Badge variant="outline" className="bg-[#00d4ff]/5 text-[#00d4ff] border-[#00d4ff]/20">
-                      {spotsRemaining} SPOTS LEFT
+                      500 TOTAL SPOTS
                     </Badge>
                   </div>
                   <CardDescription>Follow our community and enter the exclusive coupon code to launch your challenge.</CardDescription>
@@ -264,7 +254,7 @@ export default function GiveawayPage() {
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs text-zinc-500 mt-3">Sunday, July 6 at 6:00 PM IST</p>
+                      <p className="text-xs text-zinc-500 mt-3">Sunday, July 5 at 6:00 PM IST</p>
                     </div>
                   )}
 
@@ -289,7 +279,7 @@ export default function GiveawayPage() {
                           onChange={e => setCoupon(e.target.value.toUpperCase())}
                           className="h-14 bg-secondary/50 border-white/10 text-center text-xl font-mono tracking-[0.5em] font-bold text-white focus:border-[#00d4ff]/50 transition-all uppercase"
                           maxLength={10}
-                          disabled={claiming || hasClaimed || isSuccess || spotsRemaining === 0}
+                          disabled={claiming || hasClaimed || isSuccess}
                         />
                       </div>
 
@@ -309,11 +299,6 @@ export default function GiveawayPage() {
                             <p className="text-sm font-bold text-white">You have already claimed this giveaway.</p>
                             <Button variant="ghost" className="mt-4 text-xs font-bold" asChild><Link href="/dashboard">Go to Dashboard</Link></Button>
                           </div>
-                        ) : spotsRemaining === 0 ? (
-                          <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/30 text-center">
-                            <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-3" />
-                            <p className="text-sm font-bold text-white">Sorry, all 500 accounts have been claimed!</p>
-                          </div>
                         ) : (
                           <Button 
                             type="submit" 
@@ -326,20 +311,6 @@ export default function GiveawayPage() {
                       </AnimatePresence>
                     </form>
                   )}
-
-                  <div className="pt-6 border-t border-white/5 space-y-4">
-                     <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em]">
-                        <span className="text-muted-foreground">Spots Remaining</span>
-                        <span className="text-[#00d4ff]">{spotsRemaining} / 500</span>
-                     </div>
-                     <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
-                        <motion.div 
-                          initial={{ width: 0 }}
-                          animate={{ width: `${(spotsRemaining / 500) * 100}%` }}
-                          className="h-full bg-[#00d4ff] shadow-[0_0_10px_rgba(0,212,255,0.4)]"
-                        />
-                     </div>
-                  </div>
                 </CardContent>
               </Card>
             </div>
