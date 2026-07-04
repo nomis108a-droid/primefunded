@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -185,6 +185,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
   const [coupon5kError, setCoupon5kError] = useState('');
   const [coupon5kLoading, setCoupon5kLoading] = useState(false);
   const [coupon5kExpired, setCoupon5kExpired] = useState(false);
+  const [coupon5kSuccess, setCoupon5kSuccess] = useState(false);
 
   const isFree5kTier = planName === '2-step' && tier.size === '$5,000';
 
@@ -279,6 +280,11 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
               <div className="w-full py-3 text-center text-red-400 font-bold text-sm border border-red-400/30 rounded-lg bg-red-400/5">
                 🚫 Offer Expired — All 500 Slots Claimed
               </div>
+            ) : coupon5kSuccess ? (
+              <div className="w-full p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-2">
+                <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
+                <p className="text-[11px] font-bold text-emerald-400 leading-tight">✅ Claim submitted! Admin will review and approve within 24 hours.</p>
+              </div>
             ) : (
               <div className="space-y-2 w-full">
                 <Input
@@ -304,8 +310,8 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
                       });
                       const data = await res.json();
                       if (!res.ok) throw new Error(data.error);
-                      toast({ title: '🎉 Account Granted!', description: 'Check your dashboard for your free $5,000 account.' });
-                      router.push('/dashboard');
+                      toast({ title: '🎉 Claim Submitted!', description: 'Admin will review and approve within 24 hours.' });
+                      setCoupon5kSuccess(true);
                     } catch (err: any) {
                       setCoupon5kError(err.message);
                     } finally {
@@ -313,7 +319,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
                     }
                   }}
                 >
-                  {coupon5kLoading ? 'Claiming...' : 'Claim Free Account'}
+                  {coupon5kLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Claim Free Account'}
                 </Button>
                 <p className="text-[9px] text-zinc-500 text-center">500 slots only • Expires when full</p>
               </div>

@@ -429,16 +429,33 @@ export default function AdminPage() {
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {adminData.orders.map((o: any) => (
-                      <tr key={o.id} className="hover:bg-primary/5">
+                      <tr key={o.id} className={cn(
+                        "hover:bg-primary/5 transition-colors group",
+                        o.isCouponOrder && "border-l-4 border-l-primary bg-primary/5"
+                      )}>
                         <td className="p-4 font-mono text-[10px] text-muted-foreground">{o.id.slice(0, 8)}</td>
                         <td className="p-4">
                           <p className="font-bold text-white">{o.email}</p>
                           <p className="text-[10px] text-primary">{o.plan} {o.accountSize}</p>
                         </td>
-                        <td className="p-4 font-mono">${o.amountPaid}</td>
-                        <td className="p-4 font-mono text-[10px] max-w-[100px] truncate">{o.txHash}</td>
                         <td className="p-4">
-                          {o.paymentScreenshot ? (
+                          {o.isCouponOrder ? (
+                            <Badge className="bg-emerald-500 text-white font-black text-[9px] uppercase">FREE</Badge>
+                          ) : (
+                            <span className="font-mono text-white font-bold">${o.amountPaid}</span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {o.isCouponOrder ? (
+                            <Badge variant="outline" className="text-primary border-primary/30 font-mono text-[9px] uppercase">{o.txHash}</Badge>
+                          ) : (
+                            <span className="font-mono text-[10px] text-zinc-400 max-w-[100px] truncate">{o.txHash}</span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {o.isCouponOrder ? (
+                            <span className="text-zinc-600 text-xs">—</span>
+                          ) : o.paymentScreenshot ? (
                             <button onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }} className="text-primary hover:underline flex items-center gap-1 text-xs">
                               <ImageIcon className="w-3 h-3" /> View
                             </button>

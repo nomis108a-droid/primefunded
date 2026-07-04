@@ -4,8 +4,8 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
- * @fileOverview Giveaway Claim Engine
- * Validates requirements and provisions free Step 2 accounts.
+ * @fileOverview Giveaway Claim Engine (V2 - Order Routing)
+ * Instead of auto-provisioning, creates a pending order for admin review.
  * Limit: 500 accounts globally.
  */
 
@@ -51,39 +51,41 @@ export async function POST(req: NextRequest) {
         throw new Error("You have already claimed this giveaway.");
       }
 
-      // 4. Provision Node
-      const startBalance = 5000;
-      const planKey = '2-step-classic';
-      const phase = 'verification'; // User specified "Step 2 account"
-      const rules = RULES_CONFIG.plans[planKey]?.[phase];
+      // Check if user already has a pending coupon order
+      const pendingOrderSnap = await tx.get(
+        db.collection('orders')
+          .where('userId', '==', uid)
+          .where('isCouponOrder', '==', true)
+          .where('status', '==', 'pending')
+          .limit(1)
+      );
+      if (!pendingOrderSnap.empty) {
+        throw new Error("You already have a claim pending review.");
+      }
 
-      if (!rules) throw new Error("Configuration Error: Plan not found.");
-
-      const profitTarget = startBalance * (rules.profitTarget || 5) / 100;
-      const dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
-      const maxLossLimitUsd = startBalance * (rules.maxDrawdown / 100);
-
-      const accountRef = db.collection('demoAccounts').doc();
+      // 4. Create Pending Order
+      const accountSize = '$5,000';
+      const plan = '2-step-pro';
+      
+      const orderRef = db.collection('orders').doc();
       const claimRef = db.collection('giveaways').doc();
 
-      tx.set(accountRef, {
+      tx.set(orderRef, {
         userId: uid,
-        email,
-        label: `GIVEAWAY — $5k Verification Account`,
-        startBalance,
-        balance: startBalance,
-        equity: startBalance,
-        plan: `5k`,
-        planType: planKey,
-        phase,
-        profitTarget,
-        dailyLossLimitUsd,
-        dailyGrossLossUsd: 0,
-        maxLoss: maxLossLimitUsd,
-        status: 'active',
+        email: email,
+        plan: plan,
+        accountSize: accountSize,
+        amount: 0,
+        amountPaid: 0,
+        displayAmount: 'FREE (Coupon: PRIME500)',
+        txHash: 'COUPON-PRIME500',
+        paymentScreenshot: null,
+        status: 'pending',
+        couponCode: 'PRIME500',
+        isCouponOrder: true,
+        submittedAt: FieldValue.serverTimestamp(),
         createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        source: 'giveaway'
+        date: new Date().toISOString()
       });
 
       tx.set(claimRef, {
@@ -91,24 +93,28 @@ export async function POST(req: NextRequest) {
         email,
         claimedAt: FieldValue.serverTimestamp(),
         couponCode: code,
-        accountGranted: true,
-        accountId: accountRef.id
+        accountGranted: false,
+        orderId: orderRef.id
       });
 
       // Notify User
       const notifRef = db.collection('users').doc(uid).collection('notifications').doc();
       tx.set(notifRef, {
-        title: '🎉 Giveaway Claimed!',
-        message: 'Your $5,000 Step 2 account has been provisioned. Welcome to the elite community!',
-        type: 'account_gifted',
+        title: '⏳ Giveaway Claim Received',
+        message: 'Your request for a free $5,000 account has been received and is under review. This usually takes less than 24 hours.',
+        type: 'order_pending',
         isRead: false,
         createdAt: FieldValue.serverTimestamp()
       });
 
-      return { accountId: accountRef.id };
+      return { orderId: orderRef.id };
     });
 
-    return NextResponse.json({ success: true, ...result });
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Your claim is under review. Admin will approve within 24 hours.',
+      ...result 
+    });
 
   } catch (error: any) {
     console.error('[Giveaway-API] Error:', error.message);

@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     const nodeId = Array.from({length: 10}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     
-    await db.collection('demoAccounts').add({
+    const docRef = await db.collection('demoAccounts').add({
       userId, email, label,
       startBalance, balance: startBalance, equity: startBalance,
       plan: `${startBalance / 1000}k`, planType: planKey, phase,
@@ -38,6 +38,21 @@ export async function POST(req: NextRequest) {
       updatedAt: FieldValue.serverTimestamp(),
       lastResetAt: FieldValue.serverTimestamp(),
     });
+    
+    // Update matching giveaway record if this was a coupon order approval
+    const giveawaysSnap = await db.collection('giveaways')
+      .where('userId', '==', userId)
+      .where('accountGranted', '==', false)
+      .limit(1)
+      .get();
+    
+    if (!giveawaysSnap.empty) {
+      await giveawaysSnap.docs[0].ref.update({
+        accountGranted: true,
+        grantedAt: FieldValue.serverTimestamp(),
+        accountId: docRef.id
+      });
+    }
     
     await db.collection('users').doc(userId).collection('notifications').add({
       title: '🎁 Free Account Granted!',

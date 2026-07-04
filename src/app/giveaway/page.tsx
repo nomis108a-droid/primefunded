@@ -91,7 +91,7 @@ export default function GiveawayPage() {
 
       if (res.ok) {
         setIsSuccess(true);
-        toast({ title: "🎉 Account Granted!", description: "Check your dashboard to start trading." });
+        toast({ title: "✅ Claim Submitted!", description: "Your request is under admin review." });
       } else {
         toast({ variant: "destructive", title: "Claim Failed", description: data.error || "Could not process claim." });
       }
@@ -208,10 +208,10 @@ export default function GiveawayPage() {
                       {isSuccess ? (
                         <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
                           <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
-                          <h3 className="font-bold text-white mb-1">🎉 Account Granted!</h3>
-                          <p className="text-xs text-muted-foreground mb-4">Your $5,000 Step 2 account is now live.</p>
+                          <h3 className="font-bold text-white mb-1">✅ Claim Submitted!</h3>
+                          <p className="text-xs text-muted-foreground mb-4">Your free $5,000 account request is under admin review. You'll receive an email once approved (usually within 24 hours).</p>
                           <Button className="w-full h-12 font-bold" asChild>
-                            <Link href="/dashboard">Access Dashboard <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                            <Link href="/dashboard">Return to Dashboard <ArrowRight className="ml-2 w-4 h-4" /></Link>
                           </Button>
                         </motion.div>
                       ) : hasClaimed ? (
