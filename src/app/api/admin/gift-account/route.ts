@@ -15,8 +15,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
     
-    const { userId, email, label, amount, plan, phase } = await req.json();
+    const { userId: traderId, email, label, amount, plan, phase } = await req.json();
     const db = getAdminDb();
+
+    // 1. Resolve real userId from Trader ID
+    const userLookupSnap = await db.collection('users').where('traderId', '==', traderId).limit(1).get();
+    if (userLookupSnap.empty) {
+      return NextResponse.json({ error: "No trader found with that Trader ID" }, { status: 404 });
+    }
+    
+    const userDoc = userLookupSnap.docs[0];
+    const userId = userDoc.id;
+    const targetEmail = email || userDoc.data()?.email || 'unknown@primefunded.fund';
+
     const planKey = getPlanKey(plan);
     const rules = RULES_CONFIG.plans[planKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
     const startBalance = amount;
@@ -28,7 +39,9 @@ export async function POST(req: NextRequest) {
     const nodeId = Array.from({length: 10}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     
     const docRef = await db.collection('demoAccounts').add({
-      userId, email, label,
+      userId, 
+      email: targetEmail, 
+      label,
       startBalance, balance: startBalance, equity: startBalance,
       plan: `${startBalance / 1000}k`, planType: planKey, phase,
       profitTarget, dailyLossLimitUsd, dailyGrossLossUsd: 0,
@@ -39,14 +52,7 @@ export async function POST(req: NextRequest) {
       lastResetAt: FieldValue.serverTimestamp(),
     });
 
-    // Lookup user email for audit tracking if not provided
-    let targetEmail = email;
-    if (!targetEmail) {
-      const userSnap = await db.collection('users').doc(userId).get();
-      targetEmail = userSnap.data()?.email || 'unknown@primefunded.fund';
-    }
-
-    // CREATE MATCHING ORDER FOR AUDIT TRACKING
+    // 2. CREATE MATCHING ORDER FOR AUDIT TRACKING
     await db.collection('orders').add({
       userId,
       email: targetEmail,

@@ -24,18 +24,13 @@ function serializeData(data: any): any {
 
 /**
  * SECURITY HELPER: Multi-layered Admin Verification
- * Simplified to handle cookie persistence issues in Server Actions.
  */
 export async function verifyAdminAuth() {
-  return true; // TEMP BYPASS - admin page already protected by password modal
   try {
     const cookieStore = await cookies();
-    
-    // 1. Master Token Check (Direct Bypass)
     const masterToken = cookieStore.get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     
-    // 2. Session Cookie Check
     const sessionToken = cookieStore.get('session')?.value;
     if (sessionToken) {
       try {
@@ -44,7 +39,6 @@ export async function verifyAdminAuth() {
       } catch {}
     }
 
-    // 3. Admin Email Check (Persistence Fallback)
     const adminEmail = cookieStore.get('admin_email')?.value;
     if (adminEmail && ADMIN_EMAILS.includes(adminEmail)) return true;
     
@@ -54,11 +48,22 @@ export async function verifyAdminAuth() {
   }
 }
 
-export async function giftAccountAction(userId: string, email: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
+export async function giftAccountAction(traderId: string, email: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     
+    // 1. Resolve real userId from Trader ID
+    const userLookupSnap = await db.collection('users').where('traderId', '==', traderId).limit(1).get();
+    if (userLookupSnap.empty) {
+      return { success: false, error: "No trader found with that Trader ID" };
+    }
+    
+    const userDoc = userLookupSnap.docs[0];
+    const userId = userDoc.id;
+    const targetEmail = email || userDoc.data()?.email || 'unknown@primefunded.fund';
+
+    // 2. Prepare Rules
     const planKey = getPlanKey(accountPlan);
     const rules = RULES_CONFIG.plans[planKey]?.[currentPhase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
     
@@ -66,9 +71,10 @@ export async function giftAccountAction(userId: string, email: string, accountLa
     const dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
     const maxLossLimitUsd = startBalance * (rules.maxDrawdown / 100);
 
+    // 3. Provision Node
     const docRef = await db.collection("demoAccounts").add({
       userId,
-      email,
+      email: targetEmail,
       label: accountLabel,
       startBalance,
       balance: startBalance,
@@ -88,14 +94,7 @@ export async function giftAccountAction(userId: string, email: string, accountLa
       source: 'provisioned'
     });
 
-    // Lookup user email if not provided for order tracking
-    let targetEmail = email;
-    if (!targetEmail) {
-      const userSnap = await db.collection('users').doc(userId).get();
-      targetEmail = userSnap.data()?.email || 'unknown@primefunded.fund';
-    }
-
-    // CREATE MATCHING ORDER FOR AUDIT TRACKING
+    // 4. CREATE MATCHING ORDER FOR AUDIT TRACKING
     await db.collection('orders').add({
       userId,
       email: targetEmail,
@@ -144,14 +143,20 @@ export async function updateOrderStatusAction(id: string, status: string) {
 
     if (status === 'approved') {
       const balance = parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000;
-      await giftAccountAction(
-        order.userId,
-        order.email || 'unknown@primefunded.fund',
-        `Phase 1 — ${order.accountSize} ${order.plan}`,
-        balance,
-        order.plan,
-        'evaluation'
-      );
+      // Note: We use order.userId directly as it's already resolved in the order doc
+      const userSnap = await db.collection('users').doc(order.userId).get();
+      const traderId = userSnap.data()?.traderId;
+
+      if (traderId) {
+        await giftAccountAction(
+          traderId,
+          order.email || 'unknown@primefunded.fund',
+          `Phase 1 — ${order.accountSize} ${order.plan}`,
+          balance,
+          order.plan,
+          'evaluation'
+        );
+      }
     }
 
     return { success: true };

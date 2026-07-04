@@ -195,14 +195,15 @@ export default function AdminPage() {
     setActionLoading(true);
     try {
       const token = await user?.getIdToken();
-      const targetUser = adminData.users.find((u: any) => u.id === giftForm.userId);
-      const email = targetUser?.email || 'provisioned@primefunded.fund';
+      // Look for user email in cached data as a hint, but the API will do a secure lookup
+      const targetUser = adminData.users.find((u: any) => u.traderId === giftForm.userId);
+      const email = targetUser?.email || '';
       
       const res = await fetch('/api/admin/gift-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({
-          userId: giftForm.userId,
+          userId: giftForm.userId, // Passing Trader ID here
           email,
           label: giftForm.label,
           amount: parseInt(giftForm.amount),
@@ -439,27 +440,27 @@ export default function AdminPage() {
                           <p className="text-[10px] text-primary">{o.plan} {o.accountSize}</p>
                         </td>
                         <td className="p-4">
-                          {o.isCouponOrder ? (
+                          {o.isCouponOrder || o.source === "gifted" || o.amount === "FREE" ? (
                             <Badge className="bg-emerald-500 text-white font-black text-[9px] uppercase">FREE</Badge>
                           ) : (
                             <span className="font-mono text-white font-bold">${o.amountPaid}</span>
                           )}
                         </td>
                         <td className="p-4">
-                          {o.isCouponOrder ? (
+                          {o.isCouponOrder || o.txHash === "ADMIN-GIFT" ? (
                             <Badge variant="outline" className="text-primary border-primary/30 font-mono text-[9px] uppercase">{o.txHash}</Badge>
                           ) : (
                             <span className="font-mono text-[10px] text-zinc-400 max-w-[100px] truncate">{o.txHash}</span>
                           )}
                         </td>
                         <td className="p-4">
-                          {o.isCouponOrder ? (
+                          {(o.isCouponOrder || !o.paymentScreenshot) ? (
                             <span className="text-zinc-600 text-xs">—</span>
-                          ) : o.paymentScreenshot ? (
+                          ) : (
                             <button onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }} className="text-primary hover:underline flex items-center gap-1 text-xs">
                               <ImageIcon className="w-3 h-3" /> View
                             </button>
-                          ) : 'No Proof'}
+                          )}
                         </td>
                         <td className="p-4">
                           <Badge className={cn("uppercase text-[8px]", o.status === 'approved' ? 'bg-emerald-500' : o.status === 'rejected' ? 'bg-destructive' : 'bg-amber-500')}>
@@ -728,12 +729,12 @@ export default function AdminPage() {
         <DialogContent className="bg-card border-primary/20 text-white">
           <DialogHeader>
             <DialogTitle>Provision Manual Node</DialogTitle>
-            <DialogDescription>Manually gift a demo account to a user ID.</DialogDescription>
+            <DialogDescription>Manually gift a demo account via Trader ID.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Target User UID</Label>
-              <Input placeholder="Enter Firestore UID" value={giftForm.userId} onChange={e => setGiftForm({...giftForm, userId: e.target.value})} className="bg-secondary/50" />
+              <Label>Trader ID</Label>
+              <Input placeholder="e.g. 57668986" value={giftForm.userId} onChange={e => setGiftForm({...giftForm, userId: e.target.value})} className="bg-secondary/50" />
             </div>
             <div className="space-y-2">
               <Label>Account Label</Label>
