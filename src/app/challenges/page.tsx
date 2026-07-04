@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, memo, useEffect, useMemo } from 'react';
@@ -7,8 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
-import { Check, ChevronDown, ChevronUp, TicketPercent, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -51,12 +49,12 @@ const planData = {
     { size: '$200,000', price: 5000 },
   ],
   'instant-pro': [
-    { size: '$5,000', price: 145 },
-    { size: '$10,000', price: 290 },
-    { size: '$25,000', price: 725 },
-    { size: '$50,000', price: 1450 },
-    { size: '$100,000', price: 2900, popular: true },
-    { size: '$200,000', price: 5800 },
+    { size: '$5,000', price: 69 },
+    { size: '$10,000', price: 129 },
+    { size: '$25,000', price: 249 },
+    { size: '$50,000', price: 449 },
+    { size: '$100,000', price: 699, popular: true },
+    { size: '$200,000', price: 1300 },
   ]
 };
 
@@ -175,9 +173,9 @@ const RULES = {
   }
 };
 
-const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, discountApplied }: { tier: any, planName: string, delay: number, discountApplied: boolean }) {
+const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { tier: any, planName: string, delay: number }) {
   const [isOpen, setIsOpen] = useState(false);
-  const finalPrice = discountApplied ? Math.floor(tier.price * 0.8) : tier.price;
+  const finalPrice = tier.price;
 
   return (
     <motion.div
@@ -202,8 +200,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, disco
         <CardContent className="flex-1 flex flex-col">
           <div className="text-center mb-6">
             <div className="flex items-center justify-center gap-2">
-              {discountApplied && <span className="text-lg text-muted-foreground line-through">${tier.price}</span>}
-              <span className={`text-3xl font-headline font-bold ${discountApplied ? 'text-accent' : 'text-white'}`}>
+              <span className="text-3xl font-headline font-bold text-white">
                 ${finalPrice}
               </span>
             </div>
@@ -329,8 +326,6 @@ const ReferralTerminal = memo(function ReferralTerminal({ referralCode }: { refe
 
 export default function ChallengesPage() {
   const [selectedPlan, setSelectedPlan] = useState('1-step');
-  const [couponCode, setCouponCode] = useState('');
-  const [discountApplied, setDiscountApplied] = useState(false);
   
   const { user, userData, loading } = useAuth();
   const router = useRouter();
@@ -340,14 +335,6 @@ export default function ChallengesPage() {
       router.push('/login?redirect=/challenges');
     }
   }, [user, loading, router]);
-
-  const handleApplyCoupon = () => {
-    if (couponCode.toLowerCase() === 'primefunded20') {
-      setDiscountApplied(true);
-    } else {
-      setDiscountApplied(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -396,7 +383,6 @@ export default function ChallengesPage() {
 
               <Tabs defaultValue="1-step" className="w-full" onValueChange={(val) => {
                 setSelectedPlan(val);
-                if (val !== 'instant' && val !== 'instant-pro') setDiscountApplied(false);
               }}>
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
                   <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary p-1 rounded-xl">
@@ -406,24 +392,11 @@ export default function ChallengesPage() {
                     <TabsTrigger value="instant" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant</TabsTrigger>
                     <TabsTrigger value="instant-pro" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant Pro</TabsTrigger>
                   </TabsList>
-
-                  {(selectedPlan === 'instant' || selectedPlan === 'instant-pro') && (
-                    <div className="flex items-center gap-2 bg-secondary/50 p-2 rounded-xl border border-border">
-                      <TicketPercent className="w-5 h-5 text-primary ml-2" />
-                      <Input 
-                        placeholder="Enter Coupon Code" 
-                        className="h-9 bg-transparent border-none focus-visible:ring-0 w-36 text-sm" 
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value)}
-                      />
-                      <Button size="sm" className="font-bold cursor-pointer h-8" onClick={handleApplyCoupon}>Apply</Button>
-                    </div>
-                  )}
                 </div>
 
                 <AnimatePresence mode="wait">
                   <motion.div 
-                    key={selectedPlan + (discountApplied ? '-discount' : '')}
+                    key={selectedPlan}
                     initial={{ opacity: 0, x: 10 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -10 }}
@@ -435,7 +408,6 @@ export default function ChallengesPage() {
                         tier={tier} 
                         planName={selectedPlan} 
                         delay={idx * 0.03} 
-                        discountApplied={discountApplied && (selectedPlan === 'instant' || selectedPlan === 'instant-pro')}
                       />
                     ))}
                   </motion.div>
