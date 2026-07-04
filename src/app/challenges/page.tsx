@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2, Instagram } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -198,7 +198,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
     if (!isFree5kTier) return;
     
     // 1. Timer Logic
-    const target = new Date('2026-07-06T12:30:00Z');
+    const target = new Date('2026-07-05T12:30:00Z');
     const tick = () => {
       const now = new Date();
       const diff = target.getTime() - now.getTime();
