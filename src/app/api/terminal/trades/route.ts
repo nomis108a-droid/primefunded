@@ -36,6 +36,19 @@ export async function POST(req: NextRequest) {
       }, { status: 401 });
     }
 
+    const db = getAdminDb();
+
+    // ── BLOCK TRADING IF PAYOUT IS PENDING ──
+    const pendingPayouts = await db.collection('payouts')
+      .where('userId', '==', uid)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+
+    if (!pendingPayouts.empty) {
+      return NextResponse.json({ error: "Trading suspended: You have a pending payout request" }, { status: 400 });
+    }
+
     const body = await req.json().catch(() => ({}));
     const { accountId, symbol, type, lots: rawLots, sl, tp, price: clientPrice } = body;
 
@@ -45,7 +58,6 @@ export async function POST(req: NextRequest) {
 
     const lots = parseFloat(String(rawLots));
     const executionPrice = parseFloat(String(clientPrice));
-    const db = getAdminDb();
     
     const accRef = db.collection("demoAccounts").doc(accountId);
     const accSnap = await accRef.get();

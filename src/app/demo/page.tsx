@@ -17,11 +17,11 @@ import {
   Crosshair, Circle, Slash, ArrowUpRight, ArrowRight,
   Square, Type, Ruler, ZoomIn, ZoomOut, AlertCircle, Home, Eraser, SeparatorVertical,
   RefreshCw, Clock as ClockIcon, AlertTriangle, Lock, Unlock, Magnet,
-  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle, Users, Eye, EyeOff
+  LayoutDashboard, TrendingUp, Wallet, Menu, X, UserCircle, Users, Eye, EyeOff, ShieldAlert
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { where, orderBy } from "firebase/firestore";
+import { where, orderBy, limit } from "firebase/firestore";
 import { createChart, ColorType, IChartApi, ISeriesApi, PriceScaleMode, IPriceLine } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -73,7 +73,6 @@ export default function DemoPage() {
   const [selectedTimezone, setSelectedTimezone] = useState("local");
   const [chartType, setChartType] = useState<string>("candles");
   
-  // Lots input state handling
   const [lotsInput, setLotsInput] = useState("0.10");
   const lots = parseFloat(lotsInput) || 0;
 
@@ -99,6 +98,13 @@ export default function DemoPage() {
   
   const closingTradesRef = useRef<Set<string>>(new Set());
 
+  // ── PAYOUT PENDING CHECK ──
+  const { data: pendingPayouts } = useCollection<any>(
+    user?.uid ? 'payouts' : null,
+    useMemo(() => user?.uid ? [where('userId', '==', user.uid), where('status', '==', 'pending'), limit(1)] : [], [user?.uid])
+  );
+  const hasPendingPayout = pendingPayouts.length > 0;
+
   const [chartSettings, setChartSettings] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('chartGlobalSettings');
@@ -118,17 +124,20 @@ export default function DemoPage() {
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
-  const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
+  const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
+
+  const activeAccounts = useMemo(() => accounts.filter(a => a.status === 'active'), [accounts]);
+  const hasActiveAccount = activeAccounts.length > 0;
 
   const selectedAccount = useMemo(() => 
-    accounts.find(a => a.id === currentAccountId) || accounts[0] || null
-  , [accounts, currentAccountId]);
+    activeAccounts.find(a => a.id === currentAccountId) || activeAccounts[0] || null
+  , [activeAccounts, currentAccountId]);
 
   useEffect(() => {
-    if (!authLoading && accounts.length > 0 && !currentAccountId) {
-      setCurrentAccountId(accounts[0].id);
+    if (!accountsLoading && activeAccounts.length > 0 && !currentAccountId) {
+      setCurrentAccountId(activeAccounts[0].id);
     }
-  }, [authLoading, accounts, currentAccountId]);
+  }, [accountsLoading, activeAccounts, currentAccountId]);
 
   const handleResize = useCallback(() => {
     if (chartContainerRef.current && chartInstanceRef.current) {
@@ -365,6 +374,10 @@ export default function DemoPage() {
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
 
   async function placeTrade(type: 'buy' | 'sell') {
+    if (hasPendingPayout) {
+      toast({ title: "Trading Suspended", description: "You have a pending payout request.", variant: "destructive" });
+      return;
+    }
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !currentPriceData) return;
@@ -470,11 +483,27 @@ export default function DemoPage() {
           <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
         </div>
         <div className="space-y-4">
-          <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
+          <button 
+            type="button" 
+            onClick={() => placeTrade('buy')} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout} 
+            className={cn(
+              "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+              hasPendingPayout ? "bg-zinc-800 text-zinc-500" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+            )}
+          >
+            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : hasPendingPayout ? 'PAYOUT PENDING' : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
           </button>
-          <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading || !isPriceValid} className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
+          <button 
+            type="button" 
+            onClick={() => placeTrade('sell')} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout} 
+            className={cn(
+              "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+              hasPendingPayout ? "bg-zinc-800 text-zinc-500" : "bg-red-600 hover:bg-red-700 text-white"
+            )}
+          >
+            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : hasPendingPayout ? 'PAYOUT PENDING' : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
           </button>
         </div>
       </div>
@@ -483,8 +512,45 @@ export default function DemoPage() {
 
   if (!user && !authLoading) return null;
 
+  // ── BLOCK TERMINAL IF NO ACTIVE ACCOUNT ──
+  if (!accountsLoading && !hasActiveAccount) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center space-y-8">
+        <div className="w-24 h-24 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center cyan-box-glow">
+          <ShieldAlert className="w-12 h-12 text-primary" />
+        </div>
+        <div className="max-w-md space-y-4">
+          <h1 className="text-4xl font-headline font-bold text-white">No Active Trading Account</h1>
+          <p className="text-muted-foreground text-lg leading-relaxed">
+            {accounts.length > 0 
+              ? "Your accounts have been closed or passed. Purchase a new challenge to continue trading in the terminal." 
+              : "You don't have an active trading account. Join our elite funding program to access the terminal."}
+          </p>
+        </div>
+        <div className="flex gap-4">
+          <Button variant="outline" className="font-bold rounded-xl h-14 px-8" asChild>
+            <Link href="/dashboard"><ArrowLeft className="mr-2 w-4 h-4" /> Dashboard</Link>
+          </Button>
+          <Button className="font-bold cyan-box-glow rounded-xl h-14 px-10" asChild>
+            <Link href="/challenges">Get Funded Now <ArrowRight className="ml-2 w-4 h-4" /></Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 h-[100dvh] w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
+      {/* Payout Pending Banner */}
+      {hasPendingPayout && (
+        <div className="bg-amber-500/20 border-b border-amber-500/30 px-4 py-2 flex items-center justify-center gap-3 z-[60]">
+          <AlertTriangle className="w-4 h-4 text-amber-500" />
+          <p className="text-[11px] font-bold text-amber-200 uppercase tracking-wide">
+            ⚠️ Trading suspended while your payout request is being processed. Trading will resume once approved.
+          </p>
+        </div>
+      )}
+
       {/* Dynamic Header */}
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-3 md:px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-3 md:gap-6">
@@ -542,7 +608,7 @@ export default function DemoPage() {
               <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold">
                 <SelectValue placeholder={selectedAccount?.label || "Select Account"} />
               </SelectTrigger>
-              <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
+              <SelectContent>{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
             </Select>
           )}
         </div>
@@ -729,7 +795,7 @@ export default function DemoPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                        {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}
+                        {activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

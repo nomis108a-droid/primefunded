@@ -12,6 +12,7 @@ export type PlanPhaseRules = {
   maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (closed)
   minDailyTrades?: number;
   accountExpiryDays?: number;     // Days until account automatically closes
+  minTradesPerSymbolForPayout?: number; // New: 5 trades per symbol for payout
 };
 
 export const RULES_CONFIG = {
@@ -86,7 +87,8 @@ export const RULES_CONFIG = {
         maxDrawdown: 4,
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
-        accountExpiryDays: 30
+        accountExpiryDays: 30,
+        minTradesPerSymbolForPayout: 5
       }
     },
     "instant-pro": {
@@ -97,7 +99,7 @@ export const RULES_CONFIG = {
         maxSingleTradeLoss: 3,
         minTradingDaysBeforePayout: 7,
         minDailyTrades: 3,
-        accountExpiryDays: 30
+        minTradesPerSymbolForPayout: 5
       }
     }
   } as Record<string, Record<string, PlanPhaseRules>>,
