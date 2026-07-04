@@ -4,114 +4,95 @@ import { useMemo, useEffect, useState } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Check, Shield, AlertTriangle, Target, Skull, AlertCircle, MapPin, Info } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Check, Shield, AlertTriangle, Target, Skull, AlertCircle, Info } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 const PLAN_RULES = {
   '1-step': {
     evaluation: [
       { text: "10% profit target", type: 'check' },
-      { text: "3% daily drawdown limit", type: 'check' },
-      { text: "6% maximum drawdown", type: 'check' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'check' },
+      { text: "Do not lose more than 6% of your starting balance in total", type: 'check' },
       { text: "Trading Leverage: 1:100", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
       { text: "Minimum 5 trading days required", type: 'check' },
-      { text: "Maximum 1 execution every 3 minutes", type: 'check' },
-      { text: "Hold trades for at least 2 minutes", type: 'check' },
-      { text: "No time limit", type: 'check' },
-      { text: "No martingale allowed (Soft Breach)", type: 'skull' },
+      { text: "Maximum 1 execution every 3 minutes", type: 'warning' },
+      { text: "Hold trades for at least 2 minutes", type: 'warning' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ],
     funded: [
       { text: "80% profit split", type: 'check' },
       { text: "Trading Leverage: 1:30", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
       { text: "Minimum 5 trading days required before payout request", type: 'warning' },
-      { text: "1 execution per 3 mins maximum (Hard Breach)", type: 'warning' },
-      { text: "No closing trades within 2 mins (Hard Breach)", type: 'warning' },
-      { text: "1% max floating loss (Hard Breach)", type: 'warning' },
-      { text: "3% daily drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "6% max drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Friday overnight holding of Forex/Metal positions after Friday 21:00 UTC results in account breach. Crypto is exempt.", type: 'warning' },
+      { text: "1% max floating loss per trade safety closure active", type: 'warning' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ]
   },
   '2-step': {
     evaluation: [
-      { text: "8% profit target (Phase 1)", type: 'check' },
-      { text: "5% daily drawdown limit", type: 'check' },
-      { text: "10% maximum drawdown", type: 'check' },
+      { text: "8% profit target (Phase 1) / 5% (Phase 2)", type: 'check' },
+      { text: "Do not lose more than 5% of your starting balance in a single day", type: 'check' },
+      { text: "Do not lose more than 10% of your starting balance in total", type: 'check' },
       { text: "Trading Leverage: 1:100", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
       { text: "Minimum 5 trading days required", type: 'check' },
-      { text: "Maximum 1 execution every 3 minutes", type: 'check' },
-      { text: "Hold trades for at least 2 minutes", type: 'check' },
-      { text: "No martingale allowed (Soft Breach)", type: 'skull' },
+      { text: "Maximum 1 execution every 3 minutes", type: 'warning' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ],
     funded: [
       { text: "80% profit split", type: 'check' },
       { text: "Trading Leverage: 1:30", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
       { text: "Minimum 5 trading days required before payout request", type: 'warning' },
-      { text: "5% daily drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "10% max drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ]
   },
   '3-step': {
     evaluation: [
-      { text: "10% profit target (Phase 1)", type: 'check' },
-      { text: "4% daily drawdown limit", type: 'check' },
-      { text: "8% maximum drawdown", type: 'check' },
-      { text: "Trading Leverage: 1:100", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
+      { text: "10% target (P1) / 8% (P2) / 5% (P3)", type: 'check' },
+      { text: "Do not lose more than 4% of your starting balance in a single day", type: 'check' },
+      { text: "Do not lose more than 8% of your starting balance in total", type: 'check' },
       { text: "Minimum 7 trading days required", type: 'check' },
-      { text: "No martingale allowed (Soft Breach)", type: 'skull' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ],
     funded: [
       { text: "Up to 100% profit split", type: 'check' },
       { text: "Trading Leverage: 1:30", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
       { text: "Minimum 5 trading days required before payout request", type: 'warning' },
-      { text: "4% daily drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "8% max drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ]
   },
   'instant': {
     evaluation: [
-      { text: "No evaluation - Start Funded", type: 'check' },
-      { text: "3% daily drawdown limit", type: 'check' },
-      { text: "4% maximum drawdown", type: 'check' },
-      { text: "1% max floating loss rule active", type: 'warning' },
-      { text: "Minimum 5 trades per symbol required", type: 'warning' },
-      { text: "Account valid for 30 days", type: 'warning' },
+      { text: "No evaluation - Start Funded immediately", type: 'check' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'check' },
+      { text: "Do not lose more than 4% of your starting balance in total", type: 'check' },
+      { text: "If any single trade loses more than 1% of your balance, it will be automatically closed", type: 'warning' },
+      { text: "Minimum 5 trades per symbol required for payout", type: 'warning' },
+      { text: "Account valid for 30 days. Expires automatically if not passed.", type: 'skull' },
     ],
     funded: [
       { text: "70% profit split", type: 'check' },
       { text: "Daily payouts after 24 hours", type: 'check' },
-      { text: "Maximum 1 withdrawal per 24 hours", type: 'warning' },
-      { text: "Trading suspended during payout processing", type: 'warning' },
-      { text: "3% daily drawdown (Hard Breach)", type: 'warning' },
-      { text: "4% max drawdown (Hard Breach)", type: 'warning' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Maximum 1 withdrawal request per 24 hours", type: 'warning' },
+      { text: "Trading is suspended while a payout request is being processed", type: 'warning' },
+      { text: "Friday overnight holding of Forex/Metal after 21:00 UTC (Account Breach)", type: 'skull' },
     ]
   },
   'instant-pro': {
     evaluation: [
-      { text: "No evaluation - Start Funded", type: 'check' },
-      { text: "3% daily drawdown limit", type: 'check' },
-      { text: "5% maximum drawdown", type: 'check' },
-      { text: "Min 3 trades per day required for payout count", type: 'warning' },
-      { text: "Minimum 5 trades per symbol required", type: 'warning' },
+      { text: "No evaluation - Start Funded immediately", type: 'check' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'check' },
+      { text: "Do not lose more than 5% of your starting balance in total", type: 'check' },
+      { text: "A trading day only counts if you completed at least 3 trades that day", type: 'warning' },
+      { text: "Minimum 5 trades per symbol required for payout", type: 'warning' },
     ],
     funded: [
       { text: "80% profit split", type: 'check' },
       { text: "Daily payouts available", type: 'check' },
-      { text: "7 qualified trading days required", type: 'warning' },
-      { text: "3% daily drawdown (Hard Breach)", type: 'warning' },
-      { text: "5% max drawdown (Hard Breach)", type: 'warning' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "You need 7 qualified trading days (3+ trades each) before requesting payout", type: 'warning' },
+      { text: "Maximum 1 withdrawal request per 24 hours", type: 'warning' },
+      { text: "No martingale allowed (Account Breach)", type: 'skull' },
     ]
   }
 };
