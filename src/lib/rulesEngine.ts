@@ -4,8 +4,8 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 
 /**
- * @fileOverview Institutional Demo Audit Engine (V2)
- * Evaluates internal demo accounts and trades against prop firm risk protocols.
+ * @fileOverview Institutional Demo Audit Engine (V3)
+ * Evaluates internal demo accounts and trades against prop firm hard-breach risk protocols.
  */
 
 type TradeRecord = {
@@ -33,23 +33,16 @@ function getTradeDate(time: any) {
 }
 
 /**
- * Enforces per-symbol grouped floating loss limits (Soft Breach Policy).
- * Groups trades by symbol and closes ALL trades of a symbol if their combined loss exceeds the limit.
+ * Checks per-symbol grouped floating loss limits (Hard Breach Policy).
  */
-async function enforceSymbolFloatingLossLimits(
-  db: any,
-  accountId: string,
-  userId: string,
+async function checkSymbolFloatingLossBreach(
   startBalance: number,
   openTrades: TradeRecord[],
   prices: Record<string, any>,
   maxFloatingLossPct: number
-) {
+): Promise<string | null> {
   const limitUsd = startBalance * (maxFloatingLossPct / 100);
-  const closedIds = new Set<string>();
-  let totalRealizedLoss = 0;
 
-  // Group open trades BY SYMBOL first — losses only combine within the same symbol
   const bySymbol: Record<string, { trades: TradeRecord[]; pnl: number }> = {};
   for (const t of openTrades) {
     const sym = t.symbol?.toUpperCase() || '';
@@ -63,62 +56,26 @@ async function enforceSymbolFloatingLossLimits(
     bySymbol[sym].pnl += pnl;
   }
 
-  // Check each symbol's COMBINED floating loss against the threshold
   for (const sym of Object.keys(bySymbol)) {
     const group = bySymbol[sym];
     if (group.pnl < 0 && Math.abs(group.pnl) >= limitUsd) {
-      for (const t of group.trades) {
-        const priceData = prices[sym];
-        const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-        const contractSize = CONTRACT_SIZE[sym] || 100000;
-        const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
-
-        await db.runTransaction(async (tx: any) => {
-          tx.update(t.ref, {
-            status: 'closed',
-            closedAt: FieldValue.serverTimestamp(),
-            closeReason: 'liquidation',
-            closePrice: exitPrice,
-            pnl: tradePnl,
-            liquidated: true
-          });
-          tx.update(db.collection('demoAccounts').doc(accountId), {
-            balance: FieldValue.increment(tradePnl),
-            updatedAt: FieldValue.serverTimestamp()
-          });
-          tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
-            title: '🛡️ Trade Auto-Closed',
-            message: `${sym} trades force-closed: combined floating loss on this symbol exceeded ${maxFloatingLossPct}% of your starting balance.`,
-            type: 'risk_warning',
-            isRead: false,
-            createdAt: FieldValue.serverTimestamp()
-          });
-        });
-        closedIds.add(t.id);
-      }
-      totalRealizedLoss += Math.abs(group.pnl);
+      return `Floating loss violation: Combined loss on ${sym} exceeded 1% of your starting balance`;
     }
   }
 
-  return { closedIds, realizedLossFromForceClose: totalRealizedLoss };
+  return null;
 }
 
 /**
- * Enforces max single trade loss limits (Soft Breach Policy).
- * Checks trades individually and closes any trade that crosses the threshold.
+ * Checks max single trade loss limits (Hard Breach Policy).
  */
-async function enforceSingleTradeLossLimit(
-  db: any,
-  accountId: string,
-  userId: string,
+async function checkSingleTradeLossBreach(
   startBalance: number,
   openTrades: TradeRecord[],
   prices: Record<string, any>,
   maxSingleTradeLossPct: number
-) {
+): Promise<string | null> {
   const limitUsd = startBalance * (maxSingleTradeLossPct / 100);
-  const closedIds = new Set<string>();
-  let totalRealizedLoss = 0;
 
   for (const t of openTrades) {
     const sym = t.symbol?.toUpperCase() || '';
@@ -129,33 +86,11 @@ async function enforceSingleTradeLossLimit(
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
 
     if (pnl < 0 && Math.abs(pnl) >= limitUsd) {
-      await db.runTransaction(async (tx: any) => {
-        tx.update(t.ref, {
-          status: 'closed',
-          closedAt: FieldValue.serverTimestamp(),
-          closeReason: 'liquidation',
-          closePrice: exitPrice,
-          pnl: pnl,
-          liquidated: true
-        });
-        tx.update(db.collection('demoAccounts').doc(accountId), {
-          balance: FieldValue.increment(pnl),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-        tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
-          title: '🛡️ Trade Auto-Closed',
-          message: `Trade on ${sym} force-closed: single trade floating loss exceeded ${maxSingleTradeLossPct}% of your starting balance.`,
-          type: 'risk_warning',
-          isRead: false,
-          createdAt: FieldValue.serverTimestamp()
-        });
-      });
-      closedIds.add(t.id);
-      totalRealizedLoss += Math.abs(pnl);
+      return `Single trade loss violation: Trade on ${sym} lost $${Math.abs(pnl).toFixed(2)} which exceeded 3% of your starting balance ($${limitUsd.toFixed(2)})`;
     }
   }
 
-  return { closedIds, realizedLossFromForceClose: totalRealizedLoss };
+  return null;
 }
 
 export async function auditDemoAccount(accountId: string) {
@@ -167,7 +102,7 @@ export async function auditDemoAccount(accountId: string) {
   const account = accSnap.data()!;
   if (account.status !== 'active') return { status: account.status };
 
-  const { userId, startBalance, balance, planType, phase, email, name } = account;
+  const { userId, startBalance, balance, planType, phase, email, name, createdAt } = account;
   const initialBalance = parseFloat(String(startBalance || 100000));
   const currBalance = parseFloat(String(balance || initialBalance));
 
@@ -186,52 +121,103 @@ export async function auditDemoAccount(accountId: string) {
   const prices: Record<string, any> = {};
   pricesSnap.docs.forEach(d => prices[d.id.toUpperCase()] = d.data());
 
-  let openTrades = trades.filter(t => t.status === 'open');
+  const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
 
-  // Handle Force-Close Floating Loss (Soft Breach Policy) — per-symbol grouped, Instant plans only
-  let realizedLossFromForceClose = 0;
-  if (rules.maxFloatingLoss && openTrades.length > 0) {
-    const floatingResult = await enforceSymbolFloatingLossLimits(
-      db, accountId, userId, initialBalance, openTrades, prices, rules.maxFloatingLoss
-    );
-    realizedLossFromForceClose += floatingResult.realizedLossFromForceClose;
-    openTrades = openTrades.filter(t => !floatingResult.closedIds.has(t.id));
+  let breachReason = '';
+
+  // ── RULE: 30 Day Auto-Expiry (Instant plans) ──
+  if (rules.accountExpiryDays && createdAt) {
+    const createdTime = (createdAt as Timestamp).toDate().getTime();
+    const expiryMs = rules.accountExpiryDays * 24 * 60 * 60 * 1000;
+    if (Date.now() > (createdTime + expiryMs)) {
+      breachReason = `Account expired: Your 30-day trading window ended on ${new Date(createdTime + expiryMs).toLocaleDateString()}`;
+    }
   }
 
-  // Handle Force-Close Single Trade Loss (real-time, per individual trade, all applicable plans)
-  if (rules.maxSingleTradeLoss && openTrades.length > 0) {
-    const singleTradeResult = await enforceSingleTradeLossLimit(
-      db, accountId, userId, initialBalance, openTrades, prices, rules.maxSingleTradeLoss
-    );
-    realizedLossFromForceClose += singleTradeResult.realizedLossFromForceClose;
-    openTrades = openTrades.filter(t => !singleTradeResult.closedIds.has(t.id));
+  // ── RULE: Friday Overnight Holding ──
+  if (!breachReason && universal.noFridayOvernightHolding && openTrades.length > 0) {
+    const now = new Date();
+    // Friday 21:00 UTC
+    const isFridayNight = now.getUTCDay() === 5 && now.getUTCHours() >= 21;
+    const isWeekend = now.getUTCDay() === 6 || now.getUTCDay() === 0;
+    const isMondayEarly = now.getUTCDay() === 1 && now.getUTCHours() < 2;
+
+    if (isFridayNight || isWeekend || isMondayEarly) {
+      breachReason = "Friday overnight violation: Open positions detected after market close (Friday 21:00 UTC)";
+    }
   }
 
-  // 2. Calculate Real-time Equity
+  // ── RULE: Execution Frequency (3 minutes) ──
+  if (!breachReason) {
+    const sortedByOpen = [...trades].sort((a, b) => 
+      getTradeDate(a.openedAt)!.getTime() - getTradeDate(b.openedAt)!.getTime()
+    );
+    for (let i = 1; i < sortedByOpen.length; i++) {
+      const prevOpen = getTradeDate(sortedByOpen[i-1].openedAt)!.getTime();
+      const currOpen = getTradeDate(sortedByOpen[i].openedAt)!.getTime();
+      const diff = (currOpen - prevOpen) / 1000;
+      if (diff < universal.maxExecutionFrequencySeconds) {
+        breachReason = `Execution frequency violation: Trade opened ${diff.toFixed(0)}s after previous trade (minimum 3 minutes required)`;
+        break;
+      }
+    }
+  }
+
+  // ── RULE: No Martingale ──
+  if (!breachReason && universal.noMartingale) {
+    const symGroups: Record<string, TradeRecord[]> = {};
+    trades.forEach(t => {
+      const s = t.symbol || '';
+      if (!symGroups[s]) symGroups[s] = [];
+      symGroups[s].push(t);
+    });
+
+    for (const sym of Object.keys(symGroups)) {
+      const group = symGroups[sym].sort((a, b) => getTradeDate(a.openedAt)!.getTime() - getTradeDate(b.openedAt)!.getTime());
+      for (let i = 1; i < group.length; i++) {
+        const prev = group[i-1];
+        const curr = group[i];
+        if (prev.status === 'closed' && (parseFloat(String(prev.pnl)) < 0)) {
+           const prevCloseTime = getTradeDate(prev.closedAt)!.getTime();
+           const currOpenTime = getTradeDate(curr.openedAt)!.getTime();
+           if (currOpenTime > prevCloseTime && curr.lots! > prev.lots!) {
+              breachReason = `Martingale violation: Lot size increased after a losing trade on ${sym}`;
+              break;
+           }
+        }
+      }
+      if (breachReason) break;
+    }
+  }
+
+  // ── RULE: Floating Loss Breaches (Hard) ──
+  if (!breachReason && rules.maxFloatingLoss && openTrades.length > 0) {
+    breachReason = await checkSymbolFloatingLossBreach(initialBalance, openTrades, prices, rules.maxFloatingLoss) || '';
+  }
+
+  if (!breachReason && rules.maxSingleTradeLoss && openTrades.length > 0) {
+    breachReason = await checkSingleTradeLossBreach(initialBalance, openTrades, prices, rules.maxSingleTradeLoss) || '';
+  }
+
+  // 2. Calculate Real-time Equity & Daily Drawdown
   let totalFloatingPnl = 0;
-
   for (const t of openTrades) {
     const priceData = prices[t.symbol?.toUpperCase() || ''];
     if (!priceData) continue;
-
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
-    const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
-    
-    totalFloatingPnl += pnl;
+    totalFloatingPnl += (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
   }
 
   const currentEquity = currBalance + totalFloatingPnl;
-  let breachReason = '';
 
-  // ── RULE 1: Daily Drawdown ──────────────
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0); 
   if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
 
-  let realizedLossToday = realizedLossFromForceClose;
+  let realizedLossToday = 0;
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
     if (closedDate && closedDate >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
@@ -243,29 +229,29 @@ export async function auditDemoAccount(accountId: string) {
   const totalDailyRisk = realizedLossToday + (totalFloatingPnl < 0 ? Math.abs(totalFloatingPnl) : 0);
 
   if (!breachReason && totalDailyRisk >= dailyLimit) {
-    breachReason = `Daily drawdown violation: Risk ($${totalDailyRisk.toFixed(2)}) exceeded ${rules.dailyDrawdown}% limit ($${dailyLimit.toFixed(2)})`;
+    breachReason = `Daily drawdown violation: Total risk of $${totalDailyRisk.toFixed(2)} exceeded ${rules.dailyDrawdown}% daily limit of $${dailyLimit.toFixed(2)}`;
   }
 
-  // ── RULE 2: Max Total Drawdown ───────────────────────────────
   const maxLimit = initialBalance * (rules.maxDrawdown / 100);
   if (!breachReason && (initialBalance - currentEquity) >= maxLimit) {
-    breachReason = `Maximum drawdown violation: Equity fell below ${rules.maxDrawdown}% limit`;
+    breachReason = `Maximum drawdown violation: Account equity fell below ${rules.maxDrawdown}% threshold`;
   }
 
-  // ── RULE 3: Profit Target & Min Trading Days Check ────────────
-  
-  // Calculate Distinct Trading Days (02:00 UTC Boundary)
-  const tradingWindows = new Set<string>();
+  // ── RULE: Minimum Trading Days Check ──
+  const tradingWindows = new Map<string, number>(); 
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
     if (closedDate) {
       const windowStart = new Date(closedDate);
       windowStart.setUTCHours(2, 0, 0, 0);
       if (closedDate.getUTCHours() < 2) windowStart.setUTCDate(windowStart.getUTCDate() - 1);
-      tradingWindows.add(windowStart.toISOString());
+      const key = windowStart.toISOString();
+      tradingWindows.set(key, (tradingWindows.get(key) || 0) + 1);
     }
   });
-  const distinctTradingDays = tradingWindows.size;
+
+  const minTradesPerDay = rules.minDailyTrades || 1;
+  const distinctTradingDays = Array.from(tradingWindows.values()).filter(count => count >= minTradesPerDay).length;
 
   const minDaysRequired = rules.minTradingDays || rules.minTradingDaysBeforePayout || 0;
   const profitTargetAmount = initialBalance * (rules.profitTarget || 10) / 100;
@@ -274,35 +260,18 @@ export async function auditDemoAccount(accountId: string) {
   const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired;
 
   if (targetMet && distinctTradingDays < minDaysRequired && !breachReason) {
-    // Notify about remaining days
     await db.collection('users').doc(userId).collection('notifications').add({
       title: '🎯 Target Reached',
-      message: `Profit target reached! Complete ${minDaysRequired - distinctTradingDays} more unique trading days to pass.`,
+      message: `Profit target reached! Complete ${minDaysRequired - distinctTradingDays} more days with at least ${minTradesPerDay} trades to pass.`,
       type: 'rule_info',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });
   }
 
-  // ── RULE 4: Trade Duration (Min 2m) ──────────────────────────
-  if (!breachReason) {
-    for (const t of closedTrades) {
-      const open = getTradeDate(t.openedAt);
-      const close = getTradeDate(t.closedAt);
-      if (open && close) {
-        const duration = (close.getTime() - open.getTime()) / 1000;
-        if (duration < universal.minTradeDurationSeconds) {
-          breachReason = `Duration violation: Trade held for ${duration.toFixed(0)}s (Min 2m)`;
-          break;
-        }
-      }
-    }
-  }
-
-  // 3. EXECUTE BREACH PROTOCOL
+  // ── EXECUTE BREACH PROTOCOL ──
   if (breachReason) {
     const batch = db.batch();
-    
     batch.update(accRef, {
       status: 'blown',
       breachReason,
@@ -326,7 +295,6 @@ export async function auditDemoAccount(accountId: string) {
     }
 
     batch.update(db.collection('users').doc(userId), { accountStatus: 'breached' });
-
     batch.set(db.collection('breaches').doc(), {
       accountId, userId, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), planType, phase
     });
@@ -342,14 +310,14 @@ export async function auditDemoAccount(accountId: string) {
     return { breached: true, reason: breachReason };
   }
 
-  // 4. EXECUTE PASS PROTOCOL
+  // ── EXECUTE PASS PROTOCOL ──
   if (isPassed) {
     const batch = db.batch();
     batch.update(accRef, { status: 'passed', passedAt: FieldValue.serverTimestamp(), readyForNextPhase: true });
     batch.update(db.collection('users').doc(userId), { accountStatus: 'passed' });
     batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
       userId, type: 'phase_passed', title: '✅ Challenge Passed!', 
-      message: `Congratulations! You reached the profit target and met the minimum trading days.`, 
+      message: `Congratulations! You reached the profit target and met the minimum trading requirements.`, 
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
     await batch.commit();
@@ -357,7 +325,6 @@ export async function auditDemoAccount(accountId: string) {
     return { passed: true };
   }
 
-  // Normal Equity Sync
   await accRef.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
   return { status: 'active', equity: currentEquity };
 }
@@ -380,12 +347,8 @@ export async function runDemoAudit() {
   return results;
 }
 
-/**
- * Targeted Audit Engine: Open Positions Only
- */
 export async function auditActiveOpenPositions() {
   const db = getAdminDb();
-  
   const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
   
   const accountIds = new Set<string>();
@@ -405,7 +368,6 @@ export async function auditActiveOpenPositions() {
   const BATCH_SIZE = 25;
   for (let i = 0; i < idArray.length; i += BATCH_SIZE) {
     const batchIds = idArray.slice(i, i + BATCH_SIZE);
-    
     await Promise.all(batchIds.map(async (accountId) => {
       try {
         const res = await auditDemoAccount(accountId);

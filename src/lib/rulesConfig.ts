@@ -11,6 +11,7 @@ export type PlanPhaseRules = {
   maxFloatingLoss?: number;       // % of initial balance, per SINGLE open trade
   maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (closed)
   minDailyTrades?: number;
+  accountExpiryDays?: number;     // Days until account automatically closes
 };
 
 export const RULES_CONFIG = {
@@ -84,7 +85,8 @@ export const RULES_CONFIG = {
         dailyDrawdown: 3,
         maxDrawdown: 4,
         maxFloatingLoss: 1,
-        maxSingleTradeLoss: 3
+        maxSingleTradeLoss: 3,
+        accountExpiryDays: 30
       }
     },
     "instant-pro": {
@@ -94,17 +96,16 @@ export const RULES_CONFIG = {
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
         minTradingDaysBeforePayout: 7,
-        minDailyTrades: 3
+        minDailyTrades: 3,
+        accountExpiryDays: 30
       }
     }
   } as Record<string, Record<string, PlanPhaseRules>>,
   universal: {
     minTradeDurationSeconds: 120,
     maxExecutionFrequencySeconds: 180,
-    noMartingale: true
-  },
-  instantSpecial: {
-    noFridayOvernightHolding: true // Warning only
+    noMartingale: true,
+    noFridayOvernightHolding: true
   }
 };
 
