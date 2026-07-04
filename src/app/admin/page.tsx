@@ -678,9 +678,21 @@ export default function AdminPage() {
                             <Button variant="ghost" size="sm" className="text-primary h-8" onClick={async () => {
                               setUserDetailLoading(true);
                               setIsUserDetailModalOpen(true);
-                              const res = await fetchUserDetailAction(u.id);
-                              if (res.success) setUserDetail(res);
-                              setUserDetailLoading(false);
+                              setUserDetail(null);
+                              try {
+                                const res = await fetchUserDetailAction(u.id);
+                                if (res.success) {
+                                  setUserDetail(res);
+                                } else {
+                                  toast({ variant: "destructive", title: "Failed to load trader profile", description: res.error || "Unknown error" });
+                                  setIsUserDetailModalOpen(false);
+                                }
+                              } catch (err: any) {
+                                toast({ variant: "destructive", title: "Failed to load trader profile", description: err.message });
+                                setIsUserDetailModalOpen(false);
+                              } finally {
+                                setUserDetailLoading(false);
+                              }
                             }}>Inspect Node</Button>
                           </td>
                         </tr>
