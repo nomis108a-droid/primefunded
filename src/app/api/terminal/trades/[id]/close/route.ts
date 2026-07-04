@@ -5,7 +5,11 @@ import { auditDemoAccount } from '@/lib/rulesEngine';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 const CONTRACT_SIZE: Record<string, number> = {
-  XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
+  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
+  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
+  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
 };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const rules = RULES_CONFIG.plans[pKey]?.[phKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
     const singleTradeLossLimit = startBalance * (rules.maxSingleTradeLoss || 3) / 100;
-    const isMajorLoss = p < 0 && Math.abs(pnl) > singleTradeLossLimit;
+    const isMajorLoss = pnl < 0 && Math.abs(pnl) > singleTradeLossLimit;
 
     await db.runTransaction(async (tx) => {
       tx.update(tradeRef, {
@@ -77,19 +81,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         closedAt: Timestamp.now(),
       });
 
+      const updates: any = {
+        balance: FieldValue.increment(pnl),
+        updatedAt: FieldValue.serverTimestamp()
+      };
+
       if (isMajorLoss && ['2-step-classic', '3-step-classic', 'instant-funding', 'instant-pro'].includes(pKey)) {
-        tx.update(accRef, {
-          status: 'blown',
-          breachReason: 'single_trade_loss_breach',
-          balance: FieldValue.increment(pnl),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-      } else {
-        tx.update(accRef, {
-          balance: FieldValue.increment(pnl),
-          updatedAt: FieldValue.serverTimestamp()
-        });
+        updates.status = 'blown';
+        updates.breachReason = 'single_trade_loss_breach';
       }
+
+      tx.update(accRef, updates);
     });
 
     // Notify User

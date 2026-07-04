@@ -16,7 +16,9 @@ import {
   ArrowRight,
   Award,
   Loader2,
-  XCircle
+  XCircle,
+  Skull,
+  AlertCircle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -90,9 +92,9 @@ export default function DashboardPage() {
     accountConstraints
   );
 
-  // Filter visible accounts (non-blown)
+  // Filter visible accounts (show active/passed prominently, move blown to archive logic)
   const visibleAccounts = useMemo(() => 
-    accounts.filter((a: any) => a.status !== 'blown')
+    accounts.filter((a: any) => a.status !== 'blown' && a.status !== 'breach' && a.status !== 'terminated')
   , [accounts]);
 
   // Set default selected account
@@ -105,8 +107,8 @@ export default function DashboardPage() {
   }, [visibleAccounts, selectedAccountId]);
 
   const selectedAccount = useMemo(() => 
-    visibleAccounts.find(a => a.id === selectedAccountId) || null
-  , [visibleAccounts, selectedAccountId]);
+    accounts.find(a => a.id === selectedAccountId) || visibleAccounts[0] || null
+  , [accounts, visibleAccounts, selectedAccountId]);
 
   // 2. Fetch Trades
   const tradeConstraints = useMemo(() => {
@@ -212,6 +214,8 @@ export default function DashboardPage() {
     );
   }
 
+  const isSelectedBlown = selectedAccount?.status === 'blown' || selectedAccount?.status === 'breach' || selectedAccount?.status === 'terminated';
+
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
@@ -241,10 +245,10 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-3xl bg-secondary/20" />)}
             </div>
-          ) : visibleAccounts.length === 0 ? (
+          ) : accounts.length === 0 ? (
             <Card className="border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6">
                <Terminal className="w-16 h-16 text-muted-foreground opacity-20" />
-               <div className="max-w-sm">
+               <div className="max-sm">
                  <h3 className="text-xl font-bold text-white mb-2">No active challenges</h3>
                  <p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p>
                </div>
@@ -256,18 +260,19 @@ export default function DashboardPage() {
             <div className="space-y-6">
               {/* Account Selector Pill Row */}
               <div className="flex flex-wrap gap-2">
-                {visibleAccounts.map((acc: any) => (
+                {accounts.map((acc: any) => (
                   <button
                     key={acc.id}
                     onClick={() => setSelectedAccountId(acc.id)}
                     className={cn(
-                      "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                      "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border flex items-center gap-2",
                       selectedAccountId === acc.id 
                         ? "bg-primary text-black border-primary shadow-[0_0_15px_rgba(17,179,245,0.4)]" 
                         : "bg-secondary/50 text-muted-foreground border-border/50 hover:border-primary/30"
                     )}
                   >
                     {acc.label}
+                    { (acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated') && <Skull className="w-3 h-3 text-destructive" /> }
                   </button>
                 ))}
               </div>
@@ -276,19 +281,24 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1">
                   {selectedAccount && (
-                    <Card key={selectedAccount.id} className="bg-card/40 border-border/50 hover:border-primary/40 transition-all overflow-hidden relative group shadow-xl h-full">
+                    <Card key={selectedAccount.id} className={cn(
+                      "bg-card/40 border-border/50 transition-all overflow-hidden relative group shadow-xl h-full",
+                      isSelectedBlown ? "border-destructive/30 grayscale" : "hover:border-primary/40"
+                    )}>
                       <div className={cn(
                         "absolute top-0 left-0 w-full h-1.5",
+                        isSelectedBlown ? "bg-destructive" :
                         selectedAccount.status === 'passed' ? "bg-amber-500" : "bg-primary"
                       )} />
                       <CardHeader className="pb-4">
                         <div className="flex justify-between items-start">
                            <Badge className={cn(
                              "uppercase text-[9px] font-black border-none px-3 py-1",
+                             isSelectedBlown ? "bg-destructive/20 text-destructive" :
                              selectedAccount.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : 
                              "bg-amber-500/20 text-amber-500"
                            )}>
-                             {selectedAccount.status || 'Active'}
+                             {isSelectedBlown ? 'BREACHED' : (selectedAccount.status || 'Active')}
                            </Badge>
                            <span className="text-[10px] font-mono text-muted-foreground">ID: {selectedAccount.id?.slice(0, 8)}</span>
                         </div>
@@ -316,23 +326,40 @@ export default function DashboardPage() {
                            <Progress value={Math.min(100, Math.max(0, (((selectedAccount.balance - selectedAccount.startBalance) / ((selectedAccount.profitTarget || 1) - selectedAccount.startBalance)) * 100)))} className="h-1.5" />
                          </div>
 
-                         <div className="grid grid-cols-2 gap-4 pt-2">
-                            <div className="p-3 rounded-xl bg-secondary/30 border border-border">
-                               <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
-                               <p className="text-xs font-bold text-white">${(selectedAccount.dailyLossLimitUsd || 0).toLocaleString()}</p>
-                            </div>
-                            <div className="p-3 rounded-xl bg-secondary/30 border border-border">
-                               <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
-                               <p className="text-xs font-bold text-white">${(selectedAccount.maxLoss || 0).toLocaleString()}</p>
-                            </div>
-                         </div>
+                         {isSelectedBlown ? (
+                           <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 space-y-2">
+                             <p className="text-[9px] font-black uppercase text-destructive tracking-widest flex items-center gap-2">
+                               <AlertCircle className="w-3 h-3" /> Liquidation Triggered
+                             </p>
+                             <p className="text-[11px] text-destructive/80 leading-relaxed font-medium">
+                               {selectedAccount.breachReason || 'Risk parameters exceeded.'}
+                             </p>
+                           </div>
+                         ) : (
+                           <div className="grid grid-cols-2 gap-4 pt-2">
+                              <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                                 <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Daily Loss Limit</p>
+                                 <p className="text-xs font-bold text-white">${(selectedAccount.dailyLossLimitUsd || 0).toLocaleString()}</p>
+                              </div>
+                              <div className="p-3 rounded-xl bg-secondary/30 border border-border">
+                                 <p className="text-[8px] font-black uppercase text-muted-foreground mb-1">Max Loss Limit</p>
+                                 <p className="text-xs font-bold text-white">${(selectedAccount.maxLoss || 0).toLocaleString()}</p>
+                              </div>
+                           </div>
+                         )}
                       </CardContent>
                       <CardFooter className="pt-2 pb-6 px-6">
-                         <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild>
-                            <Link href={`/demo?accountId=${selectedAccount.id}`}>
-                              <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
-                            </Link>
-                         </Button>
+                         {!isSelectedBlown ? (
+                           <Button className="w-full font-black cyan-box-glow h-12 rounded-xl" asChild>
+                              <Link href={`/demo?accountId=${selectedAccount.id}`}>
+                                <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal
+                              </Link>
+                           </Button>
+                         ) : (
+                           <Button variant="outline" className="w-full h-12 rounded-xl font-bold border-destructive/20 text-destructive cursor-not-allowed" disabled>
+                              Node Terminated
+                           </Button>
+                         )}
                       </CardFooter>
                     </Card>
                   )}

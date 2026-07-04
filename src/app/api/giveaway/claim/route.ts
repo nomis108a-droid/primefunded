@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -14,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!token) return NextResponse.json({ error: "Please login first to claim your free account" }, { status: 401 });
 
     // 1. Authenticate User
     let uid: string;
@@ -24,7 +23,7 @@ export async function POST(req: NextRequest) {
       uid = decoded.uid;
       email = decoded.email || "";
     } catch {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+      return NextResponse.json({ error: "Please login first to claim your free account" }, { status: 401 });
     }
 
     const { code } = await req.json();

@@ -65,6 +65,12 @@ export async function POST(req: NextRequest) {
     if (!accSnap.exists) return NextResponse.json({ error: "Trading account not found" }, { status: 404 });
     const account = accSnap.data()!;
     if (account.userId !== uid) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    
+    // ── BLOCK TRADING IF BREACHED ──
+    if (account.status === 'blown' || account.status === 'breach' || account.status === 'terminated') {
+      return NextResponse.json({ error: 'Trading suspended: This account has been breached' }, { status: 403 });
+    }
+    
     if (account.status !== "active") return NextResponse.json({ error: `Account is ${account.status}` }, { status: 400 });
 
     // ── RULE: EXECUTION FREQUENCY (3 mins) ──────────────────

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useMemo } from 'react';
@@ -36,7 +35,7 @@ export default function AccountsPage() {
   , [accounts]);
 
   const breachedAccounts = useMemo(() => 
-    accounts.filter(a => a.status === 'blown' || a.status === 'terminated')
+    accounts.filter(a => a.status === 'blown' || a.status === 'terminated' || a.status === 'breach')
   , [accounts]);
 
   return (
@@ -106,19 +105,20 @@ export default function AccountsPage() {
 
 function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: boolean }) {
   const pnl = (acc.balance || 0) - (acc.startBalance || 0);
+  const isBlown = acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated';
   
   return (
     <Card className={cn(
       "border-border/50 transition-all shadow-xl",
-      isActiveSection ? "bg-primary/5 border-primary/20 hover:border-primary/40" : "bg-destructive/5 border-destructive/20 grayscale opacity-60"
+      isActiveSection && !isBlown ? "bg-primary/5 border-primary/20 hover:border-primary/40" : "bg-destructive/5 border-destructive/20 grayscale opacity-60"
     )}>
       <CardHeader className="flex flex-row items-center justify-between pb-6">
         <div className="flex items-center gap-3 md:gap-4">
           <div className={cn(
             "p-3 rounded-xl border shadow-lg",
-            isActiveSection ? "bg-primary/10 border-primary/20 text-primary" : "bg-destructive/10 border-destructive/20 text-destructive"
+            isActiveSection && !isBlown ? "bg-primary/10 border-primary/20 text-primary" : "bg-destructive/10 border-destructive/20 text-destructive"
           )}>
-            {isActiveSection ? <ShieldCheck className="w-6 h-6" /> : <Skull className="w-6 h-6" />}
+            {isActiveSection && !isBlown ? <ShieldCheck className="w-6 h-6" /> : <Skull className="w-6 h-6" />}
           </div>
           <div>
             <CardTitle className="text-xl font-headline font-bold text-white">
@@ -129,9 +129,10 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
         </div>
         <Badge className={cn(
           "uppercase text-[10px] font-black tracking-widest px-3 py-1",
-          isActiveSection ? "bg-primary text-black" : "bg-destructive text-white"
+          acc.status === 'passed' ? "bg-amber-500 text-white" :
+          isBlown ? "bg-destructive text-white" : "bg-primary text-black"
         )}>
-          {acc.status || 'Active'}
+          {isBlown ? 'BLOWN' : (acc.status || 'Active')}
         </Badge>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -143,7 +144,7 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
-          {isActiveSection ? (
+          {isActiveSection && !isBlown ? (
             <Button className="h-11 px-8 rounded-xl font-black cyan-box-glow cursor-pointer" asChild>
               <Link href={`/demo?accountId=${acc.id}`}>
                 <Terminal className="w-4 h-4 mr-2" /> Open Node Terminal <ChevronRight className="ml-2 w-4 h-4" />

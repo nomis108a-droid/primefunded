@@ -15,15 +15,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { 
   Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight
 } from 'lucide-react';
-import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, giftAccountAction } from './actions';
+import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import Image from 'next/image';
-import { db } from '@/lib/firebase';
+import { db, auth as clientAuth } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
+import { useAuth } from '@/context/AuthContext';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -48,6 +49,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
 });
 
 export default function AdminPage() {
+  const { user } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loggedInAdmin, setLoggedInAdmin] = useState<string | null>(null);
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -116,7 +118,7 @@ export default function AdminPage() {
     if (isVerified && email) {
       setIsAuthenticated(true);
       setLoggedInAdmin(email);
-      // Set persistence cookies to prevent "Unauthorized" error in Server Actions
+      // Set persistence cookies
       document.cookie = `admin_email=${email}; path=/; max-age=86400; SameSite=Lax`;
       document.cookie = `admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax`;
       refreshData();
@@ -139,7 +141,7 @@ export default function AdminPage() {
     localStorage.setItem('adminVerified', 'true');
     localStorage.setItem('adminEmail', adminEmailInput.toLowerCase());
     
-    // Set explicit administrative cookies for Server Action validation
+    // Set explicit administrative cookies
     document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax';
     document.cookie = `admin_email=${adminEmailInput.toLowerCase()}; path=/; max-age=86400; SameSite=Lax`;
     
@@ -192,14 +194,29 @@ export default function AdminPage() {
     if (!giftForm.userId || !giftForm.label) return;
     setActionLoading(true);
     try {
+      const token = await user?.getIdToken();
       const targetUser = adminData.users.find((u: any) => u.id === giftForm.userId);
       const email = targetUser?.email || 'provisioned@primefunded.fund';
-      const res = await giftAccountAction(giftForm.userId, email, giftForm.label, parseInt(giftForm.amount), giftForm.plan, giftForm.phase);
-      if (res.success) {
-        toast({ title: "Account Provisioned Successfully" });
-        setIsGiftModalOpen(false);
-        refreshData();
-      } else throw new Error(res.error);
+      
+      const res = await fetch('/api/admin/gift-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({
+          userId: giftForm.userId,
+          email,
+          label: giftForm.label,
+          amount: parseInt(giftForm.amount),
+          plan: giftForm.plan,
+          phase: giftForm.phase
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      
+      toast({ title: "Account Provisioned Successfully" });
+      setIsGiftModalOpen(false);
+      refreshData();
     } catch (err: any) {
       toast({ variant: "destructive", title: "Gifting Failed", description: err.message });
     } finally {

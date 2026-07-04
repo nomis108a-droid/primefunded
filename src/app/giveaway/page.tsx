@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -26,12 +25,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { db } from '@/lib/firebase';
 import { collection, query, getDocs, where, onSnapshot } from 'firebase/firestore';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 export default function GiveawayPage() {
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   
   const [coupon, setCoupon] = useState('');
   const [claiming, setRequesting] = useState(false);
@@ -64,7 +65,8 @@ export default function GiveawayPage() {
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      toast({ variant: "destructive", title: "Authentication Required", description: "Please log in to claim your giveaway." });
+      toast({ variant: "destructive", title: "Authentication Required", description: "Please login first to claim your free account." });
+      router.push('/login?redirect=/giveaway');
       return;
     }
 

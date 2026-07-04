@@ -413,7 +413,11 @@ export default function DemoPage() {
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken(true);
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice, closeReason: "manual" }) });
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, 
+        body: JSON.stringify({ closePrice, closeReason: "manual" }) 
+      });
       if (!res.ok) return;
       toast({ title: "✓ Position Closed" });
     } catch (e: any) { } finally { setActionLoading(false); }
