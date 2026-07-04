@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { 
   Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight
 } from 'lucide-react';
-import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction } from './actions';
+import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, manualBreachAccountAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format, isValid } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
@@ -74,6 +74,8 @@ export default function AdminPage() {
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [giftForm, setGiftForm] = useState({ userId: '', label: '', amount: '100000', plan: '1-step-pro', phase: 'evaluation' });
+
+  const [breachForm, setBreachForm] = useState({ accountId: '', reason: '', isOpen: false });
 
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
@@ -220,6 +222,27 @@ export default function AdminPage() {
       refreshData();
     } catch (err: any) {
       toast({ variant: "destructive", title: "Gifting Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleManualBreach = async () => {
+    if (!breachForm.accountId || !breachForm.reason) return;
+    setActionLoading(true);
+    try {
+      const res = await manualBreachAccountAction(breachForm.accountId, breachForm.reason);
+      if (res.success) {
+        toast({ title: "Account Terminated", description: "Node has been manually liquidated." });
+        setBreachForm({ accountId: '', reason: '', isOpen: false });
+        if (userDetail?.user?.id) {
+          const updatedDetail = await fetchUserDetailAction(userDetail.user.id);
+          if (updatedDetail.success) setUserDetail(updatedDetail);
+        }
+        refreshData();
+      } else throw new Error(res.error);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Breach Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -838,9 +861,46 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Manual Breach Confirmation Modal */}
+      <Dialog open={breachForm.isOpen} onOpenChange={(o) => !o && setBreachForm({ accountId: '', reason: '', isOpen: false })}>
+        <DialogContent className="bg-zinc-950 border-destructive/30 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Skull className="w-5 h-5" /> Manual Account Termination
+            </DialogTitle>
+            <DialogDescription className="text-zinc-500">
+              This will immediately close all positions and terminate node access for account {breachForm.accountId.slice(0,8)}. This action is irreversible.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+             <div className="space-y-2">
+               <Label className="text-xs uppercase font-bold text-zinc-400">Termination Reason</Label>
+               <Textarea 
+                 placeholder="e.g. Unauthorized automated trading detected, verified signal copying, etc."
+                 value={breachForm.reason}
+                 onChange={(e) => setBreachForm({...breachForm, reason: e.target.value})}
+                 className="bg-secondary/30 min-h-[100px]"
+                 required
+               />
+             </div>
+          </div>
+          <DialogFooter className="gap-2">
+             <Button variant="ghost" onClick={() => setBreachForm({ accountId: '', reason: '', isOpen: false })}>Abort</Button>
+             <Button 
+               variant="destructive" 
+               className="font-bold px-6 h-11"
+               onClick={handleManualBreach}
+               disabled={actionLoading || !breachForm.reason}
+             >
+               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : "LIQUIDATE NODE"}
+             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* User Detail Inspect Modal */}
       <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
-        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white max-h-[85vh] overflow-y-auto custom-scrollbar">
           <DialogHeader className="mb-4">
             <DialogTitle className="text-3xl font-headline font-bold text-white">
               {userDetailLoading ? "Scanning Node..." : userDetail?.user?.name || "Trader Profile"}
@@ -856,7 +916,7 @@ export default function AdminPage() {
                <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Deep Scanning Node Data...</p>
              </div>
           ) : userDetail && (
-            <div className="space-y-8">
+            <div className="space-y-8 pb-10">
               <div className="flex justify-between items-start">
                 <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 py-1.5">{userDetail.user.tier} TRADER</Badge>
               </div>
@@ -878,20 +938,69 @@ export default function AdminPage() {
 
               <div className="space-y-4">
                 <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary border-b border-primary/20 pb-2">Trading Nodes</h3>
-                <div className="grid grid-cols-1 gap-3">
-                   {userDetail.accounts.map((a: any) => (
-                     <div key={a.id} className="p-4 rounded-xl bg-white/5 border border-white/5 flex justify-between items-center group hover:border-primary/30 transition-colors">
-                        <div>
-                          <p className="font-bold text-white">{a.label}</p>
-                          <p className="text-[10px] font-mono text-muted-foreground">ID: {a.id}</p>
+                {userDetail.accounts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic py-4">No trading nodes found for this trader.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3">
+                    {userDetail.accounts.map((a: any) => (
+                      <div key={a.id} className="p-4 rounded-xl bg-white/5 border border-white/5 flex justify-between items-center group hover:border-primary/30 transition-colors">
+                          <div>
+                            <p className="font-bold text-white">{a.label}</p>
+                            <p className="text-[10px] font-mono text-muted-foreground">ID: {a.id}</p>
+                          </div>
+                          <div className="flex items-center gap-6">
+                            <div className="text-right">
+                              <p className="font-mono text-sm font-bold">${(a.balance || 0).toLocaleString()}</p>
+                              <Badge variant="outline" className={cn("text-[8px] uppercase", a.status === 'blown' && "text-destructive border-destructive")}>{a.status}</Badge>
+                            </div>
+                            {a.status === 'active' && (
+                              <Button 
+                                variant="destructive" 
+                                size="sm" 
+                                className="h-8 font-black text-[10px] uppercase"
+                                onClick={() => setBreachForm({ accountId: a.id, reason: '', isOpen: true })}
+                              >
+                                Breach Account
+                              </Button>
+                            )}
+                          </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-primary border-b border-primary/20 pb-2">Payout History</h3>
+                {userDetail.payouts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic py-4">No payout history found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2">
+                    {userDetail.payouts.map((p: any) => (
+                      <div key={p.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/5">
+                        <div className="flex items-center gap-4">
+                           <DollarSign className="w-4 h-4 text-emerald-500" />
+                           <div>
+                              <p className="text-sm font-bold text-white">${parseFloat(p.amount || 0).toLocaleString()}</p>
+                              <p className="text-[10px] text-muted-foreground uppercase">{p.method}</p>
+                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-mono text-sm font-bold">${(a.balance || 0).toLocaleString()}</p>
-                          <Badge variant="outline" className="text-[8px] uppercase">{a.status}</Badge>
+                           <Badge className={cn(
+                             "text-[9px] font-black uppercase",
+                             (p.status === 'approved' || p.status === 'done' || p.status === 'processed') ? "bg-emerald-500 text-white" :
+                             p.status === 'pending' ? "bg-amber-500 text-black" : "bg-destructive text-white"
+                           )}>
+                             {p.status}
+                           </Badge>
+                           <p className="text-[9px] text-muted-foreground mt-1">
+                             {p.createdAt ? format(new Date(p.createdAt), 'MMM d, yyyy') : 'Recently'}
+                           </p>
                         </div>
-                     </div>
-                   ))}
-                </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -908,15 +1017,19 @@ export default function AdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {userDetail.trades.slice(0, 10).map((t: any) => (
-                        <tr key={t.id} className="border-t border-white/5">
-                          <td className="p-3 font-bold">{t.symbol}</td>
-                          <td className="p-3 uppercase">{t.type}</td>
-                          <td className="p-3">{t.lots}</td>
-                          <td className={cn("p-3 text-right font-mono font-bold", (t.pnl||0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl||0).toLocaleString()}</td>
-                          <td className="p-3 text-muted-foreground">{t.openedAt ? format(new Date(t.openedAt), 'MMM d') : '—'}</td>
-                        </tr>
-                      ))}
+                      {userDetail.trades.length === 0 ? (
+                        <tr><td colSpan={5} className="p-10 text-center text-muted-foreground italic">No trade history found.</td></tr>
+                      ) : (
+                        userDetail.trades.slice(0, 20).map((t: any) => (
+                          <tr key={t.id} className="border-t border-white/5">
+                            <td className="p-3 font-bold">{t.symbol}</td>
+                            <td className="p-3 uppercase">{t.type}</td>
+                            <td className="p-3">{t.lots}</td>
+                            <td className={cn("p-3 text-right font-mono font-bold", (t.pnl||0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl||0).toLocaleString()}</td>
+                            <td className="p-3 text-muted-foreground">{t.openedAt ? format(new Date(t.openedAt), 'MMM d') : '—'}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>

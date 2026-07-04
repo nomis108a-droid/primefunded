@@ -5,6 +5,7 @@ import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { sendBreachEmail } from '@/lib/email';
 
 /**
  * INSTITUTIONAL HELPER: Serialization
@@ -203,7 +204,7 @@ export async function fetchUserDetailAction(userId: string) {
       db.collection('demoAccounts').where('userId', '==', userId).get(),
       db.collection('demoTrades').where('userId', '==', userId).orderBy('openedAt', 'desc').limit(100).get(),
       db.collection('referrals').where('referrerId', '==', userId).get(),
-      db.collection('payouts').where('userId', '==', userId).get()
+      db.collection('payouts').where('userId', '==', userId).orderBy('createdAt', 'desc').get()
     ]);
     if (!userSnap.exists) return { success: false, error: "User not found" };
     const data = {
@@ -234,6 +235,86 @@ export async function resetDemoAccountAction(accountId: string) {
       breachReason: null,
       updatedAt: FieldValue.serverTimestamp()
     });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export async function manualBreachAccountAction(accountId: string, reason: string) {
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  try {
+    const db = getAdminDb();
+    const accRef = db.collection('demoAccounts').doc(accountId);
+    const accSnap = await accRef.get();
+    if (!accSnap.exists) throw new Error("Account not found");
+    const accData = accSnap.data()!;
+    const userId = accData.userId;
+
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    const userEmail = userSnap.data()?.email || accData.email;
+
+    const openTradesSnap = await db.collection('demoTrades')
+      .where('accountId', '==', accountId)
+      .where('status', '==', 'open')
+      .get();
+
+    const batch = db.batch();
+
+    // 1. Account Update
+    batch.update(accRef, {
+      status: 'blown',
+      breachReason: `Admin manual breach: ${reason}`,
+      blownAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    // 2. Close trades
+    openTradesSnap.docs.forEach(doc => {
+      const t = doc.data();
+      batch.update(doc.ref, {
+        status: 'closed',
+        closedAt: FieldValue.serverTimestamp(),
+        closeReason: 'admin_manual_breach',
+        closePrice: t.openPrice,
+        pnl: 0
+      });
+    });
+
+    // 3. User status
+    batch.update(userRef, { accountStatus: 'breached', updatedAt: FieldValue.serverTimestamp() });
+
+    // 4. Breach record
+    const breachRef = db.collection('breaches').doc();
+    batch.set(breachRef, {
+      accountId,
+      userId,
+      email: userEmail,
+      reason: `Admin manual breach: ${reason}`,
+      type: 'manual',
+      breachedAt: FieldValue.serverTimestamp(),
+      planType: accData.planType || '1-step-pro',
+      phase: accData.phase || 'evaluation'
+    });
+
+    // 5. Notification
+    const notifRef = userRef.collection('notifications').doc();
+    batch.set(notifRef, {
+      title: '❌ Account Breached (Admin)',
+      message: `Your account was manually terminated by administration. Reason: ${reason}`,
+      type: 'account_breached',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    await batch.commit();
+
+    // Email
+    if (userEmail) {
+      await sendBreachEmail(userEmail, `Your account ${accData.label || accountId} has been manually breached by administration. Reason: ${reason}`);
+    }
+
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
