@@ -513,7 +513,7 @@ export default function DemoPage() {
           {!isMobile && (
             <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
               <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold">
-                <SelectValue placeholder="Select Account" />
+                <SelectValue placeholder={selectedAccount?.label || "Select Account"} />
               </SelectTrigger>
               <SelectContent>{accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
             </Select>

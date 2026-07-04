@@ -114,10 +114,10 @@ export const Navigation = memo(function Navigation() {
 
   return (
     <div className={cn(
-      "bg-card border-r border-border h-screen sticky top-0 flex flex-col transition-all duration-300 relative shrink-0",
-      collapsed ? "w-0 overflow-hidden" : "w-64 p-6"
+      "h-screen sticky top-0 flex flex-col shrink-0 relative transition-all duration-300",
+      collapsed ? "w-0" : "w-64"
     )}>
-      {/* Collapse Toggle */}
+      {/* Collapse Toggle - Placed outside the overflow container to prevent clipping */}
       <button 
         onClick={() => setCollapsed(!collapsed)}
         className="absolute -right-3 top-8 z-50 w-6 h-6 rounded-full bg-primary text-black flex items-center justify-center hover:scale-110 transition-transform shadow-lg cursor-pointer"
@@ -125,97 +125,58 @@ export const Navigation = memo(function Navigation() {
         <ChevronRight className={cn("w-4 h-4 transition-transform", !collapsed && "rotate-180")} />
       </button>
 
-      {!collapsed && (
-        <>
-          <div 
-            onClick={() => {
-              setClickCount(prev => {
-                const newCount = prev + 1;
-                if (clickTimer) clearTimeout(clickTimer);
-                const timer = setTimeout(() => setClickCount(0), 3000);
-                setClickTimer(timer);
-                if (newCount >= 5) {
-                  setClickCount(0);
+      {/* Internal Content Container - Handles overflow and background styling */}
+      <div className={cn(
+        "bg-card border-r border-border h-full flex flex-col transition-all duration-300 overflow-hidden",
+        collapsed ? "w-0" : "w-64 p-6"
+      )}>
+        {!collapsed && (
+          <>
+            <div 
+              onClick={() => {
+                setClickCount(prev => {
+                  const newCount = prev + 1;
                   if (clickTimer) clearTimeout(clickTimer);
-                  window.location.href = '/admin';
-                }
-                return newCount;
-              });
-            }}
-            className="flex items-center gap-3 mb-10 px-2 cursor-pointer transition-opacity hover:opacity-80"
-          >
-            <Image 
-              src={branding.logoUrl} 
-              alt={branding.siteName}
-              width={40}
-              height={40}
-              className="rounded-full border border-primary/20"
-              data-ai-hint="site logo"
-            />
-            <span className="font-headline font-bold text-xl tracking-tight text-white">{branding.siteName}</span>
-          </div>
+                  const timer = setTimeout(() => setClickCount(0), 3000);
+                  setClickTimer(timer);
+                  if (newCount >= 5) {
+                    setClickCount(0);
+                    if (clickTimer) clearTimeout(clickTimer);
+                    window.location.href = '/admin';
+                  }
+                  return newCount;
+                });
+              }}
+              className="flex items-center gap-3 mb-10 px-2 cursor-pointer transition-opacity hover:opacity-80 shrink-0"
+            >
+              <Image 
+                src={branding.logoUrl} 
+                alt={branding.siteName}
+                width={40}
+                height={40}
+                className="rounded-full border border-primary/20"
+                data-ai-hint="site logo"
+              />
+              <span className="font-headline font-bold text-xl tracking-tight text-white">{branding.siteName}</span>
+            </div>
 
-          <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
-            {isAdmin && (
-              <Link
-                href="/admin/demo"
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-black uppercase tracking-tighter transition-all cursor-pointer border border-primary/20 mb-4 bg-primary/5",
-                  pathname === '/admin/demo' 
-                    ? "bg-primary text-black border-primary" 
-                    : "text-primary hover:bg-primary/20"
-                )}
-              >
-                <ShieldAlert className="w-5 h-5" />
-                Admin Monitor
-              </Link>
-            )}
+            <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
+              {isAdmin && (
+                <Link
+                  href="/admin/demo"
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-black uppercase tracking-tighter transition-all cursor-pointer border border-primary/20 mb-4 bg-primary/5",
+                    pathname === '/admin/demo' 
+                      ? "bg-primary text-black border-primary" 
+                      : "text-primary hover:bg-primary/20"
+                  )}
+                >
+                  <ShieldAlert className="w-5 h-5" />
+                  Admin Monitor
+                </Link>
+              )}
 
-            {navItems.map((item) => (
-              <Link
-                key={item.name}
-                href={item.href}
-                prefetch={true}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-pointer",
-                  pathname === item.href 
-                    ? "bg-primary/10 text-primary border-r-2 border-primary rounded-r-none" 
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                )}
-              >
-                <item.icon className="w-5 h-5" />
-                {item.name}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="mt-8 pt-8 border-t border-border space-y-4">
-            {branding.discordUrl && (
-              <a 
-                href={branding.discordUrl} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="block p-4 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20 hover:bg-[#5865F2]/20 transition-all group"
-              >
-                <div className="flex items-center gap-3 mb-1.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#5865F2] flex items-center justify-center text-white">
-                    <DiscordIcon className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black uppercase text-[#5865F2] tracking-widest">Community</p>
-                    <p className="text-xs font-bold text-white">Discord Terminal</p>
-                  </div>
-                </div>
-                <p className="text-[9px] text-muted-foreground mb-3 leading-tight">Connect with 1,000+ elite traders for insights.</p>
-                <div className="flex items-center justify-between text-[10px] font-bold text-[#5865F2] uppercase tracking-widest">
-                  Join Now <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-                </div>
-              </a>
-            )}
-
-            <div className="space-y-1">
-              <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Account</p>
-              {secondaryItems.map((item) => (
+              {navItems.map((item) => (
                 <Link
                   key={item.name}
                   href={item.href}
@@ -231,39 +192,84 @@ export const Navigation = memo(function Navigation() {
                   {item.name}
                 </Link>
               ))}
-              
-              <button
-                onClick={() => {
-                  logout();
-                }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors mt-4 cursor-pointer"
-              >
-                <LogOut className="w-5 h-5" />
-                Logout
-              </button>
-            </div>
-          </div>
+            </nav>
 
-          <div className="mt-auto bg-secondary/50 rounded-xl p-4 border border-border shrink-0">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden">
-                 {userData?.photoURL ? (
-                   <Image src={userData.photoURL} alt="Avatar" width={40} height={40} className="object-cover" />
-                 ) : (
-                   <UserCircle className="text-primary w-6 h-6" />
-                 )}
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-sm font-semibold truncate text-white">{userData?.name || 'Trader'}</p>
-                <p className="text-xs text-muted-foreground truncate">{userData?.tier || 'Bronze Tier'}</p>
+            <div className="mt-8 pt-8 border-t border-border space-y-4 shrink-0">
+              {branding.discordUrl && (
+                <a 
+                  href={branding.discordUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="block p-4 rounded-xl bg-[#5865F2]/10 border border-[#5865F2]/20 hover:bg-[#5865F2]/20 transition-all group"
+                >
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <div className="w-8 h-8 rounded-lg bg-[#5865F2] flex items-center justify-center text-white">
+                      <DiscordIcon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-[#5865F2] tracking-widest">Community</p>
+                      <p className="text-xs font-bold text-white">Discord Terminal</p>
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mb-3 leading-tight">Connect with 1,000+ elite traders for insights.</p>
+                  <div className="flex items-center justify-between text-[10px] font-bold text-[#5865F2] uppercase tracking-widest">
+                    Join Now <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </a>
+              )}
+
+              <div className="space-y-1">
+                <p className="px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Account</p>
+                {secondaryItems.map((item) => (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    prefetch={true}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-pointer",
+                      pathname === item.href 
+                        ? "bg-primary/10 text-primary border-r-2 border-primary rounded-r-none" 
+                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    {item.name}
+                  </Link>
+                ))}
+                
+                <button
+                  onClick={() => {
+                    logout();
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors mt-4 cursor-pointer"
+                >
+                  <LogOut className="w-5 h-5" />
+                  Logout
+                </button>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="w-full text-xs cursor-pointer" asChild>
-              <Link href="/challenges">Upgrade Plan <ChevronRight className="w-3 h-3 ml-1" /></Link>
-            </Button>
-          </div>
-        </>
-      )}
+
+            <div className="mt-auto bg-secondary/50 rounded-xl p-4 border border-border shrink-0">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden">
+                   {userData?.photoURL ? (
+                     <Image src={userData.photoURL} alt="Avatar" width={40} height={40} className="object-cover" />
+                   ) : (
+                     <UserCircle className="text-primary w-6 h-6" />
+                   )}
+                </div>
+                <div className="overflow-hidden">
+                  <p className="text-sm font-semibold truncate text-white">{userData?.name || 'Trader'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{userData?.tier || 'Bronze Tier'}</p>
+                </div>
+              </div>
+              <Button variant="outline" size="sm" className="w-full text-xs cursor-pointer" asChild>
+                <Link href="/challenges">Upgrade Plan <ChevronRight className="w-3 h-3 ml-1" /></Link>
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 });
