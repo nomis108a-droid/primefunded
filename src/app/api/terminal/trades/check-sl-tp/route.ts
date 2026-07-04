@@ -1,7 +1,7 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
@@ -50,17 +50,58 @@ export async function GET(req: NextRequest) {
     let liquidated = 0;
     let sltpClosed = 0;
 
+    const now = new Date();
+    const isFridayNight = now.getUTCDay() === 5 && now.getUTCHours() >= 20;
+
     for (const accDoc of activeAccountsSnap.docs) {
       const acc = accDoc.data();
       const trades = accountTrades[accDoc.id] || [];
+      const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
+      const rules = RULES_CONFIG.plans[planKey]?.[acc.phase || 'evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
       let floatingPnl = 0;
       let floatingNegativePnl = 0;
       
+      // ── FRIDAY OVERNIGHT WARNING (Instant Funding Only) ─────
+      if (isFridayNight && trades.length > 0 && (planKey === 'instant-funding' || planKey === 'instant-pro')) {
+        await db.collection('users').doc(acc.userId).collection('notifications').add({
+          title: '⚠️ Friday Overnight Holding',
+          message: 'Friday overnight holding detected - close positions before market close to avoid soft breach.',
+          type: 'risk_warning',
+          isRead: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      }
+
       for (const t of trades) {
         const pnl = calculateTradePnl(t, prices[t.symbol]);
         floatingPnl += pnl;
         if (pnl < 0) floatingNegativePnl += Math.abs(pnl);
+
+        // ── RULE: MAX FLOATING LOSS (1%) ───────────────────────
+        const startBalance = acc.startBalance || 100000;
+        const floatingLimit = startBalance * (rules.maxFloatingLoss || 1) / 100;
+        
+        if (pnl < 0 && Math.abs(pnl) >= floatingLimit && (planKey === '1-step-pro' || planKey === 'instant-funding' || planKey === 'instant-pro')) {
+           // FORCE CLOSE THIS TRADE
+           const priceData = prices[t.symbol];
+           const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
+           
+           await db.runTransaction(async (tx) => {
+             tx.update(t.ref, {
+               status: 'closed',
+               closeReason: 'liquidation',
+               closePrice: exitPrice,
+               pnl: pnl,
+               closedAt: FieldValue.serverTimestamp()
+             });
+             tx.update(accDoc.ref, {
+               balance: FieldValue.increment(pnl),
+               updatedAt: FieldValue.serverTimestamp()
+             });
+           });
+           continue;
+        }
       }
 
       const currentEquity = acc.balance + floatingPnl;
@@ -137,6 +178,11 @@ export async function GET(req: NextRequest) {
             const currentAcc = (await tx.get(accDoc.ref)).data()!;
             const newBalance = currentAcc.balance + pnl;
             
+            // ── RULE: MAX SINGLE TRADE LOSS (3%) ──────────────────
+            const startBalance = currentAcc.startBalance || 100000;
+            const singleTradeLossLimit = startBalance * (rules.maxSingleTradeLoss || 3) / 100;
+            const isMajorLoss = pnl < 0 && Math.abs(pnl) > singleTradeLossLimit;
+
             tx.update(t.ref, {
               status: 'closed',
               closeReason: exitReason,
@@ -155,8 +201,12 @@ export async function GET(req: NextRequest) {
               updates.dailyGrossLossUsd = (currentAcc.dailyGrossLossUsd || 0) + Math.abs(pnl);
             }
 
-            if (newBalance >= (currentAcc.startBalance + currentAcc.profitTarget) && currentAcc.status === 'active') {
-              updates.status = 'passed';
+            if (isMajorLoss && ['2-step-classic', '3-step-classic', 'instant-funding', 'instant-pro'].includes(planKey)) {
+              updates.status = 'blown';
+              updates.breachReason = 'single_trade_loss_breach';
+            } else if (newBalance >= (currentAcc.startBalance + (currentAcc.profitTarget || 10000)) && currentAcc.status === 'active') {
+              // We don't mark as passed here because we need unique days check which is in auditDemoAccount
+              // Just sync equity/balance
             }
 
             tx.update(accDoc.ref, updates);

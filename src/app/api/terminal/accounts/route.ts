@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { RULES_CONFIG } from '@/lib/rulesConfig';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 const PLANS: Record<string, { balance: number; label: string }> = {
+  "5k": { balance: 5000, label: "$5,000" },
   "10k": { balance: 10000, label: "$10,000" },
   "25k": { balance: 25000, label: "$25,000" },
   "50k": { balance: 50000, label: "$50,000" },
@@ -25,11 +26,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
 
-    const { plan } = await req.json();
+    const { plan, planType: requestedPlanType } = await req.json();
     const p = PLANS[plan];
     if (!p) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
 
-    const planType = "1-step-pro";
+    const planType = requestedPlanType || "1-step-pro";
     const phase = "evaluation";
     const rules = RULES_CONFIG.plans[planType]?.[phase];
 
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
       plan,
       planType,
       phase,
-      label: `Phase 1 — ${p.label} Challenge`,
+      label: `${planType.toUpperCase()} — ${p.label} Challenge`,
       balance: p.balance,
       equity: p.balance,
       startBalance: p.balance,

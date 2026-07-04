@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditDemoAccount } from '@/lib/rulesEngine';
-import { sendEmail } from '@/lib/email';
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
@@ -35,6 +35,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (trade.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (trade.status !== "open") return NextResponse.json({ error: "Already closed" }, { status: 400 });
 
+    // ── RULE: MINIMUM DURATION (2 mins) ──────────────────
+    const openTime = (trade.openedAt as Timestamp).toDate().getTime();
+    const now = Date.now();
+    const durationSeconds = (now - openTime) / 1000;
+    if (durationSeconds < RULES_CONFIG.universal.minTradeDurationSeconds) {
+      return NextResponse.json({ error: "Minimum trade duration is 2 minutes" }, { status: 400 });
+    }
+
     let closePrice = clientClosePrice;
     if (!closePrice) {
       const snap = await db.collection("livePrices").doc(trade.symbol.toUpperCase()).get();
@@ -47,12 +55,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const pnl = (trade.type === "buy" ? closePrice! - trade.openPrice : trade.openPrice - closePrice!) * trade.lots * contractSize;
 
     const accRef = db.collection("demoAccounts").doc(trade.accountId);
+    const accSnap = await accRef.get();
+    if (!accSnap.exists) throw new Error("Account missing");
+    const account = accSnap.data()!;
+
+    // ── RULE: MAX SINGLE TRADE LOSS (3%) ──────────────────
+    const startBalance = account.startBalance || 100000;
+    const pKey = getPlanKey(account.planType || account.plan || '1-step-pro');
+    const phKey = account.phase || 'evaluation';
+    const rules = RULES_CONFIG.plans[pKey]?.[phKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+
+    const singleTradeLossLimit = startBalance * (rules.maxSingleTradeLoss || 3) / 100;
+    const isMajorLoss = p < 0 && Math.abs(pnl) > singleTradeLossLimit;
 
     await db.runTransaction(async (tx) => {
-      const accSnap = await tx.get(accRef);
-      if (!accSnap.exists) throw new Error("Account missing");
-      const account = accSnap.data()!;
-      
       tx.update(tradeRef, {
         status: "closed",
         closeReason,
@@ -61,17 +77,28 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         closedAt: Timestamp.now(),
       });
 
-      tx.update(accRef, {
-        balance: FieldValue.increment(pnl),
-        updatedAt: FieldValue.serverTimestamp()
-      });
+      if (isMajorLoss && ['2-step-classic', '3-step-classic', 'instant-funding', 'instant-pro'].includes(pKey)) {
+        tx.update(accRef, {
+          status: 'blown',
+          breachReason: 'single_trade_loss_breach',
+          balance: FieldValue.increment(pnl),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      } else {
+        tx.update(accRef, {
+          balance: FieldValue.increment(pnl),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      }
     });
 
     // Notify User
     await db.collection('users').doc(uid).collection('notifications').add({
-      title: '💼 Position Closed',
-      message: `${trade.symbol} closed at ${closePrice?.toFixed(5)}. PnL: $${pnl.toFixed(2)}`,
-      type: 'trade_closed',
+      title: isMajorLoss ? '❌ Account Breached' : '💼 Position Closed',
+      message: isMajorLoss 
+        ? `Single trade loss breach: $${Math.abs(pnl).toFixed(2)} exceeded $${singleTradeLossLimit.toFixed(2)} limit.`
+        : `${trade.symbol} closed at ${closePrice?.toFixed(5)}. PnL: $${pnl.toFixed(2)}`,
+      type: isMajorLoss ? 'account_breached' : 'trade_closed',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });

@@ -1,12 +1,11 @@
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 
 /**
  * @fileOverview Institutional Demo Audit Engine (V2)
  * Evaluates internal demo accounts and trades against prop firm risk protocols.
- * ENFORCES: 1% single floating loss, 3% daily drawdown, 6% max drawdown, 2m duration, 3m spacing.
  */
 
 type TradeRecord = {
@@ -86,7 +85,7 @@ export async function auditDemoAccount(accountId: string) {
   let breachReason = '';
 
   // ── RULE 1: Max Floating Loss (1% per trade) ──────────────────
-  if (maxSingleFloatingLoss >= floatingLossLimit) {
+  if (maxSingleFloatingLoss >= floatingLossLimit && (pKey === '1-step-pro' || pKey === 'instant-funding' || pKey === 'instant-pro')) {
     breachReason = `Floating loss violation: Single position hit 1% limit ($${floatingLossLimit.toLocaleString()})`;
   }
 
@@ -94,7 +93,7 @@ export async function auditDemoAccount(accountId: string) {
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0); 
-  if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1);
+  if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.setUTCDate() - 1);
 
   let realizedLossToday = 0;
   closedTrades.forEach(t => {
@@ -121,23 +120,33 @@ export async function auditDemoAccount(accountId: string) {
   
   // Calculate Distinct Trading Days (02:00 UTC Boundary)
   const tradingWindows = new Set<string>();
-  trades.forEach(t => {
-    const openDate = getTradeDate(t.openedAt);
-    if (openDate) {
-      const windowStart = new Date(openDate);
+  closedTrades.forEach(t => {
+    const closedDate = getTradeDate(t.closedAt);
+    if (closedDate) {
+      const windowStart = new Date(closedDate);
       windowStart.setUTCHours(2, 0, 0, 0);
-      if (openDate.getUTCHours() < 2) windowStart.setUTCDate(windowStart.getUTCDate() - 1);
+      if (closedDate.getUTCHours() < 2) windowStart.setUTCDate(windowStart.getUTCDate() - 1);
       tradingWindows.add(windowStart.toISOString());
     }
   });
   const distinctTradingDays = tradingWindows.size;
 
   const minDaysRequired = rules.minTradingDays || rules.minTradingDaysBeforePayout || 0;
-  const profitTarget = initialBalance * (rules.profitTarget || 10) / 100;
+  const profitTargetAmount = initialBalance * (rules.profitTarget || 10) / 100;
   
-  const isPassed = !breachReason && 
-                   currBalance >= (initialBalance + profitTarget) && 
-                   distinctTradingDays >= minDaysRequired;
+  const targetMet = currBalance >= (initialBalance + profitTargetAmount);
+  const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired;
+
+  if (targetMet && distinctTradingDays < minDaysRequired && !breachReason) {
+    // Notify about remaining days
+    await db.collection('users').doc(userId).collection('notifications').add({
+      title: '🎯 Target Reached',
+      message: `Profit target reached! Complete ${minDaysRequired - distinctTradingDays} more unique trading days to pass.`,
+      type: 'rule_info',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+  }
 
   // ── RULE 5: Trade Duration (Min 2m) ──────────────────────────
   if (!breachReason) {
@@ -147,21 +156,9 @@ export async function auditDemoAccount(accountId: string) {
       if (open && close) {
         const duration = (close.getTime() - open.getTime()) / 1000;
         if (duration < universal.minTradeDurationSeconds) {
-          breachReason = `Duration violation: Trade ${t.id} held for ${duration.toFixed(0)}s (Min 2m)`;
+          breachReason = `Duration violation: Trade held for ${duration.toFixed(0)}s (Min 2m)`;
           break;
         }
-      }
-    }
-  }
-
-  // ── RULE 6: Execution Spacing (Min 3m) ────────────────────────
-  if (!breachReason) {
-    const sortedOpens = trades.map(t => getTradeDate(t.openedAt)).filter(d => !!d).sort((a: any, b: any) => a.getTime() - b.getTime());
-    for (let i = 1; i < sortedOpens.length; i++) {
-      const diff = (sortedOpens[i].getTime() - sortedOpens[i - 1].getTime()) / 1000;
-      if (diff < universal.maxExecutionFrequencySeconds) {
-        breachReason = `Frequency violation: Less than 3m spacing between executions (${diff.toFixed(0)}s)`;
-        break;
       }
     }
   }
@@ -216,7 +213,7 @@ export async function auditDemoAccount(accountId: string) {
     batch.update(db.collection('users').doc(userId), { accountStatus: 'passed' });
     batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
       userId, type: 'phase_passed', title: '✅ Challenge Passed!', 
-      message: `Congratulations! You reached the profit target. Admin will review your performance.`, 
+      message: `Congratulations! You reached the profit target and met the minimum trading days.`, 
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
     await batch.commit();
@@ -249,15 +246,12 @@ export async function runDemoAudit() {
 
 /**
  * Targeted Audit Engine: Open Positions Only
- * Replaces full-network scanning with high-frequency monitoring of accounts with live exposure.
  */
 export async function auditActiveOpenPositions() {
   const db = getAdminDb();
   
-  // 1. Target accounts with open exposure via indexed status query
   const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
   
-  // 2. Extract distinct accountIds
   const accountIds = new Set<string>();
   openTradesSnap.docs.forEach(doc => {
     const data = doc.data();
@@ -272,7 +266,6 @@ export async function auditActiveOpenPositions() {
     errors: 0 
   };
 
-  // 3. Process in concurrent batches of 25 to balance speed and connection health
   const BATCH_SIZE = 25;
   for (let i = 0; i < idArray.length; i += BATCH_SIZE) {
     const batchIds = idArray.slice(i, i + BATCH_SIZE);

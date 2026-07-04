@@ -26,7 +26,7 @@ const planData = {
     { size: '$200,000', price: 999 },
   ],
   '2-step': [
-    { size: '$5,000', price: 49 },
+    { size: '$5,000', price: 39 },
     { size: '$10,000', price: 69 },
     { size: '$25,000', price: 149 },
     { size: '$50,000', price: 249 },
@@ -34,10 +34,10 @@ const planData = {
     { size: '$200,000', price: 849 },
   ],
   '3-step': [
-    { size: '$5,000', price: 39 },
-    { size: '$10,000', price: 59 },
-    { size: '$25,000', price: 129 },
-    { size: '$50,000', price: 219 },
+    { size: '$5,000', price: 10 },
+    { size: '$10,000', price: 30 },
+    { size: '$25,000', price: 80 },
+    { size: '$50,000', price: 150 },
     { size: '$100,000', price: 399, popular: true },
     { size: '$200,000', price: 799 },
     { size: '$300,000', price: 1099 },
@@ -49,6 +49,14 @@ const planData = {
     { size: '$50,000', price: 1250 },
     { size: '$100,000', price: 2500, popular: true },
     { size: '$200,000', price: 5000 },
+  ],
+  'instant-pro': [
+    { size: '$5,000', price: 145 },
+    { size: '$10,000', price: 290 },
+    { size: '$25,000', price: 725 },
+    { size: '$50,000', price: 1450 },
+    { size: '$100,000', price: 2900, popular: true },
+    { size: '$200,000', price: 5800 },
   ]
 };
 
@@ -146,10 +154,23 @@ const RULES = {
       { text: "Daily payouts available", type: 'check' },
       { text: "First payout after 24 hours", type: 'check' },
       { text: "Max withdraw 3% per 24 hours", type: 'warning' },
-      { text: "3% daily drawdown (Hard Breach)", type: 'hard' }, // UPDATED: 2% -> 3%
+      { text: "3% daily drawdown (Hard Breach)", type: 'hard' },
       { text: "4% max drawdown (Hard Breach)", type: 'hard' },
       { text: "No martingale (Hard Breach)", type: 'hard' },
       { text: "No payout exceeding daily drawdown", type: 'warning' },
+    ]
+  },
+  'instant-pro': {
+    funded: [
+      { text: "80% profit split", type: 'check' },
+      { text: "Trading Leverage 1:30", type: 'check' },
+      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
+      { text: "Daily payouts (after 5 days)", type: 'check' },
+      { text: "Minimum 3 trades per day", type: 'warning' },
+      { text: "Minimum 5 trading days for payout", type: 'warning' },
+      { text: "3% daily drawdown (Hard Breach)", type: 'hard' },
+      { text: "4% max drawdown (Hard Breach)", type: 'hard' },
+      { text: "No martingale (Hard Breach)", type: 'hard' },
     ]
   }
 };
@@ -174,7 +195,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, disco
         <CardHeader className="text-center pt-10">
           <CardTitle className="text-2xl font-headline font-bold text-white group-hover:text-primary">{tier.size}</CardTitle>
           <p className="text-muted-foreground text-[9px] uppercase tracking-[0.2em] font-black">
-            {planName === '1-step' ? '1-Step Pro' : planName === '2-step' ? '2-Step Classic' : planName === '3-step' ? '3-Step Classic' : 'Instant Funding'}
+            {planName === '1-step' ? '1-Step Pro' : planName === '2-step' ? '2-Step Classic' : planName === '3-step' ? '3-Step Classic' : planName === 'instant-pro' ? 'Instant Pro' : 'Instant Funding'}
           </p>
         </CardHeader>
 
@@ -218,6 +239,9 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, disco
               )}
               {planName === 'instant' && (
                 <RuleSection title="Funded stage" items={RULES['instant'].funded} />
+              )}
+              {planName === 'instant-pro' && (
+                <RuleSection title="Funded stage" items={RULES['instant-pro'].funded} />
               )}
             </CollapsibleContent>
           </Collapsible>
@@ -372,17 +396,18 @@ export default function ChallengesPage() {
 
               <Tabs defaultValue="1-step" className="w-full" onValueChange={(val) => {
                 setSelectedPlan(val);
-                if (val !== 'instant') setDiscountApplied(false);
+                if (val !== 'instant' && val !== 'instant-pro') setDiscountApplied(false);
               }}>
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
-                  <TabsList className="grid w-full max-w-2xl grid-cols-4 h-12 bg-secondary p-1 rounded-xl">
+                  <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary p-1 rounded-xl">
                     <TabsTrigger value="1-step" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">1-Step</TabsTrigger>
                     <TabsTrigger value="2-step" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">2-Step</TabsTrigger>
                     <TabsTrigger value="3-step" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">3-Step</TabsTrigger>
                     <TabsTrigger value="instant" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant</TabsTrigger>
+                    <TabsTrigger value="instant-pro" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant Pro</TabsTrigger>
                   </TabsList>
 
-                  {selectedPlan === 'instant' && (
+                  {(selectedPlan === 'instant' || selectedPlan === 'instant-pro') && (
                     <div className="flex items-center gap-2 bg-secondary/50 p-2 rounded-xl border border-border">
                       <TicketPercent className="w-5 h-5 text-primary ml-2" />
                       <Input 
@@ -410,7 +435,7 @@ export default function ChallengesPage() {
                         tier={tier} 
                         planName={selectedPlan} 
                         delay={idx * 0.03} 
-                        discountApplied={discountApplied && selectedPlan === 'instant'}
+                        discountApplied={discountApplied && (selectedPlan === 'instant' || selectedPlan === 'instant-pro')}
                       />
                     ))}
                   </motion.div>

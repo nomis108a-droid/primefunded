@@ -10,6 +10,7 @@ export type PlanPhaseRules = {
   minTradingDaysBeforePayout?: number;
   maxFloatingLoss?: number;       // % of initial balance, per SINGLE open trade
   maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (closed)
+  minDailyTrades?: number;
 };
 
 export const RULES_CONFIG = {
@@ -95,6 +96,24 @@ export const RULES_CONFIG = {
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3
       }
+    },
+    "instant-pro": {
+      evaluation: {
+        dailyDrawdown: 3,
+        maxDrawdown: 4,
+        maxFloatingLoss: 1,
+        maxSingleTradeLoss: 3,
+        minTradingDaysBeforePayout: 5,
+        minDailyTrades: 3
+      },
+      funded: {
+        dailyDrawdown: 3,
+        maxDrawdown: 4,
+        maxFloatingLoss: 1,
+        maxSingleTradeLoss: 3,
+        minTradingDaysBeforePayout: 5,
+        minDailyTrades: 3
+      }
     }
   } as Record<string, Record<string, PlanPhaseRules>>,
   universal: {
@@ -115,6 +134,7 @@ export function getPlanKey(name: string): string {
   if (n.includes('1-step')) return '1-step-pro';
   if (n.includes('2-step')) return '2-step-classic';
   if (n.includes('3-step')) return '3-step-classic';
+  if (n.includes('instant-pro')) return 'instant-pro';
   if (n.includes('instant')) return 'instant-funding';
   return '1-step-pro';
 }
