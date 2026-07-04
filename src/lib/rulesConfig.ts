@@ -26,7 +26,7 @@ export const RULES_CONFIG = {
       },
       funded: {
         dailyDrawdown: 3,
-        maxDrawdown: 4,
+        maxDrawdown: 6, // Updated to 6% as per latest spec
         minTradingDaysBeforePayout: 5
       }
     },

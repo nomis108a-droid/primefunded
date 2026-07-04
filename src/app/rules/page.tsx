@@ -5,7 +5,7 @@ import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Check, Shield, AlertTriangle, Target, Skull, AlertCircle, Info, ShieldAlert, Zap } from 'lucide-react';
+import { Check, Shield, AlertTriangle, Target, Skull, ShieldAlert, Zap } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
 
@@ -28,11 +28,10 @@ const PLAN_RULES = {
       { text: "Trading Leverage: 1:30", type: 'check' },
       { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
       { text: "Minimum 5 trading days required before payout request", type: 'check' },
-      { text: "1 execution per 3 mins maximum (Hard Breach)", type: 'warning' },
-      { text: "No closing trades within 2 mins (Hard Breach)", type: 'warning' },
-      { text: "1% max floating loss (Hard Breach)", type: 'warning' },
-      { text: "3% daily drawdown limit (Hard Breach)", type: 'warning' },
-      { text: "6% max drawdown limit (Hard Breach)", type: 'warning' },
+      { text: "1 execution per 3 mins maximum (Hard Breach)", type: 'skull' },
+      { text: "No closing trades within 2 mins (Hard Breach)", type: 'skull' },
+      { text: "3% daily drawdown limit (Hard Breach)", type: 'skull' },
+      { text: "6% max drawdown limit (Hard Breach)", type: 'skull' },
       { text: "No martingale (Hard Breach)", type: 'skull' },
     ]
   },
