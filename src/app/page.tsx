@@ -164,39 +164,11 @@ export default function Home() {
       {/* Community Section */}
       <section className="py-24 relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Discord Card */}
-            <motion.div 
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              className="p-12 rounded-[3rem] bg-gradient-to-br from-[#5865F2] to-blue-700 text-white relative overflow-hidden group shadow-2xl shadow-[#5865F2]/20 text-center"
-            >
-              <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 blur-[120px] -mr-32 -mt-32 rounded-full" />
-              <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 blur-[100px] -ml-24 -mb-24 rounded-full" />
-              
-              <div className="relative z-10 space-y-8">
-                <div className="w-20 h-20 bg-white/20 backdrop-blur-xl rounded-2xl flex items-center justify-center mx-auto mb-8 animate-float">
-                  <DiscordIcon className="w-12 h-12" />
-                </div>
-                <h2 className="text-4xl font-headline font-bold">Join Our Discord Community</h2>
-                <p className="text-xl text-white/80 leading-relaxed max-w-md mx-auto">
-                  Connect with 1,000+ elite institutional traders. Share setups and get direct support from our desk specialists.
-                </p>
-                <div className="pt-4">
-                  <Button size="lg" className="h-16 px-12 text-lg rounded-2xl font-bold bg-white text-[#5865F2] hover:bg-white/90 transition-all hover:scale-105 w-full sm:w-auto" asChild>
-                    <a href="https://discord.gg/G2jfSwygC9" target="_blank" rel="noopener noreferrer">
-                      Join Community Now <DiscordIcon className="ml-2 w-6 h-6" />
-                    </a>
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-
+          <div className="max-w-3xl mx-auto">
             {/* Instagram Card */}
             <motion.div 
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               className="p-12 rounded-[3rem] bg-gradient-to-br from-[#833ab4] via-[#fd1d1d] to-[#fcb045] text-white relative overflow-hidden group shadow-2xl shadow-orange-500/20 text-center"
             >
@@ -213,8 +185,8 @@ export default function Home() {
                 </p>
                 <div className="pt-4">
                   <Button size="lg" className="h-16 px-12 text-lg rounded-2xl font-bold bg-white text-orange-600 hover:bg-white/90 transition-all hover:scale-105 w-full sm:w-auto" asChild>
-                    <a href="https://instagram.com/primefunded" target="_blank" rel="noopener noreferrer">
-                      Follow @primefunded <Instagram className="ml-2 w-6 h-6" />
+                    <a href="https://www.instagram.com/primefunded.fund?utm_source=qr&igsh=Z2NwNmJzaHB1dXNh" target="_blank" rel="noopener noreferrer">
+                      Follow @primefunded.fund <Instagram className="ml-2 w-6 h-6" />
                     </a>
                   </Button>
                 </div>
