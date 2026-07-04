@@ -660,7 +660,8 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </CardContent>
-              </div>
+              </Card>
+            </div>
           )}
         </div>
       </main>
