@@ -18,12 +18,12 @@ const PLAN_RULES = {
       { text: "You must trade for at least 5 different days to pass", check: true },
       { text: "You must wait at least 3 minutes between opening new trades", check: true },
       { text: "You must hold your trades for at least 2 minutes before closing them", check: true },
-      { text: "Friday overnight holding of Forex/Metal positions after Friday 21:00 UTC will result in immediate account breach. Crypto is exempt.", warning: false },
+      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate account breach. Crypto positions (BTCUSD, ETHUSD etc.) are exempt.", warning: false },
     ],
     funded: [
       { text: "Keep 80% of all profits you make", check: true },
       { text: "You need to trade for at least 5 days before you can request your first payout", warning: true },
-      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD, etc.) after 21:00 UTC will breach the account. Crypto (BTC, ETH) is allowed.", warning: false },
+      { text: "Friday overnight holding of Forex/Metal positions after 21:00 UTC will breach the account. Crypto is allowed.", warning: false },
       { text: "Do not lose more than 3% of your starting balance in a single day", warning: true },
       { text: "Do not let your total losses reach 6% of your starting balance", warning: true },
     ]
@@ -34,7 +34,7 @@ const PLAN_RULES = {
       { text: "Do not lose more than 5% of your starting balance in a single day", check: true },
       { text: "Your account will be closed if your total loss ever reaches 10% of your starting balance", check: true },
       { text: "A single closed trade cannot lose more than 3% of your starting balance", warning: true },
-      { text: "Friday overnight holding of Forex/Metal positions after 21:00 UTC will result in immediate breach. Crypto is allowed.", warning: false },
+      { text: "Friday overnight holding of Forex/Metal positions after 21:00 UTC results in immediate breach. Crypto is allowed.", warning: false },
       { text: "You must trade for at least 5 different days", check: true },
     ],
     phase2: [
@@ -57,6 +57,18 @@ const PLAN_RULES = {
       { text: "Do not lose more than 4% in a single day", check: true },
       { text: "Do not let your total losses reach 8%", check: true },
       { text: "Friday overnight holding of Forex/Metal positions after 21:00 UTC results in immediate breach.", warning: false },
+    ],
+    phase2: [
+      { text: "Reach a profit target of 8% to pass this phase", check: true },
+      { text: "Do not lose more than 4% in a single day", check: true },
+      { text: "Do not let your total losses reach 8%", check: true },
+      { text: "Minimum 6 trading days required", check: true },
+    ],
+    phase3: [
+      { text: "Reach a profit target of 5% to pass this phase", check: true },
+      { text: "Do not lose more than 4% in a single day", check: true },
+      { text: "Do not let your total losses reach 8%", check: true },
+      { text: "Minimum 5 trading days required", check: true },
     ],
     funded: [
       { text: "Keep 80% to 100% of all profits you make", check: true },
@@ -207,7 +219,7 @@ export default function RulesPage() {
   );
 }
 
-function RuleCard({ title, items, variant = 'primary', active }: { title: string, items: any[], variant?: 'primary' | 'destructive', active?: boolean }) {
+function RuleCard({ title, items = [], variant = 'primary', active }: { title: string, items?: any[], variant?: 'primary' | 'destructive', active?: boolean }) {
   const isDestructive = variant === 'destructive';
   
   return (
