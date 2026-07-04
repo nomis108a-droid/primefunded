@@ -88,6 +88,34 @@ export async function giftAccountAction(userId: string, email: string, accountLa
       source: 'provisioned'
     });
 
+    // Lookup user email if not provided for order tracking
+    let targetEmail = email;
+    if (!targetEmail) {
+      const userSnap = await db.collection('users').doc(userId).get();
+      targetEmail = userSnap.data()?.email || 'unknown@primefunded.fund';
+    }
+
+    // CREATE MATCHING ORDER FOR AUDIT TRACKING
+    await db.collection('orders').add({
+      userId,
+      email: targetEmail,
+      plan: planKey,
+      accountSize: accountLabel,
+      amount: "FREE",
+      amountPaid: 0,
+      displayAmount: 'FREE (Admin Gift)',
+      txHash: "ADMIN-GIFT",
+      paymentScreenshot: null,
+      status: "approved",
+      isCouponOrder: true,
+      source: "gifted",
+      submittedAt: FieldValue.serverTimestamp(),
+      approvedAt: FieldValue.serverTimestamp(),
+      approvedBy: "admin",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
     await db.collection('users').doc(userId).collection('notifications').add({
       title: '🚀 Challenge Active',
       message: `Your ${accountLabel} has been provisioned and is ready for trading.`,

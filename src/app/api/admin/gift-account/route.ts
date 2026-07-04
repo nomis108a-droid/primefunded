@@ -38,6 +38,34 @@ export async function POST(req: NextRequest) {
       updatedAt: FieldValue.serverTimestamp(),
       lastResetAt: FieldValue.serverTimestamp(),
     });
+
+    // Lookup user email for audit tracking if not provided
+    let targetEmail = email;
+    if (!targetEmail) {
+      const userSnap = await db.collection('users').doc(userId).get();
+      targetEmail = userSnap.data()?.email || 'unknown@primefunded.fund';
+    }
+
+    // CREATE MATCHING ORDER FOR AUDIT TRACKING
+    await db.collection('orders').add({
+      userId,
+      email: targetEmail,
+      plan: planKey,
+      accountSize: label,
+      amount: "FREE",
+      amountPaid: 0,
+      displayAmount: 'FREE (Admin Gift)',
+      txHash: "ADMIN-GIFT",
+      paymentScreenshot: null,
+      status: "approved",
+      isCouponOrder: true,
+      source: "gifted",
+      submittedAt: FieldValue.serverTimestamp(),
+      approvedAt: FieldValue.serverTimestamp(),
+      approvedBy: "admin",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
     
     // Update matching giveaway record if this was a coupon order approval
     const giveawaysSnap = await db.collection('giveaways')

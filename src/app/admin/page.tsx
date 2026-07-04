@@ -741,19 +741,32 @@ export default function AdminPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Start Balance</Label>
-                <Select value={giftForm.amount} onValueChange={v => setGiftForm({...giftForm, amount: v})}>
-                  <SelectTrigger className="bg-secondary/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10000">$10,000</SelectItem>
-                    <SelectItem value="25000">$25,000</SelectItem>
-                    <SelectItem value="50000">$50,000</SelectItem>
-                    <SelectItem value="100000">$100,000</SelectItem>
-                    <SelectItem value="200000">$200,000</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Start Balance ($)</Label>
+                <div className="space-y-2">
+                  <Select 
+                    value={['10000', '25000', '50000', '100000', '200000'].includes(giftForm.amount) ? giftForm.amount : "custom"} 
+                    onValueChange={v => v !== "custom" && setGiftForm({...giftForm, amount: v})}
+                  >
+                    <SelectTrigger className="bg-secondary/50 h-10">
+                      <SelectValue placeholder="Select preset" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10000">$10,000</SelectItem>
+                      <SelectItem value="25000">$25,000</SelectItem>
+                      <SelectItem value="50000">$50,000</SelectItem>
+                      <SelectItem value="100000">$100,000</SelectItem>
+                      <SelectItem value="200000">$200,000</SelectItem>
+                      <SelectItem value="custom">Custom Amount</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input 
+                    type="number" 
+                    placeholder="Or enter custom amount..." 
+                    value={giftForm.amount} 
+                    onChange={e => setGiftForm({...giftForm, amount: e.target.value})} 
+                    className="bg-secondary/50 h-10"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Plan Type</Label>
@@ -766,6 +779,7 @@ export default function AdminPage() {
                     <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
                     <SelectItem value="3-step-classic">3-Step Classic</SelectItem>
                     <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                    <SelectItem value="instant-pro">Instant Pro</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
