@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditDemoAccount } from '@/lib/rulesEngine';
-import { RULES_CONFIG } from '@/lib/rulesConfig';
 
 /**
  * @fileOverview Institutional Order Execution API
@@ -72,22 +71,6 @@ export async function POST(req: NextRequest) {
     }
     
     if (account.status !== "active") return NextResponse.json({ error: `Account is ${account.status}` }, { status: 400 });
-
-    // ── RULE: EXECUTION FREQUENCY (3 mins) ──────────────────
-    const lastTrades = await db.collection('demoTrades')
-      .where('accountId', '==', accountId)
-      .orderBy('openedAt', 'desc')
-      .limit(1)
-      .get();
-    
-    if (!lastTrades.empty) {
-      const lastTrade = lastTrades.docs[0].data();
-      const lastOpenTime = (lastTrade.openedAt as Timestamp).toDate().getTime();
-      const diffSeconds = (Date.now() - lastOpenTime) / 1000;
-      if (diffSeconds < RULES_CONFIG.universal.maxExecutionFrequencySeconds) {
-        return NextResponse.json({ error: `Execution frequency breach: wait 3 minutes between trades (Remaining: ${(180 - diffSeconds).toFixed(0)}s)` }, { status: 400 });
-      }
-    }
 
     // 1. Lot Size Validation
     const rawPlan = String(account.plan || '10k');

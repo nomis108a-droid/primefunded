@@ -39,14 +39,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (trade.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     if (trade.status !== "open") return NextResponse.json({ error: "Already closed" }, { status: 400 });
 
-    // ── RULE: MINIMUM DURATION (2 mins) ──────────────────
-    const openTime = (trade.openedAt as Timestamp).toDate().getTime();
-    const now = Date.now();
-    const durationSeconds = (now - openTime) / 1000;
-    if (durationSeconds < RULES_CONFIG.universal.minTradeDurationSeconds) {
-      return NextResponse.json({ error: "Minimum trade duration is 2 minutes" }, { status: 400 });
-    }
-
     let closePrice = clientClosePrice;
     if (!closePrice) {
       const snap = await db.collection("livePrices").doc(trade.symbol.toUpperCase()).get();
