@@ -9,8 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { doc, updateDoc, serverTimestamp, addDoc, collection } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { uploadImageAsBase64 } from '@/lib/imageUpload';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
 import Link from 'next/link';
 
 export default function KYCPage() {
@@ -25,15 +25,15 @@ export default function KYCPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validation
-    const maxSize = 2 * 1024 * 1024; // 2MB for Firestore Base64
-    const allowedTypes = ['image/jpeg', 'image/png'];
+    // Institutional validation: Support up to 10MB via Storage
+    const maxSize = 10 * 1024 * 1024; 
+    const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
 
     if (file.size > maxSize) {
       toast({
         variant: "destructive",
         title: "File Too Large",
-        description: "Max file size is 2MB for direct upload. Please optimize your image.",
+        description: "Max file size is 10MB. Please use a standard image or PDF.",
       });
       return;
     }
@@ -42,7 +42,7 @@ export default function KYCPage() {
       toast({
         variant: "destructive",
         title: "Invalid File Type",
-        description: "Only JPG and PNG are allowed for base64 storage.",
+        description: "Only JPG, PNG and PDF are allowed.",
       });
       return;
     }
@@ -53,6 +53,16 @@ export default function KYCPage() {
     toast({ title: "File Selected", description: file.name });
   };
 
+  const uploadToStorage = async (file: File, type: 'id' | 'address') => {
+    if (!user) throw new Error("No authenticated user");
+    const extension = file.name.split('.').pop();
+    const fileName = `${type}-proof-${Date.now()}.${extension}`;
+    const storageRef = ref(storage, `kyc/${user.uid}/${fileName}`);
+    
+    const snapshot = await uploadBytes(storageRef, file);
+    return getDownloadURL(snapshot.ref);
+  };
+
   const handleSubmit = async () => {
     if (!user || !idFile || !addressFile) {
       toast({ variant: "destructive", title: "Missing Files", description: "Please upload both Identity and Address documents." });
@@ -61,25 +71,28 @@ export default function KYCPage() {
     setLoading(true);
     
     try {
-      // Encode both documents as Base64 for database storage
-      const idBase64 = await uploadImageAsBase64(idFile);
-      const addressBase64 = await uploadImageAsBase64(addressFile);
+      // Step 1: Upload to Secure Storage
+      const [idUrl, addressUrl] = await Promise.all([
+        uploadToStorage(idFile, 'id'),
+        uploadToStorage(addressFile, 'address')
+      ]);
 
+      // Step 2: Update Firestore with Download URLs
       const userRef = doc(db, 'users', user.uid);
       const updates = {
         kycStatus: 'pending',
         kycSubmittedAt: new Date().toISOString(),
         kycVerified: false,
         kycRejectionReason: null,
-        idProofUrl: idBase64,
-        addressProofUrl: addressBase64
+        idProofUrl: idUrl,
+        addressProofUrl: addressUrl
       };
 
       await updateDoc(userRef, updates);
       
       await addDoc(collection(db, 'users', user.uid, 'notifications'), {
         title: "⏳ KYC Under Review",
-        message: "Your documents have been encrypted and submitted successfully to our secure vault. We will notify you once review is complete.",
+        message: "Your documents have been securely uploaded to our vault. We will notify you once review is complete.",
         type: 'kyc_submitted',
         isRead: false,
         createdAt: serverTimestamp()
@@ -126,7 +139,7 @@ export default function KYCPage() {
                   <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
                     <input 
                       type="file" 
-                      accept=".jpg,.jpeg,.png" 
+                      accept=".jpg,.jpeg,.png,.pdf" 
                       className="absolute inset-0 opacity-0 cursor-pointer" 
                       onChange={(e) => handleFileChange(e, 'id')}
                     />
@@ -139,7 +152,7 @@ export default function KYCPage() {
                       <>
                         <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
                         <p className="text-sm font-bold text-white">Click to upload ID</p>
-                        <p className="text-xs text-muted-foreground mt-2">JPG, PNG (Max 2MB)</p>
+                        <p className="text-xs text-muted-foreground mt-2">JPG, PNG, PDF (Max 10MB)</p>
                       </>
                     )}
                   </div>
@@ -158,7 +171,7 @@ export default function KYCPage() {
                   <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
                     <input 
                       type="file" 
-                      accept=".jpg,.jpeg,.png" 
+                      accept=".jpg,.jpeg,.png,.pdf" 
                       className="absolute inset-0 opacity-0 cursor-pointer" 
                       onChange={(e) => handleFileChange(e, 'address')}
                     />

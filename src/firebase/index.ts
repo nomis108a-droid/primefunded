@@ -1,4 +1,3 @@
-
 'use client';
 
 import { initializeApp, getApps, type FirebaseApp, getApp } from 'firebase/app';
@@ -10,6 +9,7 @@ import {
   persistentLocalCache,
   memoryLocalCache
 } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { firebaseConfig } from './config';
 
 /**
@@ -19,6 +19,7 @@ let cachedFirebase: {
   firebaseApp: FirebaseApp | null;
   firestore: Firestore | null;
   auth: Auth | null;
+  storage: FirebaseStorage | null;
 } | null = null;
 
 /**
@@ -29,18 +30,20 @@ export function initializeFirebase(): {
   firebaseApp: FirebaseApp | null;
   firestore: Firestore | null;
   auth: Auth | null;
+  storage: FirebaseStorage | null;
 } {
   if (cachedFirebase) return cachedFirebase;
 
   const isConfigMissing = !firebaseConfig.apiKey || firebaseConfig.apiKey === '';
   
   if (isConfigMissing) {
-    return { firebaseApp: null, firestore: null, auth: null };
+    return { firebaseApp: null, firestore: null, auth: null, storage: null };
   }
 
   try {
     const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     const auth = getAuth(firebaseApp);
+    const storage = getStorage(firebaseApp);
     
     let firestore: Firestore;
     
@@ -61,11 +64,11 @@ export function initializeFirebase(): {
       firestore = getFirestore(firebaseApp);
     }
 
-    cachedFirebase = { firebaseApp, firestore, auth };
+    cachedFirebase = { firebaseApp, firestore, auth, storage };
     return cachedFirebase;
   } catch (error) {
     console.error('[Firebase] Initialization Error:', error);
-    return { firebaseApp: null, firestore: null, auth: null };
+    return { firebaseApp: null, firestore: null, auth: null, storage: null };
   }
 }
 

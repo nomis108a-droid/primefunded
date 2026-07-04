@@ -8,11 +8,12 @@
 
 import { initializeFirebase } from '@/firebase';
 
-const { firebaseApp, firestore, auth: firebaseAuth } = initializeFirebase();
+const { firebaseApp, firestore, auth: firebaseAuth, storage: firebaseStorage } = initializeFirebase();
 
 // Fallback to empty if initialization failed (prevents runtime crashes during build/config lag)
 export const app = firebaseApp!;
 export const auth = firebaseAuth!;
 export const db = firestore!;
+export const storage = firebaseStorage!;
 
 export default app;
