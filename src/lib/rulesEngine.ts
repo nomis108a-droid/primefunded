@@ -171,7 +171,7 @@ export async function auditDemoAccount(accountId: string) {
     const createdTime = (createdAt as Timestamp).toDate().getTime();
     const expiryMs = rules.accountExpiryDays * 24 * 60 * 60 * 1000;
     if (Date.now() > (createdTime + expiryMs)) {
-      breachReason = `Account expired: Your 30-day trading window ended on ${new Date(createdTime + expiryMs).toLocaleDateString()}`;
+      breachReason = `Account expired: Your 30-day window ended on ${new Date(createdTime + expiryMs).toLocaleDateString()}. Purchase a new challenge to continue.`;
     }
   }
 
@@ -187,7 +187,7 @@ export async function auditDemoAccount(accountId: string) {
         FOREX_METAL_SYMBOLS.includes(t.symbol?.toUpperCase() || '')
       );
       if (forexMetalOpenTrades.length > 0) {
-        breachReason = "Friday overnight violation: Open Forex/Metal positions detected after market close (Friday 21:00 UTC). Crypto positions are exempt.";
+        breachReason = "Friday overnight violation: Open Forex/Metal positions detected after market close (Friday 21:00 UTC). Crypto positions are not affected.";
       }
     }
   }
@@ -316,7 +316,8 @@ export async function auditDemoAccount(accountId: string) {
   // Check Min Trades Per Symbol
   let symbolConstraintMet = true;
   if (rules.minTradesPerSymbolForPayout) {
-    for (const sym of Object.keys(symbolTradeCounts)) {
+    const symbolsTraded = Object.keys(symbolTradeCounts);
+    for (const sym of symbolsTraded) {
       if (symbolTradeCounts[sym] < rules.minTradesPerSymbolForPayout) {
         symbolConstraintMet = false;
         if (targetMet && !breachReason) {

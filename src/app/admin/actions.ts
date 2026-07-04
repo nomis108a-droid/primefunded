@@ -23,7 +23,7 @@ function serializeData(data: any): any {
 }
 
 /**
- * SECURITY HELPER
+ * SECURITY HELPER: Multi-layered Admin Verification
  */
 export async function verifyAdminAuth() {
   try {
@@ -32,11 +32,25 @@ export async function verifyAdminAuth() {
     if (masterToken === '93463962569392846256') return true;
     
     const token = cookieStore.get('session')?.value;
-    if (!token) return false;
+    if (token) {
+      const auth = getAdminAuth();
+      try {
+        const decoded = await auth.verifySessionCookie(token, true);
+        if (decoded.email && ADMIN_EMAILS.includes(decoded.email)) return true;
+      } catch {}
+    }
     
-    const auth = getAdminAuth();
-    const decoded = await auth.verifySessionCookie(token, true);
-    return !!(decoded.email && ADMIN_EMAILS.includes(decoded.email));
+    // Fallback: check Firebase ID token from Authorization header
+    const { headers } = await import('next/headers');
+    const headerStore = await headers();
+    const authHeader = headerStore.get('authorization') || '';
+    const idToken = authHeader.replace('Bearer ', '');
+    if (idToken) {
+      const decoded = await getAdminAuth().verifyIdToken(idToken);
+      if (decoded.email && ADMIN_EMAILS.includes(decoded.email)) return true;
+    }
+    
+    return false;
   } catch (error) {
     return false;
   }

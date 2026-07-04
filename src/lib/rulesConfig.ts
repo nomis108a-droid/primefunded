@@ -1,4 +1,3 @@
-
 /**
  * @fileOverview Institutional Rules Configuration
  * Single source of truth for all plan thresholds and risk protocols.
@@ -103,7 +102,7 @@ export const RULES_CONFIG = {
         maxDrawdown: 5,
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
-        minTradingDaysBeforePayout: 7,
+        minTradingDaysBeforePayout: 5,
         minDailyTrades: 3,
         minTradesPerSymbolForPayout: 5,
         accountExpiryDays: 30

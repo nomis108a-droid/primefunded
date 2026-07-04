@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useMemo, useEffect, useState } from 'react';
@@ -23,6 +22,7 @@ const PLAN_RULES = {
       { text: "Hold trades for at least 2 minutes", type: 'warning' },
       { text: "No time limit", type: 'check' },
       { text: "No martingale allowed (hard Breach)", type: 'skull' },
+      { text: "Friday overnight holding of Forex/Metal positions results in breach. Crypto is exempt.", type: 'skull' },
     ],
     funded: [
       { text: "80% profit split", type: 'check' },
@@ -34,56 +34,61 @@ const PLAN_RULES = {
       { text: "3% daily drawdown limit (Hard Breach)", type: 'skull' },
       { text: "6% max drawdown limit (Hard Breach)", type: 'skull' },
       { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate breach.", type: 'skull' },
     ]
   },
   '2-step': {
     evaluation: [
       { text: "Phase 1: Reach a profit target of 8% to pass", type: 'check' },
       { text: "Phase 2: Reach a profit target of 5% to pass", type: 'check' },
-      { text: "Do not lose more than 5% of your starting balance in a single day", type: 'warning' },
-      { text: "Your account will be closed if your total loss ever reaches 10% of your starting balance", type: 'skull' },
-      { text: "A single closed trade cannot lose more than 3% of your starting balance", type: 'skull' },
-      { text: "Wait at least 3 minutes between new trades and hold for 2+ minutes", type: 'warning' },
+      { text: "Do not lose more than 5% in a single day", type: 'warning' },
+      { text: "Your account will be closed if your total loss ever reaches 10%", type: 'skull' },
+      { text: "A single closed trade cannot lose more than 3% (Hard Breach)", type: 'skull' },
+      { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
       { text: "You must trade for at least 5 different days", type: 'check' },
+      { text: "Friday overnight holding of Forex/Metal positions results in breach.", type: 'skull' },
     ],
     funded: [
       { text: "Keep 80% of all profits you make", type: 'check' },
-      { text: "Wait 3+ minutes between new trades and hold for 2+ minutes", type: 'skull' },
-      { text: "A single trade cannot lose more than 3% of your starting balance", type: 'skull' },
+      { text: "Wait 3+ minutes between new trades and hold for 2+ minutes (Hard Breach)", type: 'skull' },
+      { text: "A single trade cannot lose more than 3% (Hard Breach)", type: 'skull' },
       { text: "You need to trade for at least 5 days before asking for a payout", type: 'check' },
-      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
-      { text: "Do not lose more than 5% in a single day", type: 'skull' },
-      { text: "Do not let your total losses reach 10%", type: 'skull' },
-      { text: "Double-sizing your trades after a loss is not allowed", type: 'skull' },
+      { text: "If any single open trade loses more than 1%, it will be auto-closed for you", type: 'warning' },
+      { text: "Do not lose more than 5% in a single day (Hard Breach)", type: 'skull' },
+      { text: "Do not let your total losses reach 10% (Hard Breach)", type: 'skull' },
+      { text: "Double-sizing after a loss (Martingale) is forbidden (Hard Breach)", type: 'skull' },
+      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
     ]
   },
   '3-step': {
     evaluation: [
-      { text: "Phase 1: Reach a profit target of 10% to pass this phase (Min 7 days)", type: 'check' },
-      { text: "Phase 2: Reach a profit target of 8% to pass this phase (Min 6 days)", type: 'check' },
-      { text: "Phase 3: Reach a profit target of 5% to pass this phase (Min 5 days)", type: 'check' },
+      { text: "Phase 1: 10% target (Min 7 days)", type: 'check' },
+      { text: "Phase 2: 8% target (Min 6 days)", type: 'check' },
+      { text: "Phase 3: 5% target (Min 5 days)", type: 'check' },
       { text: "Do not lose more than 4% in a single day", type: 'warning' },
       { text: "Do not let your total losses reach 8%", type: 'skull' },
       { text: "A single closed trade cannot lose more than 3%", type: 'skull' },
       { text: "3 minute gap between trades, 2 minute minimum hold", type: 'warning' },
+      { text: "Friday overnight holding of Forex/Metal positions results in breach.", type: 'skull' },
     ],
     funded: [
       { text: "Keep 80% to 100% of all profits you make", type: 'check' },
-      { text: "A single closed trade cannot lose more than 3%", type: 'skull' },
-      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
-      { text: "Do not lose more than 4% in a single day", type: 'skull' },
-      { text: "Do not let your total losses reach 8%", type: 'skull' },
-      { text: "You cannot double your trade size after a loss to recover", type: 'skull' },
+      { text: "A single closed trade cannot lose more than 3% (Hard Breach)", type: 'skull' },
+      { text: "If any single open trade loses more than 1%, it will be auto-closed for you", type: 'warning' },
+      { text: "Do not lose more than 4% in a single day (Hard Breach)", type: 'skull' },
+      { text: "Do not let your total losses reach 8% (Hard Breach)", type: 'skull' },
+      { text: "No Martingale allowed (Hard Breach)", type: 'skull' },
+      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
     ]
   },
   'instant': {
     evaluation: [
       { text: "Keep 70% of all profits you make", type: 'check' },
-      { text: "You can request your first payout just 24 hours after starting", type: 'check' },
-      { text: "You can get paid every single day", type: 'check' },
-      { text: "You can withdraw a maximum of 3% of your balance every 24 hours", type: 'warning' },
-      { text: "Your payout request cannot be larger than your daily loss limit", type: 'warning' },
-      { text: "Your account will automatically close after 30 days from the day you bought it", type: 'skull' },
+      { text: "First payout available 24 hours after starting", type: 'check' },
+      { text: "Daily payouts available (1 request per 24h)", type: 'check' },
+      { text: "Max withdraw 3% of balance every 24 hours", type: 'warning' },
+      { text: "Trading is suspended while a payout request is pending", type: 'warning' },
+      { text: "Your account automatically expires 30 days after purchase", type: 'skull' },
     ],
     funded: [
       { text: "1 execution per 3 mins maximum (Hard Breach)", type: 'skull' },
@@ -92,25 +97,26 @@ const PLAN_RULES = {
       { text: "3% daily drawdown (Hard Breach)", type: 'skull' },
       { text: "4% max drawdown (Hard Breach)", type: 'skull' },
       { text: "3% max loss per single trade (Hard Breach)", type: 'skull' },
-      { text: "No Friday overnight holding (hard breach)", type: 'skull' },
-      { text: "Minimum 5 trades per instrument required for payout eligibility (Soft Rule)", type: 'check' },
+      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
+      { text: "Must complete at least 5 trades per instrument for payout eligibility", type: 'check' },
     ]
   },
   'instant-pro': {
     evaluation: [
       { text: "Keep 80% of all profits you make", type: 'check' },
-      { text: "You can get paid every day after you have traded for 7 qualified days", type: 'check' },
-      { text: "A trading day only counts towards your payout if you completed at least 3 trades that day", type: 'check' },
-      { text: "You need 7 qualified trading days before you can request a payout", type: 'check' },
+      { text: "Qualified trading day: Minimum 3 trades completed", type: 'check' },
+      { text: "Need at least 5 qualified days for payout eligibility", type: 'check' },
+      { text: "Daily payouts (1 request per 24h)", type: 'check' },
+      { text: "Trading is suspended while a payout request is pending", type: 'warning' },
+      { text: "Your account automatically expires 30 days after purchase", type: 'skull' },
     ],
     funded: [
-      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'skull' },
-      { text: "Your account will be closed if your total loss ever reaches 5% of your starting balance", type: 'skull' },
-      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "Do not lose more than 3% in a single day (Hard Breach)", type: 'skull' },
+      { text: "Total loss limit: 5% (Hard Breach)", type: 'skull' },
       { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
-      { text: "No Friday overnight holding (hard breach)", type: 'skull' },
-      { text: "You must complete at least 5 trades on every symbol you use to be eligible for a payout", type: 'check' },
-      { text: "You cannot double your trade size after a loss to recover - this is forbidden", type: 'skull' },
+      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
+      { text: "Must complete at least 5 trades per instrument for payout eligibility", type: 'check' },
+      { text: "No Martingale allowed (Hard Breach)", type: 'skull' },
     ]
   }
 };
@@ -133,7 +139,7 @@ export default function RulesPage() {
   const currentPhase = userData?.phase || 'evaluation';
 
   const leftTitle = activePlan.startsWith('instant') ? 'Rules for Profit' : 'Evaluation Phase';
-  const rightTitle = activePlan.startsWith('instant') ? 'Safety Rules' : 'Funded Stage';
+  const rightTitle = activePlan.startsWith('instant') ? 'Risk Protocols' : 'Funded Stage';
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -186,12 +192,12 @@ export default function RulesPage() {
                    <p className="text-sm text-muted-foreground leading-relaxed">
                      Violating hard rules results in immediate liquidation of your trading account. The account is terminated, and all profits are forfeited. No appeals are permitted for hard breaches.
                    </p>
-                   <ul className="space-y-3">
-                      <BreachItem text="Daily Drawdown limit reached" />
-                      <BreachItem text="Maximum Drawdown limit reached" />
-                      <BreachItem text="Unauthorized Martingale / Grid trading" />
-                      <BreachItem text="Frequency or Duration violation" />
-                      <BreachItem text="Friday overnight holding of Forex/Metals" />
+                   <ul className="space-y-3 text-xs font-semibold text-zinc-300">
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Daily Drawdown limit reached</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Maximum Drawdown limit reached</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Unauthorized Martingale / Grid trading</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Frequency or Duration violation</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Friday overnight holding of Forex/Metals</li>
                    </ul>
                 </Card>
 
@@ -205,10 +211,10 @@ export default function RulesPage() {
                    <p className="text-sm text-muted-foreground leading-relaxed">
                      Soft rules are designed to protect your evaluation. Violating a soft rule results in a formal warning or an automatic position adjustment without terminating your eligibility for funding.
                    </p>
-                   <ul className="space-y-3">
-                      <BreachItem text="Low trade count for payout eligibility" />
-                      <BreachItem text="Copying unauthorized external signals" />
-                      <BreachItem text="Inconsistent execution patterns" />
+                   <ul className="space-y-3 text-xs font-semibold text-zinc-300">
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Low trade count per symbol for payout</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Copying unauthorized external signals</li>
+                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Inconsistent execution patterns</li>
                    </ul>
                 </Card>
               </div>
@@ -217,15 +223,6 @@ export default function RulesPage() {
         </Tabs>
       </main>
     </div>
-  );
-}
-
-function BreachItem({ text }: { text: string }) {
-  return (
-    <li className="flex items-center gap-3 text-xs font-semibold text-zinc-300">
-      <div className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {text}
-    </li>
   );
 }
 
