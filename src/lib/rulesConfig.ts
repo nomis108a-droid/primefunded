@@ -20,14 +20,12 @@ export const RULES_CONFIG = {
         profitTarget: 10,
         dailyDrawdown: 3,
         maxDrawdown: 6,
-        minTradingDays: 5,
-        maxFloatingLoss: 1
+        minTradingDays: 5
       },
       funded: {
         dailyDrawdown: 3,
         maxDrawdown: 4,
-        minTradingDaysBeforePayout: 5,
-        maxFloatingLoss: 1
+        minTradingDaysBeforePayout: 5
       }
     },
     "2-step-classic": {
@@ -49,7 +47,6 @@ export const RULES_CONFIG = {
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDaysBeforePayout: 5,
-        maxFloatingLoss: 1,
         maxSingleTradeLoss: 3
       }
     },
@@ -79,7 +76,6 @@ export const RULES_CONFIG = {
         dailyDrawdown: 4,
         maxDrawdown: 8,
         minTradingDaysBeforePayout: 5,
-        maxFloatingLoss: 1,
         maxSingleTradeLoss: 3
       }
     },

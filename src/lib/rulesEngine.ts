@@ -32,6 +32,63 @@ function getTradeDate(time: any) {
   return new Date(time);
 }
 
+/**
+ * Enforces per-trade floating loss limits (Soft Breach Policy).
+ * Force closes individual trades that exceed the threshold to protect account capital.
+ */
+async function enforceSymbolFloatingLossLimits(
+  db: any,
+  accountId: string,
+  userId: string,
+  startBalance: number,
+  openTrades: TradeRecord[],
+  prices: Record<string, any>,
+  maxFloatingLossPct: number
+) {
+  const limitUsd = startBalance * (maxFloatingLossPct / 100);
+  const closedIds = new Set<string>();
+  let totalRealizedLoss = 0;
+
+  for (const t of openTrades) {
+    const priceData = prices[t.symbol?.toUpperCase() || ''];
+    if (!priceData) continue;
+
+    const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+    const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
+    const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
+
+    if (pnl < 0 && Math.abs(pnl) >= limitUsd) {
+      // Force Close this specific trade
+      await db.runTransaction(async (tx: any) => {
+        tx.update(t.ref, {
+          status: 'closed',
+          closedAt: FieldValue.serverTimestamp(),
+          closeReason: 'liquidation',
+          closePrice: exitPrice,
+          pnl: pnl,
+          liquidated: true
+        });
+        tx.update(db.collection('demoAccounts').doc(accountId), {
+          balance: FieldValue.increment(pnl),
+          updatedAt: FieldValue.serverTimestamp()
+        });
+        // Create individual trade closure notification
+        tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
+          title: '🛡️ Trade Auto-Closed',
+          message: `Trade on ${t.symbol} force-closed: single trade floating loss exceeded ${maxFloatingLossPct}% of your starting balance.`,
+          type: 'risk_warning',
+          isRead: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
+      });
+      closedIds.add(t.id);
+      totalRealizedLoss += Math.abs(pnl);
+    }
+  }
+
+  return { closedIds, realizedLossFromForceClose: totalRealizedLoss };
+}
+
 export async function auditDemoAccount(accountId: string) {
   const db = getAdminDb();
   const accRef = db.collection('demoAccounts').doc(accountId);
@@ -60,8 +117,18 @@ export async function auditDemoAccount(accountId: string) {
   const prices: Record<string, any> = {};
   pricesSnap.docs.forEach(d => prices[d.id.toUpperCase()] = d.data());
 
-  const openTrades = trades.filter(t => t.status === 'open');
+  let openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
+
+  // Handle Force-Close Floating Loss (Soft Breach Policy)
+  let realizedLossFromForceClose = 0;
+  if (rules.maxFloatingLoss && openTrades.length > 0) {
+    const floatingResult = await enforceSymbolFloatingLossLimits(
+      db, accountId, userId, initialBalance, openTrades, prices, rules.maxFloatingLoss
+    );
+    realizedLossFromForceClose = floatingResult.realizedLossFromForceClose;
+    openTrades = openTrades.filter(t => !floatingResult.closedIds.has(t.id));
+  }
 
   // 2. Calculate Real-time Equity
   let totalFloatingPnl = 0;
@@ -80,13 +147,13 @@ export async function auditDemoAccount(accountId: string) {
   const currentEquity = currBalance + totalFloatingPnl;
   let breachReason = '';
 
-  // ── RULE 1: Daily Drawdown (3% of start balance) ──────────────
+  // ── RULE 1: Daily Drawdown ──────────────
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0); 
-  if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.setUTCDate() - 1);
+  if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
 
-  let realizedLossToday = 0;
+  let realizedLossToday = realizedLossFromForceClose;
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
     if (closedDate && closedDate >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
