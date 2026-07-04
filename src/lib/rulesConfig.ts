@@ -8,11 +8,11 @@ export type PlanPhaseRules = {
   maxDrawdown: number;
   minTradingDays?: number;
   minTradingDaysBeforePayout?: number;
-  maxFloatingLoss?: number;       // % of initial balance, per SINGLE open trade
-  maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (closed)
+  maxFloatingLoss?: number;       // % of initial balance, per SYMBOL (auto-close)
+  maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (hard breach)
   minDailyTrades?: number;
   accountExpiryDays?: number;     // Days until account automatically closes
-  minTradesPerSymbolForPayout?: number; // New: 5 trades per symbol for payout
+  minTradesPerSymbolForPayout?: number; 
 };
 
 export const RULES_CONFIG = {
@@ -22,24 +22,26 @@ export const RULES_CONFIG = {
         profitTarget: 10,
         dailyDrawdown: 3,
         maxDrawdown: 6,
-        minTradingDays: 5
+        minTradingDays: 5,
+        maxSingleTradeLoss: 3 // Hard Breach as per spec
       },
       funded: {
         dailyDrawdown: 3,
-        maxDrawdown: 6, // Updated to 6% as per latest spec
-        minTradingDaysBeforePayout: 5
+        maxDrawdown: 6,
+        minTradingDaysBeforePayout: 5,
+        maxSingleTradeLoss: 3
       }
     },
     "2-step-classic": {
       phase1: {
-        profitTarget: 8, // Updated
+        profitTarget: 8,
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDays: 5,
         maxSingleTradeLoss: 3
       },
       phase2: {
-        profitTarget: 5, // Updated
+        profitTarget: 5,
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDays: 5,
@@ -78,7 +80,8 @@ export const RULES_CONFIG = {
         dailyDrawdown: 4,
         maxDrawdown: 8,
         minTradingDaysBeforePayout: 5,
-        maxSingleTradeLoss: 3
+        maxSingleTradeLoss: 3,
+        maxFloatingLoss: 1 // 1% symbol auto-close in funded
       }
     },
     "instant-funding": {
