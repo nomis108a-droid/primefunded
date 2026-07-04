@@ -122,9 +122,14 @@ export default function DashboardPage() {
     tradeConstraints
   );
 
-  // 3. Separate Open and Closed Trades
-  const openTrades = useMemo(() => allTrades.filter(t => t.status === 'open'), [allTrades]);
-  const closedTrades = useMemo(() => allTrades.filter(t => t.status === 'closed'), [allTrades]);
+  // 3. Separate Open and Closed Trades (Scoped to selected account)
+  const openTrades = useMemo(() => 
+    allTrades.filter(t => t.status === 'open' && t.accountId === selectedAccountId), 
+  [allTrades, selectedAccountId]);
+
+  const closedTrades = useMemo(() => 
+    allTrades.filter(t => t.status === 'closed' && t.accountId === selectedAccountId), 
+  [allTrades, selectedAccountId]);
 
   // 4. Rule Lookup
   const minTradingDays = useMemo(() => {
@@ -155,7 +160,7 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // 6. Compute Stats from Closed History
+  // 6. Compute Stats from Scoped History
   const stats = useMemo(() => {
     if (closedTrades.length === 0) return { total: 0, winRate: 0, totalPnl: 0, best: 0, worst: 0 };
     const wins = closedTrades.filter(t => (t.pnl || 0) > 0);
@@ -364,7 +369,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
                   <Activity className="w-5 h-5 text-accent" /> Live Terminal Positions
                 </CardTitle>
-                <CardDescription>Real-time execution monitoring.</CardDescription>
+                <CardDescription>Real-time execution monitoring for selected account.</CardDescription>
               </div>
               <Badge variant="outline" className="animate-pulse bg-accent/5 text-accent border-accent/30 uppercase text-[9px] font-black tracking-widest h-6">
                 <div className="w-1.5 h-1.5 rounded-full bg-accent mr-2" /> Live Sync
@@ -428,7 +433,7 @@ export default function DashboardPage() {
               <CardTitle className="text-xl font-headline text-white flex items-center gap-2">
                 <History className="w-5 h-5 text-primary" /> Execution Ledger
               </CardTitle>
-              <CardDescription>Archive of the last 50 closed positions.</CardDescription>
+              <CardDescription>Archive of recent closed positions for selected account.</CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">

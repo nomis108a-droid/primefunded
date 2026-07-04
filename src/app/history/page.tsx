@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { 
@@ -29,24 +29,46 @@ export default function HistoryPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
-
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
-  const tradeConstraints = useMemo(() => {
+  // 1. Fetch User Accounts (Include all statuses for permanent audit)
+  const accountConstraints = useMemo(() => {
     if (!user?.uid) return [];
+    return [where('userId', '==', user.uid)];
+  }, [user?.uid]);
+
+  const { data: accounts, loading: accountsLoading } = useCollection<any>(
+    user?.uid ? 'demoAccounts' : null,
+    accountConstraints
+  );
+
+  // 2. Default selection to first available account
+  useEffect(() => {
+    if (accounts.length > 0 && !selectedAccountId) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [accounts, selectedAccountId]);
+
+  // 3. Fetch Trades for Selected Account
+  const tradeConstraints = useMemo(() => {
+    if (!user?.uid || !selectedAccountId) return [];
     return [
       where('userId', '==', user.uid),
+      where('accountId', '==', selectedAccountId),
       where('status', '==', 'closed'),
       orderBy('closedAt', 'desc'),
       limit(500)
     ];
-  }, [user?.uid]);
+  }, [user?.uid, selectedAccountId]);
 
   const { data: trades, loading: tradesLoading } = useCollection<any>(
-    user?.uid ? 'demoTrades' : null,
+    user?.uid && selectedAccountId ? 'demoTrades' : null,
     tradeConstraints
   );
 
+  // 4. Client-side Filtering
   const filteredTrades = useMemo(() => {
     return trades.filter(trade => {
       const matchesSymbol = trade.symbol?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -103,6 +125,40 @@ export default function HistoryPage() {
             <Download className="w-4 h-4 mr-2" /> Export CSV
           </Button>
         </header>
+
+        {/* Account Selector Pills */}
+        {!accountsLoading && accounts.length === 0 ? (
+          <Card className="border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center mb-8">
+            <SearchX className="w-12 h-12 text-muted-foreground opacity-20 mx-auto mb-4" />
+            <h3 className="text-lg font-bold text-white mb-1">No trading nodes found</h3>
+            <p className="text-sm text-muted-foreground">Start a challenge to generate your first audit trail.</p>
+          </Card>
+        ) : (
+          <div className="flex flex-wrap gap-2 mb-8">
+            {accounts.map((acc: any) => (
+              <button
+                key={acc.id}
+                onClick={() => setSelectedAccountId(acc.id)}
+                className={cn(
+                  "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border flex items-center gap-2",
+                  selectedAccountId === acc.id 
+                    ? "bg-primary text-black border-primary shadow-[0_0_15px_rgba(17,179,245,0.4)]" 
+                    : "bg-secondary/50 text-muted-foreground border-border/50 hover:border-primary/30"
+                )}
+              >
+                {acc.label}
+                <Badge className={cn(
+                  "text-[8px] px-1.5 h-4 border-none font-black",
+                  acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
+                  acc.status === 'passed' ? "bg-amber-500/20 text-amber-500" :
+                  "bg-destructive/20 text-destructive"
+                )}>
+                  {acc.status}
+                </Badge>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
           <div className="relative md:col-span-2">

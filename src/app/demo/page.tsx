@@ -72,7 +72,11 @@ export default function DemoPage() {
   const [selectedInterval, setSelectedInterval] = useState("1min");
   const [selectedTimezone, setSelectedTimezone] = useState("local");
   const [chartType, setChartType] = useState<string>("candles");
-  const [lots, setLots] = useState(0.10);
+  
+  // Lots input state handling
+  const [lotsInput, setLotsInput] = useState("0.10");
+  const lots = parseFloat(lotsInput) || 0;
+
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
@@ -433,9 +437,32 @@ export default function DemoPage() {
         <div className="flex flex-col gap-2">
           <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
           <div className="flex items-center gap-2">
-            <button onClick={() => setLots(Math.max(0.01, lots - 0.01))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">-</button>
-            <Input type="number" step="0.01" value={lots} onChange={(e) => setLots(parseFloat(e.target.value) || 0)} className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white" />
-            <button onClick={() => setLots(lots + 0.01)} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">+</button>
+            <button 
+              onClick={() => setLotsInput(Math.max(0.01, lots - 0.01).toFixed(2))} 
+              className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold"
+            >
+              -
+            </button>
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={lotsInput}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (/^\d*\.?\d*$/.test(val)) setLotsInput(val);
+              }}
+              onBlur={() => {
+                const parsed = parseFloat(lotsInput);
+                setLotsInput(isNaN(parsed) || parsed <= 0 ? "0.01" : parsed.toFixed(2));
+              }}
+              className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white"
+            />
+            <button 
+              onClick={() => setLotsInput((lots + 0.01).toFixed(2))} 
+              className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold"
+            >
+              +
+            </button>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
