@@ -213,7 +213,7 @@ export async function auditDemoAccount(accountId: string) {
   }
 
   // ── RULE: No Martingale ──
-  if (!breachReason && universal.noMartingale) {
+  if (!breachReason && universal.noFridayOvernightHolding) { // Use this property or add specific martingale config
     const symGroups: Record<string, TradeRecord[]> = {};
     trades.forEach(t => {
       const s = t.symbol || '';

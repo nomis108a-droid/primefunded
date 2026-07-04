@@ -79,6 +79,7 @@ export default function DemoPage() {
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
   const [orderType, setOrderType] = useState<"market" | "pending">("market");
+  const [pendingPrice, setPendingPrice] = useState<string>("");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
   
@@ -381,12 +382,33 @@ export default function DemoPage() {
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !currentPriceData) return;
+
+      const executionPrice = orderType === 'pending'
+        ? parseFloat(pendingPrice)
+        : type === 'buy'
+          ? (currentPriceData.ask || currentPriceData.price)
+          : (currentPriceData.bid || currentPriceData.price);
+
+      if (orderType === 'pending' && (!pendingPrice || isNaN(executionPrice) || executionPrice <= 0)) {
+        toast({ title: "Validation Error", description: "Please enter a valid limit price", variant: "destructive" });
+        setActionLoading(false);
+        return;
+      }
+
       const token = await user.getIdToken(true);
-      const executionPrice = type === 'buy' ? (currentPriceData.ask || currentPriceData.price) : (currentPriceData.bid || currentPriceData.price);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: parseFloat(tp) > 0 ? parseFloat(tp) : null })
+        body: JSON.stringify({ 
+          accountId: currentAccountId, 
+          symbol: selectedSymbol.toUpperCase(), 
+          type, 
+          lots, 
+          price: executionPrice, 
+          sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, 
+          tp: parseFloat(tp) > 0 ? parseFloat(tp) : null,
+          orderType: orderType || 'market'
+        })
       });
       if (!res.ok) { 
         const err = await res.json().catch(() => ({})); 
@@ -451,6 +473,20 @@ export default function DemoPage() {
         </TabsList>
       </Tabs>
       <div className="space-y-6">
+        {orderType === 'pending' && (
+          <div className="space-y-2">
+            <Label className="text-[9px] font-black uppercase text-zinc-400">Limit Price</Label>
+            <Input
+              type="number"
+              step="any"
+              placeholder="Enter limit price..."
+              value={pendingPrice}
+              onChange={e => setPendingPrice(e.target.value)}
+              className="bg-zinc-900 border-zinc-700 text-white h-11 text-sm font-mono"
+            />
+            <p className="text-[9px] text-zinc-500">Order executes when market reaches this price</p>
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
           <div className="flex items-center gap-2">

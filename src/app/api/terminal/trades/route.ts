@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { accountId, symbol, type, lots: rawLots, sl, tp, price: clientPrice } = body;
+    const { accountId, symbol, type, lots: rawLots, sl, tp, price: clientPrice, orderType } = body;
 
     if (!accountId || !symbol || !type || !rawLots || !clientPrice) {
       return NextResponse.json({ error: "Missing required order parameters" }, { status: 400 });
@@ -66,9 +66,9 @@ export async function POST(req: NextRequest) {
     const account = accSnap.data()!;
     if (account.userId !== uid) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
     
-    // ── BLOCK TRADING IF BREACHED ──
+    // PERMANENT: Block trading on breached accounts
     if (account.status === 'blown' || account.status === 'breach' || account.status === 'terminated') {
-      return NextResponse.json({ error: 'Trading suspended: This account has been breached' }, { status: 403 });
+      return NextResponse.json({ error: 'Account breached: Trading is permanently disabled on this node.' }, { status: 403 });
     }
     
     if (account.status !== "active") return NextResponse.json({ error: `Account is ${account.status}` }, { status: 400 });
@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
         tp: tp ? parseFloat(String(tp)) : null,
         status: "open",
         pnl: 0,
+        orderType: orderType || 'market',
         openedAt: Timestamp.now(),
         closedAt: null,
         closePrice: null,

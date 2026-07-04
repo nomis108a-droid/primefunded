@@ -17,94 +17,93 @@ const CONTRACT_SIZE: Record<string, number> = {
 
 /**
  * Monitors and executes Take Profit and Stop Loss orders.
+ * PERMANENT: Core terminal liquidation logic.
  */
 async function checkTpSlHits(db: any) {
-  const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
-  if (openTradesSnap.empty) return { closed: 0 };
+  try {
+    const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
+    if (openTradesSnap.empty) return;
 
-  const pricesSnap = await db.collection('livePrices').get();
-  const prices: Record<string, any> = {};
-  pricesSnap.docs.forEach((d: any) => prices[d.id.toUpperCase()] = d.data());
+    const symbols = [...new Set(openTradesSnap.docs.map((d: any) => d.data().symbol?.toUpperCase()).filter(Boolean))];
+    const priceSnaps = await Promise.all(symbols.map((s: string) => db.collection('livePrices').doc(s).get()));
+    
+    const prices: Record<string, any> = {};
+    priceSnaps.forEach((snap: any) => { 
+      if (snap.exists) prices[snap.id] = snap.data(); 
+    });
 
-  let closedCount = 0;
-  
-  // Group hits by account to prevent transaction contention
-  const hitsByAccount: Record<string, any[]> = {};
-  
-  openTradesSnap.docs.forEach(doc => {
-    const t = { id: doc.id, ref: doc.ref, ...doc.data() };
-    const symbol = t.symbol.toUpperCase();
-    const priceData = prices[symbol];
-    if (!priceData) return;
+    for (const tradeDoc of openTradesSnap.docs) {
+      const trade = tradeDoc.data();
+      const symbol = trade.symbol?.toUpperCase();
+      const priceData = prices[symbol];
+      if (!priceData) continue;
 
-    let hit: 'tp' | 'sl' | null = null;
-    let exitPrice = 0;
-    const bid = priceData.bid || priceData.price;
-    const ask = priceData.ask || priceData.price;
-
-    // BUY: Profit on Bid >= TP, Loss on Bid <= SL
-    if (t.type === 'buy') {
-      if (t.tp && bid >= t.tp) { hit = 'tp'; exitPrice = t.tp; }
-      else if (t.sl && bid <= t.sl) { hit = 'sl'; exitPrice = t.sl; }
-    } 
-    // SELL: Profit on Ask <= TP, Loss on Ask >= SL
-    else if (t.type === 'sell') {
-      if (t.tp && ask <= t.tp) { hit = 'tp'; exitPrice = t.tp; }
-      else if (t.sl && ask >= t.sl) { hit = 'sl'; exitPrice = t.sl; }
-    }
-
-    if (hit) {
+      const bid = parseFloat(priceData.bid || priceData.price || 0);
+      const ask = parseFloat(priceData.ask || priceData.price || 0);
+      const openPrice = parseFloat(trade.openPrice || 0);
+      const lots = parseFloat(trade.lots || 0);
       const contractSize = CONTRACT_SIZE[symbol] || 100000;
-      const priceDiff = t.type === 'buy' ? (exitPrice - t.openPrice) : (t.openPrice - exitPrice);
-      const pnl = priceDiff * t.lots * contractSize;
-      const roundedPnl = Math.round(pnl * 100) / 100;
-      
-      if (!hitsByAccount[t.accountId]) hitsByAccount[t.accountId] = [];
-      hitsByAccount[t.accountId].push({ ...t, hit, exitPrice, pnl: roundedPnl });
-    }
-  });
 
-  const accountIds = Object.keys(hitsByAccount);
-  if (accountIds.length === 0) return { closed: 0 };
+      let hit: 'tp' | 'sl' | null = null;
+      let closePrice = 0;
 
-  // Process all hits atomically per account
-  await Promise.all(accountIds.map(async (accountId) => {
-    const accountTrades = hitsByAccount[accountId];
-    let totalPnl = 0;
-
-    try {
-      await db.runTransaction(async (tx: any) => {
-        const accRef = db.collection('demoAccounts').doc(accountId);
-        const accSnap = await tx.get(accRef);
-        if (!accSnap.exists) return;
-
-        for (const t of accountTrades) {
-          tx.update(t.ref, {
-            status: 'closed',
-            closedAt: FieldValue.serverTimestamp(),
-            closePrice: t.exitPrice,
-            pnl: t.pnl,
-            closeReason: t.hit === 'tp' ? 'take_profit' : 'stop_loss',
-          });
-          totalPnl += t.pnl;
-          closedCount++;
+      if (trade.type === 'buy') {
+        const currentPrice = bid;
+        if (trade.tp && trade.tp > 0 && currentPrice >= trade.tp) { 
+          hit = 'tp'; 
+          closePrice = trade.tp; 
+        } else if (trade.sl && trade.sl > 0 && currentPrice <= trade.sl) { 
+          hit = 'sl'; 
+          closePrice = trade.sl; 
         }
+      } else if (trade.type === 'sell') {
+        const currentPrice = ask;
+        if (trade.tp && trade.tp > 0 && currentPrice <= trade.tp) { 
+          hit = 'tp'; 
+          closePrice = trade.tp; 
+        } else if (trade.sl && trade.sl > 0 && currentPrice >= trade.sl) { 
+          hit = 'sl'; 
+          closePrice = trade.sl; 
+        }
+      }
 
-        tx.update(accRef, {
-          balance: FieldValue.increment(totalPnl),
-          equity: FieldValue.increment(totalPnl), // Initial bump, subsequent audit will refine
-          updatedAt: FieldValue.serverTimestamp()
+      if (!hit) continue;
+
+      const priceDiff = trade.type === 'buy' ? (closePrice - openPrice) : (openPrice - closePrice);
+      const pnl = Math.round(priceDiff * lots * contractSize * 100) / 100;
+
+      const accountRef = db.collection('demoAccounts').doc(trade.accountId);
+      const accountSnap = await accountRef.get();
+      if (!accountSnap.exists) continue;
+
+      const account = accountSnap.data();
+      if (account.status === 'blown') continue;
+
+      const newBalance = Math.round((parseFloat(account.balance || 0) + pnl) * 100) / 100;
+
+      await db.runTransaction(async (tx: any) => {
+        tx.update(tradeDoc.ref, {
+          status: 'closed', 
+          closedAt: FieldValue.serverTimestamp(),
+          closePrice, 
+          pnl, 
+          closeReason: hit === 'tp' ? 'take_profit' : 'stop_loss'
+        });
+        tx.update(accountRef, { 
+          balance: newBalance, 
+          equity: newBalance, 
+          updatedAt: FieldValue.serverTimestamp() 
         });
       });
 
-      // Immediate audit for passing/breach detection
-      await auditDemoAccount(accountId);
-    } catch (err) {
-      console.error(`[ExecutionEngine] TP/SL transaction failed for Node ${accountId}:`, err);
+      console.log(`[TP/SL] ${hit?.toUpperCase()} hit on ${symbol} trade ${tradeDoc.id} PnL: ${pnl}`);
+      
+      // Immediate audit after close to check for PASS or BREACH
+      await auditDemoAccount(trade.accountId);
     }
-  }));
-
-  return { closed: closedCount };
+  } catch (err: any) {
+    console.error('[TP/SL] Engine error:', err.message);
+  }
 }
 
 export async function syncPricesAndAudit() {
@@ -135,19 +134,14 @@ export async function syncPricesAndAudit() {
   }
 
   try {
-    // 1. Process automated exits (TP/SL)
-    const tpSlResult = await checkTpSlHits(db);
+    // 1. Process automated exits (TP/SL) - PERMANENT ENGINE
+    await checkTpSlHits(db);
 
     // 2. Process risk audits for remaining open exposure
     const result = await auditActiveOpenPositions();
     
-    if (tpSlResult.closed > 0) {
-      console.log(`[PriceSync] Execution cycle: ${tpSlResult.closed} orders filled.`);
-    }
-
     return { 
       success: true, 
-      tpSl: tpSlResult,
       ...result
     };
 
