@@ -12,89 +12,97 @@ import { cn } from '@/lib/utils';
 const PLAN_RULES = {
   '1-step': {
     evaluation: [
-      { text: "10% profit target", type: 'check' },
-      { text: "3% daily drawdown limit", type: 'warning' },
-      { text: "6% maximum drawdown", type: 'warning' },
-      { text: "Trading Leverage: 1:100", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
-      { text: "Minimum 5 trading days required", type: 'check' },
-      { text: "Maximum 1 execution every 3 minutes", type: 'warning' },
-      { text: "Hold trades for at least 2 minutes", type: 'warning' },
-      { text: "No time limit", type: 'check' },
-      { text: "No martingale allowed (Soft Breach)", type: 'skull' },
+      { text: "Reach a profit target of 10% to pass", type: 'check' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'warning' },
+      { text: "Your account will be closed if your total loss ever reaches 6% of your starting balance", type: 'warning' },
+      { text: "You must trade for at least 5 different days to pass", type: 'check' },
+      { text: "You must wait at least 3 minutes between opening new trades", type: 'warning' },
+      { text: "You must hold your trades for at least 2 minutes before closing them", type: 'warning' },
+      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "You cannot double your trade size after a loss to recover - this is forbidden", type: 'skull' },
     ],
     funded: [
-      { text: "80% profit split", type: 'check' },
-      { text: "Trading Leverage: 1:30", type: 'check' },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", type: 'check' },
-      { text: "Minimum 5 trading days required before payout request", type: 'check' },
-      { text: "1 execution per 3 mins maximum (Hard Breach)", type: 'warning' },
-      { text: "No closing trades within 2 mins (Hard Breach)", type: 'warning' },
-      { text: "1% max floating loss (Hard Breach)", type: 'warning' },
-      { text: "3% daily drawdown limit (Hard Breach)", type: 'skull' },
-      { text: "6% max drawdown limit (Hard Breach)", type: 'skull' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Keep 80% of all profits you make", type: 'check' },
+      { text: "You need to trade for at least 5 days before you can request your first payout", type: 'check' },
+      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'warning' },
+      { text: "Do not let your total losses reach 6% of your starting balance", type: 'warning' },
+      { text: "Double-sizing your trades after a loss (martingale) is not allowed", type: 'skull' },
     ]
   },
   '2-step': {
     evaluation: [
-      { text: "8% target (Phase 1) / 5% (Phase 2)", type: 'check' },
-      { text: "5% daily drawdown limit", type: 'warning' },
-      { text: "10% maximum drawdown", type: 'warning' },
-      { text: "Trading Leverage: 1:100", type: 'check' },
-      { text: "Minimum 5 trading days required", type: 'check' },
-      { text: "No martingale allowed (Soft Breach)", type: 'skull' },
+      { text: "Phase 1: Reach a profit target of 8% to pass this phase", type: 'check' },
+      { text: "Phase 2: Reach a profit target of 5% to pass this phase", type: 'check' },
+      { text: "Do not lose more than 5% of your starting balance in a single day", type: 'warning' },
+      { text: "Your account will be closed if your total loss ever reaches 10% of your starting balance", type: 'warning' },
+      { text: "A single closed trade cannot lose more than 3% of your starting balance", type: 'warning' },
+      { text: "Wait at least 3 minutes between new trades and hold for 2+ minutes", type: 'warning' },
+      { text: "You must trade for at least 5 different days", type: 'check' },
     ],
     funded: [
-      { text: "80% profit split", type: 'check' },
-      { text: "Trading Leverage: 1:30", type: 'check' },
-      { text: "Minimum 5 trading days required before payout request", type: 'check' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Keep 80% of all profits you make", type: 'check' },
+      { text: "Wait 3+ minutes between new trades and hold for 2+ minutes", type: 'warning' },
+      { text: "A single trade cannot lose more than 3% of your starting balance", type: 'warning' },
+      { text: "You need to trade for at least 5 days before asking for a payout", type: 'check' },
+      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "Do not lose more than 5% in a single day", type: 'warning' },
+      { text: "Do not let your total losses reach 10%", type: 'warning' },
+      { text: "Double-sizing your trades after a loss is not allowed", type: 'skull' },
     ]
   },
   '3-step': {
     evaluation: [
-      { text: "10% (P1) / 8% (P2) / 5% (P3) targets", type: 'check' },
-      { text: "4% daily drawdown limit", type: 'warning' },
-      { text: "8% maximum drawdown", type: 'warning' },
-      { text: "Minimum 7 trading days required", type: 'check' },
-      { text: "No martingale allowed (Soft Breach)", type: 'skull' },
+      { text: "Phase 1: Reach a profit target of 10% to pass this phase", type: 'check' },
+      { text: "Phase 2: Reach a profit target of 8% to pass this phase", type: 'check' },
+      { text: "Phase 3: Reach a profit target of 5% to pass this phase", type: 'check' },
+      { text: "Do not lose more than 4% in a single day", type: 'warning' },
+      { text: "Do not let your total losses reach 8%", type: 'warning' },
+      { text: "A single closed trade cannot lose more than 3%", type: 'warning' },
+      { text: "You must trade for at least 7 days (P1), 6 days (P2), 5 days (P3)", type: 'check' },
     ],
     funded: [
-      { text: "Up to 100% profit split", type: 'check' },
-      { text: "Trading Leverage: 1:30", type: 'check' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Keep 80% to 100% of all profits you make", type: 'check' },
+      { text: "A single closed trade cannot lose more than 3%", type: 'warning' },
+      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "Do not lose more than 4% in a single day", type: 'warning' },
+      { text: "Do not let your total losses reach 8%", type: 'warning' },
+      { text: "You cannot double your trade size after a loss to recover", type: 'skull' },
     ]
   },
   'instant': {
     evaluation: [
-      { text: "No evaluation - Start Funded immediately", type: 'check' },
-      { text: "3% daily drawdown limit", type: 'warning' },
-      { text: "4% maximum drawdown", type: 'warning' },
-      { text: "1% max floating loss safety closure", type: 'warning' },
-      { text: "Minimum 5 trades per symbol required for payout", type: 'check' },
-      { text: "Account valid for 30 days", type: 'skull' },
+      { text: "Keep 70% of all profits you make", type: 'check' },
+      { text: "You can request your first payout just 24 hours after starting", type: 'check' },
+      { text: "You can get paid every single day", type: 'check' },
+      { text: "You can withdraw a maximum of 3% of your balance every 24 hours", type: 'warning' },
+      { text: "Your payout request cannot be larger than your daily loss limit", type: 'warning' },
+      { text: "Your account will automatically close after 30 days from the day you bought it, even if you have not passed yet", type: 'skull' },
     ],
     funded: [
-      { text: "70% profit split", type: 'check' },
-      { text: "Daily payouts after 24 hours", type: 'check' },
-      { text: "Friday overnight holding restricted", type: 'skull' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
+      { text: "If any single open trade loses more than 1% of your account balance at any time, that trade will be automatically closed for you", type: 'warning' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'warning' },
+      { text: "Do not let your total losses reach 4% of your starting balance", type: 'warning' },
+      { text: "A single trade cannot lose more than 3% of your account balance once closed", type: 'warning' },
+      { text: "Try to close all trades before the market closes on Friday evening", type: 'warning' },
+      { text: "You must complete at least 5 trades on every symbol you use to be eligible for a payout", type: 'check' },
+      { text: "You cannot double your trade size after a loss to recover - this is forbidden", type: 'skull' },
     ]
   },
   'instant-pro': {
     evaluation: [
-      { text: "No evaluation - Start Funded immediately", type: 'check' },
-      { text: "3% daily drawdown limit", type: 'warning' },
-      { text: "5% maximum drawdown", type: 'warning' },
-      { text: "Minimum 3 trades per day for day to count", type: 'check' },
-      { text: "Minimum 5 trades per symbol required for payout", type: 'check' },
+      { text: "Keep 80% of all profits you make", type: 'check' },
+      { text: "You can get paid every day after you have traded for 5 days", type: 'check' },
+      { text: "A trading day only counts towards your payout if you completed at least 3 trades that day", type: 'check' },
+      { text: "You need at least 5 qualified trading days before you can request a payout", type: 'check' },
     ],
     funded: [
-      { text: "80% profit split", type: 'check' },
-      { text: "Daily payouts available", type: 'check' },
-      { text: "7 qualified trading days required", type: 'check' },
-      { text: "No martingale (Hard Breach)", type: 'skull' },
+      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'warning' },
+      { text: "Your account will be closed if your total loss ever reaches 5% of your starting balance", type: 'warning' },
+      { text: "If any single open trade loses more than 1% of your starting balance (e.g. $100 on a $10,000 account) at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "You cannot double your trade size after a loss to recover - this is forbidden", type: 'skull' },
+      { text: "Try to close all trades before the market closes on Friday evening", type: 'warning' },
     ]
   }
 };
@@ -115,6 +123,9 @@ export default function RulesPage() {
   }, [userData]);
 
   const currentPhase = userData?.phase || 'evaluation';
+
+  const leftTitle = activePlan.startsWith('instant') ? 'Rules for Profit' : 'Evaluation Phase';
+  const rightTitle = activePlan.startsWith('instant') ? 'Safety Rules' : 'Funded Stage';
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -137,13 +148,13 @@ export default function RulesPage() {
           <TabsContent value={activePlan} className="m-0">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 max-w-6xl mb-20">
               <RuleCard 
-                title="Evaluation Phase" 
+                title={leftTitle} 
                 items={PLAN_RULES[activePlan as keyof typeof PLAN_RULES]?.evaluation} 
                 variant="evaluation"
                 isCurrent={currentPhase === 'evaluation' || currentPhase === 'phase1' || currentPhase === 'phase2' || currentPhase === 'phase3'}
               />
               <RuleCard 
-                title="Funded Stage" 
+                title={rightTitle} 
                 items={PLAN_RULES[activePlan as keyof typeof PLAN_RULES]?.funded} 
                 variant="funded"
                 isCurrent={currentPhase === 'funded'}
