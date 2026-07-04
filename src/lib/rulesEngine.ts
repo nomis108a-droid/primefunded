@@ -33,8 +33,8 @@ function getTradeDate(time: any) {
 }
 
 /**
- * Enforces per-trade floating loss limits (Soft Breach Policy).
- * Force closes individual trades that exceed the threshold to protect account capital.
+ * Enforces per-symbol grouped floating loss limits (Soft Breach Policy).
+ * Groups trades by symbol and closes ALL trades of a symbol if their combined loss exceeds the limit.
  */
 async function enforceSymbolFloatingLossLimits(
   db: any,
@@ -49,16 +49,86 @@ async function enforceSymbolFloatingLossLimits(
   const closedIds = new Set<string>();
   let totalRealizedLoss = 0;
 
+  // Group open trades BY SYMBOL first — losses only combine within the same symbol
+  const bySymbol: Record<string, { trades: TradeRecord[]; pnl: number }> = {};
   for (const t of openTrades) {
-    const priceData = prices[t.symbol?.toUpperCase() || ''];
+    const sym = t.symbol?.toUpperCase() || '';
+    const priceData = prices[sym];
     if (!priceData) continue;
-
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-    const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
+    const contractSize = CONTRACT_SIZE[sym] || 100000;
+    const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
+    if (!bySymbol[sym]) bySymbol[sym] = { trades: [], pnl: 0 };
+    bySymbol[sym].trades.push(t);
+    bySymbol[sym].pnl += pnl;
+  }
+
+  // Check each symbol's COMBINED floating loss against the threshold
+  for (const sym of Object.keys(bySymbol)) {
+    const group = bySymbol[sym];
+    if (group.pnl < 0 && Math.abs(group.pnl) >= limitUsd) {
+      for (const t of group.trades) {
+        const priceData = prices[sym];
+        const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+        const contractSize = CONTRACT_SIZE[sym] || 100000;
+        const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
+
+        await db.runTransaction(async (tx: any) => {
+          tx.update(t.ref, {
+            status: 'closed',
+            closedAt: FieldValue.serverTimestamp(),
+            closeReason: 'liquidation',
+            closePrice: exitPrice,
+            pnl: tradePnl,
+            liquidated: true
+          });
+          tx.update(db.collection('demoAccounts').doc(accountId), {
+            balance: FieldValue.increment(tradePnl),
+            updatedAt: FieldValue.serverTimestamp()
+          });
+          tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
+            title: '🛡️ Trade Auto-Closed',
+            message: `${sym} trades force-closed: combined floating loss on this symbol exceeded ${maxFloatingLossPct}% of your starting balance.`,
+            type: 'risk_warning',
+            isRead: false,
+            createdAt: FieldValue.serverTimestamp()
+          });
+        });
+        closedIds.add(t.id);
+      }
+      totalRealizedLoss += Math.abs(group.pnl);
+    }
+  }
+
+  return { closedIds, realizedLossFromForceClose: totalRealizedLoss };
+}
+
+/**
+ * Enforces max single trade loss limits (Soft Breach Policy).
+ * Checks trades individually and closes any trade that crosses the threshold.
+ */
+async function enforceSingleTradeLossLimit(
+  db: any,
+  accountId: string,
+  userId: string,
+  startBalance: number,
+  openTrades: TradeRecord[],
+  prices: Record<string, any>,
+  maxSingleTradeLossPct: number
+) {
+  const limitUsd = startBalance * (maxSingleTradeLossPct / 100);
+  const closedIds = new Set<string>();
+  let totalRealizedLoss = 0;
+
+  for (const t of openTrades) {
+    const sym = t.symbol?.toUpperCase() || '';
+    const priceData = prices[sym];
+    if (!priceData) continue;
+    const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+    const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
 
     if (pnl < 0 && Math.abs(pnl) >= limitUsd) {
-      // Force Close this specific trade
       await db.runTransaction(async (tx: any) => {
         tx.update(t.ref, {
           status: 'closed',
@@ -72,10 +142,9 @@ async function enforceSymbolFloatingLossLimits(
           balance: FieldValue.increment(pnl),
           updatedAt: FieldValue.serverTimestamp()
         });
-        // Create individual trade closure notification
         tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
           title: '🛡️ Trade Auto-Closed',
-          message: `Trade on ${t.symbol} force-closed: single trade floating loss exceeded ${maxFloatingLossPct}% of your starting balance.`,
+          message: `Trade on ${sym} force-closed: single trade floating loss exceeded ${maxSingleTradeLossPct}% of your starting balance.`,
           type: 'risk_warning',
           isRead: false,
           createdAt: FieldValue.serverTimestamp()
@@ -103,7 +172,7 @@ export async function auditDemoAccount(accountId: string) {
   const currBalance = parseFloat(String(balance || initialBalance));
 
   const pKey = getPlanKey(planType || '1-step-pro');
-  const phKey = phase || 'evaluation';
+  const phKey = phase || (pKey.startsWith('instant') ? 'funded' : 'evaluation');
   const rules = RULES_CONFIG.plans[pKey]?.[phKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
   const universal = RULES_CONFIG.universal;
 
@@ -120,14 +189,23 @@ export async function auditDemoAccount(accountId: string) {
   let openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
 
-  // Handle Force-Close Floating Loss (Soft Breach Policy)
+  // Handle Force-Close Floating Loss (Soft Breach Policy) — per-symbol grouped, Instant plans only
   let realizedLossFromForceClose = 0;
   if (rules.maxFloatingLoss && openTrades.length > 0) {
     const floatingResult = await enforceSymbolFloatingLossLimits(
       db, accountId, userId, initialBalance, openTrades, prices, rules.maxFloatingLoss
     );
-    realizedLossFromForceClose = floatingResult.realizedLossFromForceClose;
+    realizedLossFromForceClose += floatingResult.realizedLossFromForceClose;
     openTrades = openTrades.filter(t => !floatingResult.closedIds.has(t.id));
+  }
+
+  // Handle Force-Close Single Trade Loss (real-time, per individual trade, all applicable plans)
+  if (rules.maxSingleTradeLoss && openTrades.length > 0) {
+    const singleTradeResult = await enforceSingleTradeLossLimit(
+      db, accountId, userId, initialBalance, openTrades, prices, rules.maxSingleTradeLoss
+    );
+    realizedLossFromForceClose += singleTradeResult.realizedLossFromForceClose;
+    openTrades = openTrades.filter(t => !singleTradeResult.closedIds.has(t.id));
   }
 
   // 2. Calculate Real-time Equity
