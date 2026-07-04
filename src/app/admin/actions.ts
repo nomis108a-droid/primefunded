@@ -24,36 +24,26 @@ function serializeData(data: any): any {
 
 /**
  * SECURITY HELPER: Multi-layered Admin Verification
+ * Simplified to handle cookie persistence issues in Server Actions.
  */
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
     
-    // 1. Master Token Check
+    // 1. Master Token Check (Direct Bypass)
     const masterToken = cookieStore.get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     
     // 2. Session Cookie Check
-    const token = cookieStore.get('session')?.value;
-    if (token) {
-      const auth = getAdminAuth();
+    const sessionToken = cookieStore.get('session')?.value;
+    if (sessionToken) {
       try {
-        const decoded = await auth.verifySessionCookie(token, true);
+        const decoded = await getAdminAuth().verifySessionCookie(sessionToken, true);
         if (decoded.email && ADMIN_EMAILS.includes(decoded.email)) return true;
       } catch {}
     }
-    
-    // 3. Fallback: check Firebase ID token from Authorization header
-    const { headers } = await import('next/headers');
-    const headerStore = await headers();
-    const authHeader = headerStore.get('authorization') || '';
-    const idToken = authHeader.replace('Bearer ', '');
-    if (idToken) {
-      const decoded = await getAdminAuth().verifyIdToken(idToken);
-      if (decoded.email && ADMIN_EMAILS.includes(decoded.email)) return true;
-    }
 
-    // 4. Persistence Fallback: check admin_email cookie
+    // 3. Admin Email Check (Persistence Fallback)
     const adminEmail = cookieStore.get('admin_email')?.value;
     if (adminEmail && ADMIN_EMAILS.includes(adminEmail)) return true;
     

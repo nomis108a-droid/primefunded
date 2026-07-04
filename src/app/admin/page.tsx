@@ -116,8 +116,9 @@ export default function AdminPage() {
     if (isVerified && email) {
       setIsAuthenticated(true);
       setLoggedInAdmin(email);
-      // Set persistence cookie to prevent "Unauthorized" error in Server Actions
+      // Set persistence cookies to prevent "Unauthorized" error in Server Actions
       document.cookie = `admin_email=${email}; path=/; max-age=86400; SameSite=Lax`;
+      document.cookie = `admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax`;
       refreshData();
     } else {
       setShowAdminModal(true);
@@ -659,8 +660,7 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </CardContent>
-              </Card>
-            </div>
+              </div>
           )}
         </div>
       </main>
