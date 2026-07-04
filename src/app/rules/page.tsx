@@ -37,42 +37,48 @@ const PLAN_RULES = {
   },
   '2-step': {
     evaluation: [
-      { text: "Phase 1: Reach a profit target of 8% to pass this phase", type: 'check' },
-      { text: "Phase 2: Reach a profit target of 5% to pass this phase", type: 'check' },
-      { text: "Do not lose more than 5% of your starting balance in a single day", type: 'warning' },
-      { text: "Your account will be closed if your total loss ever reaches 10% of your starting balance", type: 'warning' },
-      { text: "A single closed trade cannot lose more than 3% of your starting balance", type: 'warning' },
-      { text: "Wait at least 3 minutes between new trades and hold for 2+ minutes", type: 'warning' },
-      { text: "You must trade for at least 5 different days", type: 'check' },
+      { text: "Phase 1: 8% profit target", type: 'check' },
+      { text: "Phase 2: 5% profit target", type: 'check' },
+      { text: "5% daily drawdown limit", type: 'warning' },
+      { text: "10% maximum drawdown", type: 'warning' },
+      { text: "3% max loss per single trade (Hard Breach)", type: 'skull' },
+      { text: "1 execution per 3 mins maximum", type: 'warning' },
+      { text: "Hold trades for at least 2 minutes", type: 'warning' },
+      { text: "Trading Leverage: 1:100", type: 'check' },
+      { text: "Minimum 5 trading days", type: 'check' },
+      { text: "No martingale allowed (Hard Breach)", type: 'skull' },
     ],
     funded: [
       { text: "Keep 80% of all profits you make", type: 'check' },
       { text: "Wait 3+ minutes between new trades and hold for 2+ minutes", type: 'warning' },
-      { text: "A single trade cannot lose more than 3% of your starting balance", type: 'warning' },
+      { text: "A single trade cannot lose more than 3% of your starting balance (Hard Breach)", type: 'skull' },
       { text: "You need to trade for at least 5 days before asking for a payout", type: 'check' },
       { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
-      { text: "Do not lose more than 5% in a single day", type: 'warning' },
-      { text: "Do not let your total losses reach 10%", type: 'warning' },
-      { text: "Double-sizing your trades after a loss is not allowed", type: 'skull' },
+      { text: "Do not lose more than 5% in a single day (Hard Breach)", type: 'skull' },
+      { text: "Do not let your total losses reach 10% (Hard Breach)", type: 'skull' },
+      { text: "Double-sizing your trades after a loss (Martingale) is forbidden", type: 'skull' },
     ]
   },
   '3-step': {
     evaluation: [
-      { text: "Phase 1: Reach a profit target of 10% to pass this phase", type: 'check' },
-      { text: "Phase 2: Reach a profit target of 8% to pass this phase", type: 'check' },
-      { text: "Phase 3: Reach a profit target of 5% to pass this phase", type: 'check' },
-      { text: "Do not lose more than 4% in a single day", type: 'warning' },
-      { text: "Do not let your total losses reach 8%", type: 'warning' },
-      { text: "A single closed trade cannot lose more than 3%", type: 'warning' },
-      { text: "You must trade for at least 7 different days", type: 'check' },
+      { text: "Phase 1: 10% profit target", type: 'check' },
+      { text: "Phase 2: 8% profit target", type: 'check' },
+      { text: "Phase 3: 5% profit target", type: 'check' },
+      { text: "4% daily drawdown limit", type: 'warning' },
+      { text: "8% maximum drawdown", type: 'warning' },
+      { text: "3% max loss per single trade (Hard Breach)", type: 'skull' },
+      { text: "Minimum 7 trading days (Phase 1)", type: 'check' },
+      { text: "Minimum 6 trading days (Phase 2)", type: 'check' },
+      { text: "Minimum 5 trading days (Phase 3)", type: 'check' },
+      { text: "No martingale allowed (Hard Breach)", type: 'skull' },
     ],
     funded: [
       { text: "Keep 80% to 100% of all profits you make", type: 'check' },
-      { text: "A single closed trade cannot lose more than 3%", type: 'warning' },
+      { text: "A single closed trade cannot lose more than 3% (Hard Breach)", type: 'skull' },
       { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
-      { text: "Do not lose more than 4% in a single day", type: 'warning' },
-      { text: "Do not let your total losses reach 8%", type: 'warning' },
-      { text: "You cannot double your trade size after a loss to recover", type: 'skull' },
+      { text: "Do not lose more than 4% in a single day (Hard Breach)", type: 'skull' },
+      { text: "Do not let your total losses reach 8% (Hard Breach)", type: 'skull' },
+      { text: "You cannot double your trade size after a loss to recover (Martingale)", type: 'skull' },
     ]
   },
   'instant': {
@@ -82,17 +88,17 @@ const PLAN_RULES = {
       { text: "You can get paid every single day", type: 'check' },
       { text: "You can withdraw a maximum of 3% of your balance every 24 hours", type: 'warning' },
       { text: "Your payout request cannot be larger than your daily loss limit", type: 'warning' },
-      { text: "Your account will automatically close after 30 days from the day you bought it, even if you have not passed yet", type: 'skull' },
+      { text: "Your account will automatically close after 30 days from the day you bought it", type: 'skull' },
     ],
     funded: [
+      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate account breach.", type: 'skull' },
       { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
       { text: "If any single open trade loses more than 1% of your account balance at any time, that trade will be automatically closed for you", type: 'warning' },
-      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'warning' },
-      { text: "Do not let your total losses reach 4% of your starting balance", type: 'warning' },
-      { text: "A single trade cannot lose more than 3% of your account balance once closed", type: 'warning' },
-      { text: "Try to close all trades before the market closes on Friday evening", type: 'warning' },
+      { text: "Do not lose more than 3% of your starting balance in a single day (Hard Breach)", type: 'skull' },
+      { text: "Do not let your total losses reach 4% of your starting balance (Hard Breach)", type: 'skull' },
+      { text: "A single trade cannot lose more than 3% of your account balance (Hard Breach)", type: 'skull' },
       { text: "You must complete at least 5 trades on every symbol you use to be eligible for a payout", type: 'check' },
-      { text: "You cannot double your trade size after a loss to recover - this is forbidden", type: 'skull' },
+      { text: "You cannot double your trade size after a loss to recover (Martingale)", type: 'skull' },
     ]
   },
   'instant-pro': {
@@ -100,14 +106,14 @@ const PLAN_RULES = {
       { text: "Keep 80% of all profits you make", type: 'check' },
       { text: "You can get paid every day after you have traded for 5 days", type: 'check' },
       { text: "A trading day only counts towards your payout if you completed at least 3 trades that day", type: 'check' },
-      { text: "You need at least 5 qualified trading days before you can request a payout", type: 'check' },
+      { text: "You need at least 7 qualified trading days before you can request a payout", type: 'check' },
     ],
     funded: [
-      { text: "Do not lose more than 3% of your starting balance in a single day", type: 'warning' },
-      { text: "Your account will be closed if your total loss ever reaches 5% of your starting balance", type: 'warning' },
-      { text: "If any single open trade loses more than 1% of your starting balance (e.g. $100 on a $10,000 account) at any moment, that trade will be automatically closed for you", type: 'warning' },
-      { text: "You cannot double your trade size after a loss to recover - this is forbidden", type: 'skull' },
-      { text: "Try to close all trades before the market closes on Friday evening", type: 'warning' },
+      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate account breach.", type: 'skull' },
+      { text: "Do not lose more than 3% of your starting balance in a single day (Hard Breach)", type: 'skull' },
+      { text: "Your account will be closed if your total loss ever reaches 5% of your starting balance (Hard Breach)", type: 'skull' },
+      { text: "If any single open trade loses more than 1% of your starting balance at any moment, that trade will be automatically closed for you", type: 'warning' },
+      { text: "You cannot double your trade size after a loss to recover (Martingale)", type: 'skull' },
     ]
   }
 };
@@ -225,6 +231,8 @@ function BreachItem({ text }: { text: string }) {
   );
 }
 
+import { Badge as UIBadge } from '@/components/ui/badge';
+
 function RuleCard({ title, items = [], variant, isCurrent }: { title: string, items?: any[], variant: 'evaluation' | 'funded', isCurrent: boolean }) {
   const isEvaluation = variant === 'evaluation';
   
@@ -232,9 +240,9 @@ function RuleCard({ title, items = [], variant, isCurrent }: { title: string, it
     <div className="relative">
       {isCurrent && (
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20">
-          <Badge className="bg-primary text-black text-[9px] font-black uppercase px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(17,179,245,0.6)] animate-in fade-in zoom-in duration-500">
+          <UIBadge className="bg-primary text-black text-[9px] font-black uppercase px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(17,179,245,0.6)] animate-in fade-in zoom-in duration-500">
             Your Current Stage
-          </Badge>
+          </UIBadge>
         </div>
       )}
 

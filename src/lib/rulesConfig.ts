@@ -32,14 +32,14 @@ export const RULES_CONFIG = {
     },
     "2-step-classic": {
       phase1: {
-        profitTarget: 8,
+        profitTarget: 8, // Updated
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDays: 5,
         maxSingleTradeLoss: 3
       },
       phase2: {
-        profitTarget: 5,
+        profitTarget: 5, // Updated
         dailyDrawdown: 5,
         maxDrawdown: 10,
         minTradingDays: 5,
