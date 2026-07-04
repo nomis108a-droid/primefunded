@@ -100,7 +100,7 @@ export const RULES_CONFIG = {
     "instant-pro": {
       evaluation: {
         dailyDrawdown: 3,
-        maxDrawdown: 4,
+        maxDrawdown: 5,
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
         minTradingDaysBeforePayout: 5,
@@ -108,7 +108,7 @@ export const RULES_CONFIG = {
       },
       funded: {
         dailyDrawdown: 3,
-        maxDrawdown: 4,
+        maxDrawdown: 5,
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
         minTradingDaysBeforePayout: 5,

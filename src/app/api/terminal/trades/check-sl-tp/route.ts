@@ -6,7 +6,7 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
  * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
- * Updated to use exact SL/TP prices as exit levels and support close reasons.
+ * Updated to handle 30-day account expiration for Instant plans.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -59,6 +59,47 @@ export async function GET(req: NextRequest) {
       const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
       const rules = RULES_CONFIG.plans[planKey]?.[acc.phase || 'evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
+      // ── ACCOUNT EXPIRATION CHECK (30 Days for Instant Plans) ───────
+      if (planKey === 'instant-funding' || planKey === 'instant-pro') {
+        const createdAt = (acc.createdAt as Timestamp).toDate().getTime();
+        const daysOld = (now.getTime() - createdAt) / (1000 * 60 * 60 * 24);
+        if (daysOld > 30) {
+          await db.runTransaction(async (tx) => {
+            let finalBalance = acc.balance;
+            for (const t of trades) {
+              const priceData = prices[t.symbol];
+              const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
+              const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * getContractSize(t.symbol);
+              tx.update(t.ref, {
+                status: 'closed',
+                closeReason: 'liquidation',
+                closePrice: exitPrice,
+                pnl: tradePnl,
+                closedAt: FieldValue.serverTimestamp()
+              });
+              finalBalance += tradePnl;
+            }
+            tx.update(accDoc.ref, {
+              status: 'blown',
+              breachReason: 'account_validity_expired',
+              balance: finalBalance,
+              equity: finalBalance,
+              updatedAt: FieldValue.serverTimestamp()
+            });
+          });
+          
+          await db.collection('users').doc(acc.userId).collection('notifications').add({
+            title: '⏰ Account Expired',
+            message: 'Your Instant Funding account has expired after 30 days. Please purchase a new challenge to continue trading.',
+            type: 'account_breached',
+            isRead: false,
+            createdAt: FieldValue.serverTimestamp()
+          });
+          liquidated++;
+          continue;
+        }
+      }
+
       let floatingPnl = 0;
       let floatingNegativePnl = 0;
       
@@ -204,9 +245,6 @@ export async function GET(req: NextRequest) {
             if (isMajorLoss && ['2-step-classic', '3-step-classic', 'instant-funding', 'instant-pro'].includes(planKey)) {
               updates.status = 'blown';
               updates.breachReason = 'single_trade_loss_breach';
-            } else if (newBalance >= (currentAcc.startBalance + (currentAcc.profitTarget || 10000)) && currentAcc.status === 'active') {
-              // We don't mark as passed here because we need unique days check which is in auditDemoAccount
-              // Just sync equity/balance
             }
 
             tx.update(accDoc.ref, updates);

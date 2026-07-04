@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useMemo, useEffect, useState } from 'react';
@@ -13,128 +12,114 @@ import { cn } from '@/lib/utils';
 const PLAN_RULES = {
   '1-step': {
     evaluation: [
-      { text: "10% profit target", check: true },
-      { text: "3% daily drawdown limit", check: true },
-      { text: "6% maximum drawdown", check: true },
-      { text: "Trading Leverage: 1:100", check: true },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", check: true },
-      { text: "Minimum 5 trading days required", check: true },
-      { text: "Maximum 1 execution every 3 minutes", check: true },
-      { text: "Hold trades for at least 2 minutes", check: true },
-      { text: "No time limit", check: true },
-      { text: "No martingale allowed (Soft Breach)", check: false },
+      { text: "Reach a profit target of 10% to pass", check: true },
+      { text: "Do not lose more than 3% of your starting balance in a single day", check: true },
+      { text: "Your account will be closed if your total loss ever reaches 6% of your starting balance", check: true },
+      { text: "You must trade for at least 5 different days to pass", check: true },
+      { text: "You must wait at least 3 minutes between opening new trades", check: true },
+      { text: "You must hold your trades for at least 2 minutes before closing them", check: true },
+      { text: "Any single open trade cannot lose more than 1% of your account balance at any time (Automatic Closing)", warning: true },
+      { text: "You are not allowed to double your trade size after a loss to try and recover (Forced Closing)", check: false },
     ],
     funded: [
-      { text: "80% profit split", check: true },
-      { text: "Trading Leverage: 1:30", check: true },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", check: true },
-      { text: "Minimum 5 trading days required before payout request", warning: true },
-      { text: "1 execution per 3 mins maximum (Hard Breach)", warning: true },
-      { text: "No closing trades within 2 mins (Hard Breach)", warning: true },
-      { text: "1% max floating loss (Hard Breach)", warning: true },
-      { text: "3% daily drawdown limit (Hard Breach)", warning: true },
-      { text: "6% max drawdown limit (Hard Breach)", warning: true },
-      { text: "No martingale (Hard Breach)", check: false },
+      { text: "Keep 80% of all profits you make", check: true },
+      { text: "You need to trade for at least 5 days before you can request your first payout", warning: true },
+      { text: "Any single open trade cannot lose more than 1% of your account balance at any time", warning: true },
+      { text: "Do not lose more than 3% of your starting balance in a single day", warning: true },
+      { text: "Do not let your total losses reach 6% of your starting balance", warning: true },
+      { text: "Double-sizing your trades after a loss (martingale) is not allowed", check: false },
     ]
   },
   '2-step': {
     phase1: [
-      { text: "8% profit target", check: true },
-      { text: "5% daily drawdown", check: true },
-      { text: "10% max drawdown", check: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "1 execution per 3 mins maximum", check: true },
-      { text: "Hold trades for at least 2 minutes", check: true },
-      { text: "Trading Leverage: 1:100", check: true },
-      { text: "Minimum 5 trading days", check: true },
+      { text: "Reach a profit target of 8% to pass this phase", check: true },
+      { text: "Do not lose more than 5% of your starting balance in a single day", check: true },
+      { text: "Your account will be closed if your total loss ever reaches 10% of your starting balance", check: true },
+      { text: "A single closed trade cannot lose more than 3% of your starting balance", warning: true },
+      { text: "Wait at least 3 minutes between new trades and hold for 2+ minutes", check: true },
+      { text: "You must trade for at least 5 different days", check: true },
     ],
     phase2: [
-      { text: "5% profit target", check: true },
-      { text: "5% daily drawdown", check: true },
-      { text: "10% max drawdown", check: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "1 execution per 3 mins maximum", check: true },
-      { text: "Hold trades for at least 2 minutes", check: true },
-      { text: "Trading Leverage: 1:100", check: true },
-      { text: "Minimum 5 trading days", check: true },
+      { text: "Reach a profit target of 5% to pass this phase", check: true },
+      { text: "Do not lose more than 5% in a single day", check: true },
+      { text: "Do not let your total losses reach 10%", check: true },
+      { text: "A single trade cannot lose more than 3% once closed", warning: true },
+      { text: "You must trade for at least 5 different days", check: true },
     ],
     funded: [
-      { text: "80% profit split", check: true },
-      { text: "Trading Leverage: 1:30", check: true },
-      { text: "1 execution per 3 mins maximum (Hard Breach)", warning: true },
-      { text: "No closing trades within 2 mins (Hard Breach)", warning: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "Minimum 5 trading days required before payout request", warning: true },
-      { text: "1% max floating loss (Hard Breach)", warning: true },
-      { text: "5% daily drawdown limit (Hard Breach)", warning: true },
-      { text: "10% max drawdown limit (Hard Breach)", warning: true },
-      { text: "No martingale (Hard Breach)", check: false },
+      { text: "Keep 80% of all profits you make", check: true },
+      { text: "Wait 3+ minutes between new trades and hold for 2+ minutes", warning: true },
+      { text: "A single trade cannot lose more than 3% of your starting balance", warning: true },
+      { text: "You need to trade for at least 5 days before asking for a payout", warning: true },
+      { text: "Any single open trade cannot lose more than 1% at any time", warning: true },
+      { text: "Do not lose more than 5% in a single day", warning: true },
+      { text: "Do not let your total losses reach 10%", warning: true },
+      { text: "Double-sizing your trades after a loss is not allowed", check: false },
     ]
   },
   '3-step': {
     phase1: [
-      { text: "10% profit target", check: true },
-      { text: "4% daily drawdown", check: true },
-      { text: "8% max drawdown", check: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "1 execution per 3 mins maximum", check: true },
-      { text: "Hold trades for at least 2 minutes", check: true },
-      { text: "Minimum 7 trading days", check: true },
-      { text: "Trading Leverage: 1:100", check: true },
+      { text: "Reach a profit target of 10% to pass this phase", check: true },
+      { text: "Do not lose more than 4% in a single day", check: true },
+      { text: "Do not let your total losses reach 8%", check: true },
+      { text: "A single closed trade cannot lose more than 3%", warning: true },
+      { text: "You must trade for at least 7 different days", check: true },
     ],
     phase2: [
-      { text: "8% profit target", check: true },
-      { text: "4% daily drawdown", check: true },
-      { text: "8% max drawdown", check: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "1 execution per 3 mins maximum", check: true },
-      { text: "Hold trades for at least 2 minutes", check: true },
-      { text: "Minimum 6 trading days", check: true },
-      { text: "Trading Leverage: 1:100", check: true },
+      { text: "Reach a profit target of 8% to pass this phase", check: true },
+      { text: "Do not lose more than 4% in a single day", check: true },
+      { text: "Do not let your total losses reach 8%", check: true },
+      { text: "You must trade for at least 6 different days", check: true },
     ],
     phase3: [
-      { text: "5% profit target", check: true },
-      { text: "4% daily drawdown", check: true },
-      { text: "8% max drawdown", check: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "1 execution per 3 mins maximum", check: true },
-      { text: "Hold trades for at least 2 minutes", check: true },
-      { text: "Minimum 5 trading days", check: true },
-      { text: "Trading Leverage: 1:100", check: true },
+      { text: "Reach a profit target of 5% to pass this phase", check: true },
+      { text: "Do not lose more than 4% in a single day", check: true },
+      { text: "Do not let your total losses reach 8%", check: true },
+      { text: "You must trade for at least 5 different days", check: true },
     ],
     funded: [
-      { text: "80% profit split (Bi-Weekly)", check: true },
-      { text: "100% profit split (Monthly)", check: true },
-      { text: "Trading Leverage: 1:30", check: true },
-      { text: "1 execution per 3 mins maximum (Hard Breach)", warning: true },
-      { text: "No closing trades within 2 mins (Hard Breach)", warning: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "Minimum 5 trading days required before payout request", warning: true },
-      { text: "1% max floating loss (Hard Breach)", warning: true },
-      { text: "4% daily drawdown limit (Hard Breach)", warning: true },
-      { text: "8% max drawdown limit (Hard Breach)", warning: true },
-      { text: "No martingale (Hard Breach)", check: false },
+      { text: "Keep 80% to 100% of all profits you make", check: true },
+      { text: "A single closed trade cannot lose more than 3%", warning: true },
+      { text: "Any single open trade cannot lose more than 1% at any time", warning: true },
+      { text: "Do not lose more than 4% in a single day", warning: true },
+      { text: "Do not let your total losses reach 8%", warning: true },
+      { text: "You cannot double your trade size after a loss to recover", check: false },
     ]
   },
   'instant': {
     active: [
-      { text: "70% profit split", check: true },
-      { text: "Trading Leverage: 1:30", check: true },
-      { text: "Instruments: Fx, Commodities, Indices, Stock, Crypto", check: true },
-      { text: "Daily payouts available", check: true },
-      { text: "First payout after 24 hours", check: true },
-      { text: "Max withdraw 3% per 24hrs", warning: true },
-      { text: "No payout exceeding daily drawdown", warning: true },
+      { text: "Keep 70% of all profits you make", check: true },
+      { text: "You can request your first payout just 24 hours after starting", check: true },
+      { text: "You can get paid every single day", check: true },
+      { text: "You can withdraw a maximum of 3% of your balance every 24 hours", warning: true },
+      { text: "Your payout request cannot be larger than your daily loss limit", warning: true },
+      { text: "Your account will automatically close 30 days after you bought it, even if you are still trading", warning: true },
     ],
     prohibited: [
-      { text: "1 execution per 3 mins maximum (Hard Breach)", warning: true },
-      { text: "No closing trades within 2 mins (Hard Breach)", warning: true },
-      { text: "1% max floating loss (Hard Breach)", warning: true },
-      { text: "3% daily drawdown (Hard Breach)", warning: true },
-      { text: "4% max drawdown (Hard Breach)", warning: true },
-      { text: "3% max loss per single trade (Hard Breach)", warning: true },
-      { text: "No Friday overnight holding (Warning only)", warning: true },
-      { text: "Minimum 5 trades per instrument required for payout eligibility (Soft Rule)", warning: true },
+      { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", warning: true },
+      { text: "Any single open trade cannot lose more than 1% of your account balance at any time", warning: true },
+      { text: "Do not lose more than 3% of your starting balance in a single day", warning: true },
+      { text: "Do not let your total losses reach 4% of your starting balance", warning: true },
+      { text: "A single trade cannot lose more than 3% of your account balance once closed", warning: true },
+      { text: "Try to close all trades before the market closes on Friday evening", warning: true },
+      { text: "You must complete at least 5 trades on every symbol you use to be eligible for a payout", warning: true },
+      { text: "Doubling your trade size after a loss (martingale) is strictly forbidden", check: false },
+    ]
+  },
+  'instant-pro': {
+    active: [
+      { text: "Keep 80% of all profits you make", check: true },
+      { text: "You can get paid every day after you have traded for 5 days", check: true },
+      { text: "A trading day only counts towards your payout if you complete at least 3 trades that day", check: true },
+      { text: "You need at least 5 qualified trading days before you can request a payout", check: true },
+      { text: "Your account will automatically close 30 days after you bought it, even if you have not passed yet", warning: true },
+    ],
+    prohibited: [
+      { text: "Do not lose more than 3% of your starting balance in a single day", warning: true },
+      { text: "Your account will be closed if your total loss ever reaches 5% of your starting balance", warning: true },
+      { text: "Any single open trade cannot lose more than 1% of your account balance at any time", warning: true },
+      { text: "Doubling your trade size after a loss (martingale) is strictly forbidden", check: false },
+      { text: "Try to close all trades before the market closes on Friday evening", warning: true },
     ]
   }
 };
@@ -149,6 +134,7 @@ export default function RulesPage() {
       if (p.includes('1-step')) setActivePlan('1-step');
       else if (p.includes('2-step')) setActivePlan('2-step');
       else if (p.includes('3-step')) setActivePlan('3-step');
+      else if (p.includes('instant-pro')) setActivePlan('instant-pro');
       else if (p.includes('instant')) setActivePlan('instant');
     }
   }, [userData]);
@@ -169,8 +155,8 @@ export default function RulesPage() {
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
         <header className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-4xl font-headline font-bold mb-2 text-white">Trading Rules</h1>
-            <p className="text-zinc-300">Comprehensive guide to maintain your institutional funding eligibility.</p>
+            <h1 className="text-4xl font-headline font-bold mb-2 text-white">Simple Trading Rules</h1>
+            <p className="text-zinc-300">A plain English guide to keeping your account safe and getting funded.</p>
           </div>
           {userData?.currentPhase && (
             <motion.div 
@@ -192,16 +178,17 @@ export default function RulesPage() {
         <div className="mb-8 p-5 bg-destructive/20 border-l-4 border-destructive rounded-r-xl flex items-center gap-4">
           <AlertCircle className="text-destructive w-6 h-6 shrink-0" />
           <p className="text-sm font-bold text-white uppercase tracking-tight">
-            ⚠️ Hard breaches result in immediate account termination with no appeal. Follow all protocols strictly.
+            ⚠️ Breaking a rule marked in red will close your account immediately. No appeals allowed.
           </p>
         </div>
 
         <Tabs value={activePlan} onValueChange={setActivePlan} className="space-y-12">
-          <TabsList className="bg-secondary/40 border border-white/5 p-1 h-14 w-full max-w-4xl justify-start overflow-x-auto no-scrollbar">
+          <TabsList className="bg-secondary/40 border border-white/5 p-1 h-14 w-full max-w-5xl justify-start overflow-x-auto no-scrollbar">
             <TabsTrigger value="1-step" className="h-full px-8 font-bold text-white data-[state=active]:bg-primary data-[state=active]:text-black transition-all">1-Step Pro</TabsTrigger>
             <TabsTrigger value="2-step" className="h-full px-8 font-bold text-white data-[state=active]:bg-primary data-[state=active]:text-black transition-all">2-Step Classic</TabsTrigger>
             <TabsTrigger value="3-step" className="h-full px-8 font-bold text-white data-[state=active]:bg-primary data-[state=active]:text-black transition-all">3-Step Classic</TabsTrigger>
             <TabsTrigger value="instant" className="h-full px-8 font-bold text-white data-[state=active]:bg-primary data-[state=active]:text-black transition-all">Instant Funding</TabsTrigger>
+            <TabsTrigger value="instant-pro" className="h-full px-8 font-bold text-white data-[state=active]:bg-primary data-[state=active]:text-black transition-all">Instant Pro</TabsTrigger>
           </TabsList>
 
           <TabsContent value="1-step" className="space-y-12">
@@ -230,8 +217,15 @@ export default function RulesPage() {
 
           <TabsContent value="instant" className="space-y-12">
             <div className="grid md:grid-cols-2 gap-8">
-              <RuleCard title="Live Trading Rules" items={PLAN_RULES['instant'].active} active={userData?.currentPhase !== 'breached'} />
-              <RuleCard title="Risk Protocols" items={PLAN_RULES['instant'].prohibited} variant="destructive" active={userData?.currentPhase !== 'breached'} />
+              <RuleCard title="Rules for Profit" items={PLAN_RULES['instant'].active} active={userData?.currentPhase !== 'breached'} />
+              <RuleCard title="Safety Rules" items={PLAN_RULES['instant'].prohibited} variant="destructive" active={userData?.currentPhase !== 'breached'} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="instant-pro" className="space-y-12">
+            <div className="grid md:grid-cols-2 gap-8">
+              <RuleCard title="Rules for Profit" items={PLAN_RULES['instant-pro'].active} active={userData?.currentPhase !== 'breached'} />
+              <RuleCard title="Safety Rules" items={PLAN_RULES['instant-pro'].prohibited} variant="destructive" active={userData?.currentPhase !== 'breached'} />
             </div>
           </TabsContent>
         </Tabs>
@@ -241,38 +235,38 @@ export default function RulesPage() {
              <div className="p-3 bg-primary/10 rounded-xl border border-primary/20">
                 <Shield className="text-primary w-8 h-8" />
              </div>
-             <h2 className="text-4xl font-headline font-bold text-white">Breach Protocol</h2>
+             <h2 className="text-4xl font-headline font-bold text-white">What happens if I break a rule?</h2>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8">
             <Card className="bg-destructive/10 border-destructive/30 p-10 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-32 h-32 bg-destructive/5 blur-3xl group-hover:bg-destructive/10 transition-colors" />
               <h3 className="text-2xl font-bold text-destructive mb-6 flex items-center gap-3">
-                <Skull className="w-6 h-6" /> Hard Breach
+                <Skull className="w-6 h-6" /> Major Violations
               </h3>
               <p className="text-zinc-200 text-base leading-relaxed mb-8">
-                Violating hard rules results in immediate liquidation of your trading account. The account is terminated, and all profits are forfeited. No appeals are permitted for hard breaches.
+                Breaking a major safety rule will close your account immediately. All trades will be closed, and any profit you made will be lost. You cannot appeal this decision.
               </p>
               <ul className="space-y-4">
-                <ProtocolItem text="Daily Drawdown limit reached" />
-                <ProtocolItem text="Maximum Drawdown limit reached" />
-                <ProtocolItem text="Unauthorized Martingale / Grid trading" />
-                <ProtocolItem text="Frequency or Duration violation" />
+                <ProtocolItem text="Losing more than allowed in a single day" />
+                <ProtocolItem text="Letting your total loss reach the account limit" />
+                <ProtocolItem text="Doubling up your trade size after a loss" />
+                <ProtocolItem text="Placing trades too quickly or holding for too short" />
               </ul>
             </Card>
 
             <Card className="bg-amber-500/10 border-amber-500/30 p-10 relative overflow-hidden group">
               <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-3xl group-hover:bg-amber-500/10 transition-colors" />
               <h3 className="text-2xl font-bold text-amber-500 mb-6 flex items-center gap-3">
-                <AlertTriangle className="w-6 h-6" /> Soft Breach
+                <AlertTriangle className="w-6 h-6" /> Minor Warnings
               </h3>
               <p className="text-zinc-200 text-base leading-relaxed mb-8">
-                Soft rules are designed to protect your evaluation. Violating a soft rule results in a formal warning or a reset of the evaluation phase without terminating your eligibility for funding.
+                Minor rules are there to protect you. Breaking these might result in a simple warning or your account being reset to the starting point instead of being closed permanently.
               </p>
               <ul className="space-y-4">
-                <ProtocolItem text="Holding over the weekend (on specific plans)" />
-                <ProtocolItem text="Copying unauthorized external signals" />
-                <ProtocolItem text="Inconsistent execution patterns" />
+                <ProtocolItem text="Keeping trades open through the weekend" />
+                <ProtocolItem text="Copying trades from other people without permission" />
+                <ProtocolItem text="Trading in a very unusual or erratic way" />
               </ul>
             </Card>
           </div>
