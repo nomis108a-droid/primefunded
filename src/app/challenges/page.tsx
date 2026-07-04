@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2, Instagram } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -187,16 +187,41 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
   const [coupon5kExpired, setCoupon5kExpired] = useState(false);
   const [coupon5kSuccess, setCoupon5kSuccess] = useState(false);
 
+  // Gate States
+  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [isLive, setIsLive] = useState(false);
+  const [followConfirmed, setFollowConfirmed] = useState(false);
+
   const isFree5kTier = planName === '2-step' && tier.size === '$5,000';
 
   useEffect(() => {
     if (!isFree5kTier) return;
+    
+    // 1. Timer Logic
+    const target = new Date('2026-07-06T12:30:00Z');
+    const tick = () => {
+      const now = new Date();
+      const diff = target.getTime() - now.getTime();
+      if (diff <= 0) { setIsLive(true); return; }
+      setTimeLeft({
+        days: Math.floor(diff / 86400000),
+        hours: Math.floor((diff % 86400000) / 3600000),
+        minutes: Math.floor((diff % 3600000) / 60000),
+        seconds: Math.floor((diff % 60000) / 1000)
+      });
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+
+    // 2. Expiry Check
     const checkExpiry = async () => {
       const { getDocs, collection } = await import('firebase/firestore');
       const snap = await getDocs(collection(db, 'giveaways'));
       if (snap.size >= 500) setCoupon5kExpired(true);
     };
     checkExpiry();
+
+    return () => clearInterval(t);
   }, [isFree5kTier]);
 
   return (
@@ -284,6 +309,30 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
               <div className="w-full p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-2">
                 <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
                 <p className="text-[11px] font-bold text-emerald-400 leading-tight">✅ Claim submitted! Admin will review and approve within 24 hours.</p>
+              </div>
+            ) : (!isLive || !followConfirmed) ? (
+              <div className="space-y-3 w-full">
+                <a 
+                  href="https://www.instagram.com/primefunded.fund?utm_source=qr&igsh=Z2NwNmJzaHB1dXNh"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)'}}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white text-sm hover:scale-[1.02] transition-transform"
+                  onClick={() => setTimeout(() => setFollowConfirmed(true), 2000)}
+                >
+                  Follow on Instagram to Participate
+                </a>
+                {!isLive && (
+                  <div className="grid grid-cols-4 gap-1 text-center">
+                    {[['D', timeLeft.days], ['H', timeLeft.hours], ['M', timeLeft.minutes], ['S', timeLeft.seconds]].map(([l, v]) => (
+                      <div key={l as string} className="bg-zinc-900 rounded-lg p-2">
+                        <div className="text-lg font-black text-primary tabular-nums">{String(v).padStart(2,'0')}</div>
+                        <div className="text-[8px] text-zinc-500 uppercase font-bold">{l as string}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[9px] text-zinc-500 text-center">Follow Instagram + wait for launch to claim</p>
               </div>
             ) : (
               <div className="space-y-2 w-full">

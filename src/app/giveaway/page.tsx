@@ -17,7 +17,8 @@ import {
   Trophy, 
   ArrowRight,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Instagram
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
@@ -40,7 +41,34 @@ export default function GiveawayPage() {
   const [hasClaimed, setHasClaimed] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // 1. Monitor Claim Count & User Status
+  // Countdown and Gate States
+  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [isLive, setIsLive] = useState(false);
+  const [followConfirmed, setFollowConfirmed] = useState(false);
+
+  // 1. Countdown Timer Effect
+  useEffect(() => {
+    const target = new Date('2026-07-06T12:30:00Z'); // 6PM IST = 12:30 UTC
+    const tick = () => {
+      const now = new Date();
+      const diff = target.getTime() - now.getTime();
+      if (diff <= 0) {
+        setIsLive(true);
+        return;
+      }
+      setTimeLeft({
+        days: Math.floor(diff / 86400000),
+        hours: Math.floor((diff % 86400000) / 3600000),
+        minutes: Math.floor((diff % 3600000) / 60000),
+        seconds: Math.floor((diff % 60000) / 1000)
+      });
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // 2. Monitor Claim Count & User Status
   useEffect(() => {
     // Listen to total giveaway count
     const unsubCount = onSnapshot(collection(db, 'giveaways'), (snap) => {
@@ -187,55 +215,117 @@ export default function GiveawayPage() {
                       {spotsRemaining} SPOTS LEFT
                     </Badge>
                   </div>
-                  <CardDescription>Enter the exclusive community coupon code below to initialize your $5k challenge.</CardDescription>
+                  <CardDescription>Follow our community and enter the exclusive coupon code to launch your challenge.</CardDescription>
                 </CardHeader>
 
                 <CardContent className="space-y-8">
-                  <form onSubmit={handleClaim} className="space-y-6">
-                    <div className="space-y-3">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Enter Coupon Code</Label>
-                      <Input 
-                        placeholder="e.g. PRIME500" 
-                        value={coupon}
-                        onChange={e => setCoupon(e.target.value.toUpperCase())}
-                        className="h-14 bg-secondary/50 border-white/10 text-center text-xl font-mono tracking-[0.5em] font-bold text-white focus:border-[#00d4ff]/50 transition-all uppercase"
-                        maxLength={10}
-                        disabled={claiming || hasClaimed || isSuccess || spotsRemaining === 0}
-                      />
+                  {/* Instagram Follow Gate */}
+                  <div className="border border-pink-500/30 bg-pink-500/5 rounded-2xl p-6 mb-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center">
+                        <Instagram className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-white text-sm">Step 1: Follow us on Instagram</p>
+                        <p className="text-xs text-zinc-400">Required to participate in the giveaway</p>
+                      </div>
                     </div>
+                    
+                    <a 
+                      href="https://www.instagram.com/primefunded.fund?utm_source=qr&igsh=Z2NwNmJzaHB1dXNh"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white mb-3 hover:scale-[1.02] transition-transform"
+                      style={{background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)'}}
+                      onClick={() => setTimeout(() => setFollowConfirmed(true), 2000)}
+                    >
+                      Follow @primefunded.fund
+                    </a>
+                    <label className="flex items-center gap-3 cursor-pointer group">
+                      <input
+                        type="checkbox"
+                        checked={followConfirmed}
+                        onChange={e => setFollowConfirmed(e.target.checked)}
+                        className="w-4 h-4 accent-pink-500 rounded border-white/20"
+                      />
+                      <span className="text-xs text-zinc-300 group-hover:text-white transition-colors">I confirm I am following @primefunded.fund on Instagram</span>
+                    </label>
+                  </div>
 
-                    <AnimatePresence mode="wait">
-                      {isSuccess ? (
-                        <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
-                          <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
-                          <h3 className="font-bold text-white mb-1">✅ Claim Submitted!</h3>
-                          <p className="text-xs text-muted-foreground mb-4">Your free $5,000 account request is under admin review. You'll receive an email once approved (usually within 24 hours).</p>
-                          <Button className="w-full h-12 font-bold" asChild>
-                            <Link href="/dashboard">Return to Dashboard <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                  {/* Countdown Timer */}
+                  {!isLive && (
+                    <div className="text-center mb-6">
+                      <p className="text-xs text-zinc-400 uppercase tracking-widest mb-3 font-bold">Giveaway Goes Live In</p>
+                      <div className="grid grid-cols-4 gap-3">
+                        {[['days', timeLeft.days], ['hours', timeLeft.hours], ['mins', timeLeft.minutes], ['secs', timeLeft.seconds]].map(([label, val]) => (
+                          <div key={label as string} className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 text-center">
+                            <div className="text-3xl font-black text-primary tabular-nums">{String(val).padStart(2,'0')}</div>
+                            <div className="text-[9px] text-zinc-500 uppercase font-bold mt-1">{label as string}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-zinc-500 mt-3">Sunday, July 6 at 6:00 PM IST</p>
+                    </div>
+                  )}
+
+                  {isLive && (
+                    <div className="flex items-center justify-center gap-2 mb-4 py-2 rounded-full bg-green-500/10 border border-green-500/30">
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                      <span className="text-green-400 text-xs font-black uppercase tracking-widest">Giveaway is LIVE!</span>
+                    </div>
+                  )}
+
+                  {(!isLive || !followConfirmed) ? (
+                    <div className="text-center py-8 rounded-xl bg-secondary/20 border border-border/50 text-zinc-500 text-sm italic">
+                      {!followConfirmed ? '👆 Follow us on Instagram first to unlock the claim form' : '⏳ Claim form unlocks when giveaway goes live'}
+                    </div>
+                  ) : (
+                    <form onSubmit={handleClaim} className="space-y-6">
+                      <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Enter Coupon Code</Label>
+                        <Input 
+                          placeholder="e.g. PRIME500" 
+                          value={coupon}
+                          onChange={e => setCoupon(e.target.value.toUpperCase())}
+                          className="h-14 bg-secondary/50 border-white/10 text-center text-xl font-mono tracking-[0.5em] font-bold text-white focus:border-[#00d4ff]/50 transition-all uppercase"
+                          maxLength={10}
+                          disabled={claiming || hasClaimed || isSuccess || spotsRemaining === 0}
+                        />
+                      </div>
+
+                      <AnimatePresence mode="wait">
+                        {isSuccess ? (
+                          <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-center">
+                            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+                            <h3 className="font-bold text-white mb-1">✅ Claim Submitted!</h3>
+                            <p className="text-xs text-muted-foreground mb-4">Your free $5,000 account request is under admin review. You'll receive an email once approved (usually within 24 hours).</p>
+                            <Button className="w-full h-12 font-bold" asChild>
+                              <Link href="/dashboard">Return to Dashboard <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                            </Button>
+                          </motion.div>
+                        ) : hasClaimed ? (
+                          <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center">
+                            <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
+                            <p className="text-sm font-bold text-white">You have already claimed this giveaway.</p>
+                            <Button variant="ghost" className="mt-4 text-xs font-bold" asChild><Link href="/dashboard">Go to Dashboard</Link></Button>
+                          </div>
+                        ) : spotsRemaining === 0 ? (
+                          <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/30 text-center">
+                            <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-3" />
+                            <p className="text-sm font-bold text-white">Sorry, all 500 accounts have been claimed!</p>
+                          </div>
+                        ) : (
+                          <Button 
+                            type="submit" 
+                            disabled={claiming || !coupon}
+                            className="w-full h-16 rounded-2xl font-black text-base md:text-lg tracking-widest cyan-box-glow bg-[#00d4ff] text-black hover:bg-[#00d4ff]/90 transition-all active:scale-95"
+                          >
+                            {claiming ? <Loader2 className="w-6 h-6 animate-spin" /> : "CLAIM YOUR FREE ACCOUNT NOW"}
                           </Button>
-                        </motion.div>
-                      ) : hasClaimed ? (
-                        <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-center">
-                          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-3" />
-                          <p className="text-sm font-bold text-white">You have already claimed this giveaway.</p>
-                          <Button variant="ghost" className="mt-4 text-xs font-bold" asChild><Link href="/dashboard">Go to Dashboard</Link></Button>
-                        </div>
-                      ) : spotsRemaining === 0 ? (
-                        <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/30 text-center">
-                          <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-3" />
-                          <p className="text-sm font-bold text-white">Sorry, all 500 accounts have been claimed!</p>
-                        </div>
-                      ) : (
-                        <Button 
-                          type="submit" 
-                          disabled={claiming || !coupon}
-                          className="w-full h-16 rounded-2xl font-black text-base md:text-lg tracking-widest cyan-box-glow bg-[#00d4ff] text-black hover:bg-[#00d4ff]/90 transition-all active:scale-95"
-                        >
-                          {claiming ? <Loader2 className="w-6 h-6 animate-spin" /> : "CLAIM YOUR FREE ACCOUNT NOW"}
-                        </Button>
-                      )}
-                    </AnimatePresence>
-                  </form>
+                        )}
+                      </AnimatePresence>
+                    </form>
+                  )}
 
                   <div className="pt-6 border-t border-white/5 space-y-4">
                      <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-[0.2em]">
