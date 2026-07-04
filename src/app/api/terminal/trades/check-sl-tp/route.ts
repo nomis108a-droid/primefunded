@@ -6,7 +6,7 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
  * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
- * Updated to handle 30-day account expiration for Instant plans.
+ * Updated to handle 30-day account expiration for Instant Funding only.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -59,8 +59,8 @@ export async function GET(req: NextRequest) {
       const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
       const rules = RULES_CONFIG.plans[planKey]?.[acc.phase || 'evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
-      // ── ACCOUNT EXPIRATION CHECK (30 Days for Instant Plans) ───────
-      if (planKey === 'instant-funding' || planKey === 'instant-pro') {
+      // ── ACCOUNT EXPIRATION CHECK (30 Days for Instant Funding ONLY) ───────
+      if (planKey === 'instant-funding') {
         const createdAt = (acc.createdAt as Timestamp).toDate().getTime();
         const daysOld = (now.getTime() - createdAt) / (1000 * 60 * 60 * 24);
         if (daysOld > 30) {
@@ -103,7 +103,7 @@ export async function GET(req: NextRequest) {
       let floatingPnl = 0;
       let floatingNegativePnl = 0;
       
-      // ── FRIDAY OVERNIGHT WARNING (Instant Funding Only) ─────
+      // ── FRIDAY OVERNIGHT WARNING (Instant Plans) ─────
       if (isFridayNight && trades.length > 0 && (planKey === 'instant-funding' || planKey === 'instant-pro')) {
         await db.collection('users').doc(acc.userId).collection('notifications').add({
           title: '⚠️ Friday Overnight Holding',
@@ -116,15 +116,13 @@ export async function GET(req: NextRequest) {
 
       for (const t of trades) {
         const pnl = calculateTradePnl(t, prices[t.symbol]);
-        floatingPnl += pnl;
-        if (pnl < 0) floatingNegativePnl += Math.abs(pnl);
-
-        // ── RULE: MAX FLOATING LOSS (1%) ───────────────────────
+        
+        // ── RULE: MAX FLOATING LOSS (1% per single trade) ─────────
         const startBalance = acc.startBalance || 100000;
         const floatingLimit = startBalance * (rules.maxFloatingLoss || 1) / 100;
         
         if (pnl < 0 && Math.abs(pnl) >= floatingLimit && (planKey === '1-step-pro' || planKey === 'instant-funding' || planKey === 'instant-pro')) {
-           // FORCE CLOSE THIS TRADE
+           // FORCE CLOSE THIS SPECIFIC TRADE ONLY
            const priceData = prices[t.symbol];
            const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
            
@@ -140,9 +138,22 @@ export async function GET(req: NextRequest) {
                balance: FieldValue.increment(pnl),
                updatedAt: FieldValue.serverTimestamp()
              });
+
+             // Create individual trade closure notification
+             const notifRef = db.collection('users').doc(acc.userId).collection('notifications').doc();
+             tx.set(notifRef, {
+               title: '🛡️ Trade Auto-Closed',
+               message: `Trade on ${t.symbol} force-closed: single trade floating loss exceeded 1% of your starting balance.`,
+               type: 'risk_warning',
+               isRead: false,
+               createdAt: FieldValue.serverTimestamp()
+             });
            });
-           continue;
+           continue; 
         }
+
+        floatingPnl += pnl;
+        if (pnl < 0) floatingNegativePnl += Math.abs(pnl);
       }
 
       const currentEquity = acc.balance + floatingPnl;
@@ -150,11 +161,11 @@ export async function GET(req: NextRequest) {
 
       let breachReason = null;
 
-      // 1. CHECK: REAL-TIME DAILY GROSS LOSS (Including Negative Floating)
+      // 1. CHECK: REAL-TIME DAILY GROSS LOSS
       if (virtualDailyLoss >= acc.dailyLossLimitUsd) {
         breachReason = "daily_drawdown_breach";
       } 
-      // 2. CHECK: MAX TOTAL DRAWDOWN (Equity vs Start Balance)
+      // 2. CHECK: MAX TOTAL DRAWDOWN
       else if ((acc.startBalance - currentEquity) >= (acc.maxLoss || acc.startBalance * 0.06)) {
         breachReason = "max_drawdown_breach";
       }

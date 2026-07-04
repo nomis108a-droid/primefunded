@@ -63,9 +63,8 @@ export async function auditDemoAccount(accountId: string) {
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
 
-  // 2. Calculate Real-time Equity & Floating Loss
+  // 2. Calculate Real-time Equity
   let totalFloatingPnl = 0;
-  let maxSingleFloatingLoss = 0;
 
   for (const t of openTrades) {
     const priceData = prices[t.symbol?.toUpperCase() || ''];
@@ -76,20 +75,12 @@ export async function auditDemoAccount(accountId: string) {
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
     
     totalFloatingPnl += pnl;
-    if (pnl < 0) maxSingleFloatingLoss = Math.max(maxSingleFloatingLoss, Math.abs(pnl));
   }
 
   const currentEquity = currBalance + totalFloatingPnl;
-  const floatingLossLimit = initialBalance * (rules.maxFloatingLoss || 1) / 100;
-
   let breachReason = '';
 
-  // ── RULE 1: Max Floating Loss (1% per trade) ──────────────────
-  if (maxSingleFloatingLoss >= floatingLossLimit && (pKey === '1-step-pro' || pKey === 'instant-funding' || pKey === 'instant-pro')) {
-    breachReason = `Floating loss violation: Single position hit 1% limit ($${floatingLossLimit.toLocaleString()})`;
-  }
-
-  // ── RULE 2: Daily Drawdown (3% of start balance) ──────────────
+  // ── RULE 1: Daily Drawdown (3% of start balance) ──────────────
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0); 
@@ -110,13 +101,13 @@ export async function auditDemoAccount(accountId: string) {
     breachReason = `Daily drawdown violation: Risk ($${totalDailyRisk.toFixed(2)}) exceeded ${rules.dailyDrawdown}% limit ($${dailyLimit.toFixed(2)})`;
   }
 
-  // ── RULE 3: Max Total Drawdown ───────────────────────────────
+  // ── RULE 2: Max Total Drawdown ───────────────────────────────
   const maxLimit = initialBalance * (rules.maxDrawdown / 100);
   if (!breachReason && (initialBalance - currentEquity) >= maxLimit) {
     breachReason = `Maximum drawdown violation: Equity fell below ${rules.maxDrawdown}% limit`;
   }
 
-  // ── RULE 4: Profit Target & Min Trading Days Check ────────────
+  // ── RULE 3: Profit Target & Min Trading Days Check ────────────
   
   // Calculate Distinct Trading Days (02:00 UTC Boundary)
   const tradingWindows = new Set<string>();
@@ -148,7 +139,7 @@ export async function auditDemoAccount(accountId: string) {
     });
   }
 
-  // ── RULE 5: Trade Duration (Min 2m) ──────────────────────────
+  // ── RULE 4: Trade Duration (Min 2m) ──────────────────────────
   if (!breachReason) {
     for (const t of closedTrades) {
       const open = getTradeDate(t.openedAt);
