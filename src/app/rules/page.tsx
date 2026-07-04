@@ -18,7 +18,7 @@ const PLAN_RULES = {
       { text: "You must trade for at least 5 different days to pass", check: true },
       { text: "You must wait at least 3 minutes between opening new trades", check: true },
       { text: "You must hold your trades for at least 2 minutes before closing them", check: true },
-      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate account breach. Crypto positions (BTCUSD, ETHUSD etc.) are exempt.", warning: false },
+      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate account breach. Crypto positions are exempt.", warning: false },
     ],
     funded: [
       { text: "Keep 80% of all profits you make", check: true },
@@ -219,7 +219,7 @@ export default function RulesPage() {
   );
 }
 
-function RuleCard({ title, items = [], variant = 'primary', active }: { title: string, items?: any[], variant?: 'primary' | 'destructive', active?: boolean }) {
+function RuleCard({ title, items = [], variant = 'primary' }: { title: string, items?: any[], variant?: 'primary' | 'destructive' }) {
   const isDestructive = variant === 'destructive';
   
   return (
@@ -237,7 +237,7 @@ function RuleCard({ title, items = [], variant = 'primary', active }: { title: s
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-8 space-y-5">
-        {items.map((item, idx) => (
+        {(items || []).map((item, idx) => (
           <div key={idx} className="flex items-start gap-4">
             <div className={cn(
               "mt-1 p-1 rounded-full",
