@@ -68,9 +68,12 @@ const PLAN_RULES = {
       { text: "4% daily drawdown limit", type: 'warning' },
       { text: "8% maximum drawdown", type: 'warning' },
       { text: "3% max loss per single trade (Hard Breach)", type: 'skull' },
+      { text: "1 execution per 3 mins maximum", type: 'warning' },
+      { text: "Hold trades for at least 2 minutes", type: 'warning' },
       { text: "Minimum 7 trading days (Phase 1)", type: 'check' },
       { text: "Minimum 6 trading days (Phase 2)", type: 'check' },
       { text: "Minimum 5 trading days (Phase 3)", type: 'check' },
+      { text: "Trading Leverage: 1:100", type: 'check' },
       { text: "No martingale allowed (Hard Breach)", type: 'skull' },
     ],
     funded: [
