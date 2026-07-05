@@ -193,13 +193,15 @@ export default function DemoPage() {
   }, [accountsLoading, activeAccounts, currentAccountId]);
 
   useEffect(() => {
-    const updateMarketStatus = () => {
-      setMarketInfo(getMarketInfo(selectedSymbol));
-    };
-    updateMarketStatus();
-    const interval = setInterval(updateMarketStatus, 60000);
-    return () => clearInterval(interval);
-  }, [selectedSymbol]);
+    if (hasMounted) {
+      const updateMarketStatus = () => {
+        setMarketInfo(getMarketInfo(selectedSymbol));
+      };
+      updateMarketStatus();
+      const interval = setInterval(updateMarketStatus, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [selectedSymbol, hasMounted]);
 
   const handleResize = useCallback(() => {
     if (chartContainerRef.current && chartInstanceRef.current) {
@@ -231,18 +233,20 @@ export default function DemoPage() {
   }, [selectedSymbol]);
 
   useEffect(() => {
-    const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
-    const updateCountdown = () => {
-      const now = Math.floor(Date.now() / 1000);
-      const remaining = intervalSecs - (now % intervalSecs);
-      const mins = Math.floor(remaining / 60);
-      const secs = remaining % 60;
-      setCountdown(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
-    };
-    updateCountdown();
-    const timer = setInterval(updateCountdown, 1000);
-    return () => clearInterval(timer);
-  }, [selectedInterval]);
+    if (hasMounted) {
+      const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
+      const updateCountdown = () => {
+        const now = Math.floor(Date.now() / 1000);
+        const remaining = intervalSecs - (now % intervalSecs);
+        const mins = Math.floor(remaining / 60);
+        const secs = remaining % 60;
+        setCountdown(`${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      };
+      updateCountdown();
+      const timer = setInterval(updateCountdown, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [selectedInterval, hasMounted]);
 
   const applyGlobalSettings = useCallback(() => {
     if (!chartInstanceRef.current) return;
@@ -626,47 +630,61 @@ export default function DemoPage() {
           <button 
             type="button" 
             onClick={() => placeTrade('buy')} 
-            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
+            disabled={!hasMounted || actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
               "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
+              !hasMounted ? "bg-zinc-800 text-zinc-500" :
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
               (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
               "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
             <div className="flex flex-col items-center">
-              {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-               hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
-               !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
-               (!hasMounted || !isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
-                 <>
-                   <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
-                   <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
-                 </>
-               )}
+              {!hasMounted ? (
+                <span className="text-[10px]">PRICE SYNCING...</span>
+              ) : (
+                <>
+                  {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
+                   hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
+                   !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
+                   (!isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
+                     <div className="flex flex-col items-center">
+                       <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
+                       <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                     </div>
+                   )}
+                </>
+              )}
             </div>
           </button>
           <button 
             type="button" 
             onClick={() => placeTrade('sell')} 
-            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
+            disabled={!hasMounted || actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
               "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
+              !hasMounted ? "bg-zinc-800 text-zinc-500" :
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
               (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
               "bg-red-600 hover:bg-red-700 text-white"
             )}
           >
             <div className="flex flex-col items-center">
-              {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-               hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
-               !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
-               (!hasMounted || !isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
-                 <>
-                   <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
-                   <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
-                 </>
-               )}
+              {!hasMounted ? (
+                <span className="text-[10px]">PRICE SYNCING...</span>
+              ) : (
+                <>
+                  {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
+                   hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
+                   !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
+                   (!isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
+                     <div className="flex flex-col items-center">
+                       <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
+                       <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                     </div>
+                   )}
+                </>
+              )}
             </div>
           </button>
         </div>
@@ -704,7 +722,7 @@ export default function DemoPage() {
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
-      {hasPendingPayout && (
+      {hasMounted && hasPendingPayout && (
         <div className="bg-amber-500/20 border-b border-amber-500/30 px-4 py-2 flex items-center justify-center gap-3 z-[60]">
           <AlertTriangle className="w-4 h-4 text-amber-500" />
           <p className="text-[11px] font-bold text-amber-200 uppercase tracking-wide">
