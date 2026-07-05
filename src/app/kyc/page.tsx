@@ -16,17 +16,21 @@ import Link from 'next/link';
 export default function KYCPage() {
   const { user, userData } = useAuth();
   const [isResubmitting, setIsResubmitting] = useState(false);
-  const [step, setStep] = useState(userData?.kycStatus === 'pending' || userData?.kycStatus === 'verified' ? 3 : 1);
+  
+  // Adjusted steps: 1: ID Front, 2: ID Back, 3: Selfie, 4: Success
+  const [step, setStep] = useState(userData?.kycStatus === 'pending' || userData?.kycStatus === 'verified' ? 4 : 1);
   const [loading, setLoading] = useState(false);
-  const [idFile, setIdFile] = useState<File | null>(null);
-  const [addressFile, setAddressFile] = useState<File | null>(null);
+  
+  const [idFrontFile, setIdFrontFile] = useState<File | null>(null);
+  const [idBackFile, setIdBackFile] = useState<File | null>(null);
+  const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  
   const { toast } = useToast();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'id' | 'address') => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'front' | 'back' | 'selfie') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Institutional validation: Support up to 10MB via Storage
     const maxSize = 10 * 1024 * 1024; 
     const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
 
@@ -34,7 +38,7 @@ export default function KYCPage() {
       toast({
         variant: "destructive",
         title: "File Too Large",
-        description: "Max file size is 10MB. Please use a standard image or PDF.",
+        description: "Max file size is 10MB.",
       });
       return;
     }
@@ -48,16 +52,17 @@ export default function KYCPage() {
       return;
     }
 
-    if (type === 'id') setIdFile(file);
-    else setAddressFile(file);
+    if (type === 'front') setIdFrontFile(file);
+    else if (type === 'back') setIdBackFile(file);
+    else setSelfieFile(file);
     
     toast({ title: "File Selected", description: file.name });
   };
 
-  const uploadToStorage = async (file: File, type: 'id' | 'address') => {
+  const uploadToStorage = async (file: File, type: string) => {
     if (!user) throw new Error("No authenticated user");
     const extension = file.name.split('.').pop();
-    const fileName = `${type}-proof-${Date.now()}.${extension}`;
+    const fileName = `${type}-${Date.now()}.${extension}`;
     const storageRef = ref(storage, `kyc/${user.uid}/${fileName}`);
     
     const snapshot = await uploadBytes(storageRef, file);
@@ -65,41 +70,42 @@ export default function KYCPage() {
   };
 
   const handleSubmit = async () => {
-    if (!user || !idFile || !addressFile) {
-      toast({ variant: "destructive", title: "Missing Files", description: "Please upload both Identity and Address documents." });
+    if (!user || !idFrontFile || !idBackFile || !selfieFile) {
+      toast({ variant: "destructive", title: "Missing Files", description: "Please upload all 3 documents." });
       return;
     }
     setLoading(true);
     
     try {
-      // Step 1: Upload to Secure Storage
-      const [idUrl, addressUrl] = await Promise.all([
-        uploadToStorage(idFile, 'id'),
-        uploadToStorage(addressFile, 'address')
+      const [frontUrl, backUrl, selfieUrl] = await Promise.all([
+        uploadToStorage(idFrontFile, 'id-front'),
+        uploadToStorage(idBackFile, 'id-back'),
+        uploadToStorage(selfieFile, 'selfie')
       ]);
 
-      // Step 2: Update Firestore with Download URLs
       const userRef = doc(db, 'users', user.uid);
       const updates = {
         kycStatus: 'pending',
         kycSubmittedAt: new Date().toISOString(),
         kycVerified: false,
         kycRejectionReason: null,
-        idProofUrl: idUrl,
-        addressProofUrl: addressUrl
+        idProofUrl: frontUrl,
+        idBackProofUrl: backUrl,
+        selfieProofUrl: selfieUrl,
+        addressProofUrl: backUrl // Fallback for legacy fields
       };
 
       await updateDoc(userRef, updates);
       
       await addDoc(collection(db, 'users', user.uid, 'notifications'), {
         title: "⏳ KYC Under Review",
-        message: "Your documents have been securely uploaded to our vault. We will notify you once review is complete.",
+        message: "Your documents have been securely uploaded. We will notify you once review is complete.",
         type: 'kyc_submitted',
         isRead: false,
         createdAt: serverTimestamp()
       });
 
-      setStep(3);
+      setStep(4);
       setIsResubmitting(false);
       toast({
         title: "Documents Submitted",
@@ -116,8 +122,9 @@ export default function KYCPage() {
   const handleResubmitClick = () => {
     setIsResubmitting(true);
     setStep(1);
-    setIdFile(null);
-    setAddressFile(null);
+    setIdFrontFile(null);
+    setIdBackFile(null);
+    setSelfieFile(null);
   };
 
   const isRejected = userData?.kycStatus === 'rejected' && !isResubmitting;
@@ -150,16 +157,6 @@ export default function KYCPage() {
                 <RefreshCw className="w-4 h-4 mr-2" /> Resubmit KYC Documents
               </Button>
             </div>
-            
-            <section className="text-left bg-zinc-900/40 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-              <h3 className="text-lg font-bold text-white mb-4">Common reasons for rejection:</h3>
-              <ul className="space-y-2 text-sm text-zinc-400">
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Low quality or blurry photos</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Document edges were cut off in the photo</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Selfie did not clearly show both your face and the ID</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Document is expired or invalid</li>
-              </ul>
-            </section>
           </div>
         ) : (
           <>
@@ -168,7 +165,7 @@ export default function KYCPage() {
                 <div className="p-2 bg-primary/10 rounded-xl">
                   <ShieldCheck className="w-6 h-6 text-primary" />
                 </div>
-                <h2 className="text-2xl font-headline font-bold text-white">Verification Guide</h2>
+                <h2 className="text-2xl font-headline font-bold text-white">How to complete your identity verification</h2>
               </div>
               
               <div className="space-y-6">
@@ -208,17 +205,17 @@ export default function KYCPage() {
             <div className="max-w-2xl mx-auto">
               <div className="flex justify-between items-center mb-8 relative">
                 <div className="absolute top-1/2 left-0 w-full h-0.5 bg-secondary -z-10" />
-                <StepIndicator currentStep={step} step={1} label="Identity" />
-                <StepIndicator currentStep={step} step={2} label="Address" />
-                <StepIndicator currentStep={step} step={3} label="Confirmation" />
+                <StepIndicator currentStep={step} step={1} label="ID Front Photo" />
+                <StepIndicator currentStep={step} step={2} label="ID Back Photo" />
+                <StepIndicator currentStep={step} step={3} label="Selfie with ID" />
               </div>
 
               <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-2xl overflow-hidden">
                 {step === 1 && (
                   <>
                     <CardHeader>
-                      <CardTitle className="text-white text-xl">Step 1: Proof of Identity</CardTitle>
-                      <CardDescription>Upload a valid government-issued ID (Passport or ID Card).</CardDescription>
+                      <CardTitle className="text-white text-xl">Step 1: ID Front Photo</CardTitle>
+                      <CardDescription>Upload front side of your government ID</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
                       <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
@@ -226,17 +223,17 @@ export default function KYCPage() {
                           type="file" 
                           accept=".jpg,.jpeg,.png,.pdf" 
                           className="absolute inset-0 opacity-0 cursor-pointer" 
-                          onChange={(e) => handleFileChange(e, 'id')}
+                          onChange={(e) => handleFileChange(e, 'front')}
                         />
-                        {idFile ? (
+                        {idFrontFile ? (
                           <div className="text-center">
                             <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
-                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{idFile.name}</p>
+                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{idFrontFile.name}</p>
                           </div>
                         ) : (
                           <>
                             <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
-                            <p className="text-sm font-bold text-white">Click to upload ID</p>
+                            <p className="text-sm font-bold text-white">Click to upload ID Front</p>
                             <p className="text-xs text-muted-foreground mt-2">JPG, PNG, PDF (Max 10MB)</p>
                           </>
                         )}
@@ -249,8 +246,8 @@ export default function KYCPage() {
                 {step === 2 && (
                   <>
                     <CardHeader>
-                      <CardTitle className="text-white text-xl">Step 2: Proof of Address</CardTitle>
-                      <CardDescription>A utility bill or bank statement (last 3 months).</CardDescription>
+                      <CardTitle className="text-white text-xl">Step 2: ID Back Photo</CardTitle>
+                      <CardDescription>Upload back side of your government ID</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
                       <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
@@ -258,32 +255,72 @@ export default function KYCPage() {
                           type="file" 
                           accept=".jpg,.jpeg,.png,.pdf" 
                           className="absolute inset-0 opacity-0 cursor-pointer" 
-                          onChange={(e) => handleFileChange(e, 'address')}
+                          onChange={(e) => handleFileChange(e, 'back')}
                         />
-                        {addressFile ? (
+                        {idBackFile ? (
                           <div className="text-center">
                             <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
-                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{addressFile.name}</p>
+                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{idBackFile.name}</p>
                           </div>
                         ) : (
                           <>
                             <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
-                            <p className="text-sm font-bold text-white">Upload proof of address</p>
+                            <p className="text-sm font-bold text-white">Click to upload ID Back</p>
+                            <p className="text-xs text-muted-foreground mt-2">JPG, PNG, PDF (Max 10MB)</p>
                           </>
                         )}
                       </div>
                       <div className="flex gap-4">
                         <Button variant="outline" className="flex-1 h-12 rounded-xl font-bold cursor-pointer" onClick={() => setStep(1)}>Back</Button>
-                        <Button className="flex-1 font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" onClick={handleSubmit} disabled={loading || !addressFile || !idFile}>
-                          {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                          Submit for Review
-                        </Button>
+                        <Button className="flex-1 font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" onClick={() => setStep(3)}>Next Step</Button>
                       </div>
                     </CardContent>
                   </>
                 )}
 
                 {step === 3 && (
+                  <>
+                    <CardHeader>
+                      <CardTitle className="text-white text-xl">Step 3: Selfie with ID</CardTitle>
+                      <CardDescription>Take a photo holding your ID next to your face</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          className="absolute inset-0 opacity-0 cursor-pointer" 
+                          onChange={(e) => handleFileChange(e, 'selfie')}
+                        />
+                        {selfieFile ? (
+                          <div className="text-center">
+                            <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
+                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{selfieFile.name}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
+                            <p className="text-sm font-bold text-white">Click to upload Selfie</p>
+                            <p className="text-xs text-muted-foreground mt-2">Clear photo of face holding ID</p>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex gap-4">
+                        <Button variant="outline" className="flex-1 h-12 rounded-xl font-bold cursor-pointer" onClick={() => setStep(2)}>Back</Button>
+                        <Button 
+                          className="flex-1 font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" 
+                          onClick={handleSubmit} 
+                          disabled={loading || !selfieFile}
+                        >
+                          {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                          Submit Verification
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </>
+                )}
+
+                {step === 4 && (
                   <CardContent className="pt-12 pb-12 flex flex-col items-center text-center">
                     {userData?.kycVerified ? (
                       <>
@@ -300,14 +337,14 @@ export default function KYCPage() {
                         <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center mb-8">
                           <Clock className="w-12 h-12 text-primary" />
                         </div>
-                        <h3 className="text-3xl font-headline font-bold mb-3 text-white">Application Received</h3>
+                        <h3 className="text-3xl font-headline font-bold mb-3 text-white">Documents Submitted!</h3>
                         <p className="text-muted-foreground max-w-sm mb-10 leading-relaxed">
-                          Verification typically takes 12-24 hours. Your documents are securely stored in our vault. We'll alert you once processed.
+                          Your KYC is under review. We will notify you once verified.
                         </p>
                       </>
                     )}
                     <Button className="w-full h-14 rounded-xl font-bold text-lg cursor-pointer" asChild>
-                      <Link href="/dashboard">Return to Dashboard</Link>
+                      <Link href="/dashboard">Go to Dashboard</Link>
                     </Button>
                   </CardContent>
                 )}
@@ -333,7 +370,7 @@ function StepIndicator({ currentStep, step, label }: { currentStep: number, step
       )}>
         {isCompleted ? <CheckCircle2 className="w-6 h-6" /> : <span className="font-bold">{step}</span>}
       </div>
-      <span className={cn("text-[10px] uppercase font-black tracking-[0.2em]", isActive ? "text-primary" : "text-muted-foreground")}>
+      <span className={cn("text-[10px] uppercase font-black tracking-[0.2em] text-center max-w-[90px]", isActive ? "text-primary" : "text-muted-foreground")}>
         {label}
       </span>
     </div>
