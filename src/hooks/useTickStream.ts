@@ -14,6 +14,7 @@ export function useTickStream(symbol: string) {
 
   useEffect(() => {
     if (!symbol) return;
+    setTick(null);
 
     const connect = () => {
       if (eventSourceRef.current) {
