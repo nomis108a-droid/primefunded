@@ -111,7 +111,6 @@ function OrderPanel({
   setTp, 
   placeTrade 
 }: any) {
-  // CRITICAL: Prevent hydration error #418 by using pure static HTML tags for fallback
   if (!hasMounted) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -131,8 +130,7 @@ function OrderPanel({
     );
   }
 
-  // Diagnostic log for buttons
-  console.log(`[OrderPanel] UI Update - isPriceValid: ${isPriceValid}, Symbol: ${selectedSymbol}, Price: ${activePrice?.price}`);
+  const precision = selectedSymbol.includes('JPY') ? 3 : 2;
 
   return (
     <div className="space-y-6">
@@ -183,17 +181,17 @@ function OrderPanel({
             className={cn(
               "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
-              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
+              (!isPriceValid) ? "bg-zinc-800 text-muted-foreground" :
               "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? <span>PAYOUT PENDING</span> : 
              !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
-             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'PRICE SYNCING...'}</span> : (
+             (!isPriceValid) ? <span>PRICE SYNCING...</span> : (
                <div className="flex flex-col items-center">
                  <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
                </div>
              )}
           </button>
@@ -204,17 +202,17 @@ function OrderPanel({
             className={cn(
               "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
-              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
+              (!isPriceValid) ? "bg-zinc-800 text-muted-foreground" :
               "bg-red-600 hover:bg-red-700 text-white"
             )}
           >
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? <span>PAYOUT PENDING</span> : 
              !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
-             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'PRICE SYNCING...'}</span> : (
+             (!isPriceValid) ? <span>PRICE SYNCING...</span> : (
                <div className="flex flex-col items-center">
                  <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
                </div>
              )}
           </button>
@@ -263,6 +261,9 @@ export default function DemoPage() {
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
+  // Sync state for fallback prices from history
+  const [historyPrice, setHistoryPrice] = useState<number | null>(null);
+
   const [chartSettings, setChartSettings] = useState({
     scales: { mode: 'auto', type: 'regular', position: 'right', labels: { currentPrice: true, ohlc: true, prevClose: false, indicators: true, tradeLines: true }, lines: { lastPrice: true, prevClose: false, bid: true, ask: true, gridVert: true, gridHorz: true }, showPlusButton: true },
     canvas: { background: { type: 'solid', color: '#09090b', opacity: 1 }, grid: { type: 'both', vert: { color: '#18181b', opacity: 1 }, horz: { color: '#18181b', opacity: 1 } }, sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 }, crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 }, watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' }, scales: { textColor: '#71717a', fontSize: 12 }, candles: { upColor: '#10b981', downColor: '#ef4444', borderVisible: true, borderUpColor: '#10b981', borderDownColor: '#ef4444', wickUpColor: '#10b981', wickDownColor: '#ef4444' }, theme: 'dark' }
@@ -299,15 +300,26 @@ export default function DemoPage() {
 
   const activePrice = useMemo(() => {
     const sym = selectedSymbol.toUpperCase();
+    // 1. High-frequency SSE Stream
     if (streamTick && Number(streamTick.price) > 0) {
        return streamTick;
     }
+    // 2. Realtime Database Hook (Sub-second fallback)
     const rtdbTick = livePrices[sym];
     if (rtdbTick && Number(rtdbTick.price) > 0) {
        return rtdbTick;
     }
+    // 3. Chart History Fallback (Ensures buttons unlock in Simulated Mode)
+    if (historyPrice && historyPrice > 0) {
+      return {
+        price: historyPrice,
+        bid: historyPrice * 0.9999,
+        ask: historyPrice * 1.0001,
+        source: 'history-fallback'
+      };
+    }
     return null;
-  }, [streamTick, livePrices, selectedSymbol]);
+  }, [streamTick, livePrices, selectedSymbol, historyPrice]);
 
   const isPriceValid = !!(activePrice && Number(activePrice.price) > 0);
 
@@ -362,6 +374,7 @@ export default function DemoPage() {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
     setIsFallbackData(false);
+    setHistoryPrice(null);
     if (chartInstanceRef.current) {
       chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
     }
@@ -461,6 +474,7 @@ export default function DemoPage() {
         setIsChartLoading(false);
         if (mainSeriesRef.current) mainSeriesRef.current.setData(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
+        setHistoryPrice(cached.candles[cached.candles.length - 1].close);
       } else { setIsChartLoading(true); }
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, { signal: controller.signal });
@@ -490,6 +504,7 @@ export default function DemoPage() {
           const lastHistCandle = sorted[sorted.length - 1];
           if (!currentCandleRef.current || lastHistCandle.time > currentCandleRef.current.time) {
             currentCandleRef.current = { ...lastHistCandle };
+            setHistoryPrice(lastHistCandle.close);
           }
           
           oldestTimestamp.current = sorted[0].time;

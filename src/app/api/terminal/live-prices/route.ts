@@ -4,11 +4,10 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Live Price API
  * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
- * Corrected Kraken ticker mapping for XRP and DOGE.
+ * Corrected Kraken ticker mapping for XRP and DOGE by removing invalid pairs.
  */
 
-// Added XXRPZUSD and XDGUSD explicitly
-const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XXRPZUSD,ADAUSD,XDGUSD";
+const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD";
 
 export async function GET() {
   const prices: Record<string, any> = {};
@@ -67,7 +66,6 @@ export async function GET() {
           const data = await r.json();
           const results = data.result;
           if (results) {
-            // Expanded mapping to catch regional variants XXBTZUSD, XXRPZUSD, etc.
             const kToPF: Record<string, string> = {
               'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
               'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',
