@@ -38,6 +38,8 @@ const SYMBOLS = [
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD", "ADAUSD"
 ];
 
+const FOREX_METALS = ["XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD"];
+
 const TIMEFRAMES = [
   { label: '1m', value: '1min' }, { label: '5m', value: '5min' }, { label: '15m', value: '15min' },
   { label: '30m', value: '30min' }, { label: '1H', value: '1h' }, { label: '4H', value: '4h' },
@@ -55,6 +57,34 @@ const intervalSecondsMap: Record<string, number> = {
 };
 
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
+
+function getMarketInfo(symbol: string) {
+  const isForexMetal = FOREX_METALS.includes(symbol.toUpperCase());
+  if (!isForexMetal) return { isOpen: true, type: 'crypto', countdown: null };
+
+  const now = new Date();
+  const day = now.getUTCDay();
+  const hour = now.getUTCHours();
+  
+  let isOpen = true;
+  if (day === 5 && hour >= 21) isOpen = false; // Fri 21:00 UTC+
+  if (day === 6 || day === 0) isOpen = false; // Sat, Sun all day
+
+  let countdown = null;
+  if (!isOpen) {
+    const nextMonday = new Date(now);
+    const addDays = day === 0 ? 1 : 8 - day;
+    nextMonday.setUTCDate(now.getUTCDate() + addDays);
+    nextMonday.setUTCHours(0, 0, 0, 0);
+    
+    const diffMs = nextMonday.getTime() - now.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    countdown = `Opens in ${diffHours}h ${diffMins}m`;
+  }
+
+  return { isOpen, type: 'forex', countdown };
+}
 
 export default function DemoPage() {
   const { user, userData, loading: authLoading } = useAuth();
@@ -82,6 +112,8 @@ export default function DemoPage() {
   const [pendingPrice, setPendingPrice] = useState<string>("");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
+
+  const [marketInfo, setMarketInfo] = useState(() => getMarketInfo("XAUUSD"));
   
   const [bottomPanelOpen, setBottomPanelOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
@@ -139,6 +171,15 @@ export default function DemoPage() {
       setCurrentAccountId(activeAccounts[0].id);
     }
   }, [accountsLoading, activeAccounts, currentAccountId]);
+
+  useEffect(() => {
+    const updateMarketStatus = () => {
+      setMarketInfo(getMarketInfo(selectedSymbol));
+    };
+    updateMarketStatus();
+    const interval = setInterval(updateMarketStatus, 60000);
+    return () => clearInterval(interval);
+  }, [selectedSymbol]);
 
   const handleResize = useCallback(() => {
     if (chartContainerRef.current && chartInstanceRef.current) {
@@ -379,6 +420,10 @@ export default function DemoPage() {
       toast({ title: "Trading Suspended", description: "You have a pending payout request.", variant: "destructive" });
       return;
     }
+    if (!marketInfo.isOpen) {
+      toast({ title: "Market Closed", description: "Trading is disabled for this instrument at this time.", variant: "destructive" });
+      return;
+    }
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !currentPriceData) return;
@@ -526,24 +571,30 @@ export default function DemoPage() {
           <button 
             type="button" 
             onClick={() => placeTrade('buy')} 
-            disabled={actionLoading || !isPriceValid || hasPendingPayout} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
               "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-              hasPendingPayout ? "bg-zinc-800 text-zinc-500" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : hasPendingPayout ? 'PAYOUT PENDING' : !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
+            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 
+             hasPendingPayout ? 'PAYOUT PENDING' : 
+             !marketInfo.isOpen ? 'MARKET CLOSED' :
+             !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
           </button>
           <button 
             type="button" 
             onClick={() => placeTrade('sell')} 
-            disabled={actionLoading || !isPriceValid || hasPendingPayout} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
               "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-              hasPendingPayout ? "bg-zinc-800 text-zinc-500" : "bg-red-600 hover:bg-red-700 text-white"
+              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : "bg-red-600 hover:bg-red-700 text-white"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : hasPendingPayout ? 'PAYOUT PENDING' : !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
+            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 
+             hasPendingPayout ? 'PAYOUT PENDING' : 
+             !marketInfo.isOpen ? 'MARKET CLOSED' :
+             !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
           </button>
         </div>
       </div>
@@ -722,6 +773,24 @@ export default function DemoPage() {
                   </div>
                 </div>
               )}
+
+              {/* Market Status Badge */}
+              <div className="absolute left-3 bottom-[60px] z-20 flex flex-col items-start gap-1 pointer-events-none">
+                <div className={cn(
+                  "px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl",
+                  marketInfo.isOpen ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive"
+                )}>
+                  <div className={cn("w-1.5 h-1.5 rounded-full", marketInfo.isOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive")} />
+                  <span className="text-[10px] font-black uppercase tracking-widest">
+                    {marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}
+                  </span>
+                </div>
+                {marketInfo.countdown && (
+                  <div className="px-3 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded-lg text-[10px] font-bold text-zinc-400">
+                    {marketInfo.countdown}
+                  </div>
+                )}
+              </div>
               
               {/* Floating Candle Countdown */}
               <div className="absolute right-[10px] md:right-[65px] top-[10px] md:top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
