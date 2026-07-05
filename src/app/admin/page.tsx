@@ -496,6 +496,36 @@ export default function AdminPage() {
                         <td className="p-4 text-right flex justify-end gap-2">
                           {o.status === 'pending' && (
                             <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 font-bold border-primary/40 text-primary"
+                                disabled={o.isVerifying}
+                                onClick={async () => {
+                                  setAdminData((prev: any) => ({
+                                    ...prev,
+                                    orders: prev.orders.map((ord: any) => ord.id === o.id ? { ...ord, isVerifying: true } : ord)
+                                  }));
+                                  try {
+                                    const res = await fetch('/api/admin/verify-payment', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ txHash: o.txHash, network: o.network, amountPaid: o.amountPaid }),
+                                    });
+                                    const data = await res.json();
+                                    alert(data.verified ? `✅ VERIFIED\n\n${data.reason}` : `❌ NOT VERIFIED\n\n${data.reason || data.error}`);
+                                  } catch (err: any) {
+                                    alert(`Verification request failed: ${err.message}`);
+                                  } finally {
+                                    setAdminData((prev: any) => ({
+                                      ...prev,
+                                      orders: prev.orders.map((ord: any) => ord.id === o.id ? { ...ord, isVerifying: false } : ord)
+                                    }));
+                                  }
+                                }}
+                              >
+                                {o.isVerifying ? 'Checking...' : 'Verify On-Chain'}
+                              </Button>
                               <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleOrderAction(o.id, 'approved')}>Approve</Button>
                               <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => setOrderRejectModal({ isOpen: true, id: o.id, reason: '' })}>Reject</Button>
                             </>
