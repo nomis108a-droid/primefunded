@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestOandaTicks } from '@/lib/oandaStream';
 import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
+import { getAdminDb } from '@/lib/firebase-admin';
 
 /**
  * @fileOverview Institutional SSE Price Stream
- * Provides near-instant price delivery by reading directly from in-memory modules.
- * Refreshes every 4 minutes to prevent gateway timeouts (App Hosting/Cloud Run).
+ * Provides near-instant price delivery by reading from in-memory modules (Leader)
+ * or Firestore (Standby instances). Refreshes every 4 minutes to prevent 
+ * gateway timeouts (App Hosting/Cloud Run).
  */
 
 export const dynamic = 'force-dynamic';
@@ -17,39 +19,50 @@ export async function GET(
   const { symbol } = await params;
   const target = symbol.toUpperCase();
   const encoder = new TextEncoder();
+  const db = getAdminDb();
 
   const stream = new ReadableStream({
     start(controller) {
       let lastPrice = 0;
 
-      const interval = setInterval(() => {
+      const sendPrice = (tick: any) => {
+        if (tick && tick.price && tick.price !== lastPrice) {
+          lastPrice = tick.price;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              price: tick.price,
+              bid: tick.bid || tick.price,
+              ask: tick.ask || tick.price,
+              time: Date.now(),
+            })}\n\n`));
+          } catch (e) {}
+        }
+      };
+
+      const interval = setInterval(async () => {
         if (req.signal.aborted) {
           clearInterval(interval);
           controller.close();
           return;
         }
 
-        // Bypasses Firestore entirely for speed
+        // 1. Fast Path: Try local memory (Works on Leader instance)
         const oanda = getLatestOandaTicks();
         const coinbase = getLatestCoinbaseTicks();
-        const tick = oanda[target] || coinbase[target];
+        const memTick = oanda[target] || coinbase[target];
 
-        if (tick && tick.price !== lastPrice) {
-          lastPrice = tick.price;
-          const payload = {
-            price: tick.price,
-            bid: tick.bid,
-            ask: tick.ask,
-            time: Date.now(),
-          };
-          
+        if (memTick && memTick.price) {
+          sendPrice(memTick);
+        } else {
+          // 2. Reliable Path: Read from Firestore (Works on any instance)
           try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
-          } catch (e) {
-            clearInterval(interval);
-          }
+            const snap = await db.collection('livePrices').doc(target).get();
+            if (snap.exists) {
+              sendPrice(snap.data());
+            }
+          } catch (e) {}
         }
-      }, 100);
+      }, 500);
 
       // Graceful termination after 240s to avoid 504 Gateway Timeouts
       const lifetimeTimeout = setTimeout(() => {
