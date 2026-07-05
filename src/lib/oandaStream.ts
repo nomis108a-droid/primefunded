@@ -1,5 +1,6 @@
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { broadcastToRtdb } from './rtdbBroadcast';
 
 /**
  * @fileOverview OANDA Institutional Pricing Stream
@@ -87,6 +88,10 @@ export function startOandaThrottledFirestoreWrite() {
     const symbols = Object.keys(latestOandaTicks);
     if (symbols.length === 0) return;
 
+    // 1. Write to RTDB (Near-instant broadcast)
+    broadcastToRtdb(latestOandaTicks);
+
+    // 2. Write to Firestore (Audit persistence)
     const batch = getAdminDb().batch();
     let hasChanges = false;
 

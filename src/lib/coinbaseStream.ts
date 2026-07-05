@@ -3,6 +3,7 @@
  * Synchronizes institutional crypto liquidity to Firestore every 3 seconds.
  */
 import { getAdminDb } from '@/lib/firebase-admin';
+import { broadcastToRtdb } from './rtdbBroadcast';
 
 const KRAKEN_PAIRS: Record<string, string> = {
   'XXBTZUSD': 'BTCUSD',
@@ -46,7 +47,7 @@ async function fetchKrakenPrices() {
       }
     });
     
-    await writeCryptoPricesToFirestore();
+    await writeCryptoPricesToStorage();
   } catch (e) {
     // Graceful silent fail for production stability
   }
@@ -69,11 +70,15 @@ async function fetchBnbPrice() {
   } catch (e) {}
 }
 
-async function writeCryptoPricesToFirestore() {
+async function writeCryptoPricesToStorage() {
   if (isWriting || Object.keys(cryptoPrices).length === 0) return;
   isWriting = true;
   
   try {
+    // 1. Write to RTDB (Instant broadcast)
+    broadcastToRtdb(cryptoPrices);
+
+    // 2. Write to Firestore (Audit/persistence)
     const db = getAdminDb();
     const batch = db.batch();
     const now = new Date().toISOString();
