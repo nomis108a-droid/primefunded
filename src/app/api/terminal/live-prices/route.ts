@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
  * Corrected Kraken ticker mapping for XRP and DOGE.
  */
 
+// Added XXRPZUSD and XDGUSD explicitly
 const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XXRPZUSD,ADAUSD,XDGUSD";
 
 export async function GET() {
@@ -66,6 +67,7 @@ export async function GET() {
           const data = await r.json();
           const results = data.result;
           if (results) {
+            // Expanded mapping to catch regional variants XXBTZUSD, XXRPZUSD, etc.
             const kToPF: Record<string, string> = {
               'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
               'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',

@@ -17,7 +17,7 @@ export function useTickStream(symbol: string) {
   useEffect(() => {
     if (!symbol) return;
     
-    // Reset state on symbol change
+    console.log(`[TickStream] Initializing subscription for ${symbol}`);
     setTick(null);
     setError(false);
     retryCountRef.current = 0;
@@ -30,37 +30,41 @@ export function useTickStream(symbol: string) {
         clearTimeout(reconnectTimeoutRef.current);
       }
 
+      console.log(`[TickStream] Connecting to SSE stream: /api/terminal/stream/${symbol}`);
       const es = new EventSource(`/api/terminal/stream/${symbol}`);
 
       es.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           
-          // Check for handshake signal
           if (data.type === 'connected') {
+            console.log(`[TickStream] Connection Handshake Successful for ${symbol}`);
             setError(false);
             retryCountRef.current = 0;
             return;
           }
 
-          setTick(data);
+          if (data.price) {
+            // First tick log
+            if (!tick) {
+              console.log(`[TickStream] First tick received for ${symbol}: ${data.price}`);
+            }
+            setTick(data);
+          }
           setError(false);
-          retryCountRef.current = 0; // Success! Reset retry counter
+          retryCountRef.current = 0;
         } catch (e) {
           console.error('[TickStream] Parse error:', e);
         }
       };
 
       es.onerror = () => {
+        console.warn(`[TickStream] SSE Error for ${symbol}. Current retry: ${retryCountRef.current}`);
         setError(true);
         es.close();
         
-        // Exponential backoff to avoid 429 Too Many Requests
-        // 1s, 2s, 4s, 8s, 16s, then max 30s
         const delay = Math.min(Math.pow(2, retryCountRef.current) * 1000, 30000);
         retryCountRef.current++;
-        
-        console.warn(`[TickStream] connection lost. Retrying in ${delay}ms...`);
         reconnectTimeoutRef.current = setTimeout(connect, delay);
       };
 
@@ -69,9 +73,9 @@ export function useTickStream(symbol: string) {
 
     connect();
 
-    // Re-sync on visibility to ensure feed isn't stale
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
+        console.log('[TickStream] Tab visible, refreshing connection...');
         retryCountRef.current = 0;
         connect();
       }
@@ -80,6 +84,7 @@ export function useTickStream(symbol: string) {
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      console.log(`[TickStream] Cleaning up subscription for ${symbol}`);
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }

@@ -111,7 +111,7 @@ function OrderPanel({
   setTp, 
   placeTrade 
 }: any) {
-  // CRITICAL: Prevent hydration error #418 by using pure HTML tags for fallback
+  // CRITICAL: Prevent hydration error #418 by using pure static HTML tags for fallback
   if (!hasMounted) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -130,6 +130,9 @@ function OrderPanel({
       </div>
     );
   }
+
+  // Diagnostic log for buttons
+  console.log(`[OrderPanel] UI Update - isPriceValid: ${isPriceValid}, Symbol: ${selectedSymbol}, Price: ${activePrice?.price}`);
 
   return (
     <div className="space-y-6">
@@ -295,9 +298,14 @@ export default function DemoPage() {
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
   const activePrice = useMemo(() => {
-    if (streamTick && Number(streamTick.price) > 0) return streamTick;
-    const rtdbTick = livePrices[selectedSymbol.toUpperCase()];
-    if (rtdbTick && Number(rtdbTick.price) > 0) return rtdbTick;
+    const sym = selectedSymbol.toUpperCase();
+    if (streamTick && Number(streamTick.price) > 0) {
+       return streamTick;
+    }
+    const rtdbTick = livePrices[sym];
+    if (rtdbTick && Number(rtdbTick.price) > 0) {
+       return rtdbTick;
+    }
     return null;
   }, [streamTick, livePrices, selectedSymbol]);
 
