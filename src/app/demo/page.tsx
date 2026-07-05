@@ -259,9 +259,7 @@ export default function DemoPage() {
         layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
         grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
         width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight > 100 
-          ? chartContainerRef.current.clientHeight 
-          : (isMobile ? Math.floor(window.innerHeight * 0.42) : 500),
+        height: isMobile ? Math.floor(window.innerHeight * 0.42) : Math.floor(window.innerHeight * 0.65),
         timeScale: { 
           borderColor: '#27272a', 
           timeVisible: true, 
