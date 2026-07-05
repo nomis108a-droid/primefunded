@@ -6,7 +6,7 @@ import {
   initializeFirestore, 
   getFirestore,
   type Firestore, 
-  persistentLocalCache,
+  memoryLocalCache,
   memoryLocalCache
 } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
