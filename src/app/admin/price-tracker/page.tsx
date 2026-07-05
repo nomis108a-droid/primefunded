@@ -15,14 +15,14 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { onSnapshot, collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { onSnapshot, collection } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
 /**
- * @fileOverview Institutional Price Monitor & Liquidity Bridge
- * Fix 2: Animated Mini-Charts with Price History
+ * @fileOverview Institutional Price Monitor
+ * Performance Fix: Removed redundant client-side Firestore writes.
+ * This page now only monitors live data synced by server background tasks.
  */
 
 const SYMBOLS = [
@@ -73,8 +73,7 @@ MiniChart.displayName = 'MiniChart';
 export default function AdminPriceTracker() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [prices, setPrices] = useState<Record<string, any>>({});
-  const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({}); // FIX 2
-  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({}); 
   const [isSyncing, setIsSyncing] = useState(false);
   const { toast } = useToast();
 
@@ -83,30 +82,17 @@ export default function AdminPriceTracker() {
     setIsAuthenticated(isVerified);
   }, []);
 
-  const syncLiquidity = useCallback(async () => {
+  const fetchStatus = useCallback(async () => {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
+      // Use API to fetch latest state periodically if listeners are throttled
       const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
       if (!res.ok) throw new Error('API Offline');
       const data = await res.json();
-      
-      const updateTime = new Date();
-      setLastSync(updateTime);
-
-      for (const [symbol, priceData] of Object.entries(data)) {
-        const sym = symbol.toUpperCase();
-        if (SYMBOLS.includes(sym)) {
-          const docRef = doc(db, 'livePrices', sym);
-          setDoc(docRef, {
-            ...priceData as any,
-            symbol: sym,
-            updatedAt: serverTimestamp()
-          }, { merge: true }).catch(() => {});
-        }
-      }
+      setPrices(prev => ({ ...prev, ...data }));
     } catch (err) {
-      console.warn('[Bridge] Sync cycle skipped');
+      console.warn('[Monitor] API sync cycle skipped');
     } finally {
       setIsSyncing(false);
     }
@@ -114,14 +100,15 @@ export default function AdminPriceTracker() {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    syncLiquidity();
-    const interval = setInterval(syncLiquidity, 2000);
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, syncLiquidity]);
+  }, [isAuthenticated, fetchStatus]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
 
+    // Real-time listener for the dashboard
     const unsub = onSnapshot(collection(db, 'livePrices'), (snapshot) => {
       const newPrices: Record<string, any> = {};
       
@@ -137,7 +124,7 @@ export default function AdminPriceTracker() {
               const currentHist = next[docId] || [];
               const lastPoint = currentHist[currentHist.length - 1];
               if (lastPoint !== data.price) {
-                next[docId] = [...currentHist, data.price].slice(-60); // Keep 60 points
+                next[docId] = [...currentHist, data.price].slice(-60); 
               }
             }
           }
@@ -145,7 +132,9 @@ export default function AdminPriceTracker() {
         return next;
       });
 
-      setPrices(newPrices);
+      setPrices(prev => ({ ...prev, ...newPrices }));
+    }, (err) => {
+      console.warn('[Monitor] Firestore listener throttled. Falling back to polling.');
     });
 
     return () => unsub();
@@ -172,15 +161,15 @@ export default function AdminPriceTracker() {
               <h1 className="text-3xl font-headline font-bold text-white uppercase tracking-tight">System Heartbeat</h1>
             </div>
             <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/30 text-primary">
-              Institutional Liquidity Bridge
+              Institutional Liquidity Monitor
             </Badge>
           </div>
           <div className="flex items-center gap-4">
             <div className="text-right hidden md:block">
               <p className="text-[10px] font-black uppercase text-emerald-500 flex items-center gap-2">
-                <ShieldCheck className="w-3 h-3" /> Active Bridge Status
+                <ShieldCheck className="w-3 h-3" /> System Status: HEALTHY
               </p>
-              <p className="text-[8px] text-zinc-500 uppercase font-bold tracking-widest">Client broadcast node: ONLINE</p>
+              <p className="text-[8px] text-zinc-500 uppercase font-bold tracking-widest">Background Sync Nodes: ACTIVE</p>
             </div>
             <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-9 px-4 rounded-xl font-bold">
               <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} /> Refresh UI

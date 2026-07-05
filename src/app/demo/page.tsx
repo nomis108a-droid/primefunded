@@ -158,7 +158,7 @@ export default function DemoPage() {
   const currentCandleRef = useRef<any>(null);
   const oldestTimestamp = useRef<number | null>(null);
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
-  const lastGoodPriceRef = useRef<Record<string, number>>({});
+  const lastGoodPriceRef = useRef<Record<string, { price: number; time: number }>>({});
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
@@ -351,13 +351,10 @@ export default function DemoPage() {
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
   const currentPriceData = useMemo(() => {
-    // Priority: use the high-frequency streamTick for current active symbol
     if (streamTick && streamTick.price > 0) return streamTick;
-    // Fallback: use the bulk livePrices state (RTDB)
     return livePrices[selectedSymbol.toUpperCase()];
   }, [livePrices, streamTick, selectedSymbol]);
 
-  // Relaxed outlier and validation logic
   const isPriceValid = useMemo(() => !!(currentPriceData && Number(currentPriceData.price) > 0), [currentPriceData]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
@@ -379,17 +376,25 @@ export default function DemoPage() {
     const activePrice = streamTick || currentPriceData;
     
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
-      const price = activePrice.price;
+      const price = Number(activePrice.price);
+      const now = Date.now();
 
-      // Relaxed outlier guard (15% vs 5%) to avoid discarding valid market movements
-      const lastGood = lastGoodPriceRef.current[selectedSymbol];
-      if (isNaN(price) || price <= 0 || (lastGood && Math.abs(price - lastGood) / lastGood > 0.15)) {
-        console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
-        return;
+      // Robust Outlier Logic: 15% threshold with a 10s re-anchor timeout to handle real volatility jumps
+      const lastGoodObj = lastGoodPriceRef.current[selectedSymbol];
+      
+      if (!lastGoodObj || (now - lastGoodObj.time > 10000)) {
+        // Re-anchor: ignore baseline if stale or first tick
+        lastGoodPriceRef.current[selectedSymbol] = { price, time: now };
+      } else {
+        const diff = Math.abs(price - lastGoodObj.price) / lastGoodObj.price;
+        if (isNaN(price) || price <= 0 || diff > 0.15) {
+          console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
+          return;
+        }
+        lastGoodPriceRef.current[selectedSymbol] = { price, time: now };
       }
-      lastGoodPriceRef.current[selectedSymbol] = price;
 
-      if (price && price > 0) {
+      if (price > 0) {
         const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
         const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
         
