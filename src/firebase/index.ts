@@ -6,7 +6,6 @@ import {
   initializeFirestore, 
   getFirestore,
   type Firestore, 
-  memoryLocalCache,
   memoryLocalCache
 } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
@@ -24,7 +23,7 @@ let cachedFirebase: {
 
 /**
  * Initializes the Firebase Client App Instance with production services.
- * Uses persistent cache with fallback to memory if multi-tab conflicts occur.
+ * Uses memory cache for maximum stability across all environments.
  */
 export function initializeFirebase(): {
   firebaseApp: FirebaseApp | null;
@@ -47,18 +46,11 @@ export function initializeFirebase(): {
     
     let firestore: Firestore;
     
-    // Check if we are in the Cloud Workstations / Firebase Studio environment
-    const isStudio = typeof window !== 'undefined' && 
-      (window.location.hostname.includes('cloudworkstations.dev') || 
-       window.location.hostname.includes('firebase-studio'));
-
     try {
-      // In Studio/Workstations, IndexedDB persistence can sometimes crash due to 
-      // how iframes and local storage interact. We use memory cache for stability.
+      // Use memory cache for stability, especially in Studio/Workstation environments
+      // where IndexedDB persistence can be unreliable due to iframe constraints.
       firestore = initializeFirestore(firebaseApp, {
-        localCache: isStudio 
-          ? memoryLocalCache() 
-          : memoryLocalCache() 
+        localCache: memoryLocalCache()
       });
     } catch (e) {
       firestore = getFirestore(firebaseApp);
