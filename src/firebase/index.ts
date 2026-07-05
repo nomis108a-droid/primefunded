@@ -7,12 +7,14 @@ import {
   memoryLocalCache 
 } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { getDatabase, type Database } from 'firebase/database';
 import { firebaseConfig } from './config';
 
 let firebaseApp: FirebaseApp;
 let firestoreInstance: Firestore;
 let authInstance: Auth;
 let storageInstance: FirebaseStorage;
+let rtdbInstance: Database;
 
 /**
  * Initializes the Firebase Client SDK instances using a simplified singleton pattern.
@@ -26,6 +28,7 @@ export function initializeFirebase() {
   
   if (!authInstance) authInstance = getAuth(firebaseApp);
   if (!storageInstance) storageInstance = getStorage(firebaseApp);
+  if (!rtdbInstance) rtdbInstance = getDatabase(firebaseApp);
   
   if (!firestoreInstance) {
     // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
@@ -40,6 +43,7 @@ export function initializeFirebase() {
     firestore: firestoreInstance,
     auth: authInstance,
     storage: storageInstance,
+    rtdb: rtdbInstance,
   };
 }
 
@@ -54,6 +58,11 @@ export function useFirestore(): Firestore {
 export function useAuth(): Auth {
   if (!authInstance) initializeFirebase();
   return authInstance;
+}
+
+export function useRtdb(): Database {
+  if (!rtdbInstance) initializeFirebase();
+  return rtdbInstance;
 }
 
 // Barrel exports to maintain application-wide compatibility
