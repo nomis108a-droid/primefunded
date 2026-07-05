@@ -507,8 +507,8 @@ export default function DemoPage() {
           type, 
           lots, 
           price: executionPrice, 
-          sl: parseFloat(sl) > 0 ? parseFloat(sl) : null, 
-          tp: parseFloat(tp) > 0 ? parseFloat(tp) : null,
+          sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, 
+          tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null,
           orderType: orderType || 'market'
         })
       });
@@ -628,36 +628,44 @@ export default function DemoPage() {
           <button 
             type="button" 
             onClick={() => placeTrade('buy')} 
-            disabled={actionLoading || (!isPriceValid && !streamError) || hasPendingPayout || !marketInfo.isOpen} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
-              "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+              "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
               (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
               "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 
+            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? 'PAYOUT PENDING' : 
              !marketInfo.isOpen ? 'MARKET CLOSED' :
-             (streamError && !isPriceValid) ? 'PRICE UNAVAILABLE' :
-             !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
+             !isPriceValid ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
+               <>
+                 <span className="opacity-80">BUY BY MARKET</span>
+                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString(undefined, { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+               </>
+             )}
           </button>
           <button 
             type="button" 
             onClick={() => placeTrade('sell')} 
-            disabled={actionLoading || (!isPriceValid && !streamError) || hasPendingPayout || !marketInfo.isOpen} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
-              "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
+              "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
               (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
               "bg-red-600 hover:bg-red-700 text-white"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 
+            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? 'PAYOUT PENDING' : 
              !marketInfo.isOpen ? 'MARKET CLOSED' :
-             (streamError && !isPriceValid) ? 'PRICE UNAVAILABLE' :
-             !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
+             !isPriceValid ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
+               <>
+                 <span className="opacity-80">SELL BY MARKET</span>
+                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString(undefined, { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+               </>
+             )}
           </button>
         </div>
       </div>

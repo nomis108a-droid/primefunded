@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
@@ -67,11 +68,15 @@ export async function GET() {
           const results = data.result;
           if (results) {
             // Map Kraken symbols back to our format
+            // Kraken returns XXRPZUSD for XRP and XDGUSD for DOGE
             const kToPF: Record<string, string> = {
               'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
               'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',
-              'SOLUSD': 'SOLUSD', 'XRPUSD': 'XRPUSD',
-              'ADAUSD': 'ADAUSD', 'DOGEUSD': 'DOGEUSD', 'BNBUSD': 'BNBUSD'
+              'SOLUSD': 'SOLUSD', 
+              'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD',
+              'ADAUSD': 'ADAUSD', 
+              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD',
+              'BNBUSD': 'BNBUSD'
             };
 
             Object.entries(results).forEach(([kSym, item]: [string, any]) => {
