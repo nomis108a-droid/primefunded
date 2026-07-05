@@ -528,8 +528,9 @@ export default function AdminPage() {
                         <td className="p-4 font-bold text-white">{u.name}</td>
                         <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
                         <td className="p-4 flex flex-col gap-1">
-                          {u.idProofUrl && <button onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">ID Proof</button>}
-                          {u.addressProofUrl && <button onClick={() => { setPreviewImage(u.addressProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">Address Proof</button>}
+                          {u.idProofUrl && <button onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">ID Front</button>}
+                          {u.addressProofUrl && <button onClick={() => { setPreviewImage(u.addressProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">ID Back</button>}
+                          {u.selfieProofUrl && <button onClick={() => { setPreviewImage(u.selfieProofUrl); setIsImageModalOpen(true); }} className="text-xs text-primary hover:underline text-left">Selfie with ID</button>}
                         </td>
                         <td className="p-4">
                           <Badge variant="outline" className={cn("uppercase text-[8px]", u.kycStatus === 'verified' ? 'text-emerald-500 border-emerald-500' : u.kycStatus === 'rejected' ? 'text-destructive border-destructive' : 'text-amber-500 border-amber-500')}>
