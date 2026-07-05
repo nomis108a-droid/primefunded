@@ -1,69 +1,50 @@
 'use client';
-
-import { initializeApp, getApps, type FirebaseApp, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { 
-  initializeFirestore, 
-  getFirestore,
-  type Firestore, 
-  memoryLocalCache
-} from 'firebase/firestore';
+import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { firebaseConfig } from './config';
 
-/**
- * Singleton state to ensure Firebase is only initialized once.
- */
-let cachedFirebase: {
-  firebaseApp: FirebaseApp | null;
-  firestore: Firestore | null;
-  auth: Auth | null;
-  storage: FirebaseStorage | null;
-} | null = null;
+let firebaseApp: FirebaseApp;
+let firestoreInstance: Firestore;
+let authInstance: Auth;
+let storageInstance: FirebaseStorage;
 
 /**
- * Initializes the Firebase Client App Instance with production services.
- * Uses memory cache for maximum stability across all environments.
+ * Initializes the Firebase Client SDK instances using a simplified singleton pattern.
+ * This resolves "FIRESTORE INTERNAL ASSERTION FAILED" errors by ensuring
+ * Firestore is only initialized once with stable default settings.
  */
-export function initializeFirebase(): {
-  firebaseApp: FirebaseApp | null;
-  firestore: Firestore | null;
-  auth: Auth | null;
-  storage: FirebaseStorage | null;
-} {
-  if (cachedFirebase) return cachedFirebase;
-
-  const isConfigMissing = !firebaseConfig.apiKey || firebaseConfig.apiKey === '';
+export function initializeFirebase() {
+  if (!firebaseApp) {
+    firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  }
+  if (!authInstance) authInstance = getAuth(firebaseApp);
+  if (!storageInstance) storageInstance = getStorage(firebaseApp);
+  if (!firestoreInstance) firestoreInstance = getFirestore(firebaseApp);
   
-  if (isConfigMissing) {
-    return { firebaseApp: null, firestore: null, auth: null, storage: null };
-  }
-
-  try {
-    const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    const auth = getAuth(firebaseApp);
-    const storage = getStorage(firebaseApp);
-    
-    let firestore: Firestore;
-    
-    try {
-      // Use memory cache for stability, especially in Studio/Workstation environments
-      // where IndexedDB persistence can be unreliable due to iframe constraints.
-      firestore = initializeFirestore(firebaseApp, {
-        localCache: memoryLocalCache()
-      });
-    } catch (e) {
-      firestore = getFirestore(firebaseApp);
-    }
-
-    cachedFirebase = { firebaseApp, firestore, auth, storage };
-    return cachedFirebase;
-  } catch (error) {
-    console.error('[Firebase] Initialization Error:', error);
-    return { firebaseApp: null, firestore: null, auth: null, storage: null };
-  }
+  return {
+    firebaseApp,
+    firestore: firestoreInstance,
+    auth: authInstance,
+    storage: storageInstance,
+  };
 }
 
+/**
+ * Direct instance getters for use outside of React Context when necessary.
+ */
+export function useFirestore(): Firestore {
+  if (!firestoreInstance) initializeFirebase();
+  return firestoreInstance;
+}
+
+export function useAuth(): Auth {
+  if (!authInstance) initializeFirebase();
+  return authInstance;
+}
+
+// Barrel exports to maintain application-wide compatibility
 export * from './provider';
 export * from './client-provider';
 export * from './auth/use-user';
