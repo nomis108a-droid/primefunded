@@ -254,6 +254,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       return (
         <foreignObject x={p1.x + 15} y={p1.y - 45} width="40" height="40" className="pointer-events-auto">
           <button 
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); deleteDrawing(drawing.id); }}
             className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-red-500 hover:bg-zinc-700 transition-colors shadow-2xl"
           >
