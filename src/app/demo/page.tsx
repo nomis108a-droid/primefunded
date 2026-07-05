@@ -67,17 +67,20 @@ function getMarketInfo(symbol: string) {
   const hour = now.getUTCHours();
   
   let isOpen = true;
-  if (day === 5 && hour >= 21) isOpen = false; // Fri 21:00 UTC+
-  if (day === 6 || day === 0) isOpen = false; // Sat, Sun all day
-
+  if (day === 5 && hour >= 21) isOpen = false; // Fri 21:00 UTC close
+  if (day === 6) isOpen = false; // all Saturday
+  if (day === 0 && hour < 22) isOpen = false; // Sunday before 22:00 UTC open
   let countdown = null;
   if (!isOpen) {
-    const nextMonday = new Date(now);
-    const addDays = day === 0 ? 1 : 8 - day;
-    nextMonday.setUTCDate(now.getUTCDate() + addDays);
-    nextMonday.setUTCHours(0, 0, 0, 0);
+    const nextOpen = new Date(now);
+    let addDays = 0;
+    if (day === 5) addDays = 2; // Friday -> Sunday
+    else if (day === 6) addDays = 1; // Saturday -> Sunday
+    else if (day === 0) addDays = 0; // Sunday (before 22:00) -> same day
+    nextOpen.setUTCDate(now.getUTCDate() + addDays);
+    nextOpen.setUTCHours(22, 0, 0, 0);
     
-    const diffMs = nextMonday.getTime() - now.getTime();
+    const diffMs = nextOpen.getTime() - now.getTime();
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffMins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
     countdown = `Opens in ${diffHours}h ${diffMins}m`;
