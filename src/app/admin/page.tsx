@@ -77,6 +77,9 @@ export default function AdminPage() {
 
   const [breachForm, setBreachForm] = useState({ accountId: '', reason: '', isOpen: false });
 
+  const [kycRejectModal, setKycRejectModal] = useState({ isOpen: false, id: '', reason: '' });
+  const [orderRejectModal, setOrderRejectModal] = useState({ isOpen: false, id: '', reason: '' });
+
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
@@ -162,10 +165,10 @@ export default function AdminPage() {
     window.location.reload();
   };
 
-  const handleOrderAction = async (id: string, status: string) => {
+  const handleOrderAction = async (id: string, status: string, reason?: string) => {
     setActionLoading(true);
     try {
-      const res = await updateOrderStatusAction(id, status);
+      const res = await updateOrderStatusAction(id, status, reason);
       if (res.success) {
         toast({ title: `Order ${status.toUpperCase()}` });
         refreshData();
@@ -177,10 +180,10 @@ export default function AdminPage() {
     }
   };
 
-  const handleKycAction = async (id: string, status: string) => {
+  const handleKycAction = async (id: string, status: string, reason?: string) => {
     setActionLoading(true);
     try {
-      const res = await processKycAction(id, status);
+      const res = await processKycAction(id, status, reason);
       if (res.success) {
         toast({ title: `KYC ${status.toUpperCase()}` });
         refreshData();
@@ -494,7 +497,7 @@ export default function AdminPage() {
                           {o.status === 'pending' && (
                             <>
                               <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleOrderAction(o.id, 'approved')}>Approve</Button>
-                              <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleOrderAction(o.id, 'rejected')}>Reject</Button>
+                              <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => setOrderRejectModal({ isOpen: true, id: o.id, reason: '' })}>Reject</Button>
                             </>
                           )}
                         </td>
@@ -537,7 +540,7 @@ export default function AdminPage() {
                           {u.kycStatus === 'pending' && (
                             <>
                               <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleKycAction(u.id, 'verified')}>Approve</Button>
-                              <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleKycAction(u.id, 'rejected')}>Reject</Button>
+                              <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => setKycRejectModal({ isOpen: true, id: u.id, reason: '' })}>Reject</Button>
                             </>
                           )}
                         </td>
@@ -730,8 +733,7 @@ export default function AdminPage() {
                     </tbody>
                   </table>
                 </CardContent>
-              </Card>
-            </div>
+              </div>
           )}
         </div>
       </main>
@@ -790,7 +792,7 @@ export default function AdminPage() {
                       <SelectItem value="10000">$10,000</SelectItem>
                       <SelectItem value="25000">$25,000</SelectItem>
                       <SelectItem value="50000">$50,000</SelectItem>
-                      <SelectItem value="100000">$100,000</SelectItem>
+                      <SelectItem value="100000">$10,000</SelectItem>
                       <SelectItem value="200000">$200,000</SelectItem>
                       <SelectItem value="custom">Custom Amount</SelectItem>
                     </SelectContent>
@@ -906,6 +908,92 @@ export default function AdminPage() {
              >
                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : "LIQUIDATE NODE"}
              </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* KYC Rejection Modal */}
+      <Dialog open={kycRejectModal.isOpen} onOpenChange={(o) => setKycRejectModal(prev => ({ ...prev, isOpen: o }))}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-headline font-bold">Reject KYC Submission</DialogTitle>
+            <DialogDescription className="text-zinc-500">Provide a reason for the rejection. This will be sent to the trader.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs uppercase font-bold text-zinc-400">Rejection Reason</Label>
+              <Textarea 
+                placeholder="e.g. ID photos are blurry, Selfie missing, etc."
+                value={kycRejectModal.reason}
+                onChange={(e) => setKycRejectModal(prev => ({ ...prev, reason: e.target.value }))}
+                className="bg-secondary/30 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setKycRejectModal({ isOpen: false, id: '', reason: '' })}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              className="font-bold px-6"
+              disabled={actionLoading || !kycRejectModal.reason}
+              onClick={async () => {
+                setActionLoading(true);
+                const res = await processKycAction(kycRejectModal.id, 'rejected', kycRejectModal.reason);
+                if (res.success) {
+                  toast({ title: "KYC Rejected", description: "Trader has been notified." });
+                  setKycRejectModal({ isOpen: false, id: '', reason: '' });
+                  refreshData();
+                } else {
+                  toast({ variant: "destructive", title: "Action Failed", description: res.error });
+                }
+                setActionLoading(false);
+              }}
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : "Send Rejection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Order Rejection Modal */}
+      <Dialog open={orderRejectModal.isOpen} onOpenChange={(o) => setOrderRejectModal(prev => ({ ...prev, isOpen: o }))}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-headline font-bold">Reject Payment Order</DialogTitle>
+            <DialogDescription className="text-zinc-500">Explain why this transaction was rejected.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs uppercase font-bold text-zinc-400">Rejection Reason</Label>
+              <Textarea 
+                placeholder="e.g. Payment proof unclear, Wrong amount sent, etc."
+                value={orderRejectModal.reason}
+                onChange={(e) => setOrderRejectModal(prev => ({ ...prev, reason: e.target.value }))}
+                className="bg-secondary/30 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOrderRejectModal({ isOpen: false, id: '', reason: '' })}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              className="font-bold px-6"
+              disabled={actionLoading || !orderRejectModal.reason}
+              onClick={async () => {
+                setActionLoading(true);
+                const res = await updateOrderStatusAction(orderRejectModal.id, 'rejected', orderRejectModal.reason);
+                if (res.success) {
+                  toast({ title: "Order Rejected", description: "Trader has been notified." });
+                  setOrderRejectModal({ isOpen: false, id: '', reason: '' });
+                  refreshData();
+                } else {
+                  toast({ variant: "destructive", title: "Action Failed", description: res.error });
+                }
+                setActionLoading(false);
+              }}
+            >
+              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : "Send Rejection"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

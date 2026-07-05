@@ -130,7 +130,7 @@ export async function giftAccountAction(traderId: string, email: string, account
   }
 }
 
-export async function updateOrderStatusAction(id: string, status: string) {
+export async function updateOrderStatusAction(id: string, status: string, reason?: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
@@ -140,11 +140,12 @@ export async function updateOrderStatusAction(id: string, status: string) {
     if (!orderSnap.exists) throw new Error("Order not found");
     const order = orderSnap.data()!;
 
-    await orderRef.update({ status, updatedAt: FieldValue.serverTimestamp() });
+    const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
+    if (reason) updates.rejectionReason = reason;
+    await orderRef.update(updates);
 
     if (status === 'approved') {
       const balance = parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000;
-      // Note: We use order.userId directly as it's already resolved in the order doc
       const userSnap = await db.collection('users').doc(order.userId).get();
       const traderId = userSnap.data()?.traderId;
 
@@ -158,6 +159,14 @@ export async function updateOrderStatusAction(id: string, status: string) {
           'evaluation'
         );
       }
+    } else if (status === 'rejected') {
+      await db.collection('users').doc(order.userId).collection('notifications').add({
+        title: '❌ Order Rejected',
+        message: `Your payment order for ${order.accountSize} was rejected. Reason: ${reason || "Transaction verification failed."}`,
+        type: 'order_rejected',
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp()
+      });
     }
 
     return { success: true };

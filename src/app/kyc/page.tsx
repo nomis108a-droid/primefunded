@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, Upload, CheckCircle2, Clock, Loader2, FileText, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Upload, CheckCircle2, Clock, Loader2, FileText, AlertCircle, HelpCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -114,11 +114,54 @@ export default function KYCPage() {
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
-      <main className="flex-1 p-8">
+      <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
         <header className="mb-10 text-center">
           <h1 className="text-3xl font-headline font-bold mb-1 text-white">Verify Your Identity</h1>
           <p className="text-muted-foreground">Secure identity verification is required for all withdrawals.</p>
         </header>
+
+        {/* Instructions Header */}
+        <section className="mb-12 text-left max-w-2xl mx-auto bg-zinc-900/40 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-primary/10 rounded-xl">
+              <ShieldCheck className="w-6 h-6 text-primary" />
+            </div>
+            <h2 className="text-2xl font-headline font-bold text-white">Verification Guide</h2>
+          </div>
+          
+          <div className="space-y-6">
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">1</div>
+              <div className="space-y-1">
+                <p className="text-white font-bold">ID Front Photo</p>
+                <p className="text-sm text-zinc-400 leading-relaxed">Take a clear photo of the FRONT of your government ID (Aadhaar card, Passport, Driver's License, National ID card, etc.)</p>
+              </div>
+            </div>
+            
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">2</div>
+              <div className="space-y-1">
+                <p className="text-white font-bold">ID Back Photo</p>
+                <p className="text-sm text-zinc-400 leading-relaxed">Take a clear photo of the BACK of your government ID</p>
+              </div>
+            </div>
+            
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">3</div>
+              <div className="space-y-1">
+                <p className="text-white font-bold">Selfie with ID</p>
+                <p className="text-sm text-zinc-400 leading-relaxed">Take a photo of yourself HOLDING your ID next to your face, so both your face and the ID are clearly visible in the same photo</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-10 pt-6 border-t border-white/5 bg-primary/5 -mx-8 -mb-8 px-8 pb-8 rounded-b-3xl">
+            <p className="text-[11px] font-bold text-primary uppercase tracking-widest mb-3">Accepted Documents Example:</p>
+            <p className="text-xs text-zinc-400 leading-relaxed font-medium">
+              Indian Aadhaar Card, US Driver's License, UK Passport, EU National ID, any government-issued photo ID from any country
+            </p>
+          </div>
+        </section>
 
         <div className="max-w-2xl mx-auto">
           <div className="flex justify-between items-center mb-8 relative">
