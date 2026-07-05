@@ -260,7 +260,15 @@ export default function DemoPage() {
         grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
         width: chartContainerRef.current.clientWidth,
         height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.42 : 480),
-        timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: false },
+        timeScale: { 
+          borderColor: '#27272a', 
+          timeVisible: true, 
+          secondsVisible: false,
+          rightOffset: 5,
+          barSpacing: 6,
+          fixLeftEdge: false,
+          fixRightEdge: false,
+        },
       });
       chartInstanceRef.current = chart;
       const series = chartType === 'line' || chartType === 'area' 
@@ -297,6 +305,7 @@ export default function DemoPage() {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
+             chartInstanceRef.current?.timeScale().scrollToRealTime();
 
              setTimeout(() => {
                if (chartInstanceRef.current && chartContainerRef.current) {
@@ -305,6 +314,7 @@ export default function DemoPage() {
                    height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.42 : 500)
                  });
                  chartInstanceRef.current.timeScale().fitContent();
+                 chartInstanceRef.current?.timeScale().scrollToRealTime();
                }
              }, 100);
           }
@@ -492,7 +502,7 @@ export default function DemoPage() {
 
   const handleZoomIn = () => { if (chartInstanceRef.current) { const timeScale = chartInstanceRef.current.timeScale(); timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing * 1.2 }); } };
   const handleZoomOut = () => { if (chartInstanceRef.current) { const timeScale = chartInstanceRef.current.timeScale(); timeScale.applyOptions({ barSpacing: timeScale.options().barSpacing / 1.2 }); } };
-  const handleResetView = () => { if (chartInstanceRef.current) { chartInstanceRef.current.timeScale().fitContent(); chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true }); } };
+  const handleResetView = () => { if (chartInstanceRef.current) { chartInstanceRef.current.timeScale().fitContent(); chartInstanceRef.current.timeScale().scrollToRealTime(); chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true }); } };
 
   async function closeTrade(tradeId: string) {
     try {
