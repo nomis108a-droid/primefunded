@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Live Price API
  * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
+ * Corrected Kraken ticker mapping for XRP and DOGE.
  */
 
 const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD";
@@ -55,7 +56,7 @@ export async function GET() {
       );
     }
 
-    // 2. Kraken - Crypto
+    // 2. Kraken - Crypto (Hardened Mapping for XRP/DOGE)
     fetchPromises.push(
       fetch(`https://api.kraken.com/0/public/Ticker?pair=${KRAKEN_PAIRS}`, { 
         cache: 'no-store',

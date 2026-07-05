@@ -111,22 +111,20 @@ function OrderPanel({
   setTp, 
   placeTrade 
 }: any) {
+  // CRITICAL: Prevent hydration error #418 by ensuring identical fallback markup
   if (!hasMounted) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-10 bg-zinc-900/50 rounded-lg border border-zinc-800" />
+        <div className="h-10 bg-zinc-800/50 rounded-lg border border-zinc-800" />
         <div className="space-y-6">
-          <div className="space-y-2">
-            <div className="h-4 w-20 bg-zinc-900 rounded" />
-            <div className="h-11 bg-zinc-900 rounded-lg" />
-          </div>
+          <div className="h-11 bg-zinc-800/50 rounded-lg" />
           <div className="grid grid-cols-2 gap-4">
-            <div className="h-14 bg-zinc-900 rounded-lg" />
-            <div className="h-14 bg-zinc-900 rounded-lg" />
+            <div className="h-14 bg-zinc-800/50 rounded-lg" />
+            <div className="h-14 bg-zinc-800/50 rounded-lg" />
           </div>
           <div className="space-y-4">
-            <div className="h-16 bg-zinc-900 rounded-xl" />
-            <div className="h-16 bg-zinc-900 rounded-xl" />
+            <div className="h-16 bg-zinc-800/50 rounded-xl" />
+            <div className="h-16 bg-zinc-800/50 rounded-xl" />
           </div>
         </div>
       </div>
@@ -189,7 +187,7 @@ function OrderPanel({
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? <span>PAYOUT PENDING</span> : 
              !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
-             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'SYNCING...'}</span> : (
+             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'PRICE SYNCING...'}</span> : (
                <div className="flex flex-col items-center">
                  <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
                  <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
@@ -210,7 +208,7 @@ function OrderPanel({
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? <span>PAYOUT PENDING</span> : 
              !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
-             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'SYNCING...'}</span> : (
+             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'PRICE SYNCING...'}</span> : (
                <div className="flex flex-col items-center">
                  <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
                  <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
@@ -700,7 +698,7 @@ export default function DemoPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-          {!isMobile && (
+          {!isMobile && hasMounted && (
             <>
               <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}><Bell className="w-4 h-4" /> Set Alert</Button>
               <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
@@ -709,12 +707,14 @@ export default function DemoPage() {
               </Select>
             </>
           )}
-          <Select value={chartType} onValueChange={setChartType}>
-            <SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold"><Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent>
-          </Select>
+          {hasMounted && (
+            <Select value={chartType} onValueChange={setChartType}>
+              <SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold"><Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent>
+            </Select>
+          )}
           <Button variant="ghost" size="icon" className="h-9 w-9 text-zinc-400" onClick={() => setIsSettingsOpen(true)}><Settings className="w-4 h-4" /></Button>
-          {!isMobile && (
+          {!isMobile && hasMounted && (
             <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
               <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold"><SelectValue placeholder={selectedAccount?.label || "Select Account"} /></SelectTrigger>
               <SelectContent>{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
@@ -789,7 +789,7 @@ export default function DemoPage() {
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            <OrderPanel 
-             hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} 
+             hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout, hasPendingPayout={hasPendingPayout} 
              marketInfo={marketInfo} streamError={streamError} activePrice={activePrice} selectedSymbol={selectedSymbol} 
              orderType={orderType} setOrderType={setOrderType} pendingPrice={pendingPrice} setPendingPrice={setPendingPrice} 
              lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} 
