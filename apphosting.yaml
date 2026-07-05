@@ -3,7 +3,7 @@
 # Documentation: https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  minInstances: 0
+  minInstances: 2
   maxInstances: 100
   concurrency: 80
   cpu: 2
