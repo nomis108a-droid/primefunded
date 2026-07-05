@@ -259,7 +259,9 @@ export default function DemoPage() {
         layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
         grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
         width: chartContainerRef.current.clientWidth,
-        height: isMobile ? Math.floor(window.innerHeight * 0.42) : Math.floor(window.innerHeight * 0.65),
+        height: chartContainerRef.current.clientHeight > 100 
+          ? chartContainerRef.current.clientHeight 
+          : (isMobile ? Math.floor(window.innerHeight * 0.42) : 500),
         timeScale: { 
           borderColor: '#27272a', 
           timeVisible: true, 
@@ -314,9 +316,15 @@ export default function DemoPage() {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
              
+             chartInstanceRef.current?.applyOptions({
+               rightPriceScale: { autoScale: true }
+             });
              chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
              chartInstanceRef.current?.timeScale().fitContent();
-             chartInstanceRef.current?.timeScale().scrollToRealTime();
+             setTimeout(() => {
+               chartInstanceRef.current?.timeScale().scrollToRealTime();
+               chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
+             }, 150);
 
              setTimeout(() => {
                if (chartInstanceRef.current && chartContainerRef.current) {
@@ -326,6 +334,7 @@ export default function DemoPage() {
                  });
                  chartInstanceRef.current.timeScale().fitContent();
                  chartInstanceRef.current?.timeScale().scrollToRealTime();
+                 chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
                }
              }, 100);
           }
