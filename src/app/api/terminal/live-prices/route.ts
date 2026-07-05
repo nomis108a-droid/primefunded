@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
  * Replaced Binance with Kraken to bypass Google Cloud IP blocking.
  */
 
-const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,DOGEUSD,BNBUSD";
+const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD,BNBUSD";
 
 export async function GET() {
   const prices: Record<string, any> = {};

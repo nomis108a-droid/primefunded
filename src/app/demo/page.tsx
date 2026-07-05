@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -96,6 +95,7 @@ export default function DemoPage() {
   const branding = useBrandSettings();
   const isMobile = useIsMobile();
 
+  const [hasMounted, setHasMounted] = useState(false);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
@@ -134,6 +134,10 @@ export default function DemoPage() {
   const livePrices = useLivePrices(SYMBOLS);
   
   const closingTradesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   // ── PAYOUT PENDING CHECK ──
   const { data: pendingPayouts } = useCollection<any>(
@@ -639,10 +643,10 @@ export default function DemoPage() {
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? 'PAYOUT PENDING' : 
              !marketInfo.isOpen ? 'MARKET CLOSED' :
-             !isPriceValid ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
+             (!hasMounted || !isPriceValid) ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
                <>
                  <span className="opacity-80">BUY BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString(undefined, { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
                </>
              )}
           </button>
@@ -660,10 +664,10 @@ export default function DemoPage() {
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
              hasPendingPayout ? 'PAYOUT PENDING' : 
              !marketInfo.isOpen ? 'MARKET CLOSED' :
-             !isPriceValid ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
+             (!hasMounted || !isPriceValid) ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
                <>
                  <span className="opacity-80">SELL BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString(undefined, { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
                </>
              )}
           </button>
@@ -1029,14 +1033,14 @@ export default function DemoPage() {
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
       
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-w-sm">
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-sm">
           <DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader>
           <div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div>
         </DialogContent>
       </Dialog>
       
       <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
-        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-w-sm">
+        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-sm">
           <DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader>
           <div className="p-6 space-y-4"><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div>
           <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter>
