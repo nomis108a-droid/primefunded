@@ -259,7 +259,9 @@ export default function DemoPage() {
         layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a' },
         grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
         width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.42 : 480),
+        height: chartContainerRef.current.clientHeight > 100 
+          ? chartContainerRef.current.clientHeight 
+          : (isMobile ? Math.floor(window.innerHeight * 0.42) : 500),
         timeScale: { 
           borderColor: '#27272a', 
           timeVisible: true, 
@@ -276,7 +278,16 @@ export default function DemoPage() {
         : chart.addCandlestickSeries();
       mainSeriesRef.current = series;
       setIsChartReady(true);
-      setTimeout(handleResize, 100);
+      
+      setTimeout(() => {
+        if (chartContainerRef.current && chartInstanceRef.current) {
+          const h = chartContainerRef.current.clientHeight;
+          const w = chartContainerRef.current.clientWidth;
+          if (h > 100 && w > 100) {
+            chartInstanceRef.current.applyOptions({ width: w, height: h });
+          }
+        }
+      }, 200);
     } catch (e) {}
     applyGlobalSettings();
     return () => { if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; } mainSeriesRef.current = null; setIsChartReady(false); currentCandleRef.current = null; };
@@ -304,6 +315,8 @@ export default function DemoPage() {
           if (mainSeriesRef.current) {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
+             
+             chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
              chartInstanceRef.current?.timeScale().fitContent();
              chartInstanceRef.current?.timeScale().scrollToRealTime();
 
