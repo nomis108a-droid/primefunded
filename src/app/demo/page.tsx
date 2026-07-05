@@ -297,6 +297,16 @@ export default function DemoPage() {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
              chartInstanceRef.current?.timeScale().fitContent();
+
+             setTimeout(() => {
+               if (chartInstanceRef.current && chartContainerRef.current) {
+                 chartInstanceRef.current.applyOptions({
+                   width: chartContainerRef.current.clientWidth,
+                   height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.42 : 500)
+                 });
+                 chartInstanceRef.current.timeScale().fitContent();
+               }
+             }, 100);
           }
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
@@ -312,7 +322,7 @@ export default function DemoPage() {
     };
     if (isChartReady) fetchHistory();
     return () => { isMounted = false; controller.abort(); };
-  }, [isChartReady, selectedSymbol, selectedInterval, chartType]);
+  }, [isChartReady, selectedSymbol, selectedInterval, chartType, isMobile]);
 
   const tradeConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("openedAt", "desc")] : [], [user?.uid]);
   const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
@@ -771,7 +781,7 @@ export default function DemoPage() {
             </aside>
 
             {/* Main Chart Area */}
-            <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '42vh' : 'auto', maxHeight: isMobile ? '42vh' : 'none' }}>
+            <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '42vh' : 'calc(100vh - 280px)', maxHeight: isMobile ? '42vh' : 'none' }}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
                   <Loader2 className="animate-spin text-primary" />
