@@ -1,7 +1,11 @@
 'use client';
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { 
+  initializeFirestore, 
+  type Firestore, 
+  memoryLocalCache 
+} from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { firebaseConfig } from './config';
 
@@ -13,15 +17,23 @@ let storageInstance: FirebaseStorage;
 /**
  * Initializes the Firebase Client SDK instances using a simplified singleton pattern.
  * This resolves "FIRESTORE INTERNAL ASSERTION FAILED" errors by ensuring
- * Firestore is only initialized once with stable default settings.
+ * Firestore is only initialized once with stable memory-based settings.
  */
 export function initializeFirebase() {
   if (!firebaseApp) {
     firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
   }
+  
   if (!authInstance) authInstance = getAuth(firebaseApp);
   if (!storageInstance) storageInstance = getStorage(firebaseApp);
-  if (!firestoreInstance) firestoreInstance = getFirestore(firebaseApp);
+  
+  if (!firestoreInstance) {
+    // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
+    // that lead to the 'Unexpected state' assertion failure during hot-reloading.
+    firestoreInstance = initializeFirestore(firebaseApp, {
+      localCache: memoryLocalCache(),
+    });
+  }
   
   return {
     firebaseApp,
