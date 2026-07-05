@@ -15,10 +15,6 @@ const CONTRACT_SIZE: Record<string, number> = {
   BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
 };
 
-/**
- * Monitors and executes Take Profit and Stop Loss orders.
- * PERMANENT: Core terminal liquidation logic.
- */
 async function checkTpSlHits(db: any) {
   try {
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
@@ -48,105 +44,48 @@ async function checkTpSlHits(db: any) {
       let closePrice = 0;
 
       if (trade.type === 'buy') {
-        const currentPrice = bid;
-        if (trade.tp && trade.tp > 0 && currentPrice >= trade.tp) { 
-          hit = 'tp'; 
-          closePrice = trade.tp; 
-        } else if (trade.sl && trade.sl > 0 && currentPrice <= trade.sl) { 
-          hit = 'sl'; 
-          closePrice = trade.sl; 
-        }
-      } else if (trade.type === 'sell') {
-        const currentPrice = ask;
-        if (trade.tp && trade.tp > 0 && currentPrice <= trade.tp) { 
-          hit = 'tp'; 
-          closePrice = trade.tp; 
-        } else if (trade.sl && trade.sl > 0 && currentPrice >= trade.sl) { 
-          hit = 'sl'; 
-          closePrice = trade.sl; 
-        }
+        if (trade.tp && trade.tp > 0 && bid >= trade.tp) { hit = 'tp'; closePrice = trade.tp; }
+        else if (trade.sl && trade.sl > 0 && bid <= trade.sl) { hit = 'sl'; closePrice = trade.sl; }
+      } else {
+        if (trade.tp && trade.tp > 0 && ask <= trade.tp) { hit = 'tp'; closePrice = trade.tp; }
+        else if (trade.sl && trade.sl > 0 && ask >= trade.sl) { hit = 'sl'; closePrice = trade.sl; }
       }
 
       if (!hit) continue;
 
       const priceDiff = trade.type === 'buy' ? (closePrice - openPrice) : (openPrice - closePrice);
-      const pnl = Math.round(priceDiff * lots * contractSize * 100) / 100;
-
-      const accountRef = db.collection('demoAccounts').doc(trade.accountId);
-      const accountSnap = await accountRef.get();
-      if (!accountSnap.exists) continue;
-
-      const account = accountSnap.data();
-      if (account.status === 'blown') continue;
-
-      const newBalance = Math.round((parseFloat(account.balance || 0) + pnl) * 100) / 100;
+      const pnl = priceDiff * lots * contractSize;
 
       await db.runTransaction(async (tx: any) => {
         tx.update(tradeDoc.ref, {
           status: 'closed', 
           closedAt: FieldValue.serverTimestamp(),
-          closePrice, 
-          pnl, 
+          closePrice, pnl, 
           closeReason: hit === 'tp' ? 'take_profit' : 'stop_loss'
         });
-        tx.update(accountRef, { 
-          balance: newBalance, 
-          equity: newBalance, 
+        tx.update(db.collection('demoAccounts').doc(trade.accountId), { 
+          balance: FieldValue.increment(pnl), 
           updatedAt: FieldValue.serverTimestamp() 
         });
       });
-
-      console.log(`[TP/SL] ${hit?.toUpperCase()} hit on ${symbol} trade ${tradeDoc.id} PnL: ${pnl}`);
       
-      // Immediate audit after close to check for PASS or BREACH
       await auditDemoAccount(trade.accountId);
     }
-  } catch (err: any) {
-    console.error('[TP/SL] Engine error:', err.message);
-  }
+  } catch (err) {}
 }
 
 export async function syncPricesAndAudit() {
   const db = getAdminDb();
 
-  // Concurrency Lock: Prevents overlapping cycles in multi-instance environments
   try {
     const lockRef = db.collection('_system').doc('priceSyncLock');
-    const lockSnap = await lockRef.get();
+    await lockRef.set({ lockedAt: Timestamp.now(), instanceId: process.env.K_REVISION || 'unknown' });
     
-    if (lockSnap.exists) {
-      const data = lockSnap.data();
-      if (data?.lockedAt) {
-        const lockedAt = (data.lockedAt as Timestamp).toDate();
-        const diff = Date.now() - lockedAt.getTime();
-        if (diff < 2000) {
-          return { success: true, skipped: true };
-        }
-      }
-    }
-
-    await lockRef.set({
-      lockedAt: Timestamp.now(),
-      instanceId: process.env.K_REVISION || 'unknown'
-    });
-  } catch (err: any) {
-    console.warn('[RiskAudit] Lock acquisition failed, proceeding with caution.');
-  }
-
-  try {
-    // 1. Process automated exits (TP/SL) - PERMANENT ENGINE
     await checkTpSlHits(db);
-
-    // 2. Process risk audits for remaining open exposure
     const result = await auditActiveOpenPositions();
     
-    return { 
-      success: true, 
-      ...result
-    };
-
+    return { success: true, ...result };
   } catch (error: any) {
-    console.error('[RiskAudit] Fatal Audit Cycle Fault:', error.message);
     throw error;
   }
 }

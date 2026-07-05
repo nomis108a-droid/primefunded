@@ -1,6 +1,6 @@
 /**
- * Crypto Price Feed via Kraken REST API
- * Replaces Coinbase WebSocket (blocked on Google Cloud IPs)
+ * @fileOverview Crypto Price Feed via Kraken REST API
+ * Synchronizes institutional crypto liquidity to Firestore every 3 seconds.
  */
 import { getAdminDb } from '@/lib/firebase-admin';
 
@@ -18,9 +18,6 @@ let isWriting = false;
 let krakenInterval: NodeJS.Timeout | null = null;
 let bnbInterval: NodeJS.Timeout | null = null;
 
-/**
- * Returns the current captured ticks from the crypto feed.
- */
 export function getLatestCoinbaseTicks() {
   return cryptoPrices;
 }
@@ -33,21 +30,25 @@ async function fetchKrakenPrices() {
     );
     if (!res.ok) return;
     const data = await res.json();
-    if (data.error?.length > 0) { console.error('[KrakenFeed] API error:', data.error); return; }
-    const now = new Date().toISOString();
+    
+    if (data.error?.length > 0) return;
+
     Object.entries(data.result || {}).forEach(([krakenPair, ticker]: [string, any]) => {
       const symbol = KRAKEN_PAIRS[krakenPair];
       if (!symbol) return;
+      
       const price = parseFloat(ticker.c[0]);
       const bid = parseFloat(ticker.b[0]);
       const ask = parseFloat(ticker.a[0]);
-      if (!price || isNaN(price)) return;
-      cryptoPrices[symbol] = { price, bid, ask };
-      console.log(`[KrakenFeed] ${symbol} = ${price}`);
+      
+      if (!isNaN(price) && price > 0) {
+        cryptoPrices[symbol] = { price, bid, ask };
+      }
     });
+    
     await writeCryptoPricesToFirestore();
-  } catch (e: any) {
-    console.error('[KrakenFeed] Fetch error:', e.message);
+  } catch (e) {
+    // Graceful silent fail for production stability
   }
 }
 
@@ -60,30 +61,33 @@ async function fetchBnbPrice() {
     if (!res.ok) return;
     const data = await res.json();
     const price = data?.binancecoin?.usd;
-    if (!price || isNaN(price)) return;
-    const spread = price * 0.0005;
-    cryptoPrices['BNBUSD'] = { price, bid: price - spread, ask: price + spread };
-    console.log(`[BnbPolling] BNBUSD = ${price}`);
-  } catch (e: any) {
-    console.error('[BnbPolling] Fetch error:', e.message);
-  }
+    
+    if (price && !isNaN(price)) {
+      const spread = price * 0.0005;
+      cryptoPrices['BNBUSD'] = { price, bid: price - spread, ask: price + spread };
+    }
+  } catch (e) {}
 }
 
 async function writeCryptoPricesToFirestore() {
   if (isWriting || Object.keys(cryptoPrices).length === 0) return;
   isWriting = true;
-  const start = Date.now();
+  
   try {
     const db = getAdminDb();
     const batch = db.batch();
     const now = new Date().toISOString();
+    
     Object.entries(cryptoPrices).forEach(([symbol, data]) => {
-      batch.set(db.collection('livePrices').doc(symbol), { ...data, updatedAt: now }, { merge: true });
+      batch.set(db.collection('livePrices').doc(symbol), { 
+        ...data, 
+        updatedAt: now 
+      }, { merge: true });
     });
+    
     await batch.commit();
-    console.log(`[KrakenFeed] Commit finished in ${Date.now() - start}ms`);
-  } catch (e: any) {
-    console.error('[KrakenFeed] Firestore write error:', e.message);
+  } catch (e) {
+    console.error('[KrakenFeed] Sync Fault:', e);
   } finally {
     isWriting = false;
   }
@@ -91,14 +95,14 @@ async function writeCryptoPricesToFirestore() {
 
 export function startCoinbaseStream() {
   if (krakenInterval) return;
-  console.log('[KrakenFeed] Starting Kraken crypto feed (3s interval)...');
+  console.log('[KrakenFeed] Starting 3s Crypto Polling Cycle...');
   fetchKrakenPrices();
   krakenInterval = setInterval(fetchKrakenPrices, 3000);
 }
 
 export function startBnbPolling() {
   if (bnbInterval) return;
-  console.log('[BnbPolling] Starting BNB polling via CoinGecko (10s interval)...');
+  console.log('[BnbPolling] Starting 10s BNB Polling Cycle...');
   fetchBnbPrice();
   bnbInterval = setInterval(fetchBnbPrice, 10000);
 }

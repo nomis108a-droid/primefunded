@@ -3,47 +3,24 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 /**
  * @fileOverview OANDA Institutional Pricing Stream
- * Maintains a persistent HTTP connection to OANDA's v20 pricing stream
- * for real-time FX and Metals liquidity.
+ * Maintains a persistent HTTP connection to OANDA for real-time FX/Metals liquidity.
  */
 
 let latestOandaTicks: Record<string, { price: number; bid: number; ask: number }> = {};
 let lastWrittenOandaTicks: Record<string, string> = {};
-let tickCount = 0;
 let isWriting = false;
-
-// Module-level interval trackers to prevent duplication on reconnect
-let tickLogInterval: NodeJS.Timeout | null = null;
 let firestoreWriteInterval: NodeJS.Timeout | null = null;
 
-/**
- * Returns the current captured ticks from the OANDA stream.
- */
 export function getLatestOandaTicks() {
   return latestOandaTicks;
 }
 
-/**
- * Establishes a persistent streaming connection to OANDA.
- * Automatically reconnects on disconnection or failure.
- */
 export async function startOandaStream() {
-  // 1. Singleton Guard for Tick Logger
-  if (tickLogInterval) {
-    clearInterval(tickLogInterval);
-  }
-  tickLogInterval = setInterval(() => {
-    console.log(`[OandaStream] Received ${tickCount} ticks in last 10s`);
-    tickCount = 0;
-  }, 10000);
-
-  console.log("[OandaStream] Starting connection attempt...");
-  
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const apiKey = process.env.OANDA_API_KEY;
 
   if (!accountId || !apiKey) {
-    console.error('[OandaStream] CRITICAL: OANDA credentials missing. Streaming aborted.');
+    console.warn('[OandaStream] Credentials missing. Feed suspended.');
     return;
   }
 
@@ -58,16 +35,8 @@ export async function startOandaStream() {
       },
     });
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'No error body');
-      throw new Error(`OANDA Stream HTTP Error: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-
-    if (!response.body) {
-      throw new Error('OANDA Stream response body is null');
-    }
-
-    console.log('[OandaStream] Connection established. Processing institutional feed...');
+    if (!response.ok) throw new Error(`OANDA HTTP ${response.status}`);
+    if (!response.body) throw new Error('OANDA Body Empty');
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -86,74 +55,39 @@ export async function startOandaStream() {
         try {
           const msg = JSON.parse(line);
           if (msg.type === 'PRICE') {
-            tickCount++;
             const symbol = msg.instrument.replace('_', '').toUpperCase();
             const bid = parseFloat(msg.bids[0].price);
             const ask = parseFloat(msg.asks[0].price);
             const price = (bid + ask) / 2;
 
             if (!isNaN(price)) {
-              // Institutional Outlier Guard
-              const prevTick = latestOandaTicks[symbol];
-              let isOutlier = false;
-              if (prevTick) {
-                const diff = Math.abs(price - prevTick.price);
-                const pctChange = (diff / prevTick.price) * 100;
-                
-                // Metals often have higher volatility than FX pairs
-                const isMetal = symbol.includes('XAU') || symbol.includes('XAG') || symbol.includes('XPT');
-                const threshold = isMetal ? 1.0 : 0.5;
-
-                if (pctChange > threshold) {
-                  console.warn(`[OandaStream] Rejected outlier tick for ${symbol}: ${prevTick.price} -> ${price}`);
-                  isOutlier = true;
-                }
-              }
-
-              if (!isOutlier) {
-                latestOandaTicks[symbol] = {
-                  price: +price.toFixed(5),
-                  bid: +bid.toFixed(5),
-                  ask: +ask.toFixed(5),
-                };
-              }
+              latestOandaTicks[symbol] = {
+                price: +price.toFixed(5),
+                bid: +bid.toFixed(5),
+                ask: +ask.toFixed(5),
+              };
             }
           }
-        } catch (e) {
-          // Silently skip heartbeat or malformed chunks
-        }
+        } catch (e) {}
       }
     }
   } catch (err: any) {
-    console.error('[OandaStream] Streaming connection fault:', err.message || err);
+    console.warn('[OandaStream] Connection reset, reconnecting...');
   }
 
-  console.log('[OandaStream] Reconnecting to institutional node in 3s...');
   setTimeout(startOandaStream, 3000);
 }
 
-/**
- * Periodically flushes changed FX/Metal ticks to Firestore.
- * Throttled to 150ms to balance performance and database costs.
- */
 export function startOandaThrottledFirestoreWrite() {
-  // 2. Singleton Guard for Firestore Writer
-  if (firestoreWriteInterval) {
-    clearInterval(firestoreWriteInterval);
-  }
-
-  const db = getAdminDb();
-  console.log('[OandaStream] Initializing 150ms throttled Firestore sync...');
+  if (firestoreWriteInterval) return;
 
   firestoreWriteInterval = setInterval(async () => {
-    if (isWriting) {
-      return;
-    }
+    if (isWriting) return;
 
     const symbols = Object.keys(latestOandaTicks);
     if (symbols.length === 0) return;
 
-    const batch = db.batch();
+    const batch = getAdminDb().batch();
     let hasChanges = false;
 
     for (const symbol of symbols) {
@@ -161,7 +95,7 @@ export function startOandaThrottledFirestoreWrite() {
       const tickStr = JSON.stringify(tick);
 
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
-        const docRef = db.collection('livePrices').doc(symbol);
+        const docRef = getAdminDb().collection('livePrices').doc(symbol);
         batch.set(docRef, {
           ...tick,
           pair: symbol,
@@ -177,8 +111,8 @@ export function startOandaThrottledFirestoreWrite() {
       isWriting = true;
       try {
         await batch.commit();
-      } catch (err: any) {
-        console.warn('[OandaStream] Batch commit failed:', err.message);
+      } catch (err) {
+        // Silent batch failure log
       } finally {
         isWriting = false;
       }

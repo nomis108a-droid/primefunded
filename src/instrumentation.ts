@@ -20,7 +20,6 @@ export async function register() {
 
     if (!isFirebaseAdminConfigured()) {
       console.warn('[Instrumentation] Firebase Admin is NOT fully configured. Background synchronization services will be suspended.');
-      console.warn('[Instrumentation] ACTION REQUIRED: Provide FIREBASE_SERVICE_ACCOUNT_KEY_B64 or configure Application Default Credentials.');
       return;
     }
 
@@ -37,32 +36,18 @@ export async function register() {
       console.log('[Instrumentation] Leadership acquired. Initializing institutional streams...');
       servicesStarted = true;
 
-      // 1. Start Liquidity Streams
-      // OANDA requires specific credentials
+      // 1. Start Liquidity Streams (3s Crypto / Persistent FX Stream)
       if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
         startOandaStream();
         startOandaThrottledFirestoreWrite();
-      } else {
-        console.warn('[Instrumentation] OANDA credentials missing. FX/Metals liquidity stream suspended.');
       }
 
       startCoinbaseStream();
       startBnbPolling();
 
-      // 2. Start Risk Engine Cycle (Leader only)
-      // High-frequency monitoring of accounts with active market exposure
-      syncPricesAndAudit().catch(e => {
-        if (e.message.includes('unauthenticated') || e.code === 16) {
-          console.error('[BackgroundSync] Critical: Authentication lost. Stopping risk engine.');
-        } else {
-          console.error('[BackgroundSync] Initial audit failed:', e.message);
-        }
-      });
-      
+      // 2. Start Risk Engine Cycle (Leader only, 2s frequency)
       const auditInterval = setInterval(() => {
         syncPricesAndAudit().catch(e => {
-          console.error('[BackgroundSync] Audit cycle failed:', e.message);
-          // If we hit an unauthenticated error repeatedly, stop the loop to prevent log flooding
           if (e.message.includes('unauthenticated') || e.code === 16) {
             console.error('[BackgroundSync] Terminating audit loop due to authentication failure.');
             clearInterval(auditInterval);
@@ -72,8 +57,8 @@ export async function register() {
 
       console.log('[BackgroundSync] Institutional liquidity and risk services started on LEADER instance.');
     }, () => {
-      // CALLBACK: Executed if leadership is lost (e.g. cluster re-partitioning)
-      console.warn('[Instrumentation] Critical Warning: Leadership lost. Instance is now in STANDBY mode.');
+      // CALLBACK: Executed if leadership is lost
+      console.warn('[Instrumentation] Instance switched to STANDBY mode.');
     });
   }
 }
