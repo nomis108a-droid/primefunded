@@ -62,7 +62,7 @@ export async function GET(
             }
           } catch (e) {}
         }
-      }, 500);
+      }, 2000);
 
       // Graceful termination after 240s to avoid 504 Gateway Timeouts
       const lifetimeTimeout = setTimeout(() => {
