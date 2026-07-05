@@ -13,9 +13,11 @@ const KRAKEN_PAIRS: Record<string, string> = {
   'SOLUSD':   'SOLUSD',
   'XXRPZUSD': 'XRPUSD',
   'XRPUSD':   'XRPUSD',
+  'XRPZUSD':  'XRPUSD',
   'ADAUSD':   'ADAUSD',
   'XDGUSD':   'DOGEUSD',
   'DOGEUSD':  'DOGEUSD',
+  'XXDGZUSD': 'DOGEUSD'
 };
 
 let cryptoPrices: Record<string, { price: number; bid: number; ask: number }> = {};
@@ -36,8 +38,9 @@ export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid
 
 async function fetchKrakenPrices() {
   try {
+    // Request using Kraken-compatible symbols
     const res = await fetch(
-      'https://api.kraken.com/0/public/Ticker?pair=XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD',
+      'https://api.kraken.com/0/public/Ticker?pair=XBTUSD,ETHUSD,SOLUSD,XRPZUSD,ADAUSD,XDGUSD',
       { signal: AbortSignal.timeout(5000) }
     );
     if (!res.ok) return;
