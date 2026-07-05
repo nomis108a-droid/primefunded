@@ -64,6 +64,7 @@ export default function AdminPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [isRateLimited, setIsRateLimited] = useState(false);
   const isSyncingRef = useRef(false);
   const { toast } = useToast();
 
@@ -88,7 +89,7 @@ export default function AdminPage() {
   const tabsListRef = useRef<HTMLDivElement>(null);
 
   const refreshData = useCallback(async () => {
-    if (isSyncingRef.current) return;
+    if (isSyncingRef.current || isRateLimited) return;
     isSyncingRef.current = true;
     setIsLoading(true);
     
@@ -114,11 +115,13 @@ export default function AdminPage() {
         broadcasts: broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
         breaches: breachesSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.breachedAt?.seconds || 0) - (a.breachedAt?.seconds || 0)),
       });
+      setIsRateLimited(false);
     } catch (err: any) {
       console.error("[Admin] Sync fault:", err);
-      // Gracefully handle 429 inside the component
       if (err.message?.includes('429')) {
-        toast({ variant: "destructive", title: "Rate Limited", description: "Too many requests. Pausing sync." });
+        setIsRateLimited(true);
+        toast({ variant: "destructive", title: "Rate Limited", description: "Terminal synchronization paused for 60s." });
+        setTimeout(() => setIsRateLimited(false), 60000);
       } else {
         toast({ variant: "destructive", title: "Sync Error", description: err.message });
       }
@@ -126,7 +129,7 @@ export default function AdminPage() {
       setIsLoading(false);
       isSyncingRef.current = false;
     }
-  }, [toast]);
+  }, [toast, isRateLimited]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -134,7 +137,6 @@ export default function AdminPage() {
     if (isVerified && email) {
       setIsAuthenticated(true);
       setLoggedInAdmin(email);
-      // Set persistence cookies
       document.cookie = `admin_email=${email}; path=/; max-age=86400; SameSite=Lax`;
       document.cookie = `admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax`;
       refreshData();
@@ -156,11 +158,8 @@ export default function AdminPage() {
     }
     localStorage.setItem('adminVerified', 'true');
     localStorage.setItem('adminEmail', adminEmailInput.toLowerCase());
-    
-    // Set explicit administrative cookies
     document.cookie = 'admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax';
     document.cookie = `admin_email=${adminEmailInput.toLowerCase()}; path=/; max-age=86400; SameSite=Lax`;
-    
     setIsAuthenticated(true);
     setLoggedInAdmin(adminEmailInput.toLowerCase());
     setShowAdminModal(false);
@@ -211,26 +210,15 @@ export default function AdminPage() {
     setActionLoading(true);
     try {
       const token = await user?.getIdToken();
-      // Look for user email in cached data as a hint, but the API will do a secure lookup
       const targetUser = adminData.users.find((u: any) => u.traderId === giftForm.userId);
       const email = targetUser?.email || '';
-      
       const res = await fetch('/api/admin/gift-account', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          userId: giftForm.userId, // Passing Trader ID here
-          email,
-          label: giftForm.label,
-          amount: parseInt(giftForm.amount),
-          plan: giftForm.plan,
-          phase: giftForm.phase
-        })
+        body: JSON.stringify({ userId: giftForm.userId, email, label: giftForm.label, amount: parseInt(giftForm.amount), plan: giftForm.plan, phase: giftForm.phase })
       });
-      
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      
       toast({ title: "Account Provisioned Successfully" });
       setIsGiftModalOpen(false);
       refreshData();
@@ -306,6 +294,16 @@ export default function AdminPage() {
       <Navigation />
       <main className="flex-1 flex flex-col overflow-hidden">
         <div className="p-8 shrink-0 border-b border-white/5">
+          {isRateLimited && (
+            <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-3">
+              <AlertOctagon className="w-5 h-5 text-destructive animate-pulse" />
+              <div>
+                <p className="text-sm font-bold text-white">Project Rate Limited</p>
+                <p className="text-xs text-destructive/80">Firestore access is currently throttled. Background synchronization is paused.</p>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-between items-start mb-6">
             <div>
               <div className="flex items-center gap-3 mb-1">
@@ -324,7 +322,7 @@ export default function AdminPage() {
               <Button size="sm" className="h-10 px-6 font-bold bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
                 <Gift className="w-4 h-4 mr-2" /> Gift Account
               </Button>
-              <Button variant="outline" size="sm" className="h-10 px-4" onClick={refreshData} disabled={isLoading}>
+              <Button variant="outline" size="sm" className="h-10 px-4" onClick={refreshData} disabled={isLoading || isRateLimited}>
                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
                 Sync Network
               </Button>
@@ -942,7 +940,7 @@ export default function AdminPage() {
              </div>
           </div>
           <DialogFooter className="gap-2">
-             <Button variant="ghost" onClick={() => setBreachForm({ accountId: '', reason: '', isOpen: false })}>Abort</Button>
+             <Button variant="ghost" onClick={() => breachForm.isOpen && setBreachForm({ accountId: '', reason: '', isOpen: false })}>Abort</Button>
              <Button 
                variant="destructive" 
                className="font-bold px-6 h-11"

@@ -5,51 +5,65 @@ import type { NextRequest } from 'next/server';
 const rateLimitMap = new Map<string, { count: number; lastReset: number }>();
 
 export function middleware(request: NextRequest) {
-  const ip = request.ip ?? '127.0.0.1';
+  // 1. Identify Client (Prefer x-forwarded-for in production)
+  const forwarded = request.headers.get('x-forwarded-for');
+  const ip = forwarded ? forwarded.split(',')[0] : (request.ip ?? '127.0.0.1');
   const now = Date.now();
+  const pathname = request.nextUrl.pathname;
   
-  // PERformance: Increased limit to 200 req/min for terminal stability
-  const limit = 200;
-  const windowMs = 60 * 1000;
-
-  // Define critical paths
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api');
-  const isMaintenancePage = request.nextUrl.pathname === '/maintenance';
-  const isStaticAsset = request.nextUrl.pathname.startsWith('/_next') || request.nextUrl.pathname.startsWith('/favicon.ico');
+  // 2. Define Critical Path Flags
+  const isApiRoute = pathname.startsWith('/api');
+  const isAdminPath = pathname.startsWith('/admin');
+  const isMaintenancePage = pathname === '/maintenance';
+  const isStaticAsset = pathname.startsWith('/_next') || pathname.startsWith('/favicon.ico') || pathname.endsWith('.png') || pathname.endsWith('.jpg');
 
   /**
-   * CRITICAL: Bypassing middleware logic for API routes to ensure terminal compatibility.
-   * This prevents redirects, rate limiting, and other checks from returning HTML to terminals.
+   * CRITICAL BYPASS: Ensure Administrative and Core API paths are never blocked 
+   * by the UI rate limiter. This restores access to /admin immediately.
    */
-  if (isApiRoute) {
+  if (isAdminPath || isApiRoute || isStaticAsset || isMaintenancePage) {
     return NextResponse.next();
   }
 
-  // Maintenance mode check via environment variable
+  // 3. Maintenance Mode Redirect
   const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true';
-
-  if (isMaintenanceMode && !isMaintenancePage && !isStaticAsset) {
+  if (isMaintenanceMode) {
     return NextResponse.redirect(new URL('/maintenance', request.url));
   }
 
-  // Rate Limiting (Skip for internal Next.js assets and API routes)
-  if (!isStaticAsset) {
-    const currentLimit = rateLimitMap.get(ip) ?? { count: 0, lastReset: now };
-    if (now - currentLimit.lastReset > windowMs) {
-      currentLimit.count = 1;
-      currentLimit.lastReset = now;
-    } else {
-      currentLimit.count++;
-    }
-    rateLimitMap.set(ip, currentLimit);
+  /**
+   * 4. Rate Limiting (Standard UI Routes Only)
+   * Threshold: 200 requests per 60 seconds.
+   */
+  const limit = 200;
+  const windowMs = 60 * 1000;
 
-    if (currentLimit.count > limit) {
-      // Return a 429 response that matches the raw text observed by the user
-      return new NextResponse('Too Many Requests', { status: 429 });
-    }
+  const currentLimit = rateLimitMap.get(ip) ?? { count: 0, lastReset: now };
+
+  // Reset window if expired
+  if (now - currentLimit.lastReset > windowMs) {
+    currentLimit.count = 1;
+    currentLimit.lastReset = now;
+  } else {
+    currentLimit.count++;
+  }
+
+  rateLimitMap.set(ip, currentLimit);
+
+  if (currentLimit.count > limit) {
+    console.warn(`[Middleware] Rate limit exceeded for IP: ${ip} on path: ${pathname}`);
+    return new NextResponse('Too Many Requests', { 
+      status: 429,
+      headers: {
+        'Retry-After': '60',
+        'Content-Type': 'text/plain'
+      }
+    });
   }
 
   const response = NextResponse.next();
+  
+  // 5. Security Headers
   response.headers.set('X-Frame-Options', 'DENY');
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
