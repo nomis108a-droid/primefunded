@@ -16,6 +16,13 @@ export async function register() {
     const { syncPricesAndAudit } = await import('@/lib/priceSync');
     const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
     const { startOandaStream, startOandaThrottledFirestoreWrite } = await import('@/lib/oandaStream');
+    const { isFirebaseAdminConfigured } = await import('@/lib/firebase-admin');
+
+    if (!isFirebaseAdminConfigured()) {
+      console.warn('[Instrumentation] Firebase Admin is NOT fully configured. Background synchronization services will be suspended.');
+      console.warn('[Instrumentation] ACTION REQUIRED: Provide FIREBASE_SERVICE_ACCOUNT_KEY_B64 or configure Application Default Credentials.');
+      return;
+    }
 
     let servicesStarted = false;
 
@@ -31,18 +38,35 @@ export async function register() {
       servicesStarted = true;
 
       // 1. Start Liquidity Streams
+      // OANDA requires specific credentials
+      if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
+        startOandaStream();
+        startOandaThrottledFirestoreWrite();
+      } else {
+        console.warn('[Instrumentation] OANDA credentials missing. FX/Metals liquidity stream suspended.');
+      }
+
       startCoinbaseStream();
       startBnbPolling();
-      startOandaStream();
-      startOandaThrottledFirestoreWrite();
 
       // 2. Start Risk Engine Cycle (Leader only)
       // High-frequency monitoring of accounts with active market exposure
-      syncPricesAndAudit().catch(e => console.error('[BackgroundSync] Initial audit failed:', e.message));
+      syncPricesAndAudit().catch(e => {
+        if (e.message.includes('unauthenticated') || e.code === 16) {
+          console.error('[BackgroundSync] Critical: Authentication lost. Stopping risk engine.');
+        } else {
+          console.error('[BackgroundSync] Initial audit failed:', e.message);
+        }
+      });
       
-      setInterval(() => {
+      const auditInterval = setInterval(() => {
         syncPricesAndAudit().catch(e => {
           console.error('[BackgroundSync] Audit cycle failed:', e.message);
+          // If we hit an unauthenticated error repeatedly, stop the loop to prevent log flooding
+          if (e.message.includes('unauthenticated') || e.code === 16) {
+            console.error('[BackgroundSync] Terminating audit loop due to authentication failure.');
+            clearInterval(auditInterval);
+          }
         });
       }, 2000);
 

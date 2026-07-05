@@ -1,4 +1,4 @@
-import { getAdminDb } from '@/lib/firebase-admin';
+import { getAdminDb, isFirebaseAdminConfigured } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
 
 /**
@@ -16,6 +16,8 @@ let isCurrentLeader = false;
  * @returns true if this instance is the leader.
  */
 export async function acquireOrRenewLeadership(): Promise<boolean> {
+  if (!isFirebaseAdminConfigured()) return false;
+
   const db = getAdminDb();
   const leaderRef = db.collection('_system').doc('streamLeader');
 
@@ -57,7 +59,10 @@ export async function acquireOrRenewLeadership(): Promise<boolean> {
     // 3. Another instance is healthy and leading
     return false;
   } catch (err: any) {
-    console.warn('[LeaderLock] Election interaction fault:', err.message);
+    // Only log if it's not a standard unauthenticated error which we've already warned about
+    if (!err.message.includes('unauthenticated') && err.code !== 16) {
+      console.warn('[LeaderLock] Election interaction fault:', err.message);
+    }
     return false;
   }
 }
