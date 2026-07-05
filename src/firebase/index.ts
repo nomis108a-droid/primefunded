@@ -58,7 +58,7 @@ export function initializeFirebase(): {
       firestore = initializeFirestore(firebaseApp, {
         localCache: isStudio 
           ? memoryLocalCache() 
-          : persistentLocalCache({}) 
+          : memoryLocalCache() 
       });
     } catch (e) {
       firestore = getFirestore(firebaseApp);
