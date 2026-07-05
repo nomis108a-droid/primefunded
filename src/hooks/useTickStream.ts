@@ -5,16 +5,22 @@ import { useState, useEffect, useRef } from 'react';
 /**
  * @fileOverview high-frequency SSE price hook
  * Subscribes to the server-side memory buffer for a single symbol.
- * Handles graceful server-side resets with immediate reconnection.
+ * Hardened with exponential backoff and error tracking.
  */
 export function useTickStream(symbol: string) {
   const [tick, setTick] = useState<{ price: number; bid: number; ask: number } | null>(null);
+  const [error, setError] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
     if (!symbol) return;
+    
+    // Reset state on symbol change
     setTick(null);
+    setError(false);
+    retryCountRef.current = 0;
 
     const connect = () => {
       if (eventSourceRef.current) {
@@ -24,29 +30,30 @@ export function useTickStream(symbol: string) {
         clearTimeout(reconnectTimeoutRef.current);
       }
 
-      // Native EventSource for near-zero overhead
       const es = new EventSource(`/api/terminal/stream/${symbol}`);
 
       es.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           setTick(data);
+          setError(false);
+          retryCountRef.current = 0; // Success! Reset retry counter
         } catch (e) {
           console.error('[TickStream] Parse error:', e);
         }
       };
 
       es.onerror = () => {
-        // Distinguish between a graceful closure (after 4 mins) and a genuine error
-        if (es.readyState === EventSource.CLOSED) {
-          // Connection ended cleanly by server; reconnect immediately for seamless feed
-          es.close();
-          connect();
-        } else {
-          // Connection failed or timed out unexpectedly; wait 2s before retry
-          es.close();
-          reconnectTimeoutRef.current = setTimeout(connect, 2000);
-        }
+        setError(true);
+        es.close();
+        
+        // Exponential backoff to avoid 429 Too Many Requests
+        // 2s, 4s, 8s, 16s, then max 30s
+        const delay = Math.min(Math.pow(2, retryCountRef.current) * 1000, 30000);
+        retryCountRef.current++;
+        
+        console.warn(`[TickStream] connection lost. Retrying in ${delay}ms...`);
+        reconnectTimeoutRef.current = setTimeout(connect, delay);
       };
 
       eventSourceRef.current = es;
@@ -54,9 +61,10 @@ export function useTickStream(symbol: string) {
 
     connect();
 
-    // Re-sync on visibility to ensure feed isn't stale after background sleep
+    // Re-sync on visibility to ensure feed isn't stale
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
+        retryCountRef.current = 0;
         connect();
       }
     };
@@ -74,5 +82,5 @@ export function useTickStream(symbol: string) {
     };
   }, [symbol]);
 
-  return tick;
+  return { tick, error };
 }

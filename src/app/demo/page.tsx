@@ -67,16 +67,16 @@ function getMarketInfo(symbol: string) {
   const hour = now.getUTCHours();
   
   let isOpen = true;
-  if (day === 5 && hour >= 21) isOpen = false; // Fri 21:00 UTC close
-  if (day === 6) isOpen = false; // all Saturday
-  if (day === 0 && hour < 22) isOpen = false; // Sunday before 22:00 UTC open
+  if (day === 5 && hour >= 21) isOpen = false; 
+  if (day === 6) isOpen = false; 
+  if (day === 0 && hour < 22) isOpen = false; 
   let countdown = null;
   if (!isOpen) {
     const nextOpen = new Date(now);
     let addDays = 0;
-    if (day === 5) addDays = 2; // Friday -> Sunday
-    else if (day === 6) addDays = 1; // Saturday -> Sunday
-    else if (day === 0) addDays = 0; // Sunday (before 22:00) -> same day
+    if (day === 5) addDays = 2; 
+    else if (day === 6) addDays = 1; 
+    else if (day === 0) addDays = 0; 
     nextOpen.setUTCDate(now.getUTCDate() + addDays);
     nextOpen.setUTCHours(22, 0, 0, 0);
     
@@ -129,7 +129,7 @@ export default function DemoPage() {
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
   // Price feeds
-  const streamPrice = useTickStream(selectedSymbol);
+  const { tick: streamTick, error: streamError } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
   
   const closingTradesRef = useRef<Set<string>>(new Set());
@@ -326,18 +326,6 @@ export default function DemoPage() {
                chartInstanceRef.current?.timeScale().scrollToRealTime();
                chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
              }, 150);
-
-             setTimeout(() => {
-               if (chartInstanceRef.current && chartContainerRef.current) {
-                 chartInstanceRef.current.applyOptions({
-                   width: chartContainerRef.current.clientWidth,
-                   height: chartContainerRef.current.clientHeight || (isMobile ? window.innerHeight * 0.42 : 500)
-                 });
-                 chartInstanceRef.current.timeScale().fitContent();
-                 chartInstanceRef.current?.timeScale().scrollToRealTime();
-                 chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
-               }
-             }, 100);
           }
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
@@ -362,7 +350,14 @@ export default function DemoPage() {
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
-  const currentPriceData = useMemo(() => livePrices[selectedSymbol.toUpperCase()], [livePrices, selectedSymbol]);
+  const currentPriceData = useMemo(() => {
+    // Priority: use the high-frequency streamTick for current active symbol
+    if (streamTick && streamTick.price > 0) return streamTick;
+    // Fallback: use the bulk livePrices state (RTDB)
+    return livePrices[selectedSymbol.toUpperCase()];
+  }, [livePrices, streamTick, selectedSymbol]);
+
+  // Relaxed outlier and validation logic
   const isPriceValid = useMemo(() => !!(currentPriceData && Number(currentPriceData.price) > 0), [currentPriceData]);
 
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
@@ -381,14 +376,14 @@ export default function DemoPage() {
   }, [user, selectedSymbol, toast]);
 
   useEffect(() => {
-    const activePrice = streamPrice || currentPriceData;
+    const activePrice = streamTick || currentPriceData;
     
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const price = activePrice.price;
 
-      // Outlier guard - preventing bad data from corrupting candles
+      // Relaxed outlier guard (15% vs 5%) to avoid discarding valid market movements
       const lastGood = lastGoodPriceRef.current[selectedSymbol];
-      if (isNaN(price) || price <= 0 || (lastGood && Math.abs(price - lastGood) / lastGood > 0.05)) {
+      if (isNaN(price) || price <= 0 || (lastGood && Math.abs(price - lastGood) / lastGood > 0.15)) {
         console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
         return;
       }
@@ -399,16 +394,8 @@ export default function DemoPage() {
         const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
         
         if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
-          // New candle
-          currentCandleRef.current = {
-            time: candleTime,
-            open: price,
-            high: price,
-            low: price,
-            close: price
-          };
+          currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
         } else {
-          // Update existing candle
           currentCandleRef.current = {
             ...currentCandleRef.current,
             high: Math.max(currentCandleRef.current.high, price),
@@ -417,7 +404,6 @@ export default function DemoPage() {
           };
         }
         
-        // Only update if chart type is candles/bars, pass correct format
         if (chartType === 'line' || chartType === 'area') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
         } else {
@@ -425,7 +411,7 @@ export default function DemoPage() {
         }
       }
     }
-  }, [streamPrice, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
+  }, [streamTick, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
 
   useEffect(() => {
     if (openTrades.length > 0 && Object.keys(livePrices).length > 0) {
@@ -634,29 +620,35 @@ export default function DemoPage() {
           <button 
             type="button" 
             onClick={() => placeTrade('buy')} 
-            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
+            disabled={actionLoading || (!isPriceValid && !streamError) || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
               "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
+              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
+              "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
             {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 
              hasPendingPayout ? 'PAYOUT PENDING' : 
              !marketInfo.isOpen ? 'MARKET CLOSED' :
+             (streamError && !isPriceValid) ? 'PRICE UNAVAILABLE' :
              !isPriceValid ? 'PRICE SYNCING...' : 'BUY BY MARKET'}
           </button>
           <button 
             type="button" 
             onClick={() => placeTrade('sell')} 
-            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
+            disabled={actionLoading || (!isPriceValid && !streamError) || hasPendingPayout || !marketInfo.isOpen} 
             className={cn(
               "w-full h-16 rounded-xl font-black text-sm tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed",
-              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : "bg-red-600 hover:bg-red-700 text-white"
+              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
+              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
+              "bg-red-600 hover:bg-red-700 text-white"
             )}
           >
             {actionLoading ? <Loader2 className="animate-spin w-6 h-6 mx-auto" /> : 
              hasPendingPayout ? 'PAYOUT PENDING' : 
              !marketInfo.isOpen ? 'MARKET CLOSED' :
+             (streamError && !isPriceValid) ? 'PRICE UNAVAILABLE' :
              !isPriceValid ? 'PRICE SYNCING...' : 'SELL BY MARKET'}
           </button>
         </div>
@@ -666,7 +658,6 @@ export default function DemoPage() {
 
   if (!user && !authLoading) return null;
 
-  // ── BLOCK TERMINAL IF NO ACTIVE ACCOUNT ──
   if (!accountsLoading && !hasActiveAccount) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center space-y-8">
@@ -695,7 +686,6 @@ export default function DemoPage() {
 
   return (
     <div className="fixed inset-0 h-[100dvh] w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
-      {/* Payout Pending Banner */}
       {hasPendingPayout && (
         <div className="bg-amber-500/20 border-b border-amber-500/30 px-4 py-2 flex items-center justify-center gap-3 z-[60]">
           <AlertTriangle className="w-4 h-4 text-amber-500" />
@@ -705,7 +695,6 @@ export default function DemoPage() {
         </div>
       )}
 
-      {/* Dynamic Header */}
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-3 md:px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-3 md:gap-6">
           <div className="flex items-center gap-2">
@@ -768,7 +757,6 @@ export default function DemoPage() {
         </div>
       </header>
 
-      {/* Touch-Friendly Symbol Bar */}
       <div className="h-11 md:h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {SYMBOLS.map((s) => (
           <button 
@@ -784,7 +772,6 @@ export default function DemoPage() {
         ))}
       </div>
 
-      {/* Touch-Friendly Timeframe Bar */}
       <div className="h-10 md:h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {TIMEFRAMES.map((tf) => (
           <button 
@@ -803,7 +790,6 @@ export default function DemoPage() {
       <div className="flex-1 flex min-h-0 relative">
         <div className="flex-1 flex flex-col min-w-0 bg-[#09090b] overflow-hidden">
           <div className="flex-1 relative min-h-0 bg-[#09090b] flex">
-            {/* Desktop-only Drawing Tools Sidebar */}
             <aside className="hidden lg:flex w-[50px] border-r border-[#2a2a2a] bg-[#1a1a1a] flex-col items-center py-2 z-40 shrink-0 shadow-2xl overflow-y-auto no-scrollbar">
               <TooltipProvider delayDuration={300}>
                 <div className="flex flex-col gap-0.5 items-center w-full">
@@ -820,7 +806,6 @@ export default function DemoPage() {
               </TooltipProvider>
             </aside>
 
-            {/* Main Chart Area */}
             <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '42vh' : 'calc(100vh - 280px)', maxHeight: isMobile ? '42vh' : 'none' }}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
@@ -828,16 +813,18 @@ export default function DemoPage() {
                   <p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p>
                 </div>
               )}
-              {isFallbackData && (
+              {(isFallbackData || streamError) && (
                 <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20 w-full max-w-[200px] px-2">
-                  <div className="px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[8px] md:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 backdrop-blur-md shadow-2xl">
+                  <div className={cn(
+                    "px-3 py-1.5 rounded-full border text-[8px] md:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 backdrop-blur-md shadow-2xl",
+                    streamError ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-amber-500/10 border-amber-500/20 text-amber-500"
+                  )}>
                     <AlertTriangle className="w-3 h-3 shrink-0" />
-                    <span className="truncate">Simulated Data Feed</span>
+                    <span className="truncate">{streamError ? "Feed Connection Interrupted" : "Simulated Data Feed"}</span>
                   </div>
                 </div>
               )}
 
-              {/* Market Status Badge */}
               <div className="absolute left-3 bottom-[60px] z-20 flex flex-col items-start gap-1 pointer-events-none">
                 <div className={cn(
                   "px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl",
@@ -855,13 +842,11 @@ export default function DemoPage() {
                 )}
               </div>
               
-              {/* Floating Candle Countdown */}
               <div className="absolute right-[10px] md:right-[65px] top-[10px] md:top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
                 <span className="font-mono text-[9px] md:text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
               </div>
 
-              {/* Drawing Tools Overlay (Mobile) */}
               {isMobile && (
                 <button 
                   onClick={() => setIsDrawingOverlayOpen(true)}
@@ -885,7 +870,6 @@ export default function DemoPage() {
             </div>
           </div>
 
-          {/* Positions Panel (Scrollable/Collapsible) */}
           <PositionsPanel 
             openTrades={openTrades} 
             closedTrades={closedTrades} 
@@ -907,13 +891,11 @@ export default function DemoPage() {
           />
         </div>
 
-        {/* Right Order Aside (Visible on Desktop and Tablet) */}
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            {OrderPanelContent}
         </aside>
       </div>
 
-      {/* Mobile Bottom Navigation & Action FABs */}
       {isMobile && (
         <div className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around px-2 shrink-0 z-50 safe-area-bottom">
           <Link href="/dashboard" className="flex flex-col items-center gap-1 text-zinc-500 hover:text-white transition-colors">
@@ -986,7 +968,6 @@ export default function DemoPage() {
         </div>
       )}
 
-      {/* Drawing Tools Overlay (Mobile) */}
       <Dialog open={isDrawingOverlayOpen} onOpenChange={setIsDrawingOverlayOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-lg p-0 overflow-hidden h-[70vh] flex flex-col">
           <DialogHeader className="p-6 border-b border-zinc-800">
@@ -1017,8 +998,7 @@ export default function DemoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Order Entry Sheet (Mobile) */}
-      <Sheet open={isOrderSheetOpen} onValueChange={setIsOrderSheetOpen}>
+      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
         <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
           <SheetHeader className="pb-4">
             <div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" />
@@ -1030,7 +1010,6 @@ export default function DemoPage() {
         </SheetContent>
       </Sheet>
 
-      {/* Global Modals */}
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
       
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
