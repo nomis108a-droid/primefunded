@@ -302,7 +302,7 @@ function PaymentContent() {
 
                 <div className="space-y-2">
                   <Label className="text-xs flex items-center gap-2 text-white font-bold">
-                    <FileImage className="w-3.5 h-3.5 text-primary" /> Payment Screenshot
+                    <FileImage className="w-3.5 h-3.5 text-primary" /> Payment Screenshot *
                   </Label>
                   <div className="relative h-11 border-2 border-dashed border-border rounded-xl flex items-center justify-center bg-secondary/20 hover:bg-secondary/40 transition-colors cursor-pointer group">
                     <input 
@@ -320,7 +320,7 @@ function PaymentContent() {
                 <Button 
                   type="submit" 
                   className="w-full h-12 font-bold text-base rounded-xl cyan-box-glow cursor-pointer mt-4" 
-                  disabled={loading || !txHash || !selectedNetwork}
+                  disabled={loading || !txHash || !selectedNetwork || !proofFile}
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   {loading ? 'Submitting...' : 'Submit Payment Proof'}

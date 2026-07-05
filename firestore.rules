@@ -22,7 +22,12 @@ service cloud.firestore {
     // Orders Collection: Users can create/read own, admins can manage all
     match /orders/{id} {
       allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.txHash is string
+                    && request.resource.data.txHash.size() >= 10
+                    && request.resource.data.paymentScreenshot is string
+                    && request.resource.data.paymentScreenshot.size() > 0;
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
