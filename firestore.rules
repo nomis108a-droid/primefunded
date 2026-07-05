@@ -68,6 +68,7 @@ service cloud.firestore {
 
     // Price Feeds and Terminal Data
     match /livePrices/{symbol} {
+      allow read: if true;
       allow write: if true;
     }
 

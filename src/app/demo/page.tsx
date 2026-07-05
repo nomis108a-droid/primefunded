@@ -343,25 +343,35 @@ export default function DemoPage() {
     const activePrice = streamPrice || currentPriceData;
     
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
-      const secs = intervalSecondsMap[selectedInterval] || 60;
-      const now = Math.floor(Date.now() / 1000);
-      const candleTime = Math.floor(now / secs) * secs;
       const price = activePrice.price;
       if (price && price > 0) {
-        const cur = currentCandleRef.current;
-        if (chartType === 'area' || chartType === 'line') {
+        const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
+        const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
+        
+        if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
+          // New candle
+          currentCandleRef.current = {
+            time: candleTime,
+            open: price,
+            high: price,
+            low: price,
+            close: price
+          };
+        } else {
+          // Update existing candle
+          currentCandleRef.current = {
+            ...currentCandleRef.current,
+            high: Math.max(currentCandleRef.current.high, price),
+            low: Math.min(currentCandleRef.current.low, price),
+            close: price
+          };
+        }
+        
+        // Only update if chart type is candles/bars, pass correct format
+        if (chartType === 'line' || chartType === 'area') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
         } else {
-          if (!cur || Number(cur.time) < candleTime) {
-            const nextCandle = { time: candleTime, open: price, high: price, low: price, close: price };
-            currentCandleRef.current = nextCandle;
-            mainSeriesRef.current.update(nextCandle);
-          } else if (Number(cur.time) === candleTime) {
-            cur.high = Math.max(cur.high, price);
-            cur.low = Math.min(cur.low, price);
-            cur.close = price;
-            mainSeriesRef.current.update({ ...cur });
-          }
+          mainSeriesRef.current.update(currentCandleRef.current);
         }
       }
     }
@@ -883,7 +893,7 @@ export default function DemoPage() {
             <Wallet className="w-5 h-5" />
             <span className="text-[8px] font-black uppercase">Positions</span>
             {openTrades.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[8px] font-bold rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[9px] font-bold rounded-full flex items-center justify-center">
                 {openTrades.length}
               </span>
             )}
