@@ -89,6 +89,145 @@ function getMarketInfo(symbol: string) {
   return { isOpen, type: 'forex', countdown };
 }
 
+/**
+ * Robust Order Panel Component
+ * Solves React Hydration Error #418 by isolating dynamic state.
+ */
+function OrderPanel({ 
+  hasMounted, 
+  actionLoading, 
+  isPriceValid, 
+  hasPendingPayout, 
+  marketInfo, 
+  streamError, 
+  activePrice, 
+  selectedSymbol, 
+  orderType, 
+  setOrderType, 
+  pendingPrice, 
+  setPendingPrice, 
+  lotsInput, 
+  setLotsInput, 
+  lots, 
+  sl, 
+  setSl, 
+  tp, 
+  setTp, 
+  placeTrade 
+}: any) {
+  // SSR / Initial Hydration Placeholder
+  if (!hasMounted) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="h-10 bg-zinc-900/50 rounded-lg border border-zinc-800" />
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <div className="h-4 w-20 bg-zinc-900 rounded" />
+            <div className="h-11 bg-zinc-900 rounded-lg" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="h-14 bg-zinc-900 rounded-lg" />
+            <div className="h-14 bg-zinc-900 rounded-lg" />
+          </div>
+          <div className="space-y-4">
+            <div className="h-16 bg-zinc-900 rounded-xl" />
+            <div className="h-16 bg-zinc-900 rounded-xl" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
+        <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">
+          <TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger>
+          <TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <div className="space-y-6">
+        {orderType === 'pending' && (
+          <div className="space-y-2">
+            <Label className="text-[9px] font-black uppercase text-zinc-400">Limit Price</Label>
+            <Input
+              type="number"
+              step="any"
+              placeholder="Enter limit price..."
+              value={pendingPrice}
+              onChange={e => setPendingPrice(e.target.value)}
+              className="bg-zinc-900 border-zinc-700 text-white h-11 text-sm font-mono"
+            />
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setLotsInput(Math.max(0.01, lots - 0.01).toFixed(2))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">-</button>
+            <Input
+              type="text"
+              inputMode="decimal"
+              value={lotsInput}
+              onChange={(e) => { const val = e.target.value; if (/^\d*\.?\d*$/.test(val)) setLotsInput(val); }}
+              onBlur={() => { const parsed = parseFloat(lotsInput); setLotsInput(isNaN(parsed) || parsed <= 0 ? "0.01" : parsed.toFixed(2)); }}
+              className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white"
+            />
+            <button onClick={() => setLotsInput((lots + 0.01).toFixed(2))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">+</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
+          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
+        </div>
+        <div className="space-y-4">
+          <button 
+            type="button" 
+            onClick={() => placeTrade('buy')} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
+            className={cn(
+              "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
+              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
+              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
+              "bg-emerald-600 hover:bg-emerald-700 text-white"
+            )}
+          >
+            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
+             hasPendingPayout ? <span>PAYOUT PENDING</span> : 
+             !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
+             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'SYNCING...'}</span> : (
+               <div className="flex flex-col items-center">
+                 <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
+                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+               </div>
+             )}
+          </button>
+          <button 
+            type="button" 
+            onClick={() => placeTrade('sell')} 
+            disabled={actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
+            className={cn(
+              "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
+              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
+              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
+              "bg-red-600 hover:bg-red-700 text-white"
+            )}
+          >
+            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
+             hasPendingPayout ? <span>PAYOUT PENDING</span> : 
+             !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
+             (!isPriceValid) ? <span>{streamError ? 'FEED ERROR' : 'SYNCING...'}</span> : (
+               <div className="flex flex-col items-center">
+                 <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
+                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+               </div>
+             )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DemoPage() {
   const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -134,16 +273,8 @@ export default function DemoPage() {
     canvas: { background: { type: 'solid', color: '#09090b', opacity: 1 }, grid: { type: 'both', vert: { color: '#18181b', opacity: 1 }, horz: { color: '#18181b', opacity: 1 } }, sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 }, crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 }, watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' }, scales: { textColor: '#71717a', fontSize: 12 }, candles: { upColor: '#10b981', downColor: '#ef4444', borderVisible: true, borderUpColor: '#10b981', borderDownColor: '#ef4444', wickUpColor: '#10b981', wickDownColor: '#ef4444' }, theme: 'dark' }
   });
 
-  // Price feeds
-  const { tick: streamTick, error: streamError } = useTickStream(selectedSymbol);
-  const livePrices = useLivePrices(SYMBOLS);
-  
-  const closingTradesRef = useRef<Set<string>>(new Set());
-  const lastGoodPriceRef = useRef<Record<string, number>>({});
-
   useEffect(() => {
     setHasMounted(true);
-    // Load local storage settings after mount to avoid hydration mismatch
     const saved = localStorage.getItem('chartGlobalSettings');
     if (saved) {
       try {
@@ -152,7 +283,12 @@ export default function DemoPage() {
     }
   }, []);
 
-  // ── PAYOUT PENDING CHECK ──
+  const { tick: streamTick, error: streamError } = useTickStream(selectedSymbol);
+  const livePrices = useLivePrices(SYMBOLS);
+  
+  const closingTradesRef = useRef<Set<string>>(new Set());
+  const lastGoodPriceRef = useRef<Record<string, number>>({});
+
   const { data: pendingPayouts } = useCollection<any>(
     user?.uid ? 'payouts' : null,
     useMemo(() => user?.uid ? [where('userId', '==', user.uid), where('status', '==', 'pending'), limit(1)] : [], [user?.uid])
@@ -166,7 +302,6 @@ export default function DemoPage() {
   const oldestTimestamp = useRef<number | null>(null);
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
-  // ── UNIFIED PRICE SOURCE ──
   const activePrice = useMemo(() => {
     if (streamTick && Number(streamTick.price) > 0) return streamTick;
     const rtdbTick = livePrices[selectedSymbol.toUpperCase()];
@@ -390,14 +525,9 @@ export default function DemoPage() {
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const price = Number(activePrice.price);
-      
-      // Outlier Filter Logic
       const prevPrice = lastGoodPriceRef.current[selectedSymbol];
       if (price <= 0 || isNaN(price)) return;
-      if (prevPrice && Math.abs(price - prevPrice) / prevPrice > 0.15) {
-        console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
-        return;
-      }
+      if (prevPrice && Math.abs(price - prevPrice) / prevPrice > 0.15) return;
       lastGoodPriceRef.current[selectedSymbol] = price;
 
       const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
@@ -486,33 +616,17 @@ export default function DemoPage() {
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !activePrice) return;
-
-      const executionPrice = orderType === 'pending'
-        ? parseFloat(pendingPrice)
-        : type === 'buy'
-          ? (activePrice.ask || activePrice.price)
-          : (activePrice.bid || activePrice.price);
-
+      const executionPrice = orderType === 'pending' ? parseFloat(pendingPrice) : type === 'buy' ? (activePrice.ask || activePrice.price) : (activePrice.bid || activePrice.price);
       if (orderType === 'pending' && (!pendingPrice || isNaN(executionPrice) || executionPrice <= 0)) {
         toast({ title: "Validation Error", description: "Please enter a valid limit price", variant: "destructive" });
         setActionLoading(false);
         return;
       }
-
       const token = await user.getIdToken(true);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
-          accountId: currentAccountId, 
-          symbol: selectedSymbol.toUpperCase(), 
-          type, 
-          lots, 
-          price: executionPrice, 
-          sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, 
-          tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null,
-          orderType: orderType || 'market'
-        })
+        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null, orderType: orderType || 'market' })
       });
       if (!res.ok) { 
         const err = await res.json().catch(() => ({})); 
@@ -539,182 +653,29 @@ export default function DemoPage() {
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken(true);
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, 
-        body: JSON.stringify({ closePrice, closeReason: "manual" }) 
-      });
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice, closeReason: "manual" }) });
       if (!res.ok) return;
       toast({ title: "✓ Position Closed" });
     } catch (e: any) { } finally { setActionLoading(false); }
   }
 
   const TOOLBAR_ITEMS = [
-    { id: 'crosshair', name: 'Crosshair', icon: Crosshair },
-    { id: 'trend', name: 'Trend Line', icon: Slash },
-    { id: 'arrow', name: 'Arrow', icon: ArrowUpRight },
-    { id: 'hline', name: 'Horizontal Line', icon: Minus },
-    { id: 'vline', name: 'Vertical Line', icon: SeparatorVertical },
-    { id: 'ray', name: 'Ray', icon: () => <ArrowRight className="rotate-[-45deg] scale-75" /> },
-    { id: 'rect', name: 'Rectangle', icon: Square },
-    { id: 'text', name: 'Text', icon: Type },
-    { id: 'measure', name: 'Ruler / Measure', icon: Ruler },
-    { id: 'zoom-in', name: 'Zoom In', icon: ZoomIn, action: handleZoomIn },
-    { id: 'zoom-out', name: 'Zoom Out', icon: ZoomOut, action: handleZoomOut },
-    { id: 'home', name: 'Home', icon: Home, action: handleResetView },
-    { id: 'lock', name: 'Lock', icon: drawingsLocked ? Lock : Unlock, action: () => setDrawingsLocked(!drawingsLocked), toggle: true },
-    { id: 'magnet', name: 'Magnet', icon: Magnet, action: () => setMagnetMode(!magnetMode), active: magnetMode, toggle: true },
-    { id: 'eye', name: 'Eye', icon: drawingsHidden ? EyeOff : Eye, action: () => setDrawingsHidden(!drawingsHidden), toggle: true },
-    { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
+    { id: 'crosshair', name: 'Crosshair', icon: Crosshair }, { id: 'trend', name: 'Trend Line', icon: Slash }, { id: 'arrow', name: 'Arrow', icon: ArrowUpRight }, { id: 'hline', name: 'Horizontal Line', icon: Minus }, { id: 'vline', name: 'Vertical Line', icon: SeparatorVertical }, { id: 'ray', name: 'Ray', icon: () => <ArrowRight className="rotate-[-45deg] scale-75" /> }, { id: 'rect', name: 'Rectangle', icon: Square }, { id: 'text', name: 'Text', icon: Type }, { id: 'measure', name: 'Ruler / Measure', icon: Ruler }, { id: 'zoom-in', name: 'Zoom In', icon: ZoomIn, action: handleZoomIn }, { id: 'zoom-out', name: 'Zoom Out', icon: ZoomOut, action: handleZoomOut }, { id: 'home', name: 'Home', icon: Home, action: handleResetView }, { id: 'lock', name: 'Lock', icon: drawingsLocked ? Lock : Unlock, action: () => setDrawingsLocked(!drawingsLocked), toggle: true }, { id: 'magnet', name: 'Magnet', icon: Magnet, action: () => setMagnetMode(!magnetMode), active: magnetMode, toggle: true }, { id: 'eye', name: 'Eye', icon: drawingsHidden ? EyeOff : Eye, action: () => setDrawingsHidden(!drawingsHidden), toggle: true }, { id: 'eraser', name: 'Eraser', icon: Eraser, action: () => setIsDeleteAllOpen(true) },
   ];
-
-  const OrderPanelContent = (
-    <div className="space-y-6">
-      <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
-        <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">
-          <TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger>
-          <TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      <div className="space-y-6">
-        {orderType === 'pending' && (
-          <div className="space-y-2">
-            <Label className="text-[9px] font-black uppercase text-zinc-400">Limit Price</Label>
-            <Input
-              type="number"
-              step="any"
-              placeholder="Enter limit price..."
-              value={pendingPrice}
-              onChange={e => setPendingPrice(e.target.value)}
-              className="bg-zinc-900 border-zinc-700 text-white h-11 text-sm font-mono"
-            />
-            <p className="text-[9px] text-zinc-500">Order executes when market reaches this price</p>
-          </div>
-        )}
-        <div className="flex flex-col gap-2">
-          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setLotsInput(Math.max(0.01, lots - 0.01).toFixed(2))} 
-              className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold"
-            >
-              -
-            </button>
-            <Input
-              type="text"
-              inputMode="decimal"
-              value={lotsInput}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (/^\d*\.?\d*$/.test(val)) setLotsInput(val);
-              }}
-              onBlur={() => {
-                const parsed = parseFloat(lotsInput);
-                setLotsInput(isNaN(parsed) || parsed <= 0 ? "0.01" : parsed.toFixed(2));
-              }}
-              className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white"
-            />
-            <button 
-              onClick={() => setLotsInput((lots + 0.01).toFixed(2))} 
-              className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold"
-            >
-              +
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
-          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
-        </div>
-        <div className="space-y-4">
-          <button 
-            type="button" 
-            onClick={() => placeTrade('buy')} 
-            disabled={!hasMounted || actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
-            className={cn(
-              "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
-              !hasMounted ? "bg-zinc-800 text-zinc-500" :
-              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
-              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
-              "bg-emerald-600 hover:bg-emerald-700 text-white"
-            )}
-          >
-            <div className="flex flex-col items-center">
-              {!hasMounted ? (
-                <span className="text-[10px]">PRICE SYNCING...</span>
-              ) : (
-                <>
-                  {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-                   hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
-                   !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
-                   (!isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
-                     <div className="flex flex-col items-center">
-                       <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
-                       <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
-                     </div>
-                   )}
-                </>
-              )}
-            </div>
-          </button>
-          <button 
-            type="button" 
-            onClick={() => placeTrade('sell')} 
-            disabled={!hasMounted || actionLoading || !isPriceValid || hasPendingPayout || !marketInfo.isOpen} 
-            className={cn(
-              "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
-              !hasMounted ? "bg-zinc-800 text-zinc-500" :
-              (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
-              (streamError && !isPriceValid) ? "bg-zinc-800 text-destructive" :
-              "bg-red-600 hover:bg-red-700 text-white"
-            )}
-          >
-            <div className="flex flex-col items-center">
-              {!hasMounted ? (
-                <span className="text-[10px]">PRICE SYNCING...</span>
-              ) : (
-                <>
-                  {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-                   hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
-                   !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
-                   (!isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
-                     <div className="flex flex-col items-center">
-                       <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
-                       <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
-                     </div>
-                   )}
-                </>
-              )}
-            </div>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
   if (!user && !authLoading) return null;
 
   if (!accountsLoading && !hasActiveAccount) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center space-y-8">
-        <div className="w-24 h-24 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center cyan-box-glow">
-          <ShieldAlert className="w-12 h-12 text-primary" />
-        </div>
+        <div className="w-24 h-24 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center cyan-box-glow"><ShieldAlert className="w-12 h-12 text-primary" /></div>
         <div className="max-w-md space-y-4">
           <h1 className="text-4xl font-headline font-bold text-white">No Active Trading Account</h1>
-          <p className="text-muted-foreground text-lg leading-relaxed">
-            {accounts.length > 0 
-              ? "Your accounts have been closed or passed. Purchase a new challenge to continue trading in the terminal." 
-              : "You don't have an active trading account. Join our elite funding program to access the terminal."}
-          </p>
+          <p className="text-muted-foreground text-lg leading-relaxed">{accounts.length > 0 ? "Your accounts have been closed or passed. Purchase a new challenge to continue trading." : "You don't have an active trading account."}</p>
         </div>
         <div className="flex gap-4">
-          <Button variant="outline" className="font-bold rounded-xl h-14 px-8" asChild>
-            <Link href="/dashboard"><ArrowLeft className="mr-2 w-4 h-4" /> Dashboard</Link>
-          </Button>
-          <Button className="font-bold cyan-box-glow rounded-xl h-14 px-10" asChild>
-            <Link href="/challenges">Get Funded Now <ArrowRight className="ml-2 w-4 h-4" /></Link>
-          </Button>
+          <Button variant="outline" className="font-bold rounded-xl h-14 px-8" asChild><Link href="/dashboard"><ArrowLeft className="mr-2 w-4 h-4" /> Dashboard</Link></Button>
+          <Button className="font-bold cyan-box-glow rounded-xl h-14 px-10" asChild><Link href="/challenges">Get Funded Now <ArrowRight className="ml-2 w-4 h-4" /></Link></Button>
         </div>
       </div>
     );
@@ -725,9 +686,7 @@ export default function DemoPage() {
       {hasMounted && hasPendingPayout && (
         <div className="bg-amber-500/20 border-b border-amber-500/30 px-4 py-2 flex items-center justify-center gap-3 z-[60]">
           <AlertTriangle className="w-4 h-4 text-amber-500" />
-          <p className="text-[11px] font-bold text-amber-200 uppercase tracking-wide">
-            ⚠️ Trading suspended while your payout request is being processed. Trading will resume once approved.
-          </p>
+          <p className="text-[11px] font-bold text-amber-200 uppercase tracking-wide">⚠️ Trading suspended while your payout request is being processed.</p>
         </div>
       )}
 
@@ -744,49 +703,25 @@ export default function DemoPage() {
             <UserCircle className="w-3 h-3 text-primary" />
             <span className="text-[10px] font-black uppercase text-zinc-400">ID: {userData?.traderId || '--------'}</span>
           </div>
-          {selectedAccount && isMobile && hasMounted && (
-            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[8px] font-black uppercase px-2 h-6 truncate max-w-[100px]">
-              {selectedAccount.label}
-            </Badge>
-          )}
         </div>
-        
         <div className="flex items-center gap-2 md:gap-4">
           {!isMobile && (
             <>
-              <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}>
-                <Bell className="w-4 h-4" /> Set Alert
-              </Button>
+              <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}><Bell className="w-4 h-4" /> Set Alert</Button>
               <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
-                <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold">
-                  <Globe className="w-3.5 h-3.5 mr-2" /><SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold"><Globe className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger>
                 <SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent>
               </Select>
             </>
           )}
-          
           <Select value={chartType} onValueChange={setChartType}>
-            <SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold">
-              <Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="candles">Candles</SelectItem>
-              <SelectItem value="bars">Bars</SelectItem>
-              <SelectItem value="line">Line</SelectItem>
-              <SelectItem value="area">Area</SelectItem>
-            </SelectContent>
+            <SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold"><Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent>
           </Select>
-
-          <Button variant="ghost" size="icon" className="h-9 w-9 text-zinc-400" onClick={() => setIsSettingsOpen(true)}>
-            <Settings className="w-4 h-4" />
-          </Button>
-
+          <Button variant="ghost" size="icon" className="h-9 w-9 text-zinc-400" onClick={() => setIsSettingsOpen(true)}><Settings className="w-4 h-4" /></Button>
           {!isMobile && (
             <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-              <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold">
-                <SelectValue placeholder={selectedAccount?.label || "Select Account"} />
-              </SelectTrigger>
+              <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold"><SelectValue placeholder={selectedAccount?.label || "Select Account"} /></SelectTrigger>
               <SelectContent>{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
             </Select>
           )}
@@ -795,14 +730,7 @@ export default function DemoPage() {
 
       <div className="h-11 md:h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {SYMBOLS.map((s) => (
-          <button 
-            key={s} 
-            onClick={() => setSelectedSymbol(s)} 
-            className={cn(
-              "px-4 h-full flex items-center justify-center transition-all border-b-2 shrink-0 min-w-[70px]", 
-              s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5"
-            )}
-          >
+          <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center justify-center transition-all border-b-2 shrink-0 min-w-[70px]", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
             <span className={cn("font-bold text-[10px] md:text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
           </button>
         ))}
@@ -810,14 +738,7 @@ export default function DemoPage() {
 
       <div className="h-10 md:h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {TIMEFRAMES.map((tf) => (
-          <button 
-            key={tf.value} 
-            onClick={() => setSelectedInterval(tf.value)} 
-            className={cn(
-              "px-3 h-7 md:h-6 min-w-[40px] flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", 
-              selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5"
-            )}
-          >
+          <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-3 h-7 md:h-6 min-w-[40px] flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5")}>
             {tf.label}
           </button>
         ))}
@@ -830,13 +751,7 @@ export default function DemoPage() {
               <TooltipProvider delayDuration={300}>
                 <div className="flex flex-col gap-0.5 items-center w-full">
                   {TOOLBAR_ITEMS.map((item) => (
-                    <ToolIcon 
-                      key={item.id}
-                      name={item.name}
-                      icon={typeof item.icon === 'function' ? <item.icon /> : <item.icon />}
-                      active={item.toggle ? item.active : activeTool === item.id}
-                      onClick={() => { if (item.action) item.action(); else setActiveTool(item.id); }}
-                    />
+                    <ToolIcon key={item.id} name={item.name} icon={typeof item.icon === 'function' ? <item.icon /> : <item.icon />} active={item.toggle ? item.active : activeTool === item.id} onClick={() => { if (item.action) item.action(); else setActiveTool(item.id); }} />
                   ))}
                 </div>
               </TooltipProvider>
@@ -845,240 +760,81 @@ export default function DemoPage() {
             <div className="flex-1 relative min-h-0" ref={chartContainerRef} style={{ height: isMobile ? '42vh' : 'calc(100vh - 280px)', maxHeight: isMobile ? '42vh' : 'none' }}>
               {isChartLoading && (
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-                  <Loader2 className="animate-spin text-primary" />
-                  <p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p>
+                  <Loader2 className="animate-spin text-primary" /><p className="text-[10px] uppercase font-black tracking-widest mt-4">Syncing Feed...</p>
                 </div>
               )}
               {(isFallbackData || streamError) && (
                 <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20 w-full max-w-[200px] px-2">
-                  <div className={cn(
-                    "px-3 py-1.5 rounded-full border text-[8px] md:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 backdrop-blur-md shadow-2xl",
-                    streamError ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-amber-500/10 border-amber-500/20 text-amber-500"
-                  )}>
-                    <AlertTriangle className="w-3 h-3 shrink-0" />
-                    <span className="truncate">{streamError ? "Feed Connection Interrupted" : "Simulated Data Feed"}</span>
+                  <div className={cn("px-3 py-1.5 rounded-full border text-[8px] md:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 backdrop-blur-md shadow-2xl", streamError ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-amber-500/10 border-amber-500/20 text-amber-500")}>
+                    <AlertTriangle className="w-3 h-3 shrink-0" /><span className="truncate">{streamError ? "Feed Connection Interrupted" : "Simulated Data Feed"}</span>
                   </div>
                 </div>
               )}
-
               {hasMounted && (
                 <div className="absolute left-3 bottom-[60px] z-20 flex flex-col items-start gap-1 pointer-events-none">
-                  <div className={cn(
-                    "px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl",
-                    marketInfo.isOpen ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive"
-                  )}>
+                  <div className={cn("px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl", marketInfo.isOpen ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive")}>
                     <div className={cn("w-1.5 h-1.5 rounded-full", marketInfo.isOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive")} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">
-                      {marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}
-                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">{marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}</span>
                   </div>
-                  {marketInfo.countdown && (
-                    <div className="px-3 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded-lg text-[10px] font-bold text-zinc-400">
-                      {marketInfo.countdown}
-                    </div>
-                  )}
                 </div>
               )}
-              
               <div className="absolute right-[10px] md:right-[65px] top-[10px] md:top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
-                <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
-                <span className="font-mono text-[9px] md:text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
+                <ClockIcon className="w-3 h-3 text-primary animate-pulse" /><span className="font-mono text-[9px] md:text-[10px] font-black text-white tabular-nums tracking-wider">{countdown}</span>
               </div>
-
-              {isMobile && (
-                <button 
-                  onClick={() => setIsDrawingOverlayOpen(true)}
-                  className="absolute left-3 top-3 z-30 w-10 h-10 bg-zinc-900/80 border border-zinc-700 rounded-full flex items-center justify-center text-white backdrop-blur-md shadow-xl"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-              )}
-
               {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
-                <DrawingLayer 
-                  chart={chartInstanceRef.current} 
-                  series={mainSeriesRef.current} 
-                  symbol={selectedSymbol} 
-                  activeTool={activeTool} 
-                  setActiveTool={setActiveTool}
-                  locked={drawingsLocked}
-                  hidden={drawingsHidden}
-                />
+                <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} locked={drawingsLocked} hidden={drawingsHidden} />
               )}
             </div>
           </div>
 
           {hasMounted && (
-            <PositionsPanel 
-              openTrades={openTrades} 
-              closedTrades={closedTrades} 
-              alerts={alerts} 
-              livePrices={livePrices} 
-              closeTrade={closeTrade} 
-              deleteAlert={async (id) => {
-                if (!user) return;
-                try {
-                  const token = await user.getIdToken();
-                  await fetch(`/api/terminal/alerts?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-                  toast({ title: "Alert Removed" });
-                } catch (e) {}
-              }} 
-              user={user} 
-              alertsLoading={alertsLoading}
-              panelOpen={bottomPanelOpen}
-              setPanelOpen={setBottomPanelOpen}
-            />
+            <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={alerts} livePrices={livePrices} closeTrade={closeTrade} deleteAlert={async (id) => { if (!user) return; const token = await user.getIdToken(); await fetch(`/api/terminal/alerts?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); toast({ title: "Alert Removed" }); }} user={user} alertsLoading={alertsLoading} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
           )}
         </div>
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           {OrderPanelContent}
+           <OrderPanel 
+             hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} 
+             marketInfo={marketInfo} streamError={streamError} activePrice={activePrice} selectedSymbol={selectedSymbol} 
+             orderType={orderType} setOrderType={setOrderType} pendingPrice={pendingPrice} setPendingPrice={setPendingPrice} 
+             lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} 
+           />
         </aside>
       </div>
 
-      {isMobile && hasMounted && (
-        <div className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around px-2 shrink-0 z-50 safe-area-bottom">
-          <Link href="/dashboard" className="flex flex-col items-center gap-1 text-zinc-500 hover:text-white transition-colors">
-            <LayoutDashboard className="w-5 h-5" />
-            <span className="text-[8px] font-black uppercase">Home</span>
-          </Link>
-          <button 
-            onClick={() => { setBottomPanelOpen(false); window.scrollTo(0, 0); }}
-            className={cn("flex flex-col items-center gap-1 transition-colors", !bottomPanelOpen ? "text-primary" : "text-zinc-500")}
-          >
-            <TrendingUp className="w-5 h-5" />
-            <span className="text-[8px] font-black uppercase">Chart</span>
-          </button>
-          <button 
-            onClick={() => setIsOrderSheetOpen(true)}
-            className="flex flex-col items-center gap-1 text-zinc-500 hover:text-primary transition-colors"
-          >
-            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-black shadow-lg -mt-8 border-4 border-zinc-950">
-               <ArrowRight className="w-5 h-5 rotate-[-45deg]" />
-            </div>
-            <span className="text-[8px] font-black uppercase mt-1">Trade</span>
-          </button>
-          <button 
-            onClick={() => setBottomPanelOpen(!bottomPanelOpen)}
-            className={cn("flex flex-col items-center gap-1 transition-colors relative", bottomPanelOpen ? "text-primary" : "text-zinc-500")}
-          >
-            <Wallet className="w-5 h-5" />
-            <span className="text-[8px] font-black uppercase">Positions</span>
-            {openTrades.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary text-black text-[9px] font-bold rounded-full flex items-center justify-center">
-                {openTrades.length}
-              </span>
-            )}
-          </button>
-          <Sheet>
-            <SheetTrigger asChild>
-              <button className="flex flex-col items-center gap-1 text-zinc-500">
-                <Menu className="w-5 h-5" />
-                <span className="text-[8px] font-black uppercase">Menu</span>
-              </button>
-            </SheetTrigger>
-            <SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0">
-               <SheetHeader className="p-6 border-b border-zinc-800">
-                 <SheetTitle className="text-left font-headline font-bold">Node Menu</SheetTitle>
-               </SheetHeader>
-               <div className="p-4 space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-[9px] font-black uppercase text-zinc-500">Active Account</Label>
-                    <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-                      <SelectTrigger className="h-12 bg-zinc-900 border-zinc-800 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                        {activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsAlertModalOpen(true); }}>
-                    <Bell className="w-4 h-4" /> Price Alerts
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsSettingsOpen(true); }}>
-                    <Settings className="w-4 h-4" /> Chart Settings
-                  </Button>
-                  <Link href="/referral" className="flex items-center gap-3 h-12 px-4 border border-zinc-800 rounded-lg text-sm font-medium hover:bg-white/5 transition-colors">
-                    <Users className="w-4 h-4" /> Affiliate Hub
-                  </Link>
-               </div>
-            </SheetContent>
-          </Sheet>
-        </div>
-      )}
-
-      <Dialog open={isDrawingOverlayOpen} onOpenChange={setIsDrawingOverlayOpen}>
-        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-lg p-0 overflow-hidden h-[70vh] flex flex-col">
-          <DialogHeader className="p-6 border-b border-zinc-800">
-            <DialogTitle className="font-headline font-bold">Technical Analysis Tools</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-            <div className="grid grid-cols-4 gap-2">
-              {TOOLBAR_ITEMS.map((item) => (
-                <button 
-                  key={item.id}
-                  onClick={() => { if (item.action) item.action(); else setActiveTool(item.id); setIsDrawingOverlayOpen(false); }}
-                  className={cn(
-                    "flex flex-col items-center justify-center p-3 rounded-xl border transition-all gap-2",
-                    (item.toggle ? item.active : activeTool === item.id) 
-                      ? "bg-primary border-primary text-black" 
-                      : "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white"
-                  )}
-                >
-                  <div className="scale-110">{typeof item.icon === 'function' ? <item.icon /> : <item.icon />}</div>
-                  <span className="text-[8px] font-black uppercase text-center">{item.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <DialogFooter className="p-4 bg-zinc-900/50 border-t border-zinc-800">
-            <Button className="w-full h-12 font-bold" onClick={() => setIsDrawingOverlayOpen(false)}>Close Overlay</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
         <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
-          <SheetHeader className="pb-4">
-            <div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" />
-            <SheetTitle className="text-center font-headline font-bold text-2xl">Execute Order</SheetTitle>
-          </SheetHeader>
+          <SheetHeader className="pb-4"><div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" /><SheetTitle className="text-center font-headline font-bold text-2xl">Execute Order</SheetTitle></SheetHeader>
           <div className="pb-10 pt-4">
-            {OrderPanelContent}
+             <OrderPanel 
+               hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} 
+               marketInfo={marketInfo} streamError={streamError} activePrice={activePrice} selectedSymbol={selectedSymbol} 
+               orderType={orderType} setOrderType={setOrderType} pendingPrice={pendingPrice} setPendingPrice={setPendingPrice} 
+               lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} 
+             />
           </div>
         </SheetContent>
       </Sheet>
 
+      {isMobile && hasMounted && (
+        <div className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around px-2 shrink-0 z-50 safe-area-bottom">
+          <Link href="/dashboard" className="flex flex-col items-center gap-1 text-zinc-500 hover:text-white transition-colors"><LayoutDashboard className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Home</span></Link>
+          <button onClick={() => { setBottomPanelOpen(false); }} className={cn("flex flex-col items-center gap-1 transition-colors", !bottomPanelOpen ? "text-primary" : "text-zinc-500")}><TrendingUp className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Chart</span></button>
+          <button onClick={() => setIsOrderSheetOpen(true)} className="flex flex-col items-center gap-1 text-zinc-500 hover:text-primary transition-colors"><div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-black shadow-lg -mt-8 border-4 border-zinc-950"><ArrowRight className="w-5 h-5 rotate-[-45deg]" /></div><span className="text-[8px] font-black uppercase mt-1">Trade</span></button>
+          <button onClick={() => setBottomPanelOpen(!bottomPanelOpen)} className={cn("flex flex-col items-center gap-1 transition-colors relative", bottomPanelOpen ? "text-primary" : "text-zinc-500")}><Wallet className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Positions</span></button>
+          <Sheet><SheetTrigger asChild><button className="flex flex-col items-center gap-1 text-zinc-500"><Menu className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Menu</span></button></SheetTrigger><SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0"><SheetHeader className="p-6 border-b border-zinc-800"><SheetTitle className="text-left font-headline font-bold">Node Menu</SheetTitle></SheetHeader><div className="p-4 space-y-4"><div className="space-y-2"><Label className="text-[9px] font-black uppercase text-zinc-500">Active Account</Label><Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}><SelectTrigger className="h-12 bg-zinc-900 border-zinc-800 text-xs"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-900 border-zinc-800 text-white">{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent></Select></div><Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsAlertModalOpen(true); }}><Bell className="w-4 h-4" /> Price Alerts</Button><Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsSettingsOpen(true); }}><Settings className="w-4 h-4" /> Chart Settings</Button></div></SheetContent></Sheet>
+        </div>
+      )}
+
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
-      
-      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}>
-        <DialogContent className="bg-zinc-900 border-zinc-800 text-white max-sm">
-          <DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader>
-          <div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div>
-        </DialogContent>
-      </Dialog>
-      
-      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}>
-        <DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-sm">
-          <DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader>
-          <div className="p-6 space-y-4"><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div>
-          <DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-sm"><DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader><div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div></DialogContent></Dialog>
+      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}><DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-sm"><DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader><div className="p-6 space-y-4"><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div><DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
 
 function ToolIcon({ name, icon, active = false, onClick }: { name: string, icon: React.ReactNode, active?: boolean, onClick?: () => void }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }} className={cn("w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px] relative cursor-pointer group", active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]")}>
-          <div className="flex items-center justify-center transition-transform group-active:scale-90 scale-90">{icon}</div>
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">{name}</TooltipContent>
-    </Tooltip>
+    <Tooltip><TooltipTrigger asChild><div onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } }} className={cn("w-9 h-9 flex items-center justify-center rounded-md transition-all shrink-0 outline-none my-[1px] relative cursor-pointer group", active ? "bg-[#2962ff] text-white" : "text-[#b2b5be] hover:text-white hover:bg-[#2a2e39]")}><div className="flex items-center justify-center transition-transform group-active:scale-90 scale-90">{icon}</div></div></TooltipTrigger><TooltipContent side="right" className="bg-[#1e222d] border-[#2a2e39] text-white font-bold text-[10px] uppercase shadow-2xl z-[100] px-3 py-1.5 rounded-md">{name}</TooltipContent></Tooltip>
   );
 }

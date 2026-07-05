@@ -69,9 +69,9 @@ export async function GET() {
               'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
               'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',
               'SOLUSD': 'SOLUSD', 
-              'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD',
+              'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD', 'XRPZUSD': 'XRPUSD',
               'ADAUSD': 'ADAUSD', 
-              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD'
+              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD', 'XXDGZUSD': 'DOGEUSD'
             };
 
             Object.entries(results).forEach(([kSym, item]: [string, any]) => {
