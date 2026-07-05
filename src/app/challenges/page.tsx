@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -15,6 +15,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
+import { collection, query, where, orderBy, limit } from 'firebase/firestore';
+import { useCollection } from '@/firebase';
 
 const planData = {
   '1-step': [
@@ -460,6 +462,11 @@ export default function ChallengesPage() {
   const { user, userData, loading } = useAuth();
   const router = useRouter();
 
+  const tradeConstraints = useMemo(() => user?.uid ? [where('userId', '==', user.uid), orderBy('submittedAt', 'desc'), limit(1)] : [], [user?.uid]);
+  const { data: userOrders } = useCollection<any>(user?.uid ? 'orders' : null, tradeConstraints);
+  const latestOrder = userOrders[0];
+  const hasRecentRejection = latestOrder?.status === 'rejected';
+
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login?redirect=/challenges');
@@ -504,6 +511,25 @@ export default function ChallengesPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             <div className="lg:col-span-3 space-y-8">
+              {hasRecentRejection && (
+                <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/20 flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <AlertCircle className="text-destructive w-6 h-6" />
+                    <div>
+                      <p className="text-sm font-bold text-white">Your payment for {latestOrder.accountSize} was rejected.</p>
+                      <p className="text-xs text-destructive/80">Reason: {latestOrder.rejectionReason || "Verification failed"}. You can try again to resubmit your payment.</p>
+                    </div>
+                  </div>
+                  <Button variant="destructive" size="sm" className="font-bold px-6 h-10" onClick={() => {
+                    const planMap: any = { '1-Step Pro': '1-step', '2-Step Classic': '2-step', '3-Step Classic': '3-step', 'Instant Funding': 'instant', 'Instant Pro': 'instant-pro' };
+                    const planSlug = planMap[latestOrder.plan] || '1-step';
+                    router.push(`/payment?plan=${planSlug}&size=${latestOrder.accountSize}&price=$${latestOrder.amountPaid}`);
+                  }}>
+                    <RefreshCw className="w-4 h-4 mr-2" /> Try Again
+                  </Button>
+                </div>
+              )}
+
               <div className="p-4 bg-destructive/15 border-l-4 border-destructive rounded-r-lg flex items-center gap-3">
                 <AlertCircle className="text-destructive w-5 h-5 shrink-0" />
                 <p className="text-xs font-bold text-destructive">

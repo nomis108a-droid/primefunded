@@ -162,7 +162,7 @@ export async function updateOrderStatusAction(id: string, status: string, reason
     } else if (status === 'rejected') {
       await db.collection('users').doc(order.userId).collection('notifications').add({
         title: '❌ Order Rejected',
-        message: `Your payment order for ${order.accountSize} was rejected. Reason: ${reason || "Transaction verification failed."}`,
+        message: `Your payment order for ${order.accountSize} was rejected. Reason: ${reason || "Transaction verification failed."}. You can try again to resubmit your payment.`,
         type: 'order_rejected',
         isRead: false,
         createdAt: FieldValue.serverTimestamp()
@@ -192,7 +192,7 @@ export async function processKycAction(id: string, status: string, reason?: stri
       title: status === 'verified' ? '✅ KYC Approved' : '❌ KYC Rejected',
       message: status === 'verified' 
         ? "Identity verification complete. Payouts are now active." 
-        : `KYC was rejected. ${reason || "Please provide clearer documents."}`,
+        : `KYC was rejected. ${reason || "Please provide clearer documents."}. You can resubmit your documents for review.`,
       type: 'kyc_update',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()

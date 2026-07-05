@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ShieldCheck, Upload, CheckCircle2, Clock, Loader2, FileText, AlertCircle, HelpCircle } from 'lucide-react';
+import { ShieldCheck, Upload, CheckCircle2, Clock, Loader2, FileText, AlertCircle, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -15,6 +15,7 @@ import Link from 'next/link';
 
 export default function KYCPage() {
   const { user, userData } = useAuth();
+  const [isResubmitting, setIsResubmitting] = useState(false);
   const [step, setStep] = useState(userData?.kycStatus === 'pending' || userData?.kycStatus === 'verified' ? 3 : 1);
   const [loading, setLoading] = useState(false);
   const [idFile, setIdFile] = useState<File | null>(null);
@@ -99,6 +100,7 @@ export default function KYCPage() {
       });
 
       setStep(3);
+      setIsResubmitting(false);
       toast({
         title: "Documents Submitted",
         description: "Your KYC application is now being reviewed.",
@@ -111,6 +113,15 @@ export default function KYCPage() {
     }
   };
 
+  const handleResubmitClick = () => {
+    setIsResubmitting(true);
+    setStep(1);
+    setIdFile(null);
+    setAddressFile(null);
+  };
+
+  const isRejected = userData?.kycStatus === 'rejected' && !isResubmitting;
+
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
@@ -120,157 +131,190 @@ export default function KYCPage() {
           <p className="text-muted-foreground">Secure identity verification is required for all withdrawals.</p>
         </header>
 
-        {/* Instructions Header */}
-        <section className="mb-12 text-left max-w-2xl mx-auto bg-zinc-900/40 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-primary/10 rounded-xl">
-              <ShieldCheck className="w-6 h-6 text-primary" />
-            </div>
-            <h2 className="text-2xl font-headline font-bold text-white">Verification Guide</h2>
-          </div>
-          
-          <div className="space-y-6">
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">1</div>
-              <div className="space-y-1">
-                <p className="text-white font-bold">ID Front Photo</p>
-                <p className="text-sm text-zinc-400 leading-relaxed">Take a clear photo of the FRONT of your government ID (Aadhaar card, Passport, Driver's License, National ID card, etc.)</p>
+        {isRejected ? (
+          <div className="max-w-2xl mx-auto space-y-6">
+            <div className="p-6 rounded-3xl bg-destructive/10 border border-destructive/20 flex flex-col items-center text-center gap-4">
+              <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center">
+                <AlertCircle className="w-8 h-8 text-destructive" />
               </div>
+              <div>
+                <h3 className="text-xl font-headline font-bold text-white">Verification Rejected</h3>
+                <p className="text-sm text-destructive/80 mt-1">
+                  Reason: {userData.kycRejectionReason || "Documents were not clear or invalid."}
+                </p>
+              </div>
+              <Button 
+                onClick={handleResubmitClick}
+                className="mt-2 font-bold px-8 h-12 rounded-xl bg-destructive hover:bg-destructive/90 transition-all"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" /> Resubmit KYC Documents
+              </Button>
             </div>
             
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">2</div>
-              <div className="space-y-1">
-                <p className="text-white font-bold">ID Back Photo</p>
-                <p className="text-sm text-zinc-400 leading-relaxed">Take a clear photo of the BACK of your government ID</p>
+            <section className="text-left bg-zinc-900/40 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
+              <h3 className="text-lg font-bold text-white mb-4">Common reasons for rejection:</h3>
+              <ul className="space-y-2 text-sm text-zinc-400">
+                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Low quality or blurry photos</li>
+                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Document edges were cut off in the photo</li>
+                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Selfie did not clearly show both your face and the ID</li>
+                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary" /> Document is expired or invalid</li>
+              </ul>
+            </section>
+          </div>
+        ) : (
+          <>
+            <section className="mb-12 text-left max-w-2xl mx-auto bg-zinc-900/40 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-primary/10 rounded-xl">
+                  <ShieldCheck className="w-6 h-6 text-primary" />
+                </div>
+                <h2 className="text-2xl font-headline font-bold text-white">Verification Guide</h2>
               </div>
-            </div>
-            
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">3</div>
-              <div className="space-y-1">
-                <p className="text-white font-bold">Selfie with ID</p>
-                <p className="text-sm text-zinc-400 leading-relaxed">Take a photo of yourself HOLDING your ID next to your face, so both your face and the ID are clearly visible in the same photo</p>
+              
+              <div className="space-y-6">
+                <div className="flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">1</div>
+                  <div className="space-y-1">
+                    <p className="text-white font-bold">ID Front Photo</p>
+                    <p className="text-sm text-zinc-400 leading-relaxed">Take a clear photo of the FRONT of your government ID (Aadhaar card, Passport, Driver's License, National ID card, etc.)</p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">2</div>
+                  <div className="space-y-1">
+                    <p className="text-white font-bold">ID Back Photo</p>
+                    <p className="text-sm text-zinc-400 leading-relaxed">Take a clear photo of the BACK of your government ID</p>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 font-bold text-primary text-sm shadow-[0_0_10px_rgba(17,179,245,0.2)]">3</div>
+                  <div className="space-y-1">
+                    <p className="text-white font-bold">Selfie with ID</p>
+                    <p className="text-sm text-zinc-400 leading-relaxed">Take a photo of yourself HOLDING your ID next to your face, so both your face and the ID are clearly visible in the same photo</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-          
-          <div className="mt-10 pt-6 border-t border-white/5 bg-primary/5 -mx-8 -mb-8 px-8 pb-8 rounded-b-3xl">
-            <p className="text-[11px] font-bold text-primary uppercase tracking-widest mb-3">Accepted Documents Example:</p>
-            <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-              Indian Aadhaar Card, US Driver's License, UK Passport, EU National ID, any government-issued photo ID from any country
-            </p>
-          </div>
-        </section>
+              
+              <div className="mt-10 pt-6 border-t border-white/5 bg-primary/5 -mx-8 -mb-8 px-8 pb-8 rounded-b-3xl">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-widest mb-3">Accepted Documents Example:</p>
+                <p className="text-xs text-zinc-400 leading-relaxed font-medium">
+                  Indian Aadhaar Card, US Driver's License, UK Passport, EU National ID, any government-issued photo ID from any country
+                </p>
+              </div>
+            </section>
 
-        <div className="max-w-2xl mx-auto">
-          <div className="flex justify-between items-center mb-8 relative">
-            <div className="absolute top-1/2 left-0 w-full h-0.5 bg-secondary -z-10" />
-            <StepIndicator currentStep={step} step={1} label="Identity" />
-            <StepIndicator currentStep={step} step={2} label="Address" />
-            <StepIndicator currentStep={step} step={3} label="Confirmation" />
-          </div>
+            <div className="max-w-2xl mx-auto">
+              <div className="flex justify-between items-center mb-8 relative">
+                <div className="absolute top-1/2 left-0 w-full h-0.5 bg-secondary -z-10" />
+                <StepIndicator currentStep={step} step={1} label="Identity" />
+                <StepIndicator currentStep={step} step={2} label="Address" />
+                <StepIndicator currentStep={step} step={3} label="Confirmation" />
+              </div>
 
-          <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-2xl overflow-hidden">
-            {step === 1 && (
-              <>
-                <CardHeader>
-                  <CardTitle className="text-white text-xl">Step 1: Proof of Identity</CardTitle>
-                  <CardDescription>Upload a valid government-issued ID (Passport or ID Card).</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
-                    <input 
-                      type="file" 
-                      accept=".jpg,.jpeg,.png,.pdf" 
-                      className="absolute inset-0 opacity-0 cursor-pointer" 
-                      onChange={(e) => handleFileChange(e, 'id')}
-                    />
-                    {idFile ? (
-                      <div className="text-center">
-                        <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
-                        <p className="text-sm font-bold text-white truncate max-w-[200px]">{idFile.name}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
-                        <p className="text-sm font-bold text-white">Click to upload ID</p>
-                        <p className="text-xs text-muted-foreground mt-2">JPG, PNG, PDF (Max 10MB)</p>
-                      </>
-                    )}
-                  </div>
-                  <Button className="w-full font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" onClick={() => setStep(2)}>Next Step</Button>
-                </CardContent>
-              </>
-            )}
-
-            {step === 2 && (
-              <>
-                <CardHeader>
-                  <CardTitle className="text-white text-xl">Step 2: Proof of Address</CardTitle>
-                  <CardDescription>A utility bill or bank statement (last 3 months).</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
-                    <input 
-                      type="file" 
-                      accept=".jpg,.jpeg,.png,.pdf" 
-                      className="absolute inset-0 opacity-0 cursor-pointer" 
-                      onChange={(e) => handleFileChange(e, 'address')}
-                    />
-                    {addressFile ? (
-                      <div className="text-center">
-                        <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
-                        <p className="text-sm font-bold text-white truncate max-w-[200px]">{addressFile.name}</p>
-                      </div>
-                    ) : (
-                      <>
-                        <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
-                        <p className="text-sm font-bold text-white">Upload proof of address</p>
-                      </>
-                    )}
-                  </div>
-                  <div className="flex gap-4">
-                    <Button variant="outline" className="flex-1 h-12 rounded-xl font-bold cursor-pointer" onClick={() => setStep(1)}>Back</Button>
-                    <Button className="flex-1 font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" onClick={handleSubmit} disabled={loading || !addressFile || !idFile}>
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                      Submit for Review
-                    </Button>
-                  </div>
-                </CardContent>
-              </>
-            )}
-
-            {step === 3 && (
-              <CardContent className="pt-12 pb-12 flex flex-col items-center text-center">
-                {userData?.kycVerified ? (
+              <Card className="border-primary/20 bg-card/40 backdrop-blur-sm shadow-2xl overflow-hidden">
+                {step === 1 && (
                   <>
-                    <div className="w-24 h-24 rounded-full bg-accent/20 flex items-center justify-center mb-8 cyan-box-glow">
-                      <CheckCircle2 className="w-12 h-12 text-accent" />
-                    </div>
-                    <h3 className="text-3xl font-headline font-bold mb-3 text-white">Identity Verified!</h3>
-                    <p className="text-muted-foreground max-sm mb-10 leading-relaxed">
-                      Your identity has been successfully verified. Payouts are now unlocked.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center mb-8">
-                      <Clock className="w-12 h-12 text-primary" />
-                    </div>
-                    <h3 className="text-3xl font-headline font-bold mb-3 text-white">Application Received</h3>
-                    <p className="text-muted-foreground max-w-sm mb-10 leading-relaxed">
-                      Verification typically takes 12-24 hours. Your documents are securely stored in our vault. We'll alert you once processed.
-                    </p>
+                    <CardHeader>
+                      <CardTitle className="text-white text-xl">Step 1: Proof of Identity</CardTitle>
+                      <CardDescription>Upload a valid government-issued ID (Passport or ID Card).</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
+                        <input 
+                          type="file" 
+                          accept=".jpg,.jpeg,.png,.pdf" 
+                          className="absolute inset-0 opacity-0 cursor-pointer" 
+                          onChange={(e) => handleFileChange(e, 'id')}
+                        />
+                        {idFile ? (
+                          <div className="text-center">
+                            <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
+                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{idFile.name}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
+                            <p className="text-sm font-bold text-white">Click to upload ID</p>
+                            <p className="text-xs text-muted-foreground mt-2">JPG, PNG, PDF (Max 10MB)</p>
+                          </>
+                        )}
+                      </div>
+                      <Button className="w-full font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" onClick={() => setStep(2)}>Next Step</Button>
+                    </CardContent>
                   </>
                 )}
-                <Button className="w-full h-14 rounded-xl font-bold text-lg cursor-pointer" asChild>
-                  <Link href="/dashboard">Return to Dashboard</Link>
-                </Button>
-              </CardContent>
-            )}
-          </Card>
-        </div>
+
+                {step === 2 && (
+                  <>
+                    <CardHeader>
+                      <CardTitle className="text-white text-xl">Step 2: Proof of Address</CardTitle>
+                      <CardDescription>A utility bill or bank statement (last 3 months).</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="relative p-12 border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center bg-background/30 hover:border-primary/50 transition-colors cursor-pointer group">
+                        <input 
+                          type="file" 
+                          accept=".jpg,.jpeg,.png,.pdf" 
+                          className="absolute inset-0 opacity-0 cursor-pointer" 
+                          onChange={(e) => handleFileChange(e, 'address')}
+                        />
+                        {addressFile ? (
+                          <div className="text-center">
+                            <FileText className="w-12 h-12 text-primary mb-4 mx-auto" />
+                            <p className="text-sm font-bold text-white truncate max-w-[200px]">{addressFile.name}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <Upload className="w-12 h-12 text-muted-foreground mb-4 group-hover:text-primary transition-colors" />
+                            <p className="text-sm font-bold text-white">Upload proof of address</p>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex gap-4">
+                        <Button variant="outline" className="flex-1 h-12 rounded-xl font-bold cursor-pointer" onClick={() => setStep(1)}>Back</Button>
+                        <Button className="flex-1 font-bold h-12 rounded-xl bg-primary hover:bg-primary/90 cursor-pointer" onClick={handleSubmit} disabled={loading || !addressFile || !idFile}>
+                          {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                          Submit for Review
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </>
+                )}
+
+                {step === 3 && (
+                  <CardContent className="pt-12 pb-12 flex flex-col items-center text-center">
+                    {userData?.kycVerified ? (
+                      <>
+                        <div className="w-24 h-24 rounded-full bg-accent/20 flex items-center justify-center mb-8 cyan-box-glow">
+                          <CheckCircle2 className="w-12 h-12 text-accent" />
+                        </div>
+                        <h3 className="text-3xl font-headline font-bold mb-3 text-white">Identity Verified!</h3>
+                        <p className="text-muted-foreground max-sm mb-10 leading-relaxed">
+                          Your identity has been successfully verified. Payouts are now unlocked.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-24 h-24 rounded-full bg-primary/20 flex items-center justify-center mb-8">
+                          <Clock className="w-12 h-12 text-primary" />
+                        </div>
+                        <h3 className="text-3xl font-headline font-bold mb-3 text-white">Application Received</h3>
+                        <p className="text-muted-foreground max-w-sm mb-10 leading-relaxed">
+                          Verification typically takes 12-24 hours. Your documents are securely stored in our vault. We'll alert you once processed.
+                        </p>
+                      </>
+                    )}
+                    <Button className="w-full h-14 rounded-xl font-bold text-lg cursor-pointer" asChild>
+                      <Link href="/dashboard">Return to Dashboard</Link>
+                    </Button>
+                  </CardContent>
+                )}
+              </Card>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
