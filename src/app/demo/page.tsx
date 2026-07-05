@@ -117,7 +117,7 @@ export default function DemoPage() {
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
 
-  const [marketInfo, setMarketInfo] = useState(() => getMarketInfo("XAUUSD"));
+  const [marketInfo, setMarketInfo] = useState({ isOpen: true, type: 'crypto', countdown: null });
   
   const [bottomPanelOpen, setBottomPanelOpen] = useState(false);
   const [activeTool, setActiveTool] = useState<string>('crosshair');
@@ -129,14 +129,27 @@ export default function DemoPage() {
   const [isDrawingOverlayOpen, setIsDrawingOverlayOpen] = useState(false);
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
+  const [chartSettings, setChartSettings] = useState({
+    scales: { mode: 'auto', type: 'regular', position: 'right', labels: { currentPrice: true, ohlc: true, prevClose: false, indicators: true, tradeLines: true }, lines: { lastPrice: true, prevClose: false, bid: true, ask: true, gridVert: true, gridHorz: true }, showPlusButton: true },
+    canvas: { background: { type: 'solid', color: '#09090b', opacity: 1 }, grid: { type: 'both', vert: { color: '#18181b', opacity: 1 }, horz: { color: '#18181b', opacity: 1 } }, sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 }, crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 }, watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' }, scales: { textColor: '#71717a', fontSize: 12 }, candles: { upColor: '#10b981', downColor: '#ef4444', borderVisible: true, borderUpColor: '#10b981', borderDownColor: '#ef4444', wickUpColor: '#10b981', wickDownColor: '#ef4444' }, theme: 'dark' }
+  });
+
   // Price feeds
   const { tick: streamTick, error: streamError } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
   
   const closingTradesRef = useRef<Set<string>>(new Set());
+  const lastGoodPriceRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     setHasMounted(true);
+    // Load local storage settings after mount to avoid hydration mismatch
+    const saved = localStorage.getItem('chartGlobalSettings');
+    if (saved) {
+      try {
+        setChartSettings(JSON.parse(saved));
+      } catch (e) {}
+    }
   }, []);
 
   // ── PAYOUT PENDING CHECK ──
@@ -146,30 +159,16 @@ export default function DemoPage() {
   );
   const hasPendingPayout = pendingPayouts.length > 0;
 
-  const [chartSettings, setChartSettings] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('chartGlobalSettings');
-      if (saved) return JSON.parse(saved);
-    }
-    return {
-      scales: { mode: 'auto', type: 'regular', position: 'right', labels: { currentPrice: true, ohlc: true, prevClose: false, indicators: true, tradeLines: true }, lines: { lastPrice: true, prevClose: false, bid: true, ask: true, gridVert: true, gridHorz: true }, showPlusButton: true },
-      canvas: { background: { type: 'solid', color: '#09090b', opacity: 1 }, grid: { type: 'both', vert: { color: '#18181b', opacity: 1 }, horz: { color: '#18181b', opacity: 1 } }, sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 }, crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 }, watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' }, scales: { textColor: '#71717a', fontSize: 12 }, candles: { upColor: '#10b981', downColor: '#ef4444', borderVisible: true, borderUpColor: '#10b981', borderDownColor: '#ef4444', wickUpColor: '#10b981', wickDownColor: '#ef4444' }, theme: 'dark' }
-    };
-  });
-
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const currentCandleRef = useRef<any>(null);
   const oldestTimestamp = useRef<number | null>(null);
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
-  const lastGoodPriceRef = useRef<Record<string, { price: number; time: number }>>({});
 
   // ── UNIFIED PRICE SOURCE ──
   const activePrice = useMemo(() => {
-    // Priority 1: Direct SSE Stream (Sub-100ms)
     if (streamTick && Number(streamTick.price) > 0) return streamTick;
-    // Priority 2: RTDB Fallback (Sync with Firestore)
     const rtdbTick = livePrices[selectedSymbol.toUpperCase()];
     if (rtdbTick && Number(rtdbTick.price) > 0) return rtdbTick;
     return null;
@@ -265,9 +264,11 @@ export default function DemoPage() {
   }, [chartSettings, selectedSymbol, branding.siteName]);
 
   useEffect(() => {
-    localStorage.setItem('chartGlobalSettings', JSON.stringify(chartSettings));
-    applyGlobalSettings();
-  }, [chartSettings, applyGlobalSettings]);
+    if (hasMounted) {
+      localStorage.setItem('chartGlobalSettings', JSON.stringify(chartSettings));
+      applyGlobalSettings();
+    }
+  }, [chartSettings, applyGlobalSettings, hasMounted]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -385,42 +386,34 @@ export default function DemoPage() {
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const price = Number(activePrice.price);
-      const now = Date.now();
-
-      // Robust Outlier Logic: 15% threshold with a 10s re-anchor timeout
-      const lastGoodObj = lastGoodPriceRef.current[selectedSymbol];
       
-      if (!lastGoodObj || (now - lastGoodObj.time > 10000)) {
-        lastGoodPriceRef.current[selectedSymbol] = { price, time: now };
-      } else {
-        const diff = Math.abs(price - lastGoodObj.price) / lastGoodObj.price;
-        if (isNaN(price) || price <= 0 || diff > 0.15) {
-          console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
-          return;
-        }
-        lastGoodPriceRef.current[selectedSymbol] = { price, time: now };
+      // Outlier Filter Logic
+      const prevPrice = lastGoodPriceRef.current[selectedSymbol];
+      if (price <= 0 || isNaN(price)) return;
+      if (prevPrice && Math.abs(price - prevPrice) / prevPrice > 0.15) {
+        console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
+        return;
       }
+      lastGoodPriceRef.current[selectedSymbol] = price;
 
-      if (price > 0) {
-        const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
-        const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
-        
-        if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
-          currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
-        } else {
-          currentCandleRef.current = {
-            ...currentCandleRef.current,
-            high: Math.max(currentCandleRef.current.high, price),
-            low: Math.min(currentCandleRef.current.low, price),
-            close: price
-          };
-        }
-        
-        if (chartType === 'line' || chartType === 'area') {
-          mainSeriesRef.current.update({ time: candleTime as any, value: price });
-        } else {
-          mainSeriesRef.current.update(currentCandleRef.current);
-        }
+      const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
+      const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
+      
+      if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
+        currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
+      } else {
+        currentCandleRef.current = {
+          ...currentCandleRef.current,
+          high: Math.max(currentCandleRef.current.high, price),
+          low: Math.min(currentCandleRef.current.low, price),
+          close: price
+        };
+      }
+      
+      if (chartType === 'line' || chartType === 'area') {
+        mainSeriesRef.current.update({ time: candleTime as any, value: price });
+      } else {
+        mainSeriesRef.current.update(currentCandleRef.current);
       }
     }
   }, [activePrice, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
@@ -477,6 +470,7 @@ export default function DemoPage() {
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
 
   async function placeTrade(type: 'buy' | 'sell') {
+    if (!hasMounted) return;
     if (hasPendingPayout) {
       toast({ title: "Trading Suspended", description: "You have a pending payout request.", variant: "destructive" });
       return;
@@ -640,15 +634,17 @@ export default function DemoPage() {
               "bg-emerald-600 hover:bg-emerald-700 text-white"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-             hasPendingPayout ? 'PAYOUT PENDING' : 
-             !marketInfo.isOpen ? 'MARKET CLOSED' :
-             (!hasMounted || !isPriceValid) ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
-               <>
-                 <span className="opacity-80">BUY BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
-               </>
-             )}
+            <div className="flex flex-col items-center">
+              {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
+               hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
+               !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
+               (!hasMounted || !isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
+                 <>
+                   <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
+                   <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                 </>
+               )}
+            </div>
           </button>
           <button 
             type="button" 
@@ -661,15 +657,17 @@ export default function DemoPage() {
               "bg-red-600 hover:bg-red-700 text-white"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-             hasPendingPayout ? 'PAYOUT PENDING' : 
-             !marketInfo.isOpen ? 'MARKET CLOSED' :
-             (!hasMounted || !isPriceValid) ? (streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...') : (
-               <>
-                 <span className="opacity-80">SELL BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
-               </>
-             )}
+            <div className="flex flex-col items-center">
+              {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
+               hasPendingPayout ? <span className="text-[10px]">PAYOUT PENDING</span> : 
+               !marketInfo.isOpen ? <span className="text-[10px]">MARKET CLOSED</span> :
+               (!hasMounted || !isPriceValid) ? <span className="text-[10px]">{streamError ? 'PRICE UNAVAILABLE' : 'PRICE SYNCING...'}</span> : (
+                 <>
+                   <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
+                   <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: selectedSymbol.includes('JPY') ? 3 : 2 })}</span>
+                 </>
+               )}
+            </div>
           </button>
         </div>
       </div>
@@ -728,7 +726,7 @@ export default function DemoPage() {
             <UserCircle className="w-3 h-3 text-primary" />
             <span className="text-[10px] font-black uppercase text-zinc-400">ID: {userData?.traderId || '--------'}</span>
           </div>
-          {selectedAccount && isMobile && (
+          {selectedAccount && isMobile && hasMounted && (
             <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-[8px] font-black uppercase px-2 h-6 truncate max-w-[100px]">
               {selectedAccount.label}
             </Badge>
@@ -845,22 +843,24 @@ export default function DemoPage() {
                 </div>
               )}
 
-              <div className="absolute left-3 bottom-[60px] z-20 flex flex-col items-start gap-1 pointer-events-none">
-                <div className={cn(
-                  "px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl",
-                  marketInfo.isOpen ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive"
-                )}>
-                  <div className={cn("w-1.5 h-1.5 rounded-full", marketInfo.isOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive")} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">
-                    {marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}
-                  </span>
-                </div>
-                {marketInfo.countdown && (
-                  <div className="px-3 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded-lg text-[10px] font-bold text-zinc-400">
-                    {marketInfo.countdown}
+              {hasMounted && (
+                <div className="absolute left-3 bottom-[60px] z-20 flex flex-col items-start gap-1 pointer-events-none">
+                  <div className={cn(
+                    "px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl",
+                    marketInfo.isOpen ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive"
+                  )}>
+                    <div className={cn("w-1.5 h-1.5 rounded-full", marketInfo.isOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive")} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      {marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}
+                    </span>
                   </div>
-                )}
-              </div>
+                  {marketInfo.countdown && (
+                    <div className="px-3 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded-lg text-[10px] font-bold text-zinc-400">
+                      {marketInfo.countdown}
+                    </div>
+                  )}
+                </div>
+              )}
               
               <div className="absolute right-[10px] md:right-[65px] top-[10px] md:top-[40px] z-20 flex items-center gap-1.5 px-2 py-1 bg-zinc-900/80 border border-zinc-700/50 rounded shadow-2xl backdrop-blur-sm pointer-events-none">
                 <ClockIcon className="w-3 h-3 text-primary animate-pulse" />
@@ -890,25 +890,27 @@ export default function DemoPage() {
             </div>
           </div>
 
-          <PositionsPanel 
-            openTrades={openTrades} 
-            closedTrades={closedTrades} 
-            alerts={alerts} 
-            livePrices={livePrices} 
-            closeTrade={closeTrade} 
-            deleteAlert={async (id) => {
-              if (!user) return;
-              try {
-                const token = await user.getIdToken();
-                await fetch(`/api/terminal/alerts?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-                toast({ title: "Alert Removed" });
-              } catch (e) {}
-            }} 
-            user={user} 
-            alertsLoading={alertsLoading}
-            panelOpen={bottomPanelOpen}
-            setPanelOpen={setBottomPanelOpen}
-          />
+          {hasMounted && (
+            <PositionsPanel 
+              openTrades={openTrades} 
+              closedTrades={closedTrades} 
+              alerts={alerts} 
+              livePrices={livePrices} 
+              closeTrade={closeTrade} 
+              deleteAlert={async (id) => {
+                if (!user) return;
+                try {
+                  const token = await user.getIdToken();
+                  await fetch(`/api/terminal/alerts?id=${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+                  toast({ title: "Alert Removed" });
+                } catch (e) {}
+              }} 
+              user={user} 
+              alertsLoading={alertsLoading}
+              panelOpen={bottomPanelOpen}
+              setPanelOpen={setBottomPanelOpen}
+            />
+          )}
         </div>
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
@@ -916,7 +918,7 @@ export default function DemoPage() {
         </aside>
       </div>
 
-      {isMobile && (
+      {isMobile && hasMounted && (
         <div className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around px-2 shrink-0 z-50 safe-area-bottom">
           <Link href="/dashboard" className="flex flex-col items-center gap-1 text-zinc-500 hover:text-white transition-colors">
             <LayoutDashboard className="w-5 h-5" />

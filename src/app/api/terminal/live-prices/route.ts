@@ -1,14 +1,12 @@
-
 import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 /**
  * @fileOverview Institutional Live Price API
  * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
- * Replaced Binance with Kraken to bypass Google Cloud IP blocking.
  */
 
-const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD,BNBUSD";
+const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD";
 
 export async function GET() {
   const prices: Record<string, any> = {};
@@ -57,7 +55,7 @@ export async function GET() {
       );
     }
 
-    // 2. Kraken - Crypto (Reliable REST source for institutional liquidity)
+    // 2. Kraken - Crypto
     fetchPromises.push(
       fetch(`https://api.kraken.com/0/public/Ticker?pair=${KRAKEN_PAIRS}`, { 
         cache: 'no-store',
@@ -67,16 +65,13 @@ export async function GET() {
           const data = await r.json();
           const results = data.result;
           if (results) {
-            // Map Kraken symbols back to our format
-            // Kraken returns XXRPZUSD for XRP and XDGUSD for DOGE
             const kToPF: Record<string, string> = {
               'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
               'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',
               'SOLUSD': 'SOLUSD', 
               'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD',
               'ADAUSD': 'ADAUSD', 
-              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD',
-              'BNBUSD': 'BNBUSD'
+              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD'
             };
 
             Object.entries(results).forEach(([kSym, item]: [string, any]) => {
@@ -89,7 +84,7 @@ export async function GET() {
               
               if (isNaN(price)) return;
 
-              const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'BNBUSD' || sym === 'SOLUSD') ? 2 : (sym === 'DOGEUSD' ? 5 : 4);
+              const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'SOLUSD') ? 2 : (sym === 'DOGEUSD' ? 5 : 4);
 
               prices[sym] = {
                 bid: +bid.toFixed(dec),
