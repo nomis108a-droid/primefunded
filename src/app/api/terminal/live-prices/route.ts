@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
  * Corrected Kraken ticker mapping for XRP and DOGE.
  */
 
-const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD";
+const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XXRPZUSD,ADAUSD,XDGUSD";
 
 export async function GET() {
   const prices: Record<string, any> = {};

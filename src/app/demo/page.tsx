@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useCollection } from "@/firebase";
 import { Button } from "@/components/ui/button";
@@ -111,7 +111,7 @@ function OrderPanel({
   setTp, 
   placeTrade 
 }: any) {
-  // CRITICAL: Prevent hydration error #418 by ensuring identical fallback markup
+  // CRITICAL: Prevent hydration error #418 by using pure HTML tags for fallback
   if (!hasMounted) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -258,7 +258,6 @@ export default function DemoPage() {
   const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
-  const [isDrawingOverlayOpen, setIsDrawingOverlayOpen] = useState(false);
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
   const [chartSettings, setChartSettings] = useState({
@@ -789,7 +788,7 @@ export default function DemoPage() {
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
            <OrderPanel 
-             hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout, hasPendingPayout={hasPendingPayout} 
+             hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} 
              marketInfo={marketInfo} streamError={streamError} activePrice={activePrice} selectedSymbol={selectedSymbol} 
              orderType={orderType} setOrderType={setOrderType} pendingPrice={pendingPrice} setPendingPrice={setPendingPrice} 
              lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} 
@@ -810,16 +809,6 @@ export default function DemoPage() {
           </div>
         </SheetContent>
       </Sheet>
-
-      {isMobile && hasMounted && (
-        <div className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around px-2 shrink-0 z-50 safe-area-bottom">
-          <Link href="/dashboard" className="flex flex-col items-center gap-1 text-zinc-500 hover:text-white transition-colors"><LayoutDashboard className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Home</span></Link>
-          <button onClick={() => { setBottomPanelOpen(false); }} className={cn("flex flex-col items-center gap-1 transition-colors", !bottomPanelOpen ? "text-primary" : "text-zinc-500")}><TrendingUp className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Chart</span></button>
-          <button onClick={() => setIsOrderSheetOpen(true)} className="flex flex-col items-center gap-1 text-zinc-500 hover:text-primary transition-colors"><div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-black shadow-lg -mt-8 border-4 border-zinc-950"><ArrowRight className="w-5 h-5 rotate-[-45deg]" /></div><span className="text-[8px] font-black uppercase mt-1">Trade</span></button>
-          <button onClick={() => setBottomPanelOpen(!bottomPanelOpen)} className={cn("flex flex-col items-center gap-1 transition-colors relative", bottomPanelOpen ? "text-primary" : "text-zinc-500")}><Wallet className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Positions</span></button>
-          <Sheet><SheetTrigger asChild><button className="flex flex-col items-center gap-1 text-zinc-500"><Menu className="w-5 h-5" /><span className="text-[8px] font-black uppercase">Menu</span></button></SheetTrigger><SheetContent side="right" className="bg-zinc-950 border-zinc-800 text-white w-72 p-0"><SheetHeader className="p-6 border-b border-zinc-800"><SheetTitle className="text-left font-headline font-bold">Node Menu</SheetTitle></SheetHeader><div className="p-4 space-y-4"><div className="space-y-2"><Label className="text-[9px] font-black uppercase text-zinc-500">Active Account</Label><Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}><SelectTrigger className="h-12 bg-zinc-900 border-zinc-800 text-xs"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-900 border-zinc-800 text-white">{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent></Select></div><Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsAlertModalOpen(true); }}><Bell className="w-4 h-4" /> Price Alerts</Button><Button variant="outline" className="w-full justify-start h-12 gap-3" onClick={() => { setIsSettingsOpen(true); }}><Settings className="w-4 h-4" /> Chart Settings</Button></div></SheetContent></Sheet>
-        </div>
-      )}
 
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-sm"><DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader><div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div></DialogContent></Dialog>
