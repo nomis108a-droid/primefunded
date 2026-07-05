@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useEffect, useState, memo, useCallback } from 'react';
+import { useEffect, useState, memo, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,8 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 
 /**
  * @fileOverview Institutional Price Monitor
- * Performance Fix: Removed redundant client-side Firestore writes.
- * This page now only monitors live data synced by server background tasks.
+ * Performance Fix: Added fetch locking and rate-limit awareness.
  */
 
 const SYMBOLS = [
@@ -75,6 +75,7 @@ export default function AdminPriceTracker() {
   const [prices, setPrices] = useState<Record<string, any>>({});
   const [priceHistory, setPriceHistory] = useState<Record<string, number[]>>({}); 
   const [isSyncing, setIsSyncing] = useState(false);
+  const isFetchingRef = useRef(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -83,11 +84,21 @@ export default function AdminPriceTracker() {
   }, []);
 
   const fetchStatus = useCallback(async () => {
-    if (isSyncing) return;
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setIsSyncing(true);
+    
     try {
-      // Use API to fetch latest state periodically if listeners are throttled
-      const res = await fetch('/api/terminal/live-prices', { cache: 'no-store' });
+      const res = await fetch('/api/terminal/live-prices', { 
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000) 
+      });
+      
+      if (res.status === 429) {
+        console.error('[Monitor] Global rate limit triggered.');
+        return;
+      }
+
       if (!res.ok) throw new Error('API Offline');
       const data = await res.json();
       setPrices(prev => ({ ...prev, ...data }));
@@ -95,12 +106,14 @@ export default function AdminPriceTracker() {
       console.warn('[Monitor] API sync cycle skipped');
     } finally {
       setIsSyncing(false);
+      isFetchingRef.current = false;
     }
-  }, [isSyncing]);
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated) return;
     fetchStatus();
+    // Poll every 5s, with request deduplication
     const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   }, [isAuthenticated, fetchStatus]);

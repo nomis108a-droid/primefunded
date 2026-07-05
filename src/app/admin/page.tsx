@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -63,6 +64,7 @@ export default function AdminPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const isSyncingRef = useRef(false);
   const { toast } = useToast();
 
   const [userDetail, setUserDetail] = useState<any>(null);
@@ -86,7 +88,10 @@ export default function AdminPage() {
   const tabsListRef = useRef<HTMLDivElement>(null);
 
   const refreshData = useCallback(async () => {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     setIsLoading(true);
+    
     try {
       const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
         getDocs(collection(db, 'users')),
@@ -111,9 +116,15 @@ export default function AdminPage() {
       });
     } catch (err: any) {
       console.error("[Admin] Sync fault:", err);
-      toast({ variant: "destructive", title: "Sync Error", description: err.message });
+      // Gracefully handle 429 inside the component
+      if (err.message?.includes('429')) {
+        toast({ variant: "destructive", title: "Rate Limited", description: "Too many requests. Pausing sync." });
+      } else {
+        toast({ variant: "destructive", title: "Sync Error", description: err.message });
+      }
     } finally {
       setIsLoading(false);
+      isSyncingRef.current = false;
     }
   }, [toast]);
 
