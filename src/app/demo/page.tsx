@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -159,6 +160,18 @@ export default function DemoPage() {
   const oldestTimestamp = useRef<number | null>(null);
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
   const lastGoodPriceRef = useRef<Record<string, { price: number; time: number }>>({});
+
+  // ── UNIFIED PRICE SOURCE ──
+  const activePrice = useMemo(() => {
+    // Priority 1: Direct SSE Stream (Sub-100ms)
+    if (streamTick && Number(streamTick.price) > 0) return streamTick;
+    // Priority 2: RTDB Fallback (Sync with Firestore)
+    const rtdbTick = livePrices[selectedSymbol.toUpperCase()];
+    if (rtdbTick && Number(rtdbTick.price) > 0) return rtdbTick;
+    return null;
+  }, [streamTick, livePrices, selectedSymbol]);
+
+  const isPriceValid = !!(activePrice && Number(activePrice.price) > 0);
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
@@ -350,13 +363,6 @@ export default function DemoPage() {
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
-  const currentPriceData = useMemo(() => {
-    if (streamTick && streamTick.price > 0) return streamTick;
-    return livePrices[selectedSymbol.toUpperCase()];
-  }, [livePrices, streamTick, selectedSymbol]);
-
-  const isPriceValid = useMemo(() => !!(currentPriceData && Number(currentPriceData.price) > 0), [currentPriceData]);
-
   const handleAutoClose = useCallback(async (tradeId: string, exitPrice: number, reason: string) => {
     if (!user) return;
     try {
@@ -373,17 +379,14 @@ export default function DemoPage() {
   }, [user, selectedSymbol, toast]);
 
   useEffect(() => {
-    const activePrice = streamTick || currentPriceData;
-    
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const price = Number(activePrice.price);
       const now = Date.now();
 
-      // Robust Outlier Logic: 15% threshold with a 10s re-anchor timeout to handle real volatility jumps
+      // Robust Outlier Logic: 15% threshold with a 10s re-anchor timeout
       const lastGoodObj = lastGoodPriceRef.current[selectedSymbol];
       
       if (!lastGoodObj || (now - lastGoodObj.time > 10000)) {
-        // Re-anchor: ignore baseline if stale or first tick
         lastGoodPriceRef.current[selectedSymbol] = { price, time: now };
       } else {
         const diff = Math.abs(price - lastGoodObj.price) / lastGoodObj.price;
@@ -416,10 +419,10 @@ export default function DemoPage() {
         }
       }
     }
-  }, [streamTick, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
+  }, [activePrice, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
 
   useEffect(() => {
-    if (openTrades.length > 0 && Object.keys(livePrices).length > 0) {
+    if (openTrades.length > 0 && isPriceValid) {
       openTrades.forEach(t => {
         if (closingTradesRef.current.has(t.id)) return;
         const pData = livePrices[t.symbol.toUpperCase()];
@@ -441,17 +444,17 @@ export default function DemoPage() {
         }
       });
     }
-  }, [livePrices, openTrades, handleAutoClose]);
+  }, [livePrices, openTrades, handleAutoClose, isPriceValid]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
-    const priceData = livePrices[trade.symbol.toUpperCase()];
+    const priceData = livePrices[trade.symbol.toUpperCase()] || activePrice;
     if (!priceData) return 0;
-    const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
+    const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
     const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(trade.symbol.toUpperCase());
     const contractSize = isForex ? 100000 : (trade.symbol.toUpperCase() === 'XAUUSD' ? 100 : 1);
     return diff * trade.lots * contractSize;
-  }, [livePrices]);
+  }, [livePrices, activePrice]);
 
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
@@ -480,13 +483,13 @@ export default function DemoPage() {
     }
     try {
       setActionLoading(true);
-      if (!user || !currentAccountId || !currentPriceData) return;
+      if (!user || !currentAccountId || !activePrice) return;
 
       const executionPrice = orderType === 'pending'
         ? parseFloat(pendingPrice)
         : type === 'buy'
-          ? (currentPriceData.ask || currentPriceData.price)
-          : (currentPriceData.bid || currentPriceData.price);
+          ? (activePrice.ask || activePrice.price)
+          : (activePrice.bid || activePrice.price);
 
       if (orderType === 'pending' && (!pendingPrice || isNaN(executionPrice) || executionPrice <= 0)) {
         toast({ title: "Validation Error", description: "Please enter a valid limit price", variant: "destructive" });
@@ -530,7 +533,7 @@ export default function DemoPage() {
       setActionLoading(true);
       const trade = openTrades.find(t => t.id === tradeId);
       if (!trade) return;
-      const priceData = livePrices[trade.symbol.toUpperCase()];
+      const priceData = livePrices[trade.symbol.toUpperCase()] || activePrice;
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken(true);
