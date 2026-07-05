@@ -89,10 +89,6 @@ function getMarketInfo(symbol: string) {
   return { isOpen, type: 'forex', countdown };
 }
 
-/**
- * Robust Order Panel Component
- * Solves React Hydration Error #418 by isolating dynamic state.
- */
 function OrderPanel({ 
   hasMounted, 
   actionLoading, 
@@ -115,7 +111,6 @@ function OrderPanel({
   setTp, 
   placeTrade 
 }: any) {
-  // SSR / Initial Hydration Placeholder
   if (!hasMounted) {
     return (
       <div className="space-y-6 animate-pulse">
