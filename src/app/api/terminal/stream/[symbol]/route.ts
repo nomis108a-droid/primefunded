@@ -22,6 +22,11 @@ export async function GET(
     start(controller) {
       let lastPrice = 0;
 
+      // Immediate "connected" signal to allow client to reset retry counters
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbol })}\n\n`));
+      } catch (e) {}
+
       // Heartbeat to prevent 504/500 timeouts from edge proxies (Vercel/Cloudflare)
       const heartbeat = setInterval(() => {
         try {
@@ -58,6 +63,7 @@ export async function GET(
         }
       }, 100);
 
+      // Rotate connection every 4 minutes to stay within Cloud Run / Vercel limits
       const lifetimeTimeout = setTimeout(() => {
         clearInterval(interval);
         clearInterval(heartbeat);

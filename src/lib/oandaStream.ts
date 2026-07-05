@@ -16,6 +16,13 @@ export function getLatestOandaTicks() {
   return latestOandaTicks;
 }
 
+/**
+ * Updates the local memory buffer from external sources (e.g. RTDB listener)
+ */
+export function setLatestOandaTick(symbol: string, data: { price: number; bid: number; ask: number }) {
+  latestOandaTicks[symbol] = data;
+}
+
 export async function startOandaStream() {
   const accountId = process.env.OANDA_ACCOUNT_ID;
   const apiKey = process.env.OANDA_API_KEY;
@@ -92,7 +99,8 @@ export function startOandaThrottledFirestoreWrite() {
     broadcastToRtdb(latestOandaTicks);
 
     // 2. Write to Firestore (Audit persistence)
-    const batch = getAdminDb().batch();
+    const db = getAdminDb();
+    const batch = db.batch();
     let hasChanges = false;
 
     for (const symbol of symbols) {
@@ -100,7 +108,7 @@ export function startOandaThrottledFirestoreWrite() {
       const tickStr = JSON.stringify(tick);
 
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
-        const docRef = getAdminDb().collection('livePrices').doc(symbol);
+        const docRef = db.collection('livePrices').doc(symbol);
         batch.set(docRef, {
           ...tick,
           pair: symbol,

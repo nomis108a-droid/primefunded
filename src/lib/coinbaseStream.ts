@@ -7,11 +7,15 @@ import { broadcastToRtdb } from './rtdbBroadcast';
 
 const KRAKEN_PAIRS: Record<string, string> = {
   'XXBTZUSD': 'BTCUSD',
+  'XBTUSD':   'BTCUSD',
   'XETHZUSD': 'ETHUSD',
+  'ETHUSD':   'ETHUSD',
   'SOLUSD':   'SOLUSD',
   'XXRPZUSD': 'XRPUSD',
+  'XRPUSD':   'XRPUSD',
   'ADAUSD':   'ADAUSD',
   'XDGUSD':   'DOGEUSD',
+  'DOGEUSD':  'DOGEUSD',
 };
 
 let cryptoPrices: Record<string, { price: number; bid: number; ask: number }> = {};
@@ -21,6 +25,13 @@ let bnbInterval: NodeJS.Timeout | null = null;
 
 export function getLatestCoinbaseTicks() {
   return cryptoPrices;
+}
+
+/**
+ * Updates the local memory buffer from external sources (e.g. RTDB listener)
+ */
+export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid: number; ask: number }) {
+  cryptoPrices[symbol] = data;
 }
 
 async function fetchKrakenPrices() {

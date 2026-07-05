@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 /**
  * @fileOverview high-frequency SSE price hook
  * Subscribes to the server-side memory buffer for a single symbol.
- * Hardened with exponential backoff and error tracking.
+ * Hardened with exponential backoff and connection handshaking.
  */
 export function useTickStream(symbol: string) {
   const [tick, setTick] = useState<{ price: number; bid: number; ask: number } | null>(null);
@@ -35,6 +35,14 @@ export function useTickStream(symbol: string) {
       es.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          
+          // Check for handshake signal
+          if (data.type === 'connected') {
+            setError(false);
+            retryCountRef.current = 0;
+            return;
+          }
+
           setTick(data);
           setError(false);
           retryCountRef.current = 0; // Success! Reset retry counter
@@ -48,7 +56,7 @@ export function useTickStream(symbol: string) {
         es.close();
         
         // Exponential backoff to avoid 429 Too Many Requests
-        // 2s, 4s, 8s, 16s, then max 30s
+        // 1s, 2s, 4s, 8s, 16s, then max 30s
         const delay = Math.min(Math.pow(2, retryCountRef.current) * 1000, 30000);
         retryCountRef.current++;
         

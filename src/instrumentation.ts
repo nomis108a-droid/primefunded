@@ -13,7 +13,7 @@ export async function register() {
 
     // Dynamic imports for leadership and streaming modules
     const { startLeaderHeartbeat } = await import('@/lib/leaderLock');
-    const { syncPricesAndAudit } = await import('@/lib/priceSync');
+    const { syncPricesAndAudit, startGlobalPriceSync } = await import('@/lib/priceSync');
     const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
     const { startOandaStream, startOandaThrottledFirestoreWrite } = await import('@/lib/oandaStream');
     const { isFirebaseAdminConfigured } = await import('@/lib/firebase-admin');
@@ -23,20 +23,25 @@ export async function register() {
       return;
     }
 
-    let servicesStarted = false;
+    // 1. Start Global Listener (All Instances)
+    // This ensures every server node has a local memory buffer of the latest prices
+    // so that SSE streams are always fast and populated.
+    startGlobalPriceSync();
 
-    // Delegate service management to the Leader Election engine
+    let leaderServicesStarted = false;
+
+    // 2. Delegate service management to the Leader Election engine
     startLeaderHeartbeat(() => {
       // CALLBACK: Executed when this instance becomes the Cluster Leader
-      if (servicesStarted) {
+      if (leaderServicesStarted) {
         console.log('[Instrumentation] Leadership regained. Services already active on this node.');
         return;
       }
       
-      console.log('[Instrumentation] Leadership acquired. Initializing institutional streams...');
-      servicesStarted = true;
+      console.log('[Instrumentation] Leadership acquired. Initializing institutional fetchers...');
+      leaderServicesStarted = true;
 
-      // 1. Start Liquidity Streams (3s Crypto / Persistent FX Stream)
+      // 1. Start Liquidity Streams (Leader only)
       if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
         startOandaStream();
         startOandaThrottledFirestoreWrite();
@@ -55,7 +60,7 @@ export async function register() {
         });
       }, 2000);
 
-      console.log('[BackgroundSync] Institutional liquidity and risk services started on LEADER instance.');
+      console.log('[BackgroundSync] Institutional liquidity and risk fetchers started on LEADER instance.');
     }, () => {
       // CALLBACK: Executed if leadership is lost
       console.warn('[Instrumentation] Instance switched to STANDBY mode.');

@@ -1,6 +1,8 @@
-import { getAdminDb } from '@/lib/firebase-admin';
+import { getAdminDb, getAdminRtdb } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditActiveOpenPositions, auditDemoAccount } from '@/lib/rulesEngine';
+import { setLatestOandaTick } from './oandaStream';
+import { setLatestCoinbaseTick } from './coinbaseStream';
 
 /**
  * @fileOverview Institutional Risk Auditor & Execution Engine
@@ -14,6 +16,40 @@ const CONTRACT_SIZE: Record<string, number> = {
   BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
   BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
 };
+
+/**
+ * Synchronizes local memory ticks across all server nodes by listening to RTDB.
+ * This ensures SSE streams work correctly even on non-leader nodes.
+ */
+export function startGlobalPriceSync() {
+  try {
+    const rtdb = getAdminRtdb();
+    const pricesRef = rtdb.ref('livePrices');
+
+    console.log('[PriceSync] Initializing Global Memory Listener...');
+
+    pricesRef.on('value', (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      Object.entries(data).forEach(([symbol, tick]: [string, any]) => {
+        const payload = {
+          price: Number(tick.price),
+          bid: Number(tick.bid),
+          ask: Number(tick.ask)
+        };
+
+        if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol)) {
+          setLatestCoinbaseTick(symbol, payload);
+        } else {
+          setLatestOandaTick(symbol, payload);
+        }
+      });
+    });
+  } catch (err) {
+    console.error('[PriceSync] Memory Listener Failed:', err);
+  }
+}
 
 async function checkTpSlHits(db: any) {
   try {
