@@ -95,7 +95,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Kraken: Crypto (Replaces blocked Binance)
+    // 2. Kraken: Crypto (Hardened parsing for institutional quality)
     else if (CRYPTO_MAP[symbol]) {
       try {
         const pair = CRYPTO_MAP[symbol];
@@ -108,17 +108,41 @@ export async function GET(req: NextRequest) {
         const res = await fetch(url, { signal: controller.signal });
         if (res.ok) {
           const json = await res.json();
-          // Kraken response format: result: { "XXBTZUSD": [ [time, open, high, low, close...], ... ] }
-          const pairKey = Object.keys(json.result).find(k => k !== 'last');
+          const pairKey = Object.keys(json.result || {}).find(k => k !== 'last');
+          
           if (pairKey) {
             const data = json.result[pairKey];
-            candles = data.map((v: any) => ({
-              time: Number(v[0]),
-              open: parseFloat(v[1]),
-              high: parseFloat(v[2]),
-              low: parseFloat(v[3]),
-              close: parseFloat(v[4]),
-            })).sort((a: any, b: any) => a.time - b.time);
+            const processed: any[] = [];
+            
+            for (let i = 0; i < data.length; i++) {
+              const v = data[i];
+              const t = Math.floor(Number(v[0]));
+              const o = parseFloat(String(v[1]));
+              const h = parseFloat(String(v[2]));
+              const l = parseFloat(String(v[3]));
+              const c = parseFloat(String(v[4]));
+
+              // Validation: Ignore non-numeric or broken candle entries
+              if (isNaN(t) || isNaN(o) || isNaN(h) || isNaN(l) || isNaN(c)) continue;
+              if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+
+              // Outlier Rejection: Reject data points with impossible swings (>50% in one interval)
+              // This fixes the "vertical line" symptom caused by exchange artifacts.
+              if (processed.length > 0) {
+                const prevClose = processed[processed.length - 1].close;
+                if (Math.abs(c - prevClose) / prevClose > 0.5) continue;
+              }
+
+              processed.push({
+                time: t,
+                open: o,
+                high: h,
+                low: l,
+                close: c,
+              });
+            }
+            
+            candles = processed.sort((a, b) => a.time - b.time);
             
             // Limit to requested count
             if (candles.length > limit) {
