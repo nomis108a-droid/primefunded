@@ -138,6 +138,7 @@ export function TradingDaysCalendar({ accountId, trades, minTradingDays }: Tradi
              <span className="text-muted-foreground">Session Consistency</span>
              <span className="text-primary">{stats.activeDaysCount} / {minTradingDays} Days</span>
           </div>
+          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">Trading day: 02:00 {"\u2192"} 02:00 UTC</p>
           <div className="h-1 w-full bg-secondary rounded-full overflow-hidden">
              <div 
                className="h-full bg-primary transition-all duration-500 shadow-[0_0_10px_rgba(17,179,245,0.4)]" 
