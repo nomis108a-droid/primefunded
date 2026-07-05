@@ -158,6 +158,7 @@ export default function DemoPage() {
   const currentCandleRef = useRef<any>(null);
   const oldestTimestamp = useRef<number | null>(null);
   const activePriceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
+  const lastGoodPriceRef = useRef<Record<string, number>>({});
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
@@ -384,6 +385,15 @@ export default function DemoPage() {
     
     if (activePrice && mainSeriesRef.current && !isChartLoading && isChartReady) {
       const price = activePrice.price;
+
+      // Outlier guard - preventing bad data from corrupting candles
+      const lastGood = lastGoodPriceRef.current[selectedSymbol];
+      if (isNaN(price) || price <= 0 || (lastGood && Math.abs(price - lastGood) / lastGood > 0.05)) {
+        console.warn(`Rejected outlier live tick for ${selectedSymbol}: ${price}`);
+        return;
+      }
+      lastGoodPriceRef.current[selectedSymbol] = price;
+
       if (price && price > 0) {
         const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
         const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
@@ -415,7 +425,7 @@ export default function DemoPage() {
         }
       }
     }
-  }, [streamPrice, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType]);
+  }, [streamPrice, currentPriceData, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
 
   useEffect(() => {
     if (openTrades.length > 0 && Object.keys(livePrices).length > 0) {
