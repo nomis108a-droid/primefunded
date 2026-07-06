@@ -394,7 +394,16 @@ export default function DemoPage() {
     const targetScaleId = chartSettings.scales.position === 'left' ? 'left' : 'right';
     const otherScaleId = chartSettings.scales.position === 'left' ? 'right' : 'left';
     try {
-      chart.priceScale(targetScaleId).applyOptions({ visible: true, mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, autoScale: chartSettings.scales.mode === 'auto', borderColor: chartSettings.canvas.scales.textColor + '44' });
+      chart.priceScale(targetScaleId).applyOptions({ 
+        visible: true, 
+        mode: modeMap[chartSettings.scales.type] || PriceScaleMode.Normal, 
+        autoScale: true, 
+        borderColor: chartSettings.canvas.scales.textColor + '44',
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        }
+      });
       chart.priceScale(otherScaleId).applyOptions({ visible: false });
       chart.applyOptions({
         layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: chartSettings.canvas.scales.textColor, fontSize: chartSettings.canvas.scales.fontSize },
@@ -458,7 +467,7 @@ export default function DemoPage() {
   useEffect(() => {
     let isMounted = true;
     const controller = new AbortController();
-    const cacheKey = `${selectedSymbol}-${selectedInterval}`;
+    const cacheKey = `${selectedSymbol}-${selectedInterval}-v2`;
     const cached = candleDataCache.get(cacheKey);
 
     const fetchHistory = async () => {
@@ -480,13 +489,18 @@ export default function DemoPage() {
         if (!isMounted) return;
 
         if (rawCandles.length > 0) {
-          // Strict filtering to ensure no zero-timestamp candles (prevents giant bars from 1970)
           const sorted = [...rawCandles]
             .map(c => ({ 
               ...c, 
               time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time) 
             }))
-            .filter(c => c.time > 0 && Number(c.close) > 0)
+            .filter(c => {
+              const p = (val: any) => parseFloat(String(val));
+              return c.time > 0 && 
+                     p(c.open) > 0 && p(c.high) > 0 && p(c.low) > 0 && p(c.close) > 0 &&
+                     !isNaN(p(c.open)) && !isNaN(p(c.high)) && !isNaN(p(c.low)) && !isNaN(p(c.close)) &&
+                     p(c.high) >= p(c.low);
+            })
             .sort((a: any, b: any) => a.time - b.time)
             .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
 
@@ -615,7 +629,7 @@ export default function DemoPage() {
       lines.push(entryLine);
       if (trade.sl) lines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` }));
       if (trade.tp) lines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` }));
-      activePriceLinesRef.current.set(trade.id, lines);
+      activePriceLinesRef.set(trade.id, lines);
     });
     return () => { activePriceLinesRef.current.forEach((lines) => { lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line)); }); };
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);

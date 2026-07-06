@@ -146,6 +146,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ── SANITY FILTER: Discard malformed candles before returning ──
+    const originalCount = candles.length;
+    candles = candles.filter(c => {
+      return !isNaN(c.open) && c.open > 0 &&
+             !isNaN(c.high) && c.high > 0 &&
+             !isNaN(c.low) && c.low > 0 &&
+             !isNaN(c.close) && c.close > 0 &&
+             c.high >= c.low;
+    });
+
+    if (originalCount > 0 && candles.length < originalCount) {
+      console.warn(`[CandleAPI] Discarded ${originalCount - candles.length} malformed candles for ${symbol}`);
+    }
+
     if (candles.length > 0) {
       realCandleCache.set(cacheKey, { candles, timestamp: Date.now() });
       return NextResponse.json({ candles, isFallback: false });
