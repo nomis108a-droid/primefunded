@@ -54,7 +54,6 @@ export async function giftAccountAction(traderId: string, email: string, account
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     
-    // 1. Resolve real userId from Trader ID
     const userLookupSnap = await db.collection('users').where('traderId', '==', traderId).limit(1).get();
     if (userLookupSnap.empty) {
       return { success: false, error: "No trader found with that Trader ID" };
@@ -64,7 +63,6 @@ export async function giftAccountAction(traderId: string, email: string, account
     const userId = userDoc.id;
     const targetEmail = email || userDoc.data()?.email || 'unknown@primefunded.fund';
 
-    // 2. Prepare Rules
     const planKey = getPlanKey(accountPlan);
     const rules = RULES_CONFIG.plans[planKey]?.[currentPhase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
     
@@ -72,7 +70,6 @@ export async function giftAccountAction(traderId: string, email: string, account
     const dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
     const maxLossLimitUsd = startBalance * (rules.maxDrawdown / 100);
 
-    // 3. Provision Node
     const docRef = await db.collection("demoAccounts").add({
       userId,
       email: targetEmail,
@@ -95,7 +92,6 @@ export async function giftAccountAction(traderId: string, email: string, account
       source: 'provisioned'
     });
 
-    // 4. CREATE MATCHING ORDER FOR AUDIT TRACKING
     await db.collection('orders').add({
       userId,
       email: targetEmail,
@@ -271,7 +267,6 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
 
     const batch = db.batch();
 
-    // 1. Account Update
     batch.update(accRef, {
       status: 'blown',
       breachReason: `Admin manual breach: ${reason}`,
@@ -279,7 +274,6 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    // 2. Close trades
     openTradesSnap.docs.forEach(doc => {
       const t = doc.data();
       batch.update(doc.ref, {
@@ -291,10 +285,8 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
       });
     });
 
-    // 3. User status
     batch.update(userRef, { accountStatus: 'breached', updatedAt: FieldValue.serverTimestamp() });
 
-    // 4. Breach record
     const breachRef = db.collection('breaches').doc();
     batch.set(breachRef, {
       accountId,
@@ -307,7 +299,6 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
       phase: accData.phase || 'evaluation'
     });
 
-    // 5. Notification
     const notifRef = userRef.collection('notifications').doc();
     batch.set(notifRef, {
       title: '❌ Account Breached (Admin)',
@@ -319,7 +310,6 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
 
     await batch.commit();
 
-    // Email
     if (userEmail) {
       await sendBreachEmail(userEmail, `Your account ${accData.label || accountId} has been manually breached by administration. Reason: ${reason}`);
     }
@@ -356,7 +346,7 @@ export async function cleanupDemoAccountsAction() {
 }
 
 /**
- * INSTITUTIONAL AUDIT: Scans and executes FULL STARTING STATE RESET for Friday rule breaches
+ * INSTITUTIONAL AUDIT: Performs FULL STARTING STATE RESET for Friday rule breaches
  */
 export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
@@ -372,6 +362,7 @@ export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) 
       const data = doc.data();
       const reason = (data.breachReason || "").toLowerCase();
       
+      // Target only Friday holding violations
       if (reason.includes("friday overnight")) {
         affected.push({
           id: doc.id,
@@ -397,7 +388,7 @@ export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) 
             lastResetAt: FieldValue.serverTimestamp()
           });
 
-          // 2. Delete all trade history associated with this specific account
+          // 2. CLEAR ALL HISTORY: Institutional Reset requirement
           const tradesSnap = await db.collection('demoTrades').where('accountId', '==', doc.id).get();
           tradesSnap.docs.forEach(t => batch.delete(t.ref));
 

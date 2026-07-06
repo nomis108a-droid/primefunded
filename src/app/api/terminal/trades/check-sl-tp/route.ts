@@ -6,7 +6,7 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
  * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
- * Updated to remove Friday overnight holding rule.
+ * Updated: Removed Friday overnight holding rule.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -110,7 +110,6 @@ export async function GET(req: NextRequest) {
         const floatingLimit = startBalance * (rules.maxFloatingLoss || 1) / 100;
         
         if (pnl < 0 && Math.abs(pnl) >= floatingLimit && (planKey === '1-step-pro' || planKey === 'instant-funding' || planKey === 'instant-pro')) {
-           // FORCE CLOSE THIS SPECIFIC TRADE ONLY
            const priceData = prices[t.symbol];
            const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
            
@@ -127,7 +126,6 @@ export async function GET(req: NextRequest) {
                updatedAt: FieldValue.serverTimestamp()
              });
 
-             // Create individual trade closure notification
              const notifRef = db.collection('users').doc(acc.userId).collection('notifications').doc();
              tx.set(notifRef, {
                title: '🛡️ Trade Auto-Closed',
@@ -149,16 +147,13 @@ export async function GET(req: NextRequest) {
 
       let breachReason = null;
 
-      // 1. CHECK: REAL-TIME DAILY GROSS LOSS
       if (virtualDailyLoss >= acc.dailyLossLimitUsd) {
         breachReason = "daily_drawdown_breach";
       } 
-      // 2. CHECK: MAX TOTAL DRAWDOWN
       else if ((acc.startBalance - currentEquity) >= (acc.maxLoss || acc.startBalance * 0.06)) {
         breachReason = "max_drawdown_breach";
       }
 
-      // ── LIQUIDATION PROTOCOL ─────────────────────────────────
       if (breachReason) {
         await db.runTransaction(async (tx) => {
           let finalBalance = acc.balance;
@@ -192,7 +187,6 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // 3. SL/TP EXECUTION (NORMAL FLOW)
       for (const t of trades) {
         const priceData = prices[t.symbol];
         if (!priceData) continue;
@@ -218,7 +212,6 @@ export async function GET(req: NextRequest) {
             const currentAcc = (await tx.get(accDoc.ref)).data()!;
             const newBalance = currentAcc.balance + pnl;
             
-            // ── RULE: MAX SINGLE TRADE LOSS (3%) ──────────────────
             const startBalance = currentAcc.startBalance || 100000;
             const singleTradeLossLimit = startBalance * (rules.maxSingleTradeLoss || 3) / 100;
             const isMajorLoss = pnl < 0 && Math.abs(pnl) > singleTradeLossLimit;

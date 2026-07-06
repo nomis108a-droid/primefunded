@@ -6,6 +6,7 @@ import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 /**
  * @fileOverview Institutional Demo Audit Engine (V3)
  * Evaluates internal demo accounts and trades against prop firm hard-breach risk protocols.
+ * Updated: Removed Friday overnight holding rule.
  */
 
 type TradeRecord = {
@@ -52,7 +53,6 @@ async function enforceSymbolFloatingLossLimits(
   const closedIds = new Set<string>();
   let totalRealizedLoss = 0;
 
-  // Group open trades BY SYMBOL first — losses only combine within the same symbol
   const bySymbol: Record<string, { trades: TradeRecord[]; pnl: number }> = {};
   for (const t of openTrades) {
     const sym = t.symbol?.toUpperCase() || '';
@@ -66,7 +66,6 @@ async function enforceSymbolFloatingLossLimits(
     bySymbol[sym].pnl += pnl;
   }
 
-  // Check each symbol's COMBINED floating loss against the threshold
   for (const sym of Object.keys(bySymbol)) {
     const group = bySymbol[sym];
     if (group.pnl < 0 && Math.abs(group.pnl) >= limitUsd) {
@@ -129,7 +128,7 @@ async function enforceSingleTradeLossLimit(
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
 
     if (pnl < 0 && Math.abs(pnl) >= limitUsd) {
-      return `Single trade loss violation: Trade on ${sym} lost $${Math.abs(pnl).toFixed(2)} which exceeded 3% of your starting balance ($${limitUsd.toFixed(2)})`;
+      return `Single trade loss violation: Trade on ${sym} lost $${Math.abs(pnl).toFixed(2)} which exceeded ${maxSingleTradeLossPct}% limit.`;
     }
   }
   return null;
@@ -153,7 +152,6 @@ export async function auditDemoAccount(accountId: string) {
   const rules = RULES_CONFIG.plans[pKey]?.[phKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
   const universal = RULES_CONFIG.universal;
 
-  // 1. Fetch Trades & Prices
   const [tradesSnap, pricesSnap] = await Promise.all([
     db.collection('demoTrades').where('accountId', '==', accountId).get(),
     db.collection('livePrices').get()
@@ -168,16 +166,14 @@ export async function auditDemoAccount(accountId: string) {
 
   let breachReason = '';
 
-  // ── RULE: 30 Day Auto-Expiry (Instant plans) ──
   if (rules.accountExpiryDays && createdAt) {
     const createdTime = (createdAt as Timestamp).toDate().getTime();
     const expiryMs = rules.accountExpiryDays * 24 * 60 * 60 * 1000;
     if (Date.now() > (createdTime + expiryMs)) {
-      breachReason = `Account expired: Your 30-day window ended on ${new Date(createdTime + expiryMs).toLocaleDateString()}. Purchase a new challenge to continue.`;
+      breachReason = `Account expired: Your ${rules.accountExpiryDays}-day window has ended.`;
     }
   }
 
-  // ── RULE: Execution Frequency (3 minutes) ──
   if (!breachReason) {
     const sortedByOpen = [...trades].sort((a, b) => 
       getTradeDate(a.openedAt)!.getTime() - getTradeDate(b.openedAt)!.getTime()
@@ -186,15 +182,14 @@ export async function auditDemoAccount(accountId: string) {
       const prevOpen = getTradeDate(sortedByOpen[i-1].openedAt)!.getTime();
       const currOpen = getTradeDate(sortedByOpen[i].openedAt)!.getTime();
       const diff = (currOpen - prevOpen) / 1000;
-      if (diff < universal.maxExecutionFrequencySeconds) {
-        breachReason = `Execution frequency violation: Trade opened ${diff.toFixed(0)}s after previous trade (minimum 3 minutes required)`;
+      if (diff < (universal.maxExecutionFrequencySeconds || 180)) {
+        breachReason = `Execution frequency violation: Trade opened too fast (min 3 mins required)`;
         break;
       }
     }
   }
 
-  // ── RULE: No Martingale ──
-  if (!breachReason) {
+  if (!breachReason && universal.noMartingale) {
     const symGroups: Record<string, TradeRecord[]> = {};
     trades.forEach(t => {
       const s = t.symbol || '';
@@ -211,7 +206,7 @@ export async function auditDemoAccount(accountId: string) {
            const prevCloseTime = getTradeDate(prev.closedAt)!.getTime();
            const currOpenTime = getTradeDate(curr.openedAt)!.getTime();
            if (currOpenTime > prevCloseTime && curr.lots! > prev.lots!) {
-              breachReason = `Martingale violation: Lot size increased after a losing trade on ${sym}`;
+              breachReason = `Martingale violation: Lot size increased after loss on ${sym}`;
               break;
            }
         }
@@ -220,7 +215,6 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
-  // ── RULE: Floating Loss & Single Trade Loss Breaches ──
   let realizedLossFromForceClose = 0;
   if (!breachReason && rules.maxFloatingLoss && openTrades.length > 0) {
     const floatingResult = await enforceSymbolFloatingLossLimits(
@@ -235,7 +229,6 @@ export async function auditDemoAccount(accountId: string) {
     if (singleBreach) breachReason = singleBreach;
   }
 
-  // 2. Calculate Real-time Equity & Daily Drawdown
   let totalFloatingPnl = 0;
   for (const t of openTrades) {
     const priceData = prices[t.symbol?.toUpperCase() || ''];
@@ -246,7 +239,6 @@ export async function auditDemoAccount(accountId: string) {
   }
 
   const currentEquity = currBalance + totalFloatingPnl;
-
   const now = new Date();
   const sessionStart = new Date(now);
   sessionStart.setUTCHours(2, 0, 0, 0); 
@@ -264,74 +256,32 @@ export async function auditDemoAccount(accountId: string) {
   const totalDailyRisk = realizedLossToday + (totalFloatingPnl < 0 ? Math.abs(totalFloatingPnl) : 0);
 
   if (!breachReason && totalDailyRisk >= dailyLimit) {
-    breachReason = `Daily drawdown violation: Total risk of $${totalDailyRisk.toFixed(2)} exceeded ${rules.dailyDrawdown}% daily limit of $${dailyLimit.toFixed(2)}`;
+    breachReason = `Daily drawdown violation: Total risk exceeded ${rules.dailyDrawdown}% limit.`;
   }
 
   const maxLimit = initialBalance * (rules.maxDrawdown / 100);
   if (!breachReason && (initialBalance - currentEquity) >= maxLimit) {
-    breachReason = `Maximum drawdown violation: Account equity fell below ${rules.maxDrawdown}% threshold`;
+    breachReason = `Maximum drawdown violation: Total loss exceeded ${rules.maxDrawdown}% limit.`;
   }
 
-  // ── RULE: Minimum Trading Days & Symbol Count Check ──
-  const tradingWindows = new Map<string, number>(); 
-  const symbolTradeCounts: Record<string, number> = {};
-
+  const tradingWindows = new Set<string>(); 
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
-    const sym = t.symbol?.toUpperCase() || 'UNKNOWN';
-    symbolTradeCounts[sym] = (symbolTradeCounts[sym] || 0) + 1;
-
     if (closedDate) {
       const windowStart = new Date(closedDate);
       windowStart.setUTCHours(2, 0, 0, 0);
       if (closedDate.getUTCHours() < 2) windowStart.setUTCDate(windowStart.getUTCDate() - 1);
-      const key = windowStart.toISOString();
-      tradingWindows.set(key, (tradingWindows.get(key) || 0) + 1);
+      tradingWindows.add(windowStart.toISOString());
     }
   });
 
-  const minTradesPerDay = rules.minDailyTrades || 1;
-  const distinctTradingDays = Array.from(tradingWindows.values()).filter(count => count >= minTradesPerDay).length;
-
+  const distinctTradingDays = tradingWindows.size;
   const minDaysRequired = rules.minTradingDays || rules.minTradingDaysBeforePayout || 0;
   const profitTargetAmount = initialBalance * (rules.profitTarget || 10) / 100;
-  
   const targetMet = currBalance >= (initialBalance + profitTargetAmount);
   
-  // Check Min Trades Per Symbol
-  let symbolConstraintMet = true;
-  if (rules.minTradesPerSymbolForPayout) {
-    const symbolsTraded = Object.keys(symbolTradeCounts);
-    for (const sym of symbolsTraded) {
-      if (symbolTradeCounts[sym] < rules.minTradesPerSymbolForPayout) {
-        symbolConstraintMet = false;
-        if (targetMet && !breachReason) {
-           await db.collection('users').doc(userId).collection('notifications').add({
-             title: '⚠️ Symbol Trade Count',
-             message: `You need at least ${rules.minTradesPerSymbolForPayout} completed trades on ${sym} before requesting payout.`,
-             type: 'rule_info',
-             isRead: false,
-             createdAt: FieldValue.serverTimestamp()
-           });
-        }
-        break;
-      }
-    }
-  }
+  const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired;
 
-  const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired && symbolConstraintMet;
-
-  if (targetMet && distinctTradingDays < minDaysRequired && !breachReason) {
-    await db.collection('users').doc(userId).collection('notifications').add({
-      title: '🎯 Target Reached',
-      message: `Profit target reached! Complete ${minDaysRequired - distinctTradingDays} more days with at least ${minTradesPerDay} trades to pass.`,
-      type: 'rule_info',
-      isRead: false,
-      createdAt: FieldValue.serverTimestamp()
-    });
-  }
-
-  // ── EXECUTE BREACH PROTOCOL ──
   if (breachReason) {
     const batch = db.batch();
     batch.update(accRef, {
@@ -358,7 +308,7 @@ export async function auditDemoAccount(accountId: string) {
 
     batch.update(db.collection('users').doc(userId), { accountStatus: 'breached' });
     batch.set(db.collection('breaches').doc(), {
-      accountId, userId, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), planType, phase
+      accountId, userId, email, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), planType, phase
     });
 
     batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
@@ -372,7 +322,6 @@ export async function auditDemoAccount(accountId: string) {
     return { breached: true, reason: breachReason };
   }
 
-  // ── EXECUTE PASS PROTOCOL ──
   if (isPassed) {
     const batch = db.batch();
     batch.update(accRef, { status: 'passed', passedAt: FieldValue.serverTimestamp(), readyForNextPhase: true });

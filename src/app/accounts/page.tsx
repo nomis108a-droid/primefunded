@@ -35,7 +35,7 @@ export default function AccountsPage() {
   , [accounts]);
 
   const breachedAccounts = useMemo(() => 
-    accounts.filter(a => a.status === 'blown' || a.status === 'terminated' || a.status === 'breach')
+    accounts.filter(a => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated')
   , [accounts]);
 
   return (
@@ -112,7 +112,7 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
     const start = acc.createdAt.toDate ? acc.createdAt.toDate() : new Date(acc.createdAt);
     const end = isBlown && acc.blownAt 
       ? (acc.blownAt.toDate ? acc.blownAt.toDate() : new Date(acc.blownAt)) 
-      : new Date();
+      : (acc.updatedAt?.toDate ? acc.updatedAt.toDate() : new Date());
     const days = differenceInDays(end, start);
     return `${days} Days`;
   }, [acc, isBlown]);
