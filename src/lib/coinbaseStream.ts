@@ -3,6 +3,7 @@
  */
 import { getAdminDb } from '@/lib/firebase-admin';
 import { broadcastToRtdb } from './rtdbBroadcast';
+import { FieldValue } from 'firebase-admin/firestore';
 
 const KRAKEN_PAIRS_MAP: Record<string, string> = {
   'XXBTZUSD': 'BTCUSD',
@@ -99,13 +100,20 @@ async function writeCryptoPricesToStorage() {
     // 2. Write to Firestore (Audit/persistence)
     const db = getAdminDb();
     const batch = db.batch();
-    const now = new Date().toISOString();
+    const now = FieldValue.serverTimestamp();
     
     Object.entries(cryptoPrices).forEach(([symbol, data]) => {
-      batch.set(db.collection('livePrices').doc(symbol), { 
-        ...data, 
+      const liveRef = db.collection('livePrices').doc(symbol);
+      const marketRef = db.collection('market').doc(symbol);
+      
+      const payload = {
+        ...data,
+        symbol,
         updatedAt: now 
-      }, { merge: true });
+      };
+
+      batch.set(liveRef, payload, { merge: true });
+      batch.set(marketRef, payload, { merge: true });
     });
     
     await batch.commit();

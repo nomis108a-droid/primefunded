@@ -4,9 +4,9 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 
 /**
- * @fileOverview Institutional Demo Audit Engine (V4)
- * Evaluates internal demo accounts and trades against prop firm hard-breach risk protocols.
- * Strictly uses BID for BUY close and ASK for SELL close conditions for all PnL and risk math.
+ * @fileOverview Institutional Demo Audit Engine (V5)
+ * Hardened Risk Protocols for real-time challenge enforcement.
+ * Enforces Drawdown and Breach logic across all active nodes.
  */
 
 type TradeRecord = {
@@ -31,7 +31,6 @@ function getTradeDate(time: any) {
 
 /**
  * Enforces per-trade floating loss limits (Soft Breach Policy).
- * Standardized: BUY uses current BID, SELL uses current ASK.
  */
 async function enforceSymbolFloatingLossLimits(
   db: any,
@@ -52,7 +51,6 @@ async function enforceSymbolFloatingLossLimits(
     const priceData = prices[sym];
     if (!priceData) continue;
     
-    // BUY positions close at BID, SELL positions close at ASK
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
@@ -162,20 +160,21 @@ export async function auditDemoAccount(accountId: string) {
   const rules = RULES_CONFIG.plans[pKey]?.[phKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
   const universal = RULES_CONFIG.universal;
 
-  const [tradesSnap, pricesSnap] = await Promise.all([
+  const [tradesSnap, marketSnap, livePricesSnap] = await Promise.all([
     db.collection('demoTrades').where('accountId', '==', accountId).get(),
-    db.collection('market').get()
+    db.collection('market').get(),
+    db.collection('livePrices').get()
   ]);
 
   const trades: TradeRecord[] = tradesSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() } as TradeRecord));
+  
+  // ROBUST PRICE MERGING: Ensure both market and livePrices collections are aggregated
   const prices: Record<string, any> = {};
-  pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
-
-  // Fallback if unified market collection is empty
-  if (Object.keys(prices).length === 0) {
-    const backupPrices = await db.collection('livePrices').get();
-    backupPrices.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
-  }
+  livePricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
+  marketSnap.docs.forEach(d => {
+    const sym = d.id.toUpperCase().trim();
+    prices[sym] = { ...(prices[sym] || {}), ...d.data() };
+  });
 
   let openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
@@ -264,7 +263,6 @@ export async function auditDemoAccount(accountId: string) {
   const currentEquity = currBalance + totalFloatingPnl;
   
   // 7. Drawdown Logic (Hard Breach)
-  // Use tracked dailyGrossLossUsd if available for better performance
   let realizedLossToday = realizedLossFromForceClose;
   
   if (typeof dailyGrossLossUsd === 'number') {

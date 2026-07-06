@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
       status: "active",
       breachReason: null,
       createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
       lastResetAt: Timestamp.now(),
     });
 
