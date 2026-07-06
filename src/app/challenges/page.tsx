@@ -530,13 +530,6 @@ export default function ChallengesPage() {
                 </div>
               )}
 
-              <div className="p-4 bg-destructive/15 border-l-4 border-destructive rounded-r-lg flex items-center gap-3">
-                <AlertCircle className="text-destructive w-5 h-5 shrink-0" />
-                <p className="text-xs font-bold text-destructive">
-                  ⚠️ Hard breaches result in immediate account termination with no appeal.
-                </p>
-              </div>
-
               <Tabs defaultValue="1-step" className="w-full" onValueChange={(val) => {
                 setSelectedPlan(val);
               }}>
