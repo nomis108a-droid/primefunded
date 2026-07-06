@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -13,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone, Landmark, Share2
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone, Landmark, Share2, Info, ArrowUpRight
 } from 'lucide-react';
 import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, manualBreachAccountAction, auditAndResetFridayBreachesAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -802,12 +803,23 @@ export default function AdminPage() {
                             </Badge>
                           </td>
                           <td className="p-4 text-right">
-                             <Button variant="ghost" size="icon" onClick={async () => {
-                               if(confirm("Reset this account to starting balance?")) {
-                                 await resetDemoAccountAction(a.id);
-                                 refreshData();
-                               }
-                             }}><RotateCcw className="w-3.5 h-3.5" /></Button>
+                             <div className="flex justify-end gap-2">
+                               <Button variant="ghost" size="icon" title="Inspect Node" onClick={async () => {
+                                  setUserDetailLoading(true);
+                                  const detail = await fetchUserDetailAction(a.userId);
+                                  if (detail.success) {
+                                    setUserDetail(detail);
+                                    setIsUserDetailModalOpen(true);
+                                  }
+                                  setUserDetailLoading(false);
+                               }}><Eye className="w-4 h-4" /></Button>
+                               <Button variant="ghost" size="icon" title="Reset Balance" onClick={async () => {
+                                 if(confirm("Reset this account to starting balance?")) {
+                                   await resetDemoAccountAction(a.id);
+                                   refreshData();
+                                 }
+                               }}><RotateCcw className="w-3.5 h-3.5" /></Button>
+                             </div>
                           </td>
                         </tr>
                       ))}
@@ -932,6 +944,216 @@ export default function AdminPage() {
         </div>
       </main>
 
+      {/* User Detail Modal */}
+      <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
+        <DialogContent className="max-w-6xl h-[90vh] bg-zinc-950 border-white/10 text-white p-0 overflow-hidden flex flex-col">
+          {userDetailLoading ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-4">
+               <Loader2 className="w-10 h-10 animate-spin text-primary" />
+               <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Fetching node metadata...</p>
+            </div>
+          ) : userDetail && (
+            <>
+              <DialogHeader className="p-8 border-b border-white/5 bg-secondary/20 shrink-0">
+                <div className="flex justify-between items-start">
+                  <div className="flex gap-6 items-center">
+                    <div className="w-16 h-16 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary text-2xl font-black shadow-xl">
+                      {userDetail.user?.name?.slice(0, 1)}
+                    </div>
+                    <div>
+                      <DialogTitle className="text-3xl font-headline font-bold mb-1">{userDetail.user?.name || 'Anonymous Trader'}</DialogTitle>
+                      <DialogDescription className="flex items-center gap-3 text-zinc-400">
+                        <span className="flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> {userDetail.user?.email}</span>
+                        <span className="w-1 h-1 rounded-full bg-zinc-700" />
+                        <span className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-tighter text-primary">ID: {userDetail.user?.traderId}</span>
+                      </DialogDescription>
+                    </div>
+                  </div>
+                  <div className="text-right space-y-2">
+                    <Badge className={cn("uppercase text-[10px] font-black", userDetail.user?.kycVerified ? "bg-emerald-500 text-black" : "bg-amber-500 text-black")}>
+                      {userDetail.user?.kycStatus?.toUpperCase() || 'NO KYC'}
+                    </Badge>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Joined {userDetail.user?.joinDate ? format(new Date(userDetail.user.joinDate), 'MMM d, yyyy') : '—'}</p>
+                  </div>
+                </div>
+              </DialogHeader>
+              
+              <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0">
+                <TabsList className="bg-transparent border-b border-white/5 h-12 justify-start px-8 gap-8 shrink-0">
+                  <TabsTrigger value="overview" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Profile Overview</TabsTrigger>
+                  <TabsTrigger value="accounts" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Trading Nodes ({userDetail.accounts?.length})</TabsTrigger>
+                  <TabsTrigger value="history" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Recent Trades ({userDetail.trades?.length})</TabsTrigger>
+                  <TabsTrigger value="breaches" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Breach Logs</TabsTrigger>
+                </TabsList>
+                
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                  <TabsContent value="overview" className="m-0 space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <DetailStat label="Total Balance" value={`$${userDetail.accounts?.reduce((acc: any, curr: any) => acc + (curr.balance || 0), 0).toLocaleString()}`} icon={<Wallet />} />
+                      <DetailStat label="Referral Payouts" value={`$${userDetail.referrals?.reduce((acc: any, curr: any) => acc + (curr.amount || 0), 0).toLocaleString()}`} icon={<Users />} color="blue" />
+                      <DetailStat label="Historical P&L" value={`$${userDetail.trades?.reduce((acc: any, curr: any) => acc + (curr.pnl || 0), 0).toLocaleString()}`} icon={<TrendingUp />} color="green" />
+                    </div>
+                    
+                    <Card className="bg-secondary/10 border-white/5">
+                      <CardHeader><CardTitle className="text-sm font-black uppercase text-primary">Metadata Diagnostic</CardTitle></CardHeader>
+                      <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                        <MetaInfo label="Auth UID" value={userDetail.user?.authUid} copyable />
+                        <MetaInfo label="Phone" value={userDetail.user?.phone} />
+                        <MetaInfo label="Country" value={userDetail.user?.country} />
+                        <MetaInfo label="Tier" value={userDetail.user?.tier} />
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+                  
+                  <TabsContent value="accounts" className="m-0 space-y-6">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {userDetail.accounts?.map((acc: any) => (
+                        <Card key={acc.id} className={cn("bg-card/40 border-white/5 transition-all overflow-hidden", acc.status === 'blown' && "opacity-60 grayscale border-destructive/20")}>
+                           <div className={cn("h-1.5 w-full", acc.status === 'active' ? "bg-emerald-500" : "bg-destructive")} />
+                           <CardContent className="p-6 space-y-6">
+                             <div className="flex justify-between items-start">
+                               <div>
+                                 <h3 className="text-xl font-bold text-white">{acc.label || 'Standard Challenge'}</h3>
+                                 <p className="text-[10px] font-mono text-primary uppercase tracking-widest mt-1">NODE: {acc.id}</p>
+                               </div>
+                               <Badge className={cn("uppercase text-[10px] font-black", acc.status === 'active' ? "bg-emerald-500 text-black" : "bg-destructive text-white")}>
+                                 {acc.status}
+                               </Badge>
+                             </div>
+                             
+                             <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-4">
+                                <div>
+                                   <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Balance / Equity</p>
+                                   <p className="text-lg font-mono font-bold text-white">${acc.balance?.toLocaleString()} / ${acc.equity?.toLocaleString()}</p>
+                                </div>
+                                <div>
+                                   <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Target</p>
+                                   <p className="text-lg font-mono font-bold text-emerald-500">${acc.profitTarget?.toLocaleString()}</p>
+                                </div>
+                             </div>
+
+                             <div className="flex justify-between gap-4">
+                                <Button variant="outline" className="flex-1 h-10 text-[10px] font-bold uppercase tracking-widest" onClick={() => { if(confirm("Confirm account factory reset?")) resetDemoAccountAction(acc.id); refreshData(); }}>
+                                  <RotateCcw className="w-3.5 h-3.5 mr-2" /> Reset Balance
+                                </Button>
+                                {acc.status === 'active' && (
+                                  <Button variant="destructive" className="flex-1 h-10 text-[10px] font-bold uppercase tracking-widest" onClick={() => setBreachForm({ accountId: acc.id, reason: '', isOpen: true })}>
+                                    <Skull className="w-3.5 h-3.5 mr-2" /> Manual Breach
+                                  </Button>
+                                )}
+                             </div>
+                           </CardContent>
+                        </Card>
+                      ))}
+                      {userDetail.accounts?.length === 0 && <p className="py-20 text-center text-muted-foreground italic col-span-2">No trading nodes found for this user.</p>}
+                    </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="history" className="m-0">
+                    <Card className="bg-card/40 border-white/5 overflow-hidden">
+                      <CardContent className="p-0">
+                         <table className="w-full text-xs text-left">
+                           <thead className="bg-white/5 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                             <tr>
+                               <th className="p-4">Symbol / Type</th>
+                               <th className="p-4">Lots</th>
+                               <th className="p-4">Entry / Exit</th>
+                               <th className="p-4 text-right">PnL</th>
+                               <th className="p-4 text-right">Time</th>
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y divide-white/5">
+                             {userDetail.trades?.map((t: any) => (
+                               <tr key={t.id} className="hover:bg-white/5">
+                                 <td className="p-4">
+                                   <p className="font-bold text-white">{t.symbol}</p>
+                                   <p className={cn("text-[9px] uppercase font-black", t.type === 'buy' ? 'text-emerald-500' : 'text-destructive')}>{t.type}</p>
+                                 </td>
+                                 <td className="p-4 font-mono">{t.lots}</td>
+                                 <td className="p-4">
+                                    <p className="text-white">${t.openPrice?.toLocaleString()}</p>
+                                    <p className="text-zinc-500">${t.closePrice?.toLocaleString() || 'OPEN'}</p>
+                                 </td>
+                                 <td className={cn("p-4 text-right font-black tabular-nums", t.pnl >= 0 ? "text-emerald-500" : "text-destructive")}>
+                                   {t.pnl >= 0 ? '+' : ''}{t.pnl?.toLocaleString()}
+                                 </td>
+                                 <td className="p-4 text-right text-muted-foreground">
+                                   {t.openedAt ? format(new Date(t.openedAt), 'MMM d, HH:mm') : '—'}
+                                 </td>
+                               </tr>
+                             ))}
+                           </tbody>
+                         </table>
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
+                  <TabsContent value="breaches" className="m-0">
+                     <Card className="bg-card/40 border-white/5 overflow-hidden">
+                        <CardContent className="p-0">
+                           <table className="w-full text-xs text-left">
+                              <thead className="bg-white/5 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                                <tr>
+                                  <th className="p-4">Date</th>
+                                  <th className="p-4">Account ID</th>
+                                  <th className="p-4">Reason</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5">
+                                {userDetail.accounts?.filter((a:any) => a.status === 'blown').map((a: any) => (
+                                  <tr key={a.id} className="hover:bg-destructive/5 transition-colors">
+                                    <td className="p-4 text-muted-foreground">{a.blownAt ? format(new Date(a.blownAt), 'MMM d, HH:mm') : '—'}</td>
+                                    <td className="p-4 font-mono text-primary">{a.id}</td>
+                                    <td className="p-4 text-destructive/80 font-bold">{a.breachReason || 'Manual Liquidation'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                           </table>
+                        </CardContent>
+                     </Card>
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </>
+          )}
+          <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/50 shrink-0">
+            <Button variant="ghost" className="font-bold text-xs" onClick={() => setIsUserDetailModalOpen(false)}>CLOSE INSPECTION</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual Breach Modal */}
+      <Dialog open={breachForm.isOpen} onOpenChange={(v) => setBreachForm({...breachForm, isOpen: v})}>
+        <DialogContent className="bg-zinc-950 border-destructive/20 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-destructive">
+               <Skull className="w-6 h-6" /> Terminate Node Node
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+               Manually liquidate node <span className="font-mono text-primary">{breachForm.accountId}</span>. This will close all trades and notify the user.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+             <div className="space-y-2">
+                <Label className="text-xs uppercase font-bold text-zinc-500">Breach Reason (Verbatim)</Label>
+                <Textarea 
+                  placeholder="e.g. Unauthorized Expert Advisor detected in live session." 
+                  value={breachForm.reason} 
+                  onChange={(e) => setBreachForm({...breachForm, reason: e.target.value})}
+                  className="bg-zinc-900 border-white/10 h-32 focus:border-destructive/50 transition-all"
+                />
+             </div>
+          </div>
+          <DialogFooter>
+             <Button variant="ghost" onClick={() => setBreachForm({...breachForm, isOpen: false})}>Cancel</Button>
+             <Button variant="destructive" className="font-black px-8" onClick={handleManualBreach} disabled={actionLoading || !breachForm.reason}>
+               {actionLoading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <Skull className="w-4 h-4 mr-2" />}
+               LIQUIDATE NODE
+             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Broadcast Modal */}
       <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
         <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-md">
@@ -1042,6 +1264,37 @@ export default function AdminPage() {
           </form>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function DetailStat({ label, value, icon, color = 'primary' }: { label: string, value: any, icon: any, color?: string }) {
+  const colors: any = {
+    primary: 'bg-primary/10 text-primary border-primary/20',
+    blue: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    green: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  };
+  return (
+    <Card className="bg-secondary/10 border-white/5">
+      <CardContent className="p-6">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">{label}</span>
+          <div className={cn("p-1.5 rounded-lg border", colors[color])}>{icon}</div>
+        </div>
+        <p className="text-2xl font-mono font-black text-white">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetaInfo({ label, value, copyable = false }: { label: string, value: any, copyable?: boolean }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-tighter">{label}</p>
+      <div className="flex items-center gap-2 group">
+        <p className="text-xs font-mono font-bold text-white truncate max-w-full">{value || '—'}</p>
+        {copyable && value && <Button variant="ghost" size="icon" className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigator.clipboard.writeText(value)}><Copy className="w-2.5 h-2.5" /></Button>}
+      </div>
     </div>
   );
 }
