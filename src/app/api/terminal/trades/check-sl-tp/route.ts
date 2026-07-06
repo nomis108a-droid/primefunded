@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -5,14 +6,17 @@ import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
- * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
- * Updated: Standardized case-insensitive symbol handling.
+ * Continuous monitoring of open positions using strict Bid/Ask exit logic.
+ * BUY positions close at BID, SELL positions close at ASK.
  */
 
 function calculateTradePnl(trade: any, priceData: any) {
   if (!priceData || !priceData.price) return 0;
   const sym = (trade.symbol || "").toUpperCase().trim();
+  
+  // UNIFIED PRICING LOGIC
   const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+  
   const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
   const contractSize = CONTRACT_SIZE[sym] || 100000;
   return diff * trade.lots * contractSize;
@@ -29,10 +33,17 @@ export async function GET(req: NextRequest) {
   try {
     const activeAccountsSnap = await db.collection('demoAccounts').where('status', '==', 'active').get();
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
-    const pricesSnap = await db.collection('livePrices').get();
-
+    
+    // Fetch unified market source
+    const pricesSnap = await db.collection('market').get();
     const prices: Record<string, any> = {};
     pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
+
+    // Fallback if market collection is empty
+    if (Object.keys(prices).length === 0) {
+      const backupPrices = await db.collection('livePrices').get();
+      backupPrices.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
+    }
 
     const accountTrades: Record<string, any[]> = {};
     openTradesSnap.docs.forEach(d => {
@@ -55,7 +66,6 @@ export async function GET(req: NextRequest) {
       const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
       const rules = RULES_CONFIG.plans[planKey]?.[acc.phase || 'evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
-      // ── ACCOUNT EXPIRATION CHECK (30 Days for Instant Funding ONLY) ───────
       if (planKey === 'instant-funding') {
         const createdAt = (acc.createdAt as Timestamp).toDate().getTime();
         const daysOld = (now.getTime() - createdAt) / (1000 * 60 * 60 * 24);
@@ -72,6 +82,8 @@ export async function GET(req: NextRequest) {
                 status: 'closed',
                 closeReason: 'liquidation',
                 closePrice: exitPrice,
+                closeBid: priceData?.bid || null,
+                closeAsk: priceData?.ask || null,
                 pnl: tradePnl,
                 closedAt: FieldValue.serverTimestamp()
               });
@@ -85,14 +97,6 @@ export async function GET(req: NextRequest) {
               updatedAt: FieldValue.serverTimestamp()
             });
           });
-          
-          await db.collection('users').doc(acc.userId).collection('notifications').add({
-            title: '⏰ Account Expired',
-            message: 'Your Instant Funding account has expired after 30 days. Please purchase a new challenge to continue trading.',
-            type: 'account_breached',
-            isRead: false,
-            createdAt: FieldValue.serverTimestamp()
-          });
           liquidated++;
           continue;
         }
@@ -105,7 +109,6 @@ export async function GET(req: NextRequest) {
         const sym = (t.symbol || "").toUpperCase().trim();
         const pnl = calculateTradePnl(t, prices[sym]);
         
-        // ── RULE: MAX FLOATING LOSS (1% per single trade) ─────────
         const startBalance = acc.startBalance || 100000;
         const floatingLimit = startBalance * (rules.maxFloatingLoss || 1) / 100;
         
@@ -118,6 +121,8 @@ export async function GET(req: NextRequest) {
                status: 'closed',
                closeReason: 'liquidation',
                closePrice: exitPrice,
+               closeBid: priceData?.bid || null,
+               closeAsk: priceData?.ask || null,
                pnl: pnl,
                closedAt: FieldValue.serverTimestamp()
              });
@@ -170,6 +175,8 @@ export async function GET(req: NextRequest) {
               status: 'closed',
               closeReason: 'liquidation',
               closePrice: exitPrice,
+              closeBid: priceData.bid,
+              closeAsk: priceData.ask,
               pnl: tradePnl,
               closedAt: FieldValue.serverTimestamp(),
               liquidated: true
@@ -189,11 +196,13 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
+      // SL/TP CHECK
       for (const t of trades) {
         const sym = (t.symbol || "").toUpperCase().trim();
         const priceData = prices[sym];
         if (!priceData) continue;
 
+        // BUY exit at BID, SELL exit at ASK
         const bid = priceData.bid || priceData.price;
         const ask = priceData.ask || priceData.price;
 
@@ -224,6 +233,8 @@ export async function GET(req: NextRequest) {
               status: 'closed',
               closeReason: exitReason,
               closePrice: triggerPrice,
+              closeBid: bid,
+              closeAsk: ask,
               pnl,
               closedAt: FieldValue.serverTimestamp()
             });

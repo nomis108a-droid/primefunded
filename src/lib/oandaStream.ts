@@ -1,3 +1,4 @@
+
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { broadcastToRtdb } from './rtdbBroadcast';
@@ -5,6 +6,7 @@ import { broadcastToRtdb } from './rtdbBroadcast';
 /**
  * @fileOverview OANDA Institutional Pricing Stream
  * Maintains a persistent HTTP connection to OANDA for real-time FX/Metals liquidity.
+ * Updates both /livePrices and /market paths for unified synchronization.
  */
 
 let latestOandaTicks: Record<string, { price: number; bid: number; ask: number }> = {};
@@ -16,9 +18,6 @@ export function getLatestOandaTicks() {
   return latestOandaTicks;
 }
 
-/**
- * Updates the local memory buffer from external sources (e.g. RTDB listener)
- */
 export function setLatestOandaTick(symbol: string, data: { price: number; bid: number; ask: number }) {
   latestOandaTicks[symbol] = data;
 }
@@ -108,12 +107,18 @@ export function startOandaThrottledFirestoreWrite() {
       const tickStr = JSON.stringify(tick);
 
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
-        const docRef = db.collection('livePrices').doc(symbol);
-        batch.set(docRef, {
+        // Update both paths for unified sync
+        const liveRef = db.collection('livePrices').doc(symbol);
+        const marketRef = db.collection('market').doc(symbol);
+        
+        const payload = {
           ...tick,
-          pair: symbol,
+          symbol,
           updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
+        };
+
+        batch.set(liveRef, payload, { merge: true });
+        batch.set(marketRef, payload, { merge: true });
 
         lastWrittenOandaTicks[symbol] = tickStr;
         hasChanges = true;

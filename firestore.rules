@@ -19,6 +19,12 @@ service cloud.firestore {
       allow read: if true;
     }
 
+    // Unified Market Feed
+    match /market/{symbol} {
+      allow read: if true;
+      allow write: if true; // Background sync processes
+    }
+
     // Orders Collection: Users can create/read own, admins can manage all
     match /orders/{id} {
       allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);

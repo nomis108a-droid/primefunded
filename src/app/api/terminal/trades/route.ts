@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
@@ -6,6 +7,7 @@ import { auditDemoAccount } from '@/lib/rulesEngine';
 /**
  * @fileOverview Institutional Order Execution API
  * Processes market orders for demo environments with strict risk guardrails and commission engine.
+ * Records the exact opening BID/ASK tick for unified chart synchronization.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -58,6 +60,10 @@ export async function POST(req: NextRequest) {
     const lots = parseFloat(String(rawLots));
     const executionPrice = parseFloat(String(clientPrice));
     
+    // Fetch unified feed price for verification and logging
+    const priceSnap = await db.collection('market').doc(symbol.toUpperCase()).get();
+    const marketTick = priceSnap.exists ? priceSnap.data() : null;
+
     const accRef = db.collection("demoAccounts").doc(accountId);
     const accSnap = await accRef.get();
     
@@ -65,7 +71,6 @@ export async function POST(req: NextRequest) {
     const account = accSnap.data()!;
     if (account.userId !== uid) return NextResponse.json({ error: "Permission denied" }, { status: 403 });
     
-    // PERMANENT: Block trading on breached accounts
     if (account.status === 'blown' || account.status === 'breach' || account.status === 'terminated') {
       return NextResponse.json({ error: 'Account breached: Trading is permanently disabled on this node.' }, { status: 403 });
     }
@@ -91,13 +96,13 @@ export async function POST(req: NextRequest) {
       const isGold = sym === 'XAUUSD';
       const isCrypto = ['BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD'].includes(sym);
       
-      if (isForex) return lots * 5; // $5 per lot
-      if (isGold) return lots * 0.30; // $0.30 per lot
-      if (isCrypto) return (lots * executionPrice) * 0.0005; // 0.05%
+      if (isForex) return lots * 5; 
+      if (isGold) return lots * 0.30; 
+      if (isCrypto) return (lots * executionPrice) * 0.0005; 
       return 0;
     })();
 
-    // 3. Atomic Order Entry
+    // 3. Atomic Order Entry with Snapshotted Ticks
     const tradeRef = db.collection("demoTrades").doc();
     await db.runTransaction(async (tx) => {
       tx.set(tradeRef, {
@@ -107,6 +112,8 @@ export async function POST(req: NextRequest) {
         type,
         lots,
         openPrice: executionPrice,
+        openBid: marketTick?.bid || executionPrice,
+        openAsk: marketTick?.ask || executionPrice,
         commission,
         sl: sl ? parseFloat(String(sl)) : null,
         tp: tp ? parseFloat(String(tp)) : null,
@@ -118,14 +125,12 @@ export async function POST(req: NextRequest) {
         closePrice: null,
       });
 
-      // Deduct commission from balance immediately
       tx.update(accRef, {
         balance: FieldValue.increment(-commission),
         updatedAt: FieldValue.serverTimestamp()
       });
     });
 
-    // 4. Verification Notification
     await db.collection('users').doc(uid).collection('notifications').add({
       title: '📈 Trade Opened',
       message: `${type.toUpperCase()} ${lots} ${symbol} @ ${executionPrice.toFixed(5)}`,
@@ -134,7 +139,6 @@ export async function POST(req: NextRequest) {
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // 5. Audit Engine Call
     await auditDemoAccount(accountId);
 
     return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: executionPrice });

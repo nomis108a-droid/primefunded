@@ -1,3 +1,4 @@
+
 import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -6,7 +7,7 @@ import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 /**
  * @fileOverview Institutional Demo Audit Engine (V4)
  * Evaluates internal demo accounts and trades against prop firm hard-breach risk protocols.
- * CRITICAL: Friday overnight holding rule is PERMANENTLY REMOVED.
+ * Strictly uses BID for BUY close and ASK for SELL close conditions.
  */
 
 type TradeRecord = {
@@ -31,6 +32,7 @@ function getTradeDate(time: any) {
 
 /**
  * Enforces per-trade floating loss limits (Soft Breach Policy).
+ * Standardized: BUY uses current BID, SELL uses current ASK.
  */
 async function enforceSymbolFloatingLossLimits(
   db: any,
@@ -50,9 +52,12 @@ async function enforceSymbolFloatingLossLimits(
     const sym = (t.symbol || '').toUpperCase().trim();
     const priceData = prices[sym];
     if (!priceData) continue;
+    
+    // BUY positions close at BID, SELL positions close at ASK
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
+    
     if (!bySymbol[sym]) bySymbol[sym] = { trades: [], pnl: 0 };
     bySymbol[sym].trades.push(t);
     bySymbol[sym].pnl += pnl;
@@ -73,6 +78,8 @@ async function enforceSymbolFloatingLossLimits(
             closedAt: FieldValue.serverTimestamp(),
             closeReason: 'liquidation',
             closePrice: exitPrice,
+            closeBid: priceData.bid,
+            closeAsk: priceData.ask,
             pnl: tradePnl,
             liquidated: true
           });
@@ -115,6 +122,8 @@ async function enforceSingleTradeLossLimit(
     const sym = (t.symbol || '').toUpperCase().trim();
     const priceData = prices[sym];
     if (!priceData) continue;
+    
+    // BUY positions close at BID, SELL positions close at ASK
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
@@ -146,12 +155,18 @@ export async function auditDemoAccount(accountId: string) {
 
   const [tradesSnap, pricesSnap] = await Promise.all([
     db.collection('demoTrades').where('accountId', '==', accountId).get(),
-    db.collection('livePrices').get()
+    db.collection('market').get() // Unified price source
   ]);
 
   const trades: TradeRecord[] = tradesSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() } as TradeRecord));
   const prices: Record<string, any> = {};
   pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
+
+  // Fallback if unified market collection is still populating
+  if (Object.keys(prices).length === 0) {
+    const backupPrices = await db.collection('livePrices').get();
+    backupPrices.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
+  }
 
   let openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
@@ -210,7 +225,7 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
-  // 4. Soft Breach: Floating Loss
+  // 4. Soft Breach: Floating Loss (Uses strict Bid/Ask)
   let realizedLossFromForceClose = 0;
   if (!breachReason && rules.maxFloatingLoss && openTrades.length > 0) {
     const floatingResult = await enforceSymbolFloatingLossLimits(
@@ -220,7 +235,7 @@ export async function auditDemoAccount(accountId: string) {
     openTrades = openTrades.filter(t => !floatingResult.closedIds.has(t.id));
   }
 
-  // 5. Hard Breach: Single Trade Loss
+  // 5. Hard Breach: Single Trade Loss (Uses strict Bid/Ask)
   if (!breachReason && rules.maxSingleTradeLoss && openTrades.length > 0) {
     const singleBreach = await enforceSingleTradeLossLimit(db, accountId, userId, initialBalance, openTrades, prices, rules.maxSingleTradeLoss);
     if (singleBreach) breachReason = singleBreach;
@@ -303,6 +318,8 @@ export async function auditDemoAccount(accountId: string) {
         closedAt: FieldValue.serverTimestamp(),
         closeReason: 'account_blown',
         closePrice: exitPrice,
+        closeBid: priceData?.bid || null,
+        closeAsk: priceData?.ask || null,
         pnl: finalPnl
       });
     }

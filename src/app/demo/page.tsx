@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
@@ -138,12 +139,17 @@ function OrderPanel({
     );
   }
 
-  const precision = selectedSymbol.includes('JPY') ? 3 : 2;
+  const precision = selectedSymbol.includes('JPY') ? 3 : (selectedSymbol === 'XAUUSD' ? 2 : 5);
 
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-zinc-900/50 border border-zinc-800 rounded-lg flex items-center justify-center">
-        <span className="text-[10px] font-black uppercase text-primary tracking-widest">Market Order</span>
+      <div className="h-10 bg-zinc-900/50 border border-zinc-800 rounded-lg flex flex-col items-center justify-center gap-1">
+        <span className="text-[10px] font-black uppercase text-primary tracking-widest leading-none">Unified Market Feed</span>
+        <div className="flex items-center gap-3 text-[9px] font-mono text-zinc-500">
+          <span>BID: <span className="text-white">{activePrice?.bid?.toFixed(precision) || '---'}</span></span>
+          <span className="w-px h-2 bg-zinc-800" />
+          <span>ASK: <span className="text-white">{activePrice?.ask?.toFixed(precision) || '---'}</span></span>
+        </div>
       </div>
       
       <div className="space-y-6">
@@ -183,8 +189,8 @@ function OrderPanel({
              !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
              (!isPriceValid) ? <span>PRICE SYNCING...</span> : (
                <div className="flex flex-col items-center">
-                 <span className="opacity-80 text-[10px]">BUY BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
+                 <span className="opacity-80 text-[10px]">BUY @ ASK (MARKET)</span>
+                 <span className="text-base"> {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
                </div>
              )}
           </button>
@@ -204,8 +210,8 @@ function OrderPanel({
              !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
              (!isPriceValid) ? <span>PRICE SYNCING...</span> : (
                <div className="flex flex-col items-center">
-                 <span className="opacity-80 text-[10px]">SELL BY MARKET</span>
-                 <span className="text-base">@ {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
+                 <span className="opacity-80 text-[10px]">SELL @ BID (MARKET)</span>
+                 <span className="text-base"> {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
                </div>
              )}
           </button>
@@ -616,6 +622,8 @@ export default function DemoPage() {
         if (closingTradesRef.current.has(t.id)) return;
         const pData = livePrices[t.symbol.toUpperCase()];
         if (!pData || !pData.bid || !pData.ask) return;
+        
+        // UNIFIED TRIGGER LOGIC
         let triggeredPrice = 0;
         let reason = "";
         if (t.type === 'buy') {
@@ -637,8 +645,10 @@ export default function DemoPage() {
     const symbolUpper = trade.symbol.toUpperCase();
     const priceData = livePrices[symbolUpper] || activePrice;
     if (!priceData) return 0;
-    const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-    const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
+    
+    // BUY positions close at BID, SELL positions close at ASK
+    const exitPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
+    const diff = trade.type === 'buy' ? exitPrice - trade.openPrice : trade.openPrice - exitPrice;
     const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
     return diff * trade.lots * contractSize;
   }, [livePrices, activePrice]);
@@ -666,7 +676,10 @@ export default function DemoPage() {
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !activePrice) return;
+      
+      // BUY buys at ASK, SELL sells at BID
       const executionPrice = type === 'buy' ? (activePrice.ask || activePrice.price) : (activePrice.bid || activePrice.price);
+      
       const token = await user.getIdToken(true);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
@@ -695,11 +708,19 @@ export default function DemoPage() {
       const trade = openTrades.find(t => t.id === tradeId);
       if (!trade) return;
       const priceData = livePrices[trade.symbol.toUpperCase()] || activePrice;
+      
+      // UNIFIED EXIT LOGIC
+      // BUY positions close at BID, SELL positions close at ASK
       const closePrice = trade.type === 'buy' ? (priceData?.bid || priceData?.price || 0) : (priceData?.ask || priceData?.price || 0);
+      
       if (!closePrice || closePrice <= 0) return;
       const token = await user?.getIdToken(true);
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ closePrice, closeReason: "manual" }) });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Close Failed", description: err.error || "Execution error", variant: "destructive" });
+        return;
+      }
       toast({ title: "✓ Position Closed" });
     } catch (e: any) { } finally { setActionLoading(false); }
   }
@@ -823,7 +844,7 @@ export default function DemoPage() {
              hasMounted={hasMounted} 
              actionLoading={actionLoading} 
              isPriceValid={isPriceValid} 
-             hasPendingPayout={hasPendingPayout} 
+             hasPendingPayout, 
              marketInfo={marketInfo} 
              activePrice={activePrice} 
              selectedSymbol={selectedSymbol} 
@@ -839,7 +860,6 @@ export default function DemoPage() {
         </aside>
       </div>
 
-      {/* Mobile Action Bar */}
       {isMobile && hasMounted && (
         <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between px-4 z-[55] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
            <Button 
