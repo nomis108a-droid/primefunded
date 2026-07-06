@@ -52,7 +52,7 @@ export function PositionsPanel({
   const [updating, setUpdating] = useState(false);
   const { toast } = useToast();
 
-  const getPrecision = (s: string) => (s === "USDJPY" ? 3 : (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD" ? 2 : 5));
+  const getPrecision = (s: string) => (s === "USDJPY" ? 3 : (s === "XAUUSD" || s === "BTCUSD" || s === "ETHUSD" ? 3 : 5));
   const formatPrice = (price: number | undefined, symbol: string) => price ? price.toFixed(getPrecision(symbol)) : '—';
 
   const handleUpdateLevel = async (tradeId: string) => {
@@ -126,7 +126,6 @@ export function PositionsPanel({
                   <th className="py-1.5 px-2">S/L</th>
                   <th className="py-1.5 px-2">T/P</th>
                   <th className="py-1.5 px-2">Commission</th>
-                  <th className="py-1.5 px-2">Open Time</th>
                   <th className="py-1.5 px-2 text-right">PnL (USD)</th>
                   <th className="py-1.5 px-2 text-right">Action</th>
                 </tr>
@@ -140,14 +139,14 @@ export function PositionsPanel({
                   let pnl = 0;
                   
                   if (pData) {
-                    const currentPrice = t.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
+                    // BUY positions close at BID, SELL positions close at ASK
+                    const exitPrice = t.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
                     const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
                     pnl = t.type === 'buy' 
-                      ? (currentPrice - t.openPrice) * contractSize * t.lots 
-                      : (t.openPrice - currentPrice) * contractSize * t.lots;
+                      ? (exitPrice - t.openPrice) * contractSize * t.lots 
+                      : (t.openPrice - exitPrice) * contractSize * t.lots;
                   }
                   
-                  const openDate = getTradeDate(t.openedAt);
                   const isEditingSL = editingId === t.id && editType === 'sl';
                   const isEditingTP = editingId === t.id && editType === 'tp';
 
@@ -190,7 +189,6 @@ export function PositionsPanel({
 
                       <td className="py-1 px-2 font-mono text-zinc-500 text-[10px]">-{(t.commissionOpen || t.commission || 0).toFixed(2)}</td>
 
-                      <td className="py-1 px-2 font-mono text-zinc-500 text-[10px]">{openDate ? format(openDate, 'HH:mm:ss') : '—'}</td>
                       <td className={cn("py-1 px-2 text-right font-mono font-bold tabular-nums", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>
                         {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
@@ -215,7 +213,6 @@ export function PositionsPanel({
                   <th className="py-1.5 px-2">Lots</th>
                   <th className="py-1.5 px-2">Open</th>
                   <th className="py-1.5 px-2">Close</th>
-                  <th className="py-1.5 px-2">Duration</th>
                   <th className="py-1.5 px-2 text-right">PnL</th>
                   <th className="py-1.5 px-2 text-right">Commission</th>
                   <th className="py-1.5 px-2 text-right">Date</th>
@@ -223,9 +220,7 @@ export function PositionsPanel({
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {closedTrades.map((t) => {
-                  const oDate = getTradeDate(t.openedAt);
                   const cDate = getTradeDate(t.closedAt);
-                  const dur = (oDate && cDate) ? formatDuration(differenceInSeconds(cDate, oDate)) : '—';
                   return (
                     <tr key={t.id} className="hover:bg-white/5 group transition-colors h-[36px]">
                       <td className="py-1 px-2 font-bold text-white">{t.symbol}</td>
@@ -233,9 +228,8 @@ export function PositionsPanel({
                       <td className="py-1 px-2 font-mono">{t.lots}</td>
                       <td className="py-1 px-2 font-mono text-zinc-500">{formatPrice(t.openPrice, t.symbol)}</td>
                       <td className="py-1 px-2 font-mono text-zinc-500">{formatPrice(t.closePrice, t.symbol)}</td>
-                      <td className="py-1 px-2 font-mono text-zinc-500">{dur}</td>
                       <td className={cn("py-1 px-2 text-right font-mono font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
-                        {(t.pnl || 0).toLocaleString()}
+                        {(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-1 px-2 text-right font-mono text-zinc-500 text-[10px]">-{(t.commission || 0).toFixed(2)}</td>
                       <td className="py-1 px-2 text-right text-zinc-600">{cDate ? format(cDate, 'MMM d, HH:mm') : '—'}</td>
@@ -254,17 +248,15 @@ export function PositionsPanel({
                   <th className="py-1.5 px-2">Condition</th>
                   <th className="py-1.5 px-2">Target Price</th>
                   <th className="py-1.5 px-2">Status</th>
-                  <th className="py-1.5 px-2">Set At</th>
                   <th className="py-1.5 px-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {alertsLoading ? (
-                  <tr><td colSpan={6} className="py-10 text-center"><Loader2 className="animate-spin w-4 h-4 mx-auto text-primary" /></td></tr>
+                  <tr><td colSpan={5} className="py-10 text-center"><Loader2 className="animate-spin w-4 h-4 mx-auto text-primary" /></td></tr>
                 ) : alerts.length === 0 ? (
-                  <tr><td colSpan={6} className="py-10 text-center italic text-zinc-600">No active alerts.</td></tr>
+                  <tr><td colSpan={5} className="py-10 text-center italic text-zinc-600">No active alerts.</td></tr>
                 ) : alerts.map((a) => {
-                  const setDate = getTradeDate(a.createdAt);
                   return (
                     <tr key={a.id} className="hover:bg-white/5 transition-colors h-[36px]">
                       <td className="py-1 px-2 font-bold text-white">{a.symbol}</td>
@@ -276,7 +268,6 @@ export function PositionsPanel({
                           a.status === 'active' ? "bg-primary/10 text-primary" : "bg-zinc-800 text-zinc-500"
                         )}>{a.status}</Badge>
                       </td>
-                      <td className="py-1 px-2 text-zinc-600">{setDate ? format(setDate, 'MMM d, HH:mm') : '—'}</td>
                       <td className="py-1 px-2 text-right">
                         <button onClick={() => deleteAlert(a.id)} className="p-1 hover:bg-red-500/20 text-red-500/50 hover:text-red-500 transition-colors rounded cursor-pointer">
                           <Trash2 className="w-3.5 h-3.5" />

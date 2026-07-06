@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
@@ -7,7 +6,7 @@ import { auditDemoAccount } from '@/lib/rulesEngine';
 /**
  * @fileOverview Institutional Order Execution API
  * Processes market orders for demo environments with strict risk guardrails and commission engine.
- * Records the exact opening BID/ASK tick for unified chart synchronization.
+ * Enforces unified pricing: BUY opens at ASK, SELL opens at BID.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -51,18 +50,26 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { accountId, symbol, type, lots: rawLots, sl, tp, price: clientPrice, orderType } = body;
+    const { accountId, symbol, type, lots: rawLots, sl, tp, orderType } = body;
 
-    if (!accountId || !symbol || !type || !rawLots || !clientPrice) {
+    if (!accountId || !symbol || !type || !rawLots) {
       return NextResponse.json({ error: "Missing required order parameters" }, { status: 400 });
     }
 
     const lots = parseFloat(String(rawLots));
-    const executionPrice = parseFloat(String(clientPrice));
     
     // Fetch unified feed price for verification and logging
-    const priceSnap = await db.collection('market').doc(symbol.toUpperCase()).get();
-    const marketTick = priceSnap.exists ? priceSnap.data() : null;
+    const symUpper = symbol.toUpperCase().trim();
+    const marketSnap = await db.collection('market').doc(symUpper).get();
+    const feed = marketSnap.exists ? marketSnap.data() : (await db.collection('livePrices').doc(symUpper).get()).data();
+
+    if (!feed) {
+      return NextResponse.json({ error: "No market feed available for execution" }, { status: 400 });
+    }
+
+    // ── UNIFIED EXECUTION LOGIC ──
+    // BUY opens at ASK, SELL opens at BID
+    const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
     const accRef = db.collection("demoAccounts").doc(accountId);
     const accSnap = await accRef.get();
@@ -91,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     // 2. Commission Engine
     const commission = (() => {
-      const sym = symbol.toUpperCase();
+      const sym = symUpper;
       const isForex = !['XAUUSD','BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD','XAGUSD','XPTUSD'].includes(sym);
       const isGold = sym === 'XAUUSD';
       const isCrypto = ['BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD'].includes(sym);
@@ -108,12 +115,12 @@ export async function POST(req: NextRequest) {
       tx.set(tradeRef, {
         userId: uid,
         accountId,
-        symbol: symbol.toUpperCase(),
+        symbol: symUpper,
         type,
         lots,
         openPrice: executionPrice,
-        openBid: marketTick?.bid || executionPrice,
-        openAsk: marketTick?.ask || executionPrice,
+        openBid: feed.bid,
+        openAsk: feed.ask,
         commission,
         sl: sl ? parseFloat(String(sl)) : null,
         tp: tp ? parseFloat(String(tp)) : null,
@@ -133,7 +140,7 @@ export async function POST(req: NextRequest) {
 
     await db.collection('users').doc(uid).collection('notifications').add({
       title: '📈 Trade Opened',
-      message: `${type.toUpperCase()} ${lots} ${symbol} @ ${executionPrice.toFixed(5)}`,
+      message: `${type.toUpperCase()} ${lots} ${symUpper} @ ${executionPrice.toFixed(5)}`,
       type: 'trade_opened',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()

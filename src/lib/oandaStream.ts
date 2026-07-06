@@ -1,4 +1,3 @@
-
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { broadcastToRtdb } from './rtdbBroadcast';

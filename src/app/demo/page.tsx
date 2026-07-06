@@ -129,25 +129,30 @@ function OrderPanel({
             <div className="h-14 bg-zinc-900/50 rounded-lg animate-pulse" />
             <div className="h-14 bg-zinc-900/50 rounded-lg animate-pulse" />
           </div>
-          <div className="space-y-4">
-            <div className="h-16 bg-zinc-800 rounded-xl animate-pulse" />
-            <div className="h-16 bg-zinc-800 rounded-xl animate-pulse" />
-          </div>
         </div>
       </div>
     );
   }
 
-  const precision = selectedSymbol.includes('JPY') ? 3 : (selectedSymbol === 'XAUUSD' ? 2 : 5);
+  const precision = selectedSymbol.includes('JPY') ? 3 : (selectedSymbol === 'XAUUSD' ? 3 : 5);
+  const spread = activePrice ? Math.abs(activePrice.ask - activePrice.bid) : 0;
 
   return (
     <div className="space-y-6">
-      <div className="h-10 bg-zinc-900/50 border border-zinc-800 rounded-lg flex flex-col items-center justify-center gap-1">
-        <span className="text-[10px] font-black uppercase text-primary tracking-widest leading-none">Unified Market Feed</span>
-        <div className="flex items-center gap-3 text-[9px] font-mono text-zinc-500">
-          <span>BID: <span className="text-white">{activePrice?.bid?.toFixed(precision) || '---'}</span></span>
-          <span className="w-px h-2 bg-zinc-800" />
-          <span>ASK: <span className="text-white">{activePrice?.ask?.toFixed(precision) || '---'}</span></span>
+      <div className="h-14 bg-zinc-900/50 border border-zinc-800 rounded-lg flex flex-col items-center justify-center gap-1 shadow-inner">
+        <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-[0.1em]">
+          <div className="flex flex-col items-center">
+            <span className="text-zinc-500 text-[8px]">BID</span>
+            <span className="text-white font-mono">{activePrice?.bid?.toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
+          </div>
+          <div className="w-px h-6 bg-zinc-800" />
+          <div className="flex flex-col items-center">
+            <span className="text-zinc-500 text-[8px]">ASK</span>
+            <span className="text-white font-mono">{activePrice?.ask?.toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
+          </div>
+        </div>
+        <div className="text-[8px] font-black text-primary/60 uppercase tracking-widest">
+          SPREAD: {spread.toLocaleString('en-US', { minimumFractionDigits: precision })}
         </div>
       </div>
       
@@ -183,15 +188,12 @@ function OrderPanel({
               "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/10"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-             hasPendingPayout ? <span>PAYOUT PENDING</span> : 
-             !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
-             (!isPriceValid) ? <span>PRICE SYNCING...</span> : (
-               <div className="flex flex-col items-center">
-                 <span className="opacity-80 text-[10px]">BUY @ ASK (MARKET)</span>
-                 <span className="text-base"> {Number(activePrice.ask || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
-               </div>
-             )}
+            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : (
+              <div className="flex flex-col items-center">
+                <span className="opacity-80 text-[10px]">BUY @ ASK</span>
+                <span className="text-base"> {Number(activePrice?.ask || 0).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
+              </div>
+            )}
           </button>
           <button 
             type="button" 
@@ -204,15 +206,12 @@ function OrderPanel({
               "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/10"
             )}
           >
-            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
-             hasPendingPayout ? <span>PAYOUT PENDING</span> : 
-             !marketInfo.isOpen ? <span>MARKET CLOSED</span> :
-             (!isPriceValid) ? <span>PRICE SYNCING...</span> : (
-               <div className="flex flex-col items-center">
-                 <span className="opacity-80 text-[10px]">SELL @ BID (MARKET)</span>
-                 <span className="text-base"> {Number(activePrice.bid || activePrice.price).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
-               </div>
-             )}
+            {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : (
+              <div className="flex flex-col items-center">
+                <span className="opacity-80 text-[10px]">SELL @ BID</span>
+                <span className="text-base"> {Number(activePrice?.bid || 0).toLocaleString('en-US', { minimumFractionDigits: precision })}</span>
+              </div>
+            )}
           </button>
         </div>
       </div>
@@ -676,21 +675,18 @@ export default function DemoPage() {
       setActionLoading(true);
       if (!user || !currentAccountId || !activePrice) return;
       
-      // BUY buys at ASK, SELL sells at BID
-      const executionPrice = type === 'buy' ? (activePrice.ask || activePrice.price) : (activePrice.bid || activePrice.price);
-      
       const token = await user.getIdToken(true);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null, orderType: 'market' })
+        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null, orderType: 'market' })
       });
       if (!res.ok) { 
         const err = await res.json().catch(() => ({})); 
         toast({ title: "Execution Failed", description: err.details ? `${err.error}: ${err.details}` : (err.error || `Server Error: ${res.status}`), variant: "destructive" }); 
         return; 
       }
-      toast({ title: `✓ ${type.toUpperCase()} Filled`, description: `${selectedSymbol} @ ${executionPrice.toFixed(selectedSymbol === "USDJPY" ? 3 : 5)}` });
+      toast({ title: `✓ ${type.toUpperCase()} Filled` });
       setIsOrderSheetOpen(false);
     } catch(e: any) { toast({ title: "System Error", description: "Terminal connection fault.", variant: "destructive" }); } finally { setActionLoading(false); }
   }
