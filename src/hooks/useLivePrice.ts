@@ -15,18 +15,16 @@ export interface LivePrice {
 /**
  * Hook for multiple symbols subscription
  * Optimized for high-frequency trading terminals.
- * Listens to the Realtime Database (RTDB) for sub-second price delivery.
+ * Maintains connection even when the tab is inactive for persistent risk monitoring.
  */
 export function useLivePrices(symbols: string[]) {
   const rtdb = useRtdb();
   const [prices, setPrices] = useState<Record<string, LivePrice>>({});
 
-  // Memoize upper case symbols for comparison
   const upperSymbols = useMemo(() => 
     symbols.map(s => s.toUpperCase())
   , [symbols]);
 
-  // Stable key for symbols to avoid effect re-runs
   const symbolsKey = useMemo(() => 
     JSON.stringify(upperSymbols)
   , [upperSymbols]);
@@ -39,45 +37,29 @@ export function useLivePrices(symbols: string[]) {
 
     const pricesRef = ref(rtdb, 'livePrices');
 
-    const subscribe = () => {
-      return onValue(pricesRef, (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
+    const unsubscribe = onValue(pricesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
 
-        const nextPrices: Record<string, LivePrice> = {};
-        
-        upperSymbols.forEach((sym) => {
-          const tick = data[sym];
-          if (tick) {
-            nextPrices[sym] = {
-              symbol: sym,
-              price: Number(tick.price) || 0,
-              bid: Number(tick.bid) || Number(tick.price) || 0,
-              ask: Number(tick.ask) || Number(tick.price) || 0,
-              updatedAt: tick.updatedAt ? new Date(tick.updatedAt) : null
-            };
-          }
-        });
-        
-        setPrices(nextPrices);
+      const nextPrices: Record<string, LivePrice> = {};
+      
+      upperSymbols.forEach((sym) => {
+        const tick = data[sym];
+        if (tick) {
+          nextPrices[sym] = {
+            symbol: sym,
+            price: Number(tick.price) || 0,
+            bid: Number(tick.bid) || Number(tick.price) || 0,
+            ask: Number(tick.ask) || Number(tick.price) || 0,
+            updatedAt: tick.updatedAt ? new Date(tick.updatedAt) : null
+          };
+        }
       });
-    };
-
-    // Initial subscription
-    let unsubscribe = subscribe();
-
-    // Visibility change handler to ensure fresh connection after tab suspension
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        unsubscribe();
-        unsubscribe = subscribe();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+      setPrices(nextPrices);
+    });
 
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       unsubscribe();
     };
   }, [rtdb, symbolsKey, upperSymbols]);

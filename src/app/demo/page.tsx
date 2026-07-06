@@ -60,6 +60,7 @@ export default function DemoPage() {
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isChartReady, setIsChartReady] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
@@ -254,7 +255,9 @@ export default function DemoPage() {
   useEffect(() => {
     if (!isChartReady) return;
     const fetchHistory = async () => {
-      setIsChartLoading(true);
+      if (isInitialLoad) {
+        setIsChartLoading(true);
+      }
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
         const data = await res.json();
@@ -262,7 +265,10 @@ export default function DemoPage() {
           mainSeriesRef.current.setData(data.candles);
           chartInstanceRef.current?.timeScale().fitContent();
         }
-      } catch(e) {} finally { setIsChartLoading(false); }
+      } catch(e) {} finally { 
+        setIsChartLoading(false); 
+        setIsInitialLoad(false);
+      }
     };
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);

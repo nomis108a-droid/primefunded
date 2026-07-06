@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react';
  * @fileOverview high-frequency SSE price hook
  * Subscribes to the server-side memory buffer for a single symbol.
  * Hardened with synchronous state reset and exponential backoff.
+ * Maintains connection in the background for consistent data collection.
  */
 export function useTickStream(symbol: string) {
   const [tick, setTick] = useState<{ price: number; bid: number; ask: number } | null>(null);
@@ -64,6 +65,7 @@ export function useTickStream(symbol: string) {
         setError(true);
         es.close();
         
+        // Exponential backoff only on actual error, not visibility change
         const delay = Math.min(Math.pow(2, retryCountRef.current) * 1000, 30000);
         retryCountRef.current++;
         reconnectTimeoutRef.current = setTimeout(connect, delay);
@@ -74,15 +76,6 @@ export function useTickStream(symbol: string) {
 
     connect();
 
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        retryCountRef.current = 0;
-        connect();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibility);
-
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
@@ -90,7 +83,6 @@ export function useTickStream(symbol: string) {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [symbol]);
 
