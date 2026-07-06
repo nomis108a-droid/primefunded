@@ -16,12 +16,12 @@ import {
   Clock as ClockIcon, AlertTriangle, Lock, Unlock, Magnet,
   TrendingUp, Eye, EyeOff, ShieldAlert, UserCircle, XCircle,
   MousePointer2, Move, Pencil, Share2, Layers, Trash2, ChevronDown,
-  LayoutGrid, Plus, History, LayoutDashboard, Wallet
+  LayoutGrid, Plus, History, LayoutDashboard, Wallet, ChevronLeft
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { where, orderBy, limit } from "firebase/firestore";
-import { createChart, ColorType, IChartApi, ISeriesApi, PriceScaleMode, CrosshairMode } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, PriceScaleMode, CrosshairMode, IPriceLine } from 'lightweight-charts';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
@@ -77,6 +77,9 @@ export default function DemoPage() {
 
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [candleCountdown, setCandleCountdown] = useState<string | null>(null);
+
+  // Price Lines Refs for dynamic chart objects
+  const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
   // FAIL-SAFE: Force clear loading state after 10 seconds no matter what
   useEffect(() => {
@@ -151,6 +154,108 @@ export default function DemoPage() {
     if (['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase())) return 3;
     return 5;
   };
+
+  // Helper to calculate PnL locally
+  const calculateTradePnL = useCallback((trade: any) => {
+    const symbolUpper = trade.symbol.toUpperCase();
+    const pData = livePrices[symbolUpper] || activePrice;
+    if (!pData) return 0;
+    
+    // BUY positions close at BID, SELL positions close at ASK
+    const currentPrice = trade.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
+    const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
+    const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
+    return diff * trade.lots * contractSize;
+  }, [livePrices, activePrice]);
+
+  // Synchronize Chart Price Lines and Markers
+  useEffect(() => {
+    if (!mainSeriesRef.current || !isChartReady) return;
+
+    // 1. Handle Markers (Buy/Sell indicators on candles)
+    const markers = openTrades
+      .filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase())
+      .map(t => {
+        const time = t.openedAt?.seconds || (new Date(t.openedAt).getTime() / 1000);
+        return {
+          time: Math.floor(time),
+          position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
+          color: t.type === 'buy' ? '#10b981' : '#ef4444',
+          shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: t.type.toUpperCase(),
+        };
+      });
+    
+    mainSeriesRef.current.setMarkers(markers as any);
+
+    // 2. Handle Price Lines (Entry, SL, TP)
+    const activeIds = new Set(openTrades.map(t => t.id));
+    
+    // Cleanup lines for trades no longer open
+    priceLinesRef.current.forEach((lines, id) => {
+      if (!activeIds.has(id)) {
+        lines.forEach(l => mainSeriesRef.current?.removePriceLine(l));
+        priceLinesRef.current.delete(id);
+      }
+    });
+
+    // Create or update lines for current open trades
+    openTrades.forEach(trade => {
+      if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
+
+      let lines = priceLinesRef.current.get(trade.id);
+      
+      // If no lines exist for this trade, create them
+      if (!lines) {
+        const pnl = calculateTradePnL(trade);
+        const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        
+        const entryLine = mainSeriesRef.current!.createPriceLine({
+          price: trade.openPrice,
+          color: '#71717a',
+          lineWidth: 1,
+          lineStyle: 2, // Dashed
+          axisLabelVisible: true,
+          title: `${trade.type.toUpperCase()} ${trade.lots} | ${pnlStr}`,
+        });
+
+        const newLines = [entryLine];
+
+        if (trade.sl) {
+          newLines.push(mainSeriesRef.current!.createPriceLine({
+            price: trade.sl,
+            color: '#ef4444',
+            lineWidth: 1,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: 'SL',
+          }));
+        }
+
+        if (trade.tp) {
+          newLines.push(mainSeriesRef.current!.createPriceLine({
+            price: trade.tp,
+            color: '#10b981',
+            lineWidth: 1,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: 'TP',
+          }));
+        }
+
+        priceLinesRef.current.set(trade.id, newLines);
+      } else {
+        // Update the PnL label on the existing entry line
+        const entryLine = lines[0];
+        const pnl = calculateTradePnL(trade);
+        const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        entryLine.applyOptions({
+          title: `${trade.type.toUpperCase()} ${trade.lots} | ${pnlStr}`
+        });
+      }
+    });
+
+  }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
@@ -344,9 +449,8 @@ export default function DemoPage() {
       <header className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-2 md:gap-4 h-full">
           <Link href="/dashboard" className="flex items-center gap-2 pr-2 md:pr-3 border-r border-zinc-800 h-6 group">
-            <ArrowLeft className="w-3.5 h-3.5 text-zinc-500 group-hover:text-primary transition-colors" />
-            <Image src={branding.logoUrl} alt="Logo" width={18} height={18} className="rounded-full" />
-            {!isMobile && <span className="font-bold text-[11px] text-white">PRIME TERMINAL</span>}
+            <ChevronLeft className="w-4 h-4 text-zinc-500 group-hover:text-primary transition-colors" />
+            {!isMobile && <span className="font-bold text-[10px] uppercase tracking-widest text-zinc-400 group-hover:text-white transition-colors">BACK TO HUB</span>}
           </Link>
 
           <div className="flex items-center gap-1">
