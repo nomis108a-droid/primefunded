@@ -56,7 +56,6 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
-// Institutional Contract Sizes (Single Source of Truth for Terminal)
 const CONTRACT_SIZE: Record<string, number> = {
   XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
   EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
@@ -255,12 +254,11 @@ export default function DemoPage() {
 
   const [historyPrice, setHistoryPrice] = useState<number | null>(null);
 
-  // CRITICAL: Synchronously clear chart-specific state when symbol or interval changes 
-  // to prevent stale data from leaking into the new chart rendering cycle.
-  const [lastStateKey, setLastStateKey] = useState("");
-  const currentStateKey = `${selectedSymbol}-${selectedInterval}`;
-  if (lastStateKey !== currentStateKey) {
-    setLastStateKey(currentStateKey);
+  const [lastStateKey, setLastSymbolInterval] = useState("");
+  const currentKey = `${selectedSymbol}-${selectedInterval}`;
+
+  if (lastStateKey !== currentKey) {
+    setLastSymbolInterval(currentKey);
     setHistoryPrice(null);
   }
 
@@ -368,7 +366,6 @@ export default function DemoPage() {
     };
   }, [handleResize]);
 
-  // Synchronous ref clear on navigation to prevent bar pollution
   useEffect(() => {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
@@ -444,7 +441,7 @@ export default function DemoPage() {
           borderColor: '#27272a', 
           timeVisible: true, 
           secondsVisible: false,
-          rightOffset: 5,
+          rightOffset: 15,
           barSpacing: 6,
           fixLeftEdge: false,
           fixRightEdge: false,
@@ -469,7 +466,7 @@ export default function DemoPage() {
     } catch (e) {}
     applyGlobalSettings();
     return () => { if (chartInstanceRef.current) { try { chartInstanceRef.current.remove(); } catch (e) {} chartInstanceRef.current = null; } mainSeriesRef.current = null; setIsChartReady(false); currentCandleRef.current = null; };
-  }, [chartType, applyGlobalSettings, isMobile, handleResize]);
+  }, [chartType, applyGlobalSettings, isMobile]);
 
   useEffect(() => {
     let isMounted = true;
@@ -483,6 +480,9 @@ export default function DemoPage() {
         if (mainSeriesRef.current) mainSeriesRef.current.setData(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
         setHistoryPrice(cached.candles[cached.candles.length - 1].close);
+        
+        chartInstanceRef.current?.timeScale().fitContent();
+        mainSeriesRef.current?.priceScale().applyOptions({ autoScale: true });
       } else { 
         setIsChartLoading(true); 
       }
@@ -570,9 +570,6 @@ export default function DemoPage() {
       const price = Number(activePrice.price);
       if (price <= 0 || isNaN(price)) return;
       
-      // CRITICAL: Institutional Outlier Guard.
-      // If a tick deviates by >50% from the last history price, it's almost 
-      // certainly a stale stream leak from a previous symbol (e.g. BTC tick in Gold chart).
       if (historyPrice && Math.abs((price - historyPrice) / historyPrice) > 0.5) {
         return;
       }
