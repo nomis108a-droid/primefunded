@@ -505,9 +505,10 @@ export default function AdminPage() {
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {activeTab === 'overview' && (
             <div className="space-y-10">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
                 <StatCard title="Active Traders" value={adminData.users.length} icon={<Users />} color="blue" />
                 <StatCard title="Total Volume" value={`$${(adminData.demoAccounts.reduce((acc: any, curr: any) => acc + (curr.balance || 0), 0) / 1000000).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
+                <StatCard title="Total Registered Nodes" value={adminData.demoAccounts.length} icon={<Database />} color="blue" />
                 <StatCard title="Pending Orders" value={adminData.orders.filter((o: any) => o.status === 'pending').length} icon={<CreditCard />} color="amber" />
                 <StatCard title="Phase Passers" value={phasePassers.length} icon={<Trophy />} color="purple" />
                 <StatCard title="Total Liquidation" value={unifiedBreaches.length} icon={<Skull />} color="red" />
