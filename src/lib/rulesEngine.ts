@@ -82,10 +82,18 @@ async function enforceSymbolFloatingLossLimits(
             pnl: tradePnl,
             liquidated: true
           });
-          tx.update(db.collection('demoAccounts').doc(accountId), {
+
+          const accUpdates: any = {
             balance: FieldValue.increment(tradePnl),
             updatedAt: FieldValue.serverTimestamp()
-          });
+          };
+
+          if (tradePnl < 0) {
+            accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(tradePnl));
+          }
+
+          tx.update(db.collection('demoAccounts').doc(accountId), accUpdates);
+          
           tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
             title: '🛡️ Trade Auto-Closed',
             message: `${sym} trades force-closed: combined floating loss on this symbol exceeded ${maxFloatingLossPct}% of your starting balance.`,
@@ -145,7 +153,7 @@ export async function auditDemoAccount(accountId: string) {
   const account = accSnap.data()!;
   if (account.status !== 'active') return { status: account.status };
 
-  const { userId, startBalance, balance, planType, phase, email, name, createdAt } = account;
+  const { userId, startBalance, balance, planType, phase, email, name, createdAt, dailyGrossLossUsd } = account;
   const initialBalance = parseFloat(String(startBalance || 100000));
   const currBalance = parseFloat(String(balance || initialBalance));
 
@@ -254,19 +262,26 @@ export async function auditDemoAccount(accountId: string) {
   }
 
   const currentEquity = currBalance + totalFloatingPnl;
-  const now = new Date();
-  const sessionStart = new Date(now);
-  sessionStart.setUTCHours(2, 0, 0, 0); 
-  if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
-
+  
   // 7. Drawdown Logic (Hard Breach)
+  // Use tracked dailyGrossLossUsd if available for better performance
   let realizedLossToday = realizedLossFromForceClose;
-  closedTrades.forEach(t => {
-    const closedDate = getTradeDate(t.closedAt);
-    if (closedDate && closedDate >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
-      realizedLossToday += Math.abs(parseFloat(String(t.pnl)));
-    }
-  });
+  
+  if (typeof dailyGrossLossUsd === 'number') {
+    realizedLossToday += dailyGrossLossUsd;
+  } else {
+    const now = new Date();
+    const sessionStart = new Date(now);
+    sessionStart.setUTCHours(2, 0, 0, 0); 
+    if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
+
+    closedTrades.forEach(t => {
+      const closedDate = getTradeDate(t.closedAt);
+      if (closedDate && closedDate >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
+        realizedLossToday += Math.abs(parseFloat(String(t.pnl)));
+      }
+    });
+  }
 
   const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
   const totalDailyRisk = realizedLossToday + (totalFloatingPnl < 0 ? Math.abs(totalFloatingPnl) : 0);

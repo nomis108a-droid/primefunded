@@ -74,10 +74,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         closedAt: Timestamp.now(),
       });
 
-      tx.update(accRef, {
+      const accUpdates: any = {
         balance: FieldValue.increment(finalPnL),
         updatedAt: FieldValue.serverTimestamp()
-      });
+      };
+
+      // Track realized daily loss for risk engine efficiency
+      if (finalPnL < 0) {
+        accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(finalPnL));
+      }
+
+      tx.update(accRef, accUpdates);
     });
 
     await auditDemoAccount(trade.accountId);

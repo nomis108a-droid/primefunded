@@ -130,10 +130,17 @@ async function checkTpSlHits(db: any) {
             updatedAt: FieldValue.serverTimestamp()
           });
 
-          tx.update(db.collection('demoAccounts').doc(trade.accountId), {
+          const accUpdates: any = {
             balance: FieldValue.increment(finalPnL),
             updatedAt: FieldValue.serverTimestamp()
-          });
+          };
+
+          // Maintain daily loss counter for risk auditing
+          if (finalPnL < 0) {
+            accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(finalPnL));
+          }
+
+          tx.update(db.collection('demoAccounts').doc(trade.accountId), accUpdates);
           
           // Log specific auto-close event for audit review
           tx.set(db.collection('system_logs').doc(), {
