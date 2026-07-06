@@ -95,13 +95,8 @@ function OrderPanel({
   isPriceValid, 
   hasPendingPayout, 
   marketInfo, 
-  streamError, 
   activePrice, 
   selectedSymbol, 
-  orderType, 
-  setOrderType, 
-  pendingPrice, 
-  setPendingPrice, 
   lotsInput, 
   setLotsInput, 
   lots, 
@@ -113,17 +108,22 @@ function OrderPanel({
 }: any) {
   if (!hasMounted) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-10 bg-zinc-800/50 rounded-lg border border-zinc-800" />
+      <div className="space-y-6">
+        <div className="h-10 bg-zinc-900 border border-zinc-800 rounded-lg flex items-center justify-center">
+          <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Market Execution</span>
+        </div>
         <div className="space-y-6">
-          <div className="h-11 bg-zinc-800/50 rounded-lg" />
+          <div className="flex flex-col gap-2">
+            <div className="w-20 h-3 bg-zinc-800 rounded mb-1 animate-pulse" />
+            <div className="h-11 bg-zinc-900/50 rounded-lg border border-zinc-800 animate-pulse" />
+          </div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="h-14 bg-zinc-800/50 rounded-lg" />
-            <div className="h-14 bg-zinc-800/50 rounded-lg" />
+            <div className="h-14 bg-zinc-900/50 rounded-lg animate-pulse" />
+            <div className="h-14 bg-zinc-900/50 rounded-lg animate-pulse" />
           </div>
           <div className="space-y-4">
-            <div className="h-16 bg-zinc-800/50 rounded-xl" />
-            <div className="h-16 bg-zinc-800/50 rounded-xl" />
+            <div className="h-16 bg-zinc-800 rounded-xl animate-pulse" />
+            <div className="h-16 bg-zinc-800 rounded-xl animate-pulse" />
           </div>
         </div>
       </div>
@@ -134,44 +134,29 @@ function OrderPanel({
 
   return (
     <div className="space-y-6">
-      <Tabs value={orderType} onValueChange={(v: any) => setOrderType(v)}>
-        <TabsList className="grid w-full grid-cols-2 bg-zinc-900/50 h-10 p-1 border border-zinc-800">
-          <TabsTrigger value="market" className="text-[10px] font-black uppercase">Market</TabsTrigger>
-          <TabsTrigger value="pending" className="text-[10px] font-black uppercase">Pending</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="h-10 bg-zinc-900/50 border border-zinc-800 rounded-lg flex items-center justify-center">
+        <span className="text-[10px] font-black uppercase text-primary tracking-widest">Market Order</span>
+      </div>
+      
       <div className="space-y-6">
-        {orderType === 'pending' && (
-          <div className="space-y-2">
-            <Label className="text-[9px] font-black uppercase text-zinc-400">Limit Price</Label>
-            <Input
-              type="number"
-              step="any"
-              placeholder="Enter limit price..."
-              value={pendingPrice}
-              onChange={e => setPendingPrice(e.target.value)}
-              className="bg-zinc-900 border-zinc-700 text-white h-11 text-sm font-mono"
-            />
-          </div>
-        )}
         <div className="flex flex-col gap-2">
           <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
           <div className="flex items-center gap-2">
-            <button onClick={() => setLotsInput(Math.max(0.01, lots - 0.01).toFixed(2))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">-</button>
+            <button onClick={() => setLotsInput(Math.max(0.01, lots - 0.01).toFixed(2))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold hover:bg-zinc-800 transition-colors">-</button>
             <Input
               type="text"
               inputMode="decimal"
               value={lotsInput}
               onChange={(e) => { const val = e.target.value; if (/^\d*\.?\d*$/.test(val)) setLotsInput(val); }}
               onBlur={() => { const parsed = parseFloat(lotsInput); setLotsInput(isNaN(parsed) || parsed <= 0 ? "0.01" : parsed.toFixed(2)); }}
-              className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white"
+              className="h-11 bg-zinc-900/50 text-center font-mono font-bold text-white border-zinc-800"
             />
-            <button onClick={() => setLotsInput((lots + 0.01).toFixed(2))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold">+</button>
+            <button onClick={() => setLotsInput((lots + 0.01).toFixed(2))} className="w-10 h-11 bg-zinc-900 rounded-lg border border-zinc-800 font-bold hover:bg-zinc-800 transition-colors">+</button>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
-          <div className="space-y-2"><Label className="text-[10px] font-black uppercase">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50" /></div>
+          <div className="space-y-2"><Label className="text-[10px] font-black uppercase text-zinc-500">Stop Loss</Label><Input placeholder="0.00" value={sl} onChange={(e) => setSl(e.target.value)} className="h-11 bg-zinc-900/50 border-zinc-800" /></div>
+          <div className="space-y-2"><Label className="text-[10px] font-black uppercase text-zinc-500">Take Profit</Label><Input placeholder="0.00" value={tp} onChange={(e) => setTp(e.target.value)} className="h-11 bg-zinc-900/50 border-zinc-800" /></div>
         </div>
         <div className="space-y-4">
           <button 
@@ -182,7 +167,7 @@ function OrderPanel({
               "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
               (!isPriceValid) ? "bg-zinc-800 text-muted-foreground" :
-              "bg-emerald-600 hover:bg-emerald-700 text-white"
+              "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/10"
             )}
           >
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
@@ -203,7 +188,7 @@ function OrderPanel({
               "w-full h-16 rounded-xl font-black text-xs tracking-widest transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed px-4 flex flex-col items-center justify-center gap-1",
               (hasPendingPayout || !marketInfo.isOpen) ? "bg-zinc-800 text-zinc-500" : 
               (!isPriceValid) ? "bg-zinc-800 text-muted-foreground" :
-              "bg-red-600 hover:bg-red-700 text-white"
+              "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/10"
             )}
           >
             {actionLoading ? <Loader2 className="animate-spin w-5 h-5 mx-auto" /> : 
@@ -245,8 +230,6 @@ export default function DemoPage() {
 
   const [sl, setSl] = useState<string>("");
   const [tp, setTp] = useState<string>("");
-  const [orderType, setOrderType] = useState<"market" | "pending">("market");
-  const [pendingPrice, setPendingPrice] = useState<string>("");
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [countdown, setCountdown] = useState("00:00");
 
@@ -261,7 +244,6 @@ export default function DemoPage() {
   const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
 
-  // Sync state for fallback prices from history
   const [historyPrice, setHistoryPrice] = useState<number | null>(null);
 
   const [chartSettings, setChartSettings] = useState({
@@ -300,23 +282,11 @@ export default function DemoPage() {
 
   const activePrice = useMemo(() => {
     const sym = selectedSymbol.toUpperCase();
-    // 1. High-frequency SSE Stream
-    if (streamTick && Number(streamTick.price) > 0) {
-       return streamTick;
-    }
-    // 2. Realtime Database Hook (Sub-second fallback)
+    if (streamTick && Number(streamTick.price) > 0) return streamTick;
     const rtdbTick = livePrices[sym];
-    if (rtdbTick && Number(rtdbTick.price) > 0) {
-       return rtdbTick;
-    }
-    // 3. Chart History Fallback (Ensures buttons unlock in Simulated Mode)
+    if (rtdbTick && Number(rtdbTick.price) > 0) return rtdbTick;
     if (historyPrice && historyPrice > 0) {
-      return {
-        price: historyPrice,
-        bid: historyPrice * 0.9999,
-        ask: historyPrice * 1.0001,
-        source: 'history-fallback'
-      };
+      return { price: historyPrice, bid: historyPrice * 0.9999, ask: historyPrice * 1.0001, source: 'history-fallback' };
     }
     return null;
   }, [streamTick, livePrices, selectedSymbol, historyPrice]);
@@ -487,11 +457,6 @@ export default function DemoPage() {
           if (mainSeriesRef.current) {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
-             
-             chartInstanceRef.current?.applyOptions({
-               rightPriceScale: { autoScale: true }
-             });
-             chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
              chartInstanceRef.current?.timeScale().fitContent();
              setTimeout(() => {
                chartInstanceRef.current?.timeScale().scrollToRealTime();
@@ -500,13 +465,11 @@ export default function DemoPage() {
           }
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
-          
           const lastHistCandle = sorted[sorted.length - 1];
           if (!currentCandleRef.current || lastHistCandle.time > currentCandleRef.current.time) {
             currentCandleRef.current = { ...lastHistCandle };
             setHistoryPrice(lastHistCandle.close);
           }
-          
           oldestTimestamp.current = sorted[0].time;
         }
       } catch (err: any) { if (isMounted && !cached) setChartError(err.message); } finally { if (isMounted) setIsChartLoading(false); }
@@ -517,7 +480,6 @@ export default function DemoPage() {
 
   const tradeConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("openedAt", "desc")] : [], [user?.uid]);
   const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
-  
   const trades = useMemo(() => allUserTrades.filter(t => t.accountId === currentAccountId), [allUserTrades, currentAccountId]);
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
@@ -544,21 +506,13 @@ export default function DemoPage() {
       if (price <= 0 || isNaN(price)) return;
       if (prevPrice && Math.abs(price - prevPrice) / prevPrice > 0.15) return;
       lastGoodPriceRef.current[selectedSymbol] = price;
-
       const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
       const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
-      
       if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
         currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
       } else {
-        currentCandleRef.current = {
-          ...currentCandleRef.current,
-          high: Math.max(currentCandleRef.current.high, price),
-          low: Math.min(currentCandleRef.current.low, price),
-          close: price
-        };
+        currentCandleRef.current = { ...currentCandleRef.current, high: Math.max(currentCandleRef.current.high, price), low: Math.min(currentCandleRef.current.low, price), close: price };
       }
-      
       if (chartType === 'line' || chartType === 'area') {
         mainSeriesRef.current.update({ time: candleTime as any, value: price });
       } else {
@@ -573,16 +527,14 @@ export default function DemoPage() {
         if (closingTradesRef.current.has(t.id)) return;
         const pData = livePrices[t.symbol.toUpperCase()];
         if (!pData || !pData.bid || !pData.ask) return;
-        const bid = pData.bid;
-        const ask = pData.ask;
         let triggeredPrice = 0;
         let reason = "";
         if (t.type === 'buy') {
-          if (t.sl && bid <= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
-          else if (t.tp && bid >= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
+          if (t.sl && pData.bid <= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
+          else if (t.tp && pData.bid >= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
         } else {
-          if (t.sl && ask >= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
-          else if (t.tp && ask <= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
+          if (t.sl && pData.ask >= t.sl) { triggeredPrice = t.sl; reason = "stop_loss"; }
+          else if (t.tp && pData.ask <= t.tp) { triggeredPrice = t.tp; reason = "take_profit"; }
         }
         if (triggeredPrice > 0) {
           closingTradesRef.current.add(t.id);
@@ -611,8 +563,8 @@ export default function DemoPage() {
       const currentPnl = calculateOpenPnl(trade);
       const entryLine = mainSeriesRef.current!.createPriceLine({ price: trade.openPrice, color: trade.type === 'buy' ? '#2962ff' : '#f57c00', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: `${trade.lots.toFixed(2)}  ${currentPnl >= 0 ? '+' : ''}${currentPnl.toFixed(2)} USD`, });
       lines.push(entryLine);
-      if (trade.sl) { const slLine = mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` }); lines.push(slLine); }
-      if (trade.tp) { const tpLine = mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` }); lines.push(tpLine); }
+      if (trade.sl) lines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` }));
+      if (trade.tp) lines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` }));
       activePriceLinesRef.current.set(trade.id, lines);
     });
     return () => { activePriceLinesRef.current.forEach((lines) => { lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line)); }); };
@@ -620,28 +572,17 @@ export default function DemoPage() {
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (!hasMounted) return;
-    if (hasPendingPayout) {
-      toast({ title: "Trading Suspended", description: "You have a pending payout request.", variant: "destructive" });
-      return;
-    }
-    if (!marketInfo.isOpen) {
-      toast({ title: "Market Closed", description: "Trading is disabled for this instrument at this time.", variant: "destructive" });
-      return;
-    }
+    if (hasPendingPayout) { toast({ title: "Trading Suspended", description: "You have a pending payout request.", variant: "destructive" }); return; }
+    if (!marketInfo.isOpen) { toast({ title: "Market Closed", description: "Trading is disabled for this instrument at this time.", variant: "destructive" }); return; }
     try {
       setActionLoading(true);
       if (!user || !currentAccountId || !activePrice) return;
-      const executionPrice = orderType === 'pending' ? parseFloat(pendingPrice) : type === 'buy' ? (activePrice.ask || activePrice.price) : (activePrice.bid || activePrice.price);
-      if (orderType === 'pending' && (!pendingPrice || isNaN(executionPrice) || executionPrice <= 0)) {
-        toast({ title: "Validation Error", description: "Please enter a valid limit price", variant: "destructive" });
-        setActionLoading(false);
-        return;
-      }
+      const executionPrice = type === 'buy' ? (activePrice.ask || activePrice.price) : (activePrice.bid || activePrice.price);
       const token = await user.getIdToken(true);
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null, orderType: orderType || 'market' })
+        body: JSON.stringify({ accountId: currentAccountId, symbol: selectedSymbol.toUpperCase(), type, lots, price: executionPrice, sl: sl && parseFloat(sl) > 0 ? parseFloat(sl) : null, tp: tp && parseFloat(tp) > 0 ? parseFloat(tp) : null, orderType: 'market' })
       });
       if (!res.ok) { 
         const err = await res.json().catch(() => ({})); 
@@ -679,19 +620,12 @@ export default function DemoPage() {
   ];
 
   if (!user && !authLoading) return null;
-
   if (!accountsLoading && !hasActiveAccount) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center space-y-8">
         <div className="w-24 h-24 rounded-3xl bg-primary/10 border border-primary/20 flex items-center justify-center cyan-box-glow"><ShieldAlert className="w-12 h-12 text-primary" /></div>
-        <div className="max-w-md space-y-4">
-          <h1 className="text-4xl font-headline font-bold text-white">No Active Trading Account</h1>
-          <p className="text-muted-foreground text-lg leading-relaxed">{accounts.length > 0 ? "Your accounts have been closed or passed. Purchase a new challenge to continue trading." : "You don't have an active trading account."}</p>
-        </div>
-        <div className="flex gap-4">
-          <Button variant="outline" className="font-bold rounded-xl h-14 px-8" asChild><Link href="/dashboard"><ArrowLeft className="mr-2 w-4 h-4" /> Dashboard</Link></Button>
-          <Button className="font-bold cyan-box-glow rounded-xl h-14 px-10" asChild><Link href="/challenges">Get Funded Now <ArrowRight className="ml-2 w-4 h-4" /></Link></Button>
-        </div>
+        <h1 className="text-4xl font-headline font-bold text-white">No Active Account</h1>
+        <div className="flex gap-4"><Button variant="outline" asChild><Link href="/dashboard">Dashboard</Link></Button><Button asChild><Link href="/challenges">Get Funded</Link></Button></div>
       </div>
     );
   }
@@ -700,64 +634,42 @@ export default function DemoPage() {
     <div className="fixed inset-0 h-[100dvh] w-screen bg-[#09090b] flex flex-col text-zinc-300 font-sans select-none overflow-hidden">
       {hasMounted && hasPendingPayout && (
         <div className="bg-amber-500/20 border-b border-amber-500/30 px-4 py-2 flex items-center justify-center gap-3 z-[60]">
-          <AlertTriangle className="w-4 h-4 text-amber-500" />
-          <p className="text-[11px] font-bold text-amber-200 uppercase tracking-wide">⚠️ Trading suspended while your payout request is being processed.</p>
+          <AlertTriangle className="w-4 h-4 text-amber-500" /><p className="text-[11px] font-bold text-amber-200 uppercase tracking-wide">⚠️ Trading suspended while payout processes.</p>
         </div>
       )}
 
       <header className="h-12 border-b border-zinc-800 flex items-center justify-between px-3 md:px-4 bg-zinc-950 shrink-0 z-50">
         <div className="flex items-center gap-3 md:gap-6">
-          <div className="flex items-center gap-2">
-            <Image src={branding.logoUrl} alt="Logo" width={20} height={20} className="rounded-full" />
-            <span className="font-bold text-xs md:text-sm tracking-tight text-white hidden sm:inline">PrimeFunded Trade</span>
-          </div>
-          <Link href="/dashboard" className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-3 md:pl-6 h-12">
-            <ArrowLeft className="w-3 h-3" /> <span className="hidden sm:inline">Dashboard</span>
-          </Link>
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/5">
-            <UserCircle className="w-3 h-3 text-primary" />
-            <span className="text-[10px] font-black uppercase text-zinc-400">ID: {userData?.traderId || '--------'}</span>
-          </div>
+          <div className="flex items-center gap-2"><Image src={branding.logoUrl} alt="Logo" width={20} height={20} className="rounded-full" /><span className="font-bold text-xs md:text-sm tracking-tight text-white hidden sm:inline">Trade Terminal</span></div>
+          <Link href="/dashboard" className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 hover:text-white transition-colors border-l border-zinc-800 pl-3 md:pl-6 h-12"><ArrowLeft className="w-3 h-3" /> <span className="hidden sm:inline">Dashboard</span></Link>
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/5"><UserCircle className="w-3 h-3 text-primary" /><span className="text-[10px] font-black uppercase text-zinc-400">ID: {userData?.traderId || '--------'}</span></div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
           {!isMobile && hasMounted && (
             <>
               <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}><Bell className="w-4 h-4" /> Set Alert</Button>
-              <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
-                <SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold"><Globe className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger>
-                <SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent>
-              </Select>
+              <Select value={selectedTimezone} onValueChange={setSelectedTimezone}><SelectTrigger className="bg-transparent border-none h-9 w-40 text-xs font-bold"><Globe className="w-3.5 h-3.5 mr-2" /><SelectValue /></SelectTrigger><SelectContent>{TIMEZONES.map(tz => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}</SelectContent></Select>
             </>
           )}
           {hasMounted && (
-            <Select value={chartType} onValueChange={setChartType}>
-              <SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold"><Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent>
-            </Select>
+            <Select value={chartType} onValueChange={setChartType}><SelectTrigger className="bg-transparent border-none h-9 w-24 md:w-32 text-[10px] md:text-xs font-bold"><Activity className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /><SelectValue /></SelectTrigger><SelectContent><SelectItem value="candles">Candles</SelectItem><SelectItem value="bars">Bars</SelectItem><SelectItem value="line">Line</SelectItem><SelectItem value="area">Area</SelectItem></SelectContent></Select>
           )}
           <Button variant="ghost" size="icon" className="h-9 w-9 text-zinc-400" onClick={() => setIsSettingsOpen(true)}><Settings className="w-4 h-4" /></Button>
           {!isMobile && hasMounted && (
-            <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-              <SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold"><SelectValue placeholder={selectedAccount?.label || "Select Account"} /></SelectTrigger>
-              <SelectContent>{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent>
-            </Select>
+            <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}><SelectTrigger className="bg-transparent border-none h-12 w-56 text-xs font-bold"><SelectValue placeholder={selectedAccount?.label || "Select Account"} /></SelectTrigger><SelectContent>{activeAccounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>)}</SelectContent></Select>
           )}
         </div>
       </header>
 
       <div className="h-11 md:h-10 border-b border-zinc-800 flex items-center px-1 gap-1 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {SYMBOLS.map((s) => (
-          <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center justify-center transition-all border-b-2 shrink-0 min-w-[70px]", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}>
-            <span className={cn("font-bold text-[10px] md:text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span>
-          </button>
+          <button key={s} onClick={() => setSelectedSymbol(s)} className={cn("px-4 h-full flex items-center justify-center transition-all border-b-2 shrink-0 min-w-[70px]", s === selectedSymbol ? "border-primary bg-primary/5" : "border-transparent hover:bg-white/5")}><span className={cn("font-bold text-[10px] md:text-[11px]", s === selectedSymbol ? "text-white" : "text-zinc-500")}>{s}</span></button>
         ))}
       </div>
 
       <div className="h-10 md:h-9 border-b border-zinc-800 flex items-center px-4 gap-2 bg-zinc-950/50 overflow-x-auto no-scrollbar scroll-smooth shrink-0 touch-pan-x">
         {TIMEFRAMES.map((tf) => (
-          <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-3 h-7 md:h-6 min-w-[40px] flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5")}>
-            {tf.label}
-          </button>
+          <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-3 h-7 md:h-6 min-w-[40px] flex items-center justify-center rounded transition-all text-[10px] font-black uppercase tracking-widest", selectedInterval === tf.value ? "bg-primary text-black" : "text-muted-foreground hover:text-white hover:bg-white/5")}>{tf.label}</button>
         ))}
       </div>
 
@@ -783,15 +695,14 @@ export default function DemoPage() {
               {(isFallbackData || streamError) && (
                 <div className="absolute left-1/2 top-4 -translate-x-1/2 z-20 w-full max-w-[200px] px-2">
                   <div className={cn("px-3 py-1.5 rounded-full border text-[8px] md:text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 backdrop-blur-md shadow-2xl", streamError ? "bg-destructive/10 border-destructive/20 text-destructive" : "bg-amber-500/10 border-amber-500/20 text-amber-500")}>
-                    <AlertTriangle className="w-3 h-3 shrink-0" /><span className="truncate">{streamError ? "Feed Connection Interrupted" : "Simulated Data Feed"}</span>
+                    <AlertTriangle className="w-3 h-3 shrink-0" /><span className="truncate">{streamError ? "Feed Interrupted" : "Simulated Feed"}</span>
                   </div>
                 </div>
               )}
               {hasMounted && (
                 <div className="absolute left-3 bottom-[60px] z-20 flex flex-col items-start gap-1 pointer-events-none">
                   <div className={cn("px-3 py-1.5 rounded-lg border flex items-center gap-2 backdrop-blur-md shadow-xl", marketInfo.isOpen ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-destructive/10 border-destructive/20 text-destructive")}>
-                    <div className={cn("w-1.5 h-1.5 rounded-full", marketInfo.isOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive")} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">{marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}</span>
+                    <div className={cn("w-1.5 h-1.5 rounded-full", marketInfo.isOpen ? "bg-emerald-500 animate-pulse" : "bg-destructive")} /><span className="text-[10px] font-black uppercase tracking-widest">{marketInfo.type === 'crypto' ? '24/7 Open' : marketInfo.isOpen ? 'Market Open' : 'Market Closed'}</span>
                   </div>
                 </div>
               )}
@@ -810,32 +721,20 @@ export default function DemoPage() {
         </div>
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           <OrderPanel 
-             hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} 
-             marketInfo={marketInfo} streamError={streamError} activePrice={activePrice} selectedSymbol={selectedSymbol} 
-             orderType={orderType} setOrderType={setOrderType} pendingPrice={pendingPrice} setPendingPrice={setPendingPrice} 
-             lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} 
-           />
+           <OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} />
         </aside>
       </div>
 
       <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
         <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
           <SheetHeader className="pb-4"><div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" /><SheetTitle className="text-center font-headline font-bold text-2xl">Execute Order</SheetTitle></SheetHeader>
-          <div className="pb-10 pt-4">
-             <OrderPanel 
-               hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} 
-               marketInfo={marketInfo} streamError={streamError} activePrice={activePrice} selectedSymbol={selectedSymbol} 
-               orderType={orderType} setOrderType={setOrderType} pendingPrice={pendingPrice} setPendingPrice={setPendingPrice} 
-               lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} 
-             />
-          </div>
+          <div className="pb-10 pt-4"><OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} /></div>
         </SheetContent>
       </Sheet>
 
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={chartSettings} onSettingsChange={setChartSettings} onResetScale={handleResetView} />
       <Dialog open={isAlertModalOpen} onOpenChange={setIsAlertModalOpen}><DialogContent className="bg-zinc-900 border-zinc-800 text-white max-sm"><DialogHeader><DialogTitle>Set Price Alert</DialogTitle></DialogHeader><div className="p-6"><Button className="w-full h-12 font-black cyan-box-glow" onClick={() => setIsAlertModalOpen(false)}>CREATE ALERT</Button></div></DialogContent></Dialog>
-      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}><DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-sm"><DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader><div className="p-6 space-y-4"><p className="text-sm text-zinc-400">This will permanently delete all technical analysis drawings for <span className="text-white font-bold">{selectedSymbol}</span>.</p></div><DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1 font-bold h-11" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1 font-black h-11" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={isDeleteAllOpen} onOpenChange={setIsDeleteAllOpen}><DialogContent className="bg-[#1c1c1c] border-zinc-800 text-white max-sm"><DialogHeader><DialogTitle>Clear All Drawings</DialogTitle></DialogHeader><div className="p-6"><p className="text-sm text-zinc-400">Permanently delete all technical analysis for <span className="text-white font-bold">{selectedSymbol}</span>?</p></div><DialogFooter className="p-4 bg-zinc-900/50 flex gap-2"><Button variant="ghost" className="flex-1" onClick={() => setIsDeleteAllOpen(false)}>Cancel</Button><Button variant="destructive" className="flex-1" onClick={() => { setActiveTool('eraser'); setIsDeleteAllOpen(false); }}>Clear All</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 }
