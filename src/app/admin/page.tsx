@@ -960,6 +960,7 @@ export default function AdminPage() {
       {/* User Detail Modal */}
       <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
         <DialogContent className="max-w-6xl h-[90vh] bg-zinc-950 border-white/10 text-white p-0 overflow-hidden flex flex-col z-[70]">
+          <DialogTitle className="sr-only">Trader Inspection Hub</DialogTitle>
           {userDetailLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-4">
                <Loader2 className="w-10 h-10 animate-spin text-primary" />
