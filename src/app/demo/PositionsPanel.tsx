@@ -24,6 +24,15 @@ interface PositionsPanelProps {
   setPanelOpen: (open: boolean) => void;
 }
 
+// Institutional Contract Sizes (Synchronized with Backend)
+const CONTRACT_SIZE: Record<string, number> = {
+  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
+  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
+  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
+  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
+};
+
 export function PositionsPanel({ 
   openTrades, 
   closedTrades, 
@@ -126,13 +135,18 @@ export function PositionsPanel({
                 {openTrades.length === 0 ? (
                   <tr><td colSpan={10} className="py-10 text-center italic text-zinc-600">No active positions.</td></tr>
                 ) : openTrades.map((t) => {
-                  const pData = livePrices[t.symbol];
+                  const symbolUpper = t.symbol.toUpperCase();
+                  const pData = livePrices[symbolUpper];
                   let pnl = 0;
+                  
                   if (pData) {
-                    const cp = t.type === 'buy' ? pData.bid : pData.ask;
-                    const cSize = t.symbol === 'XAUUSD' ? 100 : ['BTCUSD', 'ETHUSD', 'SOLUSD'].includes(t.symbol) ? 1 : 100000;
-                    pnl = t.type === 'buy' ? (cp - t.openPrice) * cSize * t.lots : (t.openPrice - cp) * cSize * t.lots;
+                    const currentPrice = t.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
+                    const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
+                    pnl = t.type === 'buy' 
+                      ? (currentPrice - t.openPrice) * contractSize * t.lots 
+                      : (t.openPrice - currentPrice) * contractSize * t.lots;
                   }
+                  
                   const openDate = getTradeDate(t.openedAt);
                   const isEditingSL = editingId === t.id && editType === 'sl';
                   const isEditingTP = editingId === t.id && editType === 'tp';
