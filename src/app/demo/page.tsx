@@ -81,16 +81,6 @@ export default function DemoPage() {
 
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
 
-  useEffect(() => {
-    if (isChartLoading) {
-      const timer = setTimeout(() => {
-        setIsChartLoading(false);
-        setIsInitialLoad(false);
-      }, 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [isChartLoading]);
-
   useEffect(() => { 
     setHasMounted(true); 
   }, []);
@@ -156,9 +146,11 @@ export default function DemoPage() {
     return diff * trade.lots * contractSize;
   }, [livePrices, activePrice]);
 
+  // SYNC TRADE OVERLAYS (Lines & Markers)
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
 
+    // 1. Markers (BUY/SELL arrows)
     const markers = openTrades
       .filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase())
       .map(t => {
@@ -171,9 +163,9 @@ export default function DemoPage() {
           text: t.type.toUpperCase(),
         };
       });
-    
     mainSeriesRef.current.setMarkers(markers as any);
 
+    // 2. Price Lines (Entry, SL, TP)
     const activeIds = new Set(openTrades.map(t => t.id));
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
@@ -185,18 +177,22 @@ export default function DemoPage() {
     openTrades.forEach(trade => {
       if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
       let lines = priceLinesRef.current.get(trade.id);
+      
       if (!lines) {
         const pnl = calculateTradePnL(trade);
         const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        
         const entryLine = mainSeriesRef.current!.createPriceLine({
           price: trade.openPrice,
           color: '#71717a',
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: `${trade.type.toUpperCase()} ${trade.lots} | ${pnlStr}`,
+          title: `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`,
         });
+        
         const newLines = [entryLine];
+        
         if (trade.sl) {
           newLines.push(mainSeriesRef.current!.createPriceLine({
             price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL',
@@ -208,27 +204,115 @@ export default function DemoPage() {
           }));
         }
         priceLinesRef.current.set(trade.id, newLines);
+      } else {
+        // Update PnL title on existing entry line
+        const pnl = calculateTradePnL(trade);
+        const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        lines[0].applyOptions({
+          title: `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`
+        });
       }
     });
-  }, [openTrades, selectedSymbol, isChartReady]);
-
-  useEffect(() => {
-    if (!isChartReady || !mainSeriesRef.current) return;
-    const interval = setInterval(() => {
-      openTrades.forEach(trade => {
-        if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
-        const lines = priceLinesRef.current.get(trade.id);
-        if (lines && lines[0]) {
-          const pnl = calculateTradePnL(trade);
-          const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-          lines[0].applyOptions({
-            title: `${trade.type.toUpperCase()} ${trade.lots} | ${pnlStr}`
-          });
-        }
-      });
-    }, 1000);
-    return () => clearInterval(interval);
   }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
+
+  // CHART INITIALIZATION
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+    setIsChartReady(false);
+    
+    const chart = createChart(chartContainerRef.current, {
+      layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter, sans-serif' },
+      grid: { vertLines: { color: '#18181b', style: 0 }, horzLines: { color: '#18181b', style: 0 } },
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
+      timeScale: { rightOffset: 20, barSpacing: 8, borderColor: '#27272a', timeVisible: true, secondsVisible: false },
+      priceScale: { borderColor: '#27272a', autoScale: true, mode: PriceScaleMode.Normal },
+      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#71717a', width: 0.5, style: 1, labelBackgroundColor: '#111' }, horzLine: { color: '#71717a', width: 0.5, style: 1, labelBackgroundColor: '#111' } },
+    });
+
+    const series = chart.addCandlestickSeries({ 
+      upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444',
+      priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: selectedSymbol.includes('JPY') || selectedSymbol.includes('XAU') ? 0.001 : 0.00001 }
+    });
+
+    chartInstanceRef.current = chart;
+    mainSeriesRef.current = series;
+    setIsChartReady(true);
+
+    const handleResize = () => { 
+      if (chartContainerRef.current && chart) {
+        chart.applyOptions({ 
+          width: chartContainerRef.current.clientWidth, 
+          height: chartContainerRef.current.clientHeight 
+        }); 
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => { 
+      window.removeEventListener('resize', handleResize); 
+      chart.remove(); 
+    };
+  }, [selectedSymbol]);
+
+  // LOAD HISTORY & SYNC LIVE TICKS
+  useEffect(() => {
+    if (!isChartReady) return;
+    
+    const fetchHistory = async () => {
+      if (isInitialLoad) setIsChartLoading(true);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      
+      try {
+        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`, { signal: controller.signal });
+        const data = await res.json();
+        
+        if (data.candles && mainSeriesRef.current) {
+          mainSeriesRef.current.setData(data.candles);
+          chartInstanceRef.current?.timeScale().fitContent();
+          
+          // Force immediate update with active price if available
+          if (activePrice) {
+            const lastCandle = data.candles[data.candles.length - 1];
+            if (lastCandle) {
+              mainSeriesRef.current.update({ 
+                ...lastCandle, 
+                close: activePrice.price, 
+                high: Math.max(lastCandle.high, activePrice.price), 
+                low: Math.min(lastCandle.low, activePrice.price) 
+              });
+            }
+          }
+        }
+      } catch(e) { 
+        console.warn("[Chart] History fetch failed", e); 
+      } finally { 
+        clearTimeout(timeoutId); 
+        setIsChartLoading(false); 
+        setIsInitialLoad(false); 
+      }
+    };
+    
+    fetchHistory();
+  }, [selectedSymbol, selectedInterval, isChartReady]);
+
+  // LIVE TICK INJECTION
+  useEffect(() => {
+    if (activePrice && mainSeriesRef.current && isChartReady) {
+      const data = mainSeriesRef.current.data();
+      if (data.length === 0) return;
+      const lastCandle = data[data.length - 1] as any;
+      if (lastCandle) {
+        mainSeriesRef.current.update({ 
+          ...lastCandle, 
+          close: activePrice.price, 
+          high: Math.max(lastCandle.high, activePrice.price), 
+          low: Math.min(lastCandle.low, activePrice.price) 
+        });
+      }
+    }
+  }, [activePrice, isChartReady]);
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
@@ -277,62 +361,12 @@ export default function DemoPage() {
     } finally { setActionLoading(false); }
   }
 
-  useEffect(() => {
-    if (!chartContainerRef.current) return;
-    setIsChartReady(false);
-    const chart = createChart(chartContainerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter, sans-serif' },
-      grid: { vertLines: { color: '#18181b', style: 0 }, horzLines: { color: '#18181b', style: 0 } },
-      width: chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
-      timeScale: { rightOffset: 20, barSpacing: 8, borderColor: '#27272a', timeVisible: true, secondsVisible: false },
-      priceScale: { borderColor: '#27272a', autoScale: true, mode: PriceScaleMode.Normal },
-      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#71717a', width: 0.5, style: 1, labelBackgroundColor: '#111' }, horzLine: { color: '#71717a', width: 0.5, style: 1, labelBackgroundColor: '#111' } },
-    });
-    const series = chart.addCandlestickSeries({ 
-      upColor: '#10b981', downColor: '#ef4444', borderVisible: false, wickUpColor: '#10b981', wickDownColor: '#ef4444',
-      priceFormat: { type: 'price', precision: getPrecision(selectedSymbol), minMove: selectedSymbol.includes('JPY') || selectedSymbol.includes('XAU') ? 0.001 : 0.00001 }
-    });
-    chartInstanceRef.current = chart;
-    mainSeriesRef.current = series;
-    setIsChartReady(true);
-    const handleResize = () => { if (chartContainerRef.current && chart) chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); };
-    window.addEventListener('resize', handleResize);
-    return () => { window.removeEventListener('resize', handleResize); chart.remove(); };
-  }, [selectedSymbol]);
-
-  useEffect(() => {
-    if (!isChartReady) return;
-    const fetchHistory = async () => {
-      if (isInitialLoad) setIsChartLoading(true);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      try {
-        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`, { signal: controller.signal });
-        const data = await res.json();
-        if (data.candles && mainSeriesRef.current) {
-          mainSeriesRef.current.setData(data.candles);
-          chartInstanceRef.current?.timeScale().fitContent();
-          if (activePrice) {
-            const lastCandle = data.candles[data.candles.length - 1];
-            if (lastCandle) mainSeriesRef.current.update({ ...lastCandle, close: activePrice.price, high: Math.max(lastCandle.high, activePrice.price), low: Math.min(lastCandle.low, activePrice.price) });
-          }
-        }
-      } catch(e) { console.warn("[Chart] History fetch failed", e); } finally { clearTimeout(timeoutId); setIsChartLoading(false); setIsInitialLoad(false); }
-    };
-    fetchHistory();
-  }, [selectedSymbol, selectedInterval, isChartReady]);
-
-  useEffect(() => {
-    if (activePrice && mainSeriesRef.current && isChartReady) {
-      const data = mainSeriesRef.current.data();
-      if (data.length === 0) return;
-      const lastCandle = data[data.length - 1] as any;
-      if (lastCandle) mainSeriesRef.current.update({ ...lastCandle, close: activePrice.price, high: Math.max(lastCandle.high, activePrice.price), low: Math.min(lastCandle.low, activePrice.price) });
-    }
-  }, [activePrice, isChartReady]);
-
-  if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /><p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Syncing Terminal Node...</p></div>;
+  if (authLoading) return (
+    <div className="fixed inset-0 bg-background flex flex-col items-center justify-center">
+      <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Syncing Terminal Node...</p>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 overflow-hidden pb-safe">
@@ -411,11 +445,20 @@ export default function DemoPage() {
               </div>
             </div>
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
-              <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} locked={drawingsLocked} hidden={drawingsHidden} />
+              <DrawingLayer 
+                chart={chartInstanceRef.current} 
+                series={mainSeriesRef.current} 
+                symbol={selectedSymbol} 
+                activeTool={activeTool} 
+                setActiveTool={setActiveTool} 
+                locked={drawingsLocked} 
+                hidden={drawingsHidden} 
+              />
             )}
             {isChartLoading && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-                <Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p>
+                <Loader2 className="animate-spin text-primary w-8 h-8" />
+                <p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p>
               </div>
             )}
             {isMobile && mobileTab === 'chart' && (
@@ -430,8 +473,14 @@ export default function DemoPage() {
                {mobileTab === 'history' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={livePrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="history" />}
                {mobileTab === 'account' && (
                  <div className="p-6 space-y-6">
-                   <div className="flex items-center gap-4 bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800"><div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center text-primary text-2xl font-black">{userData?.name?.slice(0,1)}</div><div><h2 className="text-xl font-bold text-white">{userData?.name || 'Trader'}</h2><p className="text-xs text-zinc-500 font-mono">ID: {userData?.traderId}</p><Badge variant="outline" className="mt-2 text-[10px] uppercase font-black tracking-widest border-primary/20 text-primary">{userData?.tier || 'Bronze'} Tier</Badge></div></div>
-                   <div className="grid grid-cols-2 gap-4"><AccountMobileStat label="Balance" value={`$${(selectedAccount?.balance || 0).toLocaleString()}`} /><AccountMobileStat label="Equity" value={`$${(selectedAccount?.equity || 0).toLocaleString()}`} color="text-primary" /></div>
+                   <div className="flex items-center gap-4 bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800">
+                     <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center text-primary text-2xl font-black">{userData?.name?.slice(0,1)}</div>
+                     <div><h2 className="text-xl font-bold text-white">{userData?.name || 'Trader'}</h2><p className="text-xs text-zinc-500 font-mono">ID: {userData?.traderId}</p><Badge variant="outline" className="mt-2 text-[10px] uppercase font-black tracking-widest border-primary/20 text-primary">{userData?.tier || 'Bronze'} Tier</Badge></div>
+                   </div>
+                   <div className="grid grid-cols-2 gap-4">
+                     <AccountMobileStat label="Balance" value={`$${(selectedAccount?.balance || 0).toLocaleString()}`} />
+                     <AccountMobileStat label="Equity" value={`$${(selectedAccount?.equity || 0).toLocaleString()}`} color="text-primary" />
+                   </div>
                    <Button variant="outline" className="w-full h-14 rounded-2xl font-bold border-zinc-800" asChild><Link href="/dashboard">Return to Hub</Link></Button>
                  </div>
                )}
