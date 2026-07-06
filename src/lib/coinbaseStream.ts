@@ -1,11 +1,10 @@
 /**
  * @fileOverview Crypto Price Feed via Kraken REST API
- * Synchronizes institutional crypto liquidity to Firestore every 3 seconds.
  */
 import { getAdminDb } from '@/lib/firebase-admin';
 import { broadcastToRtdb } from './rtdbBroadcast';
 
-const KRAKEN_PAIRS: Record<string, string> = {
+const KRAKEN_PAIRS_MAP: Record<string, string> = {
   'XXBTZUSD': 'BTCUSD',
   'XBTUSD':   'BTCUSD',
   'XETHZUSD': 'ETHUSD',
@@ -14,7 +13,8 @@ const KRAKEN_PAIRS: Record<string, string> = {
   'XXRPZUSD': 'XRPUSD',
   'XRPUSD':   'XRPUSD',
   'ADAUSD':   'ADAUSD',
-  'XDGUSD':   'DOGEUSD'
+  'XDGUSD':   'DOGEUSD',
+  'DOGEUSD':  'DOGEUSD'
 };
 
 let cryptoPrices: Record<string, { price: number; bid: number; ask: number }> = {};
@@ -27,7 +27,7 @@ export function getLatestCoinbaseTicks() {
 }
 
 /**
- * Updates the local memory buffer from external sources (e.g. RTDB listener)
+ * Updates the local memory buffer from external sources
  */
 export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid: number; ask: number }) {
   cryptoPrices[symbol] = data;
@@ -35,33 +35,35 @@ export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid
 
 async function fetchKrakenPrices() {
   try {
-    // Request using Kraken-compatible symbols
     const res = await fetch(
       'https://api.kraken.com/0/public/Ticker?pair=XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD',
-      { signal: AbortSignal.timeout(5000) }
+      { 
+        signal: AbortSignal.timeout(5000),
+        cache: 'no-store'
+      }
     );
     if (!res.ok) return;
     const data = await res.json();
     
     if (data.error?.length > 0) return;
 
-    Object.entries(data.result || {}).forEach(([krakenPair, ticker]: [string, any]) => {
-      const symbol = KRAKEN_PAIRS[krakenPair];
-      if (!symbol) return;
+    if (data.result) {
+      Object.entries(data.result).forEach(([krakenPair, ticker]: [string, any]) => {
+        const symbol = KRAKEN_PAIRS_MAP[krakenPair];
+        if (!symbol) return;
+        
+        const price = parseFloat(ticker.c[0]);
+        const bid = parseFloat(ticker.b[0]);
+        const ask = parseFloat(ticker.a[0]);
+        
+        if (!isNaN(price) && price > 0) {
+          cryptoPrices[symbol] = { price, bid, ask };
+        }
+      });
       
-      const price = parseFloat(ticker.c[0]);
-      const bid = parseFloat(ticker.b[0]);
-      const ask = parseFloat(ticker.a[0]);
-      
-      if (!isNaN(price) && price > 0) {
-        cryptoPrices[symbol] = { price, bid, ask };
-      }
-    });
-    
-    await writeCryptoPricesToStorage();
-  } catch (e) {
-    // Graceful silent fail for production stability
-  }
+      await writeCryptoPricesToStorage();
+    }
+  } catch (e) {}
 }
 
 async function fetchBnbPrice() {

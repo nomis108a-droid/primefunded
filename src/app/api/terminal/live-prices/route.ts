@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Live Price API
  * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
- * Standardized Kraken ticker mapping and added BNB fallback via CoinGecko.
  */
 
 const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD";
@@ -72,7 +71,7 @@ export async function GET() {
               'SOLUSD': 'SOLUSD', 
               'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD',
               'ADAUSD': 'ADAUSD', 
-              'XDGUSD': 'DOGEUSD'
+              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD'
             };
 
             Object.entries(results).forEach(([kSym, item]: [string, any]) => {

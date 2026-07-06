@@ -20,8 +20,7 @@ import { useCollection } from '@/firebase';
 
 /**
  * PROMO CONFIGURATION
- * Centralized settings for the 50% OFF campaign
- * Expiry: July 12, 2026, 12:00 PM IST (06:30 AM UTC)
+ * End Date: July 12, 2026, 12:00 PM IST (06:30 AM UTC)
  */
 const PROMO_CONFIG = {
   discountPercent: 50,
@@ -314,7 +313,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
                   <RuleSection title="Phase 1 (Evaluation)" items={RULES['3-step'].phase1} />
                   <RuleSection title="Phase 2 (Evaluation)" items={RULES['3-step'].phase2} />
                   <RuleSection title="Phase 3 (Evaluation)" items={RULES['3-step'].phase3} />
-                  <RuleSection title="Funded stage" items={RULES['3-step'].funded} />
+                  <RuleSection title="Funded stage" items={RULES['2-step'].funded} />
                 </>
               )}
               {planName === 'instant' && (
@@ -463,6 +462,7 @@ const ReferralTerminal = memo(function ReferralTerminal({ referralCode }: { refe
 export default function ChallengesPage() {
   const [selectedPlan, setSelectedPlan] = useState('1-step');
   const [isPromoActive, setIsPromoActive] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [promoTimeLeft, setPromoTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   
   const { user, userData, loading } = useAuth();
@@ -474,6 +474,7 @@ export default function ChallengesPage() {
   const hasRecentRejection = latestOrder?.status === 'rejected';
 
   useEffect(() => {
+    setMounted(true);
     const tick = () => {
       const now = new Date();
       const diff = PROMO_CONFIG.endDate.getTime() - now.getTime();
@@ -540,7 +541,7 @@ export default function ChallengesPage() {
             <div className="lg:col-span-3 space-y-8">
               
               <AnimatePresence>
-                {isPromoActive && (
+                {mounted && isPromoActive && (
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -568,7 +569,7 @@ export default function ChallengesPage() {
                              <TimeBox value={promoTimeLeft.seconds} label="S" />
                           </div>
                        </div>
-                       <Badge className="h-10 px-6 bg-accent text-accent-foreground font-black text-sm rounded-xl">SAVE 50% NOW</Badge>
+                       <Badge className="h-10 px-6 bg-accent text-accent-foreground font-black text-sm rounded-xl shadow-[0_0_15px_rgba(17,179,245,0.4)]">SAVE 50% NOW</Badge>
                     </div>
                   </motion.div>
                 )}
@@ -620,7 +621,7 @@ export default function ChallengesPage() {
                         tier={tier} 
                         planName={selectedPlan} 
                         delay={idx * 0.03} 
-                        isPromoActive={isPromoActive}
+                        isPromoActive={mounted && isPromoActive}
                       />
                     ))}
                   </motion.div>

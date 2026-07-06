@@ -517,25 +517,26 @@ export default function DemoPage() {
       const prevPrice = lastGoodPriceRef.current[selectedSymbol];
       if (price <= 0 || isNaN(price)) return;
       
-      // LOOSENED OUTLIER REJECTION: Only reject if jump is > 40% (handles crypto volatility better)
       const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(selectedSymbol.toUpperCase());
       const threshold = isCrypto ? 0.40 : 0.15;
-      if (prevPrice && Math.abs(price - prevPrice) / prevPrice > threshold) return;
       
-      lastGoodPriceRef.current[selectedSymbol] = price;
-      const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
-      const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
-      
-      if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
-        currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
-      } else {
-        currentCandleRef.current = { ...currentCandleRef.current, high: Math.max(currentCandleRef.current.high, price), low: Math.min(currentCandleRef.current.low, price), close: price };
-      }
-      
-      if (chartType === 'line' || chartType === 'area') {
-        mainSeriesRef.current.update({ time: candleTime as any, value: price });
-      } else {
-        mainSeriesRef.current.update(currentCandleRef.current);
+      // If it's the first price or within threshold, update chart
+      if (!prevPrice || Math.abs(price - prevPrice) / prevPrice < threshold) {
+        lastGoodPriceRef.current[selectedSymbol] = price;
+        const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
+        const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
+        
+        if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
+          currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
+        } else {
+          currentCandleRef.current = { ...currentCandleRef.current, high: Math.max(currentCandleRef.current.high, price), low: Math.min(currentCandleRef.current.low, price), close: price };
+        }
+        
+        if (chartType === 'line' || chartType === 'area') {
+          mainSeriesRef.current.update({ time: candleTime as any, value: price });
+        } else {
+          mainSeriesRef.current.update(currentCandleRef.current);
+        }
       }
     }
   }, [activePrice, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
@@ -740,7 +741,7 @@ export default function DemoPage() {
         </div>
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           <OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout, marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} />
+           <OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} />
         </aside>
       </div>
 
