@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback, memo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useCollection } from "@/firebase";
 import { Button } from "@/components/ui/button";
@@ -8,15 +9,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { 
   Loader2, Activity, Settings, 
   Crosshair, Circle, Slash, ArrowRight,
   Square, Type, Eraser, SeparatorVertical,
-  Clock as ClockIcon, Lock, Unlock,
-  UserCircle, XCircle,
+  Clock as ClockIcon, 
+  UserCircle,
   MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus,
-  TrendingUp, TrendingDown, Wallet, ShieldCheck, ChevronDown
+  TrendingUp, TrendingDown, ShieldCheck, Timer
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,33 @@ const TIMEFRAMES = [
   { label: '4H', value: '4h', seconds: 14400 },
   { label: '1D', value: '1day', seconds: 86400 },
 ];
+
+/**
+ * Institutional Component: Candle Countdown Timer
+ * Runs independently to prevent UI blocking during trade execution.
+ */
+const CandleTimer = memo(function CandleTimer() {
+  const [secondsLeft, setSecondsLeft] = useState(60);
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      setSecondsLeft(60 - now.getSeconds());
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10 ml-4">
+      <Timer className="w-3 h-3 text-primary animate-pulse" />
+      <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+        New Candle: <span className="text-white tabular-nums">00:{secondsLeft.toString().padStart(2, '0')}</span>
+      </span>
+    </div>
+  );
+});
 
 export default function DemoPage() {
   const { user, userData, loading: authLoading } = useAuth();
@@ -78,9 +106,12 @@ export default function DemoPage() {
   // Market Data
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
-  const activePrice = useMemo(() => streamTick?.price ? streamTick : livePrices[selectedSymbol.toUpperCase()] || null, [streamTick, livePrices, selectedSymbol]);
+  
+  const activePrice = useMemo(() => 
+    streamTick?.price ? streamTick : livePrices[selectedSymbol.toUpperCase()] || null
+  , [streamTick, livePrices, selectedSymbol]);
 
-  // Persistent Price Accumulator: Decouples positions from current chart symbol
+  // Persistent Price Accumulator
   const [fusedPrices, setFusedPrices] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -89,9 +120,10 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (activePrice && selectedSymbol) {
+      const sym = selectedSymbol.toUpperCase().trim();
       setFusedPrices(prev => ({
         ...prev,
-        [selectedSymbol.toUpperCase().trim()]: activePrice
+        [sym]: activePrice
       }));
     }
   }, [activePrice, selectedSymbol]);
@@ -164,7 +196,7 @@ export default function DemoPage() {
           chartInstanceRef.current?.timeScale().fitContent();
         }
       } catch(e) {
-        console.error('[Chart] History fetch failed:', e);
+        console.warn('[Chart] Loading fail-safe triggered. Using existing state.');
       } finally { 
         setIsChartLoading(false); 
       }
@@ -183,13 +215,15 @@ export default function DemoPage() {
     }
   }, [activePrice, isChartReady]);
 
-  // Trade Overlays (Lines + Markers)
+  // Trade Overlays (Lines + Markers) - Optimized for high frequency
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
     
-    const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === selectedSymbol.toUpperCase().trim());
+    const sym = selectedSymbol.toUpperCase().trim();
+    const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === sym);
     const activeIds = new Set(currentSymbolTrades.map(t => t.id));
     
+    // 1. Clear dead trade lines
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
         lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
@@ -197,6 +231,7 @@ export default function DemoPage() {
       }
     });
 
+    // 2. Reconcile active lines
     currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
       const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
@@ -250,14 +285,14 @@ export default function DemoPage() {
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
-    setActionLoading(true);
     
-    // Capture the price the user actually sees as a witness
+    // Fast-track state for immediate UI feedback
+    setActionLoading(true);
     const witness = type === 'buy' ? activePrice.ask : activePrice.bid;
 
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/terminal/trades', {
+    // Use non-blocking promise chain
+    user.getIdToken().then(token => {
+      return fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ 
@@ -270,13 +305,24 @@ export default function DemoPage() {
           witnessPrice: witness
         })
       });
+    })
+    .then(async res => {
       const data = await res.json();
       if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" });
-      else { toast({ title: "✓ Position Opened" }); setIsOrderSheetOpen(false); }
-    } catch(e) { toast({ title: "Network Error", variant: "destructive" }); } finally { setActionLoading(false); }
+      else { 
+        toast({ title: "✓ Position Opened" }); 
+        setIsOrderSheetOpen(false); 
+      }
+    })
+    .catch(e => {
+      toast({ title: "Network Error", variant: "destructive" });
+    })
+    .finally(() => {
+      setActionLoading(false);
+    });
   }
 
-  async function closeTrade(tradeId: string) {
+  const closeTrade = async (tradeId: string) => {
     if (actionLoading || !user) return;
     setActionLoading(true);
     try {
@@ -290,12 +336,16 @@ export default function DemoPage() {
         const data = await res.json();
         throw new Error(data.error || "Close failed");
       }
-    } catch(e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setActionLoading(false); }
-  }
+    } catch(e: any) { 
+      toast({ title: "Error", description: e.message, variant: "destructive" }); 
+    } finally { 
+      setActionLoading(false); 
+    }
+  };
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
 
-  const OrderPanelContent = () => (
+  const OrderPanelContent = memo(() => (
     <div className="flex flex-col h-full space-y-6">
       <div className="space-y-4">
         <div className="space-y-2">
@@ -322,11 +372,11 @@ export default function DemoPage() {
            <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col">
                 <span className="text-[9px] font-bold text-zinc-600 uppercase">Bid</span>
-                <span className="text-lg font-mono font-black text-white">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+                <span className="text-lg font-mono font-black text-white tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
               </div>
               <div className="flex flex-col items-end">
                 <span className="text-[9px] font-bold text-zinc-600 uppercase">Ask</span>
-                <span className="text-lg font-mono font-black text-white">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+                <span className="text-lg font-mono font-black text-white tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
               </div>
            </div>
         </div>
@@ -368,8 +418,12 @@ export default function DemoPage() {
           className="h-20 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
         >
           <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-          <span className="text-sm tracking-widest relative z-10">BUY</span>
-          <span className="text-[10px] opacity-70 relative z-10">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            <>
+              <span className="text-sm tracking-widest relative z-10">BUY</span>
+              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+            </>
+          )}
           <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 -rotate-45 opacity-20" />
         </button>
         <button 
@@ -378,8 +432,12 @@ export default function DemoPage() {
           className="h-20 rounded-xl bg-red-600 hover:bg-red-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
         >
           <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-          <span className="text-sm tracking-widest relative z-10">SELL</span>
-          <span className="text-[10px] opacity-70 relative z-10">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            <>
+              <span className="text-sm tracking-widest relative z-10">SELL</span>
+              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+            </>
+          )}
           <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
         </button>
       </div>
@@ -400,7 +458,7 @@ export default function DemoPage() {
         </div>
       </div>
     </div>
-  );
+  ));
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 overflow-hidden pb-safe">
@@ -424,10 +482,11 @@ export default function DemoPage() {
                  <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button>
                ))}
              </div>
+             <CandleTimer />
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-           {activePrice && <div className="flex items-center gap-2"><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">BID</span><span className="font-mono text-[9px] text-white">{activePrice.bid?.toFixed(getPrecision(selectedSymbol))}</span></div><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">ASK</span><span className="font-mono text-[9px] text-white">{activePrice.ask?.toFixed(getPrecision(selectedSymbol))}</span></div></div>}
+           {activePrice && <div className="flex items-center gap-2"><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">BID</span><span className="font-mono text-[9px] text-white tabular-nums">{activePrice.bid?.toFixed(getPrecision(selectedSymbol))}</span></div><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">ASK</span><span className="font-mono text-[9px] text-white tabular-nums">{activePrice.ask?.toFixed(getPrecision(selectedSymbol))}</span></div></div>}
            {isMobile && <Button size="sm" className="bg-primary text-black font-black text-[9px] h-7 px-3 rounded" onClick={() => setIsOrderSheetOpen(true)}>TRADE</Button>}
            <button onClick={() => setIsSettingsOpen(true)} className="p-1.5 hover:bg-white/5 rounded"><Settings className="w-4 h-4 text-zinc-500" /></button>
         </div>
@@ -470,7 +529,18 @@ export default function DemoPage() {
             )}
           </div>
           {!isMobile ? (
-            <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
+            <PositionsPanel 
+              openTrades={openTrades} 
+              closedTrades={closedTrades} 
+              alerts={[]} 
+              livePrices={fusedPrices} 
+              closeTrade={closeTrade} 
+              deleteAlert={async () => {}} 
+              user={user} 
+              alertsLoading={false} 
+              panelOpen={bottomPanelOpen} 
+              setPanelOpen={setBottomPanelOpen} 
+            />
           ) : (
             <div className={cn("flex-1 overflow-y-auto bg-zinc-950", mobileTab === 'chart' && "hidden")}>
                {mobileTab === 'positions' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="positions" />}
@@ -479,7 +549,7 @@ export default function DemoPage() {
           )}
         </div>
 
-        {/* Right Sidebar: Execution Panel */}
+        {/* Right Sidebar: Order Entry */}
         {!isMobile && (
           <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
             <div className="flex items-center gap-3 mb-8">
