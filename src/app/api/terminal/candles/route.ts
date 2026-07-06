@@ -29,10 +29,10 @@ const realCandleCache = new Map<string, { candles: any[], timestamp: number }>()
 function generateSyntheticCandles(symbol: string, count: number) {
   const candles = [];
   const secs = 60;
-  let lastPrice = symbol.includes("BTC") ? 60000
-    : symbol.includes("ETH") ? 3000
-    : symbol.includes("XAU") ? 2500
-    : symbol.includes("EUR") ? 1.08 : 1.1;
+  let lastPrice = symbol.includes("BTC") ? 96000
+    : symbol.includes("ETH") ? 2700
+    : symbol.includes("XAU") ? 2850
+    : symbol.includes("EUR") ? 1.05 : 1.1;
   const now = Math.floor(Date.now() / 1000);
   for (let i = 0; i < count; i++) {
     const time = now - (count - i) * secs;
@@ -75,7 +75,8 @@ export async function GET(req: NextRequest) {
 
           const res = await fetch(url, {
             headers: { Authorization: `Bearer ${oandaKey}` },
-            signal: controller.signal
+            signal: controller.signal,
+            cache: 'no-store'
           });
 
           if (res.ok) {
@@ -104,7 +105,7 @@ export async function GET(req: NextRequest) {
         const kInt = intervalMap[interval] || 1;
         const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${kInt}`;
 
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
         if (res.ok) {
           const json = await res.json();
           const pairKey = Object.keys(json.result || {}).find(k => k !== 'last');
@@ -151,7 +152,7 @@ export async function GET(req: NextRequest) {
     }
 
     const cached = realCandleCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 30000) {
+    if (cached && Date.now() - cached.timestamp < 60000) {
       return NextResponse.json({ candles: cached.candles, isFallback: false });
     }
 
@@ -162,7 +163,7 @@ export async function GET(req: NextRequest) {
 
   } catch (error) {
     const cached = realCandleCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 30000) {
+    if (cached && Date.now() - cached.timestamp < 60000) {
        return NextResponse.json({ candles: cached.candles, isFallback: false });
     }
     return NextResponse.json({ 

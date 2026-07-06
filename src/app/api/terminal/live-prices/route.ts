@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Live Price API
  * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
+ * Standardized to handle all variants of Kraken keys (e.g. XXBTZUSD vs XBTUSD).
  */
 
 const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD";

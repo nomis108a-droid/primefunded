@@ -45,7 +45,10 @@ async function fetchKrakenPrices() {
     if (!res.ok) return;
     const data = await res.json();
     
-    if (data.error?.length > 0) return;
+    if (data.error?.length > 0) {
+      console.warn('[KrakenFeed] API returned errors:', data.error);
+      return;
+    }
 
     if (data.result) {
       Object.entries(data.result).forEach(([krakenPair, ticker]: [string, any]) => {
@@ -57,13 +60,15 @@ async function fetchKrakenPrices() {
         const ask = parseFloat(ticker.a[0]);
         
         if (!isNaN(price) && price > 0) {
-          cryptoPrices[symbol] = { price, bid, ask };
+          cryptoPrices[symbol] = { price: +price.toFixed(5), bid: +bid.toFixed(5), ask: +ask.toFixed(5) };
         }
       });
       
       await writeCryptoPricesToStorage();
     }
-  } catch (e) {}
+  } catch (e: any) {
+    console.warn('[KrakenFeed] Polling exception:', e.message);
+  }
 }
 
 async function fetchBnbPrice() {
@@ -78,7 +83,7 @@ async function fetchBnbPrice() {
     
     if (price && !isNaN(price)) {
       const spread = price * 0.0005;
-      cryptoPrices['BNBUSD'] = { price, bid: price - spread, ask: price + spread };
+      cryptoPrices['BNBUSD'] = { price: +price.toFixed(2), bid: +(price - spread).toFixed(2), ask: +(price + spread).toFixed(2) };
     }
   } catch (e) {}
 }
@@ -104,8 +109,8 @@ async function writeCryptoPricesToStorage() {
     });
     
     await batch.commit();
-  } catch (e) {
-    console.error('[KrakenFeed] Sync Fault:', e);
+  } catch (e: any) {
+    console.error('[KrakenFeed] Sync Fault:', e.message);
   } finally {
     isWriting = false;
   }
