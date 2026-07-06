@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { XCircle, Activity, Hourglass, Clock, ArrowUpRight, ArrowDownRight, X, Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { XCircle, Activity, Hourglass, Clock, ArrowUpRight, ArrowDownRight, X, Loader2, Check, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { CONTRACT_SIZE } from "@/lib/rulesConfig";
+import { useToast } from '@/hooks/use-toast';
 
 interface PositionsPanelProps {
   openTrades: any[];
@@ -39,9 +41,85 @@ export function PositionsPanel({
 }: PositionsPanelProps) {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [isExpanded, setIsExpanded] = useState(false);
+  const { toast } = useToast();
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<'sl' | 'tp' | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const getPrecision = (s: string) => (s.includes("JPY") ? 3 : (['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5));
   const formatPrice = (price: number | undefined, symbol: string) => price ? price.toFixed(getPrecision(symbol)) : '—';
+
+  const handleStartEdit = (tradeId: string, field: 'sl' | 'tp', currentVal: any) => {
+    setEditingId(tradeId);
+    setEditingField(field);
+    setEditValue(currentVal ? String(currentVal) : "");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditingField(null);
+    setEditValue("");
+  };
+
+  const handleConfirmEdit = async (trade: any) => {
+    if (!user || isSaving) return;
+    
+    const val = parseFloat(editValue);
+    if (isNaN(val) && editValue !== "") {
+      toast({ title: "Invalid Price", variant: "destructive" });
+      return;
+    }
+
+    // Validation
+    const symbolUpper = trade.symbol.toUpperCase();
+    const pData = livePrices[symbolUpper];
+    const currentPrice = trade.type === 'buy' ? pData?.bid : pData?.ask;
+
+    if (currentPrice && editValue !== "") {
+      if (editingField === 'sl') {
+        const isViolated = trade.type === 'buy' ? val >= currentPrice : val <= currentPrice;
+        if (isViolated) {
+          toast({ 
+            title: "Risk Warning", 
+            description: `Stop Loss should be ${trade.type === 'buy' ? 'below' : 'above'} current market price.`,
+            variant: "destructive" 
+          });
+        }
+      } else {
+        const isViolated = trade.type === 'buy' ? val <= currentPrice : val >= currentPrice;
+        if (isViolated) {
+          toast({ 
+            title: "Target Warning", 
+            description: `Take Profit should be ${trade.type === 'buy' ? 'above' : 'below'} current market price.`,
+            variant: "destructive" 
+          });
+        }
+      }
+    }
+
+    setIsSaving(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/terminal/trades/${trade.id}/update`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ [editingField!]: editValue === "" ? null : val })
+      });
+
+      if (res.ok) {
+        toast({ title: "Order Updated" });
+        handleCancelEdit();
+      } else {
+        throw new Error("Failed to update order");
+      }
+    } catch (err: any) {
+      toast({ title: "Update Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className={cn(
@@ -76,32 +154,24 @@ export function PositionsPanel({
                   <th className="py-2 px-2">Type</th>
                   <th className="py-2 px-2">Lots</th>
                   <th className="py-2 px-2">Entry</th>
-                  <th className="py-2 px-2">Current Price</th>
+                  <th className="py-2 px-2">S/L</th>
+                  <th className="py-2 px-2">T/P</th>
+                  <th className="py-2 px-2">Current</th>
                   <th className="py-2 px-2 text-right">PnL (USD)</th>
-                  <th className="py-2 px-2 text-right">PnL (%)</th>
                   <th className="py-2 px-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {openTrades.length === 0 ? (
-                  <tr><td colSpan={8} className="py-12 text-center italic text-zinc-600 font-bold uppercase tracking-widest text-[9px]">No open positions in terminal.</td></tr>
+                  <tr><td colSpan={9} className="py-12 text-center italic text-zinc-600 font-bold uppercase tracking-widest text-[9px]">No open positions in terminal.</td></tr>
                 ) : openTrades.map((t) => {
                   const symbolUpper = t.symbol.toUpperCase().trim();
                   const pData = livePrices[symbolUpper];
-                  
-                  // INSTITUTIONAL PNL LOGIC
-                  // Buy position closes at Bid, Sell at Ask
                   const currentPrice = pData ? (t.type === 'buy' ? pData.bid : pData.ask) : null;
                   const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
                   
                   const pnl = currentPrice 
-                    ? (t.type === 'buy' 
-                        ? (currentPrice - t.openPrice) * contractSize * t.lots 
-                        : (t.openPrice - currentPrice) * contractSize * t.lots)
-                    : 0;
-                    
-                  const pct = currentPrice
-                    ? ((currentPrice - t.openPrice) / t.openPrice) * 100 * (t.type === 'buy' ? 1 : -1)
+                    ? (t.type === 'buy' ? (currentPrice - t.openPrice) : (t.openPrice - currentPrice)) * contractSize * t.lots 
                     : 0;
                   
                   return (
@@ -117,14 +187,58 @@ export function PositionsPanel({
                       </td>
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{t.lots.toFixed(2)}</td>
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{formatPrice(t.openPrice, t.symbol)}</td>
+                      
+                      {/* STOP LOSS EDITABLE */}
+                      <td className="py-1.5 px-2 font-mono">
+                        {editingId === t.id && editingField === 'sl' ? (
+                          <div className="flex items-center gap-1">
+                            <Input 
+                              autoFocus 
+                              value={editValue} 
+                              onChange={e => setEditValue(e.target.value)} 
+                              className="h-6 w-16 text-[9px] bg-zinc-900 border-zinc-700 px-1" 
+                            />
+                            <button onClick={() => handleConfirmEdit(t)} className="text-emerald-500 hover:text-white transition-colors" disabled={isSaving}>
+                              {isSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                            </button>
+                            <button onClick={handleCancelEdit} className="text-red-500 hover:text-white transition-colors"><X size={10} /></button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 group/edit cursor-pointer" onClick={() => handleStartEdit(t.id, 'sl', t.sl)}>
+                            <span className="text-red-400/80">{formatPrice(t.sl, t.symbol)}</span>
+                            <Pencil size={8} className="opacity-0 group-hover/edit:opacity-50 text-zinc-500" />
+                          </div>
+                        )}
+                      </td>
+
+                      {/* TAKE PROFIT EDITABLE */}
+                      <td className="py-1.5 px-2 font-mono">
+                        {editingId === t.id && editingField === 'tp' ? (
+                          <div className="flex items-center gap-1">
+                            <Input 
+                              autoFocus 
+                              value={editValue} 
+                              onChange={e => setEditValue(e.target.value)} 
+                              className="h-6 w-16 text-[9px] bg-zinc-900 border-zinc-700 px-1" 
+                            />
+                            <button onClick={() => handleConfirmEdit(t)} className="text-emerald-500 hover:text-white transition-colors" disabled={isSaving}>
+                              {isSaving ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                            </button>
+                            <button onClick={handleCancelEdit} className="text-red-500 hover:text-white transition-colors"><X size={10} /></button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 group/edit cursor-pointer" onClick={() => handleStartEdit(t.id, 'tp', t.tp)}>
+                            <span className="text-emerald-400/80">{formatPrice(t.tp, t.symbol)}</span>
+                            <Pencil size={8} className="opacity-0 group-hover/edit:opacity-50 text-zinc-500" />
+                          </div>
+                        )}
+                      </td>
+
                       <td className={cn("py-1.5 px-2 font-mono font-bold", pData ? "text-primary" : "text-zinc-500")}>
                         {pData ? formatPrice(currentPrice!, t.symbol) : 'SYNC...'}
                       </td>
                       <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>
                         {pData ? (pnl >= 0 ? '+' : '') + pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
-                      </td>
-                      <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pct >= 0 ? "text-emerald-500" : "text-red-500")}>
-                        {pData ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : '—'}
                       </td>
                       <td className="py-1.5 px-3 text-right">
                         <button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/40 hover:text-red-500 transition-all rounded">

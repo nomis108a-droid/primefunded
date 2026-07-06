@@ -22,7 +22,6 @@ const OANDA_GRANULARITY: Record<string, string> = {
 
 /**
  * Institutional Cache Layer
- * Stores real non-synthetic data for 30s to prevent synthetic fallback flickering.
  */
 const realCandleCache = new Map<string, { candles: any[], timestamp: number }>();
 
@@ -59,7 +58,7 @@ export async function GET(req: NextRequest) {
   const cacheKey = `${symbol}-${interval}`;
   let candles: any[] = [];
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 7000);
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
     // 1. OANDA: Forex + Metals
@@ -116,29 +115,16 @@ export async function GET(req: NextRequest) {
             
             for (let i = 0; i < data.length; i++) {
               const v = data[i];
-              const t = Math.floor(Number(v[0]));
-              const o = parseFloat(String(v[1]));
-              const h = parseFloat(String(v[2]));
-              const l = parseFloat(String(v[3]));
-              const c = parseFloat(String(v[4]));
-
-              if (isNaN(t) || isNaN(o) || isNaN(h) || isNaN(l) || isNaN(c)) continue;
-              if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
-
               processed.push({
-                time: t,
-                open: o,
-                high: h,
-                low: l,
-                close: c,
+                time: Math.floor(Number(v[0])),
+                open: parseFloat(String(v[1])),
+                high: parseFloat(String(v[2])),
+                low: parseFloat(String(v[3])),
+                close: parseFloat(String(v[4])),
               });
             }
-            
             candles = processed.sort((a, b) => a.time - b.time);
-            
-            if (candles.length > limit) {
-              candles = candles.slice(-limit);
-            }
+            if (candles.length > limit) candles = candles.slice(-limit);
           }
         }
       } catch (e) {
@@ -146,19 +132,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ── SANITY FILTER: Discard malformed candles before returning ──
-    const originalCount = candles.length;
-    candles = candles.filter(c => {
-      return !isNaN(c.open) && c.open > 0 &&
-             !isNaN(c.high) && c.high > 0 &&
-             !isNaN(c.low) && c.low > 0 &&
-             !isNaN(c.close) && c.close > 0 &&
-             c.high >= c.low;
-    });
-
-    if (originalCount > 0 && candles.length < originalCount) {
-      console.warn(`[CandleAPI] Discarded ${originalCount - candles.length} malformed candles for ${symbol}`);
-    }
+    // Sanity Filter
+    candles = candles.filter(c => !isNaN(c.open) && c.open > 0 && !isNaN(c.close) && c.close > 0);
 
     if (candles.length > 0) {
       realCandleCache.set(cacheKey, { candles, timestamp: Date.now() });
@@ -166,7 +141,7 @@ export async function GET(req: NextRequest) {
     }
 
     const cached = realCandleCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 60000) {
+    if (cached && Date.now() - cached.timestamp < 120000) {
       return NextResponse.json({ candles: cached.candles, isFallback: false });
     }
 
@@ -176,10 +151,6 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
-    const cached = realCandleCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < 60000) {
-       return NextResponse.json({ candles: cached.candles, isFallback: false });
-    }
     return NextResponse.json({ 
       candles: generateSyntheticCandles(symbol, 100), 
       isFallback: true
