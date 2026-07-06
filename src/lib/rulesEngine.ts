@@ -4,9 +4,9 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 
 /**
- * @fileOverview Institutional Demo Audit Engine (V3)
+ * @fileOverview Institutional Demo Audit Engine (V4)
  * Evaluates internal demo accounts and trades against prop firm hard-breach risk protocols.
- * Updated: Removed Friday overnight holding rule.
+ * CRITICAL: Friday overnight holding rule is PERMANENTLY REMOVED.
  */
 
 type TradeRecord = {
@@ -166,6 +166,7 @@ export async function auditDemoAccount(accountId: string) {
 
   let breachReason = '';
 
+  // 1. Account Expiry
   if (rules.accountExpiryDays && createdAt) {
     const createdTime = (createdAt as Timestamp).toDate().getTime();
     const expiryMs = rules.accountExpiryDays * 24 * 60 * 60 * 1000;
@@ -174,6 +175,7 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
+  // 2. Frequency Check
   if (!breachReason) {
     const sortedByOpen = [...trades].sort((a, b) => 
       getTradeDate(a.openedAt)!.getTime() - getTradeDate(b.openedAt)!.getTime()
@@ -189,6 +191,7 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
+  // 3. Martingale Check
   if (!breachReason && universal.noMartingale) {
     const symGroups: Record<string, TradeRecord[]> = {};
     trades.forEach(t => {
@@ -215,6 +218,7 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
+  // 4. Soft Breach: Floating Loss
   let realizedLossFromForceClose = 0;
   if (!breachReason && rules.maxFloatingLoss && openTrades.length > 0) {
     const floatingResult = await enforceSymbolFloatingLossLimits(
@@ -224,6 +228,7 @@ export async function auditDemoAccount(accountId: string) {
     openTrades = openTrades.filter(t => !floatingResult.closedIds.has(t.id));
   }
 
+  // 5. Hard Breach: Single Trade Loss
   if (!breachReason && rules.maxSingleTradeLoss && openTrades.length > 0) {
     const singleBreach = await enforceSingleTradeLossLimit(db, accountId, userId, initialBalance, openTrades, prices, rules.maxSingleTradeLoss);
     if (singleBreach) breachReason = singleBreach;
@@ -244,6 +249,7 @@ export async function auditDemoAccount(accountId: string) {
   sessionStart.setUTCHours(2, 0, 0, 0); 
   if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
 
+  // 6. Drawdown Logic
   let realizedLossToday = realizedLossFromForceClose;
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
@@ -264,6 +270,7 @@ export async function auditDemoAccount(accountId: string) {
     breachReason = `Maximum drawdown violation: Total loss exceeded ${rules.maxDrawdown}% limit.`;
   }
 
+  // 7. Passage Check
   const tradingWindows = new Set<string>(); 
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
