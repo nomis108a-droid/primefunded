@@ -42,9 +42,12 @@ export async function GET(req: NextRequest) {
 
     const accountTrades: Record<string, any[]> = {};
     openTradesSnap.docs.forEach(d => {
-      const t = { id: d.id, ref: d.ref, ...d.data() };
-      if (!accountTrades[t.accountId]) accountTrades[t.accountId] = [];
-      accountTrades[t.accountId].push(t);
+      const data = d.data() as any;
+      const t = { id: d.id, ref: d.ref, ...data };
+      const accountId = data.accountId;
+      if (!accountId) return;
+      if (!accountTrades[accountId]) accountTrades[accountId] = [];
+      accountTrades[accountId].push(t);
     });
 
     let liquidated = 0;
@@ -53,7 +56,7 @@ export async function GET(req: NextRequest) {
     const now = new Date();
 
     for (const accDoc of activeAccountsSnap.docs) {
-      const acc = accDoc.data();
+      const acc = accDoc.data() as any;
       const trades = accountTrades[accDoc.id] || [];
       const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
       const rules = RULES_CONFIG.plans[planKey]?.[acc.phase || 'evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
