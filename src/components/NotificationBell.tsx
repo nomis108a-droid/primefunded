@@ -8,7 +8,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { useAuth } from '@/context/AuthContext';
-import { useCollection, useFirestore } from '@/firebase';
+import { useFirestore } from '@/firebase';
 import { orderBy, limit, doc, updateDoc, writeBatch, collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
 import { useMemo, useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
@@ -20,26 +20,52 @@ export function NotificationBell() {
   const db = useFirestore();
   const [isOpen, setIsOpen] = useState(false);
   const [localNotifications, setLocalNotifications] = useState<any[]>([]);
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user || !db) return;
-    const q = query(
+    
+    // 1. Personal Notifications
+    const qNotif = query(
       collection(db, 'users', user.uid, 'notifications'),
       orderBy('createdAt', 'desc'),
       limit(10)
     );
-    const unsub = onSnapshot(q, (snap) => {
+    const unsubNotif = onSnapshot(qNotif, (snap) => {
       setLocalNotifications(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return () => unsub();
+
+    // 2. Global Broadcasts
+    const qBroad = query(
+      collection(db, 'broadcasts'),
+      orderBy('sentAt', 'desc'),
+      limit(5)
+    );
+    const unsubBroad = onSnapshot(qBroad, (snap) => {
+      setBroadcasts(snap.docs.map(d => ({ id: d.id, ...d.data(), isGlobal: true })));
+    });
+
+    return () => {
+      unsubNotif();
+      unsubBroad();
+    };
   }, [user, db]);
+
+  const mergedNotifications = useMemo(() => {
+    const combined = [...localNotifications, ...broadcasts];
+    return combined.sort((a, b) => {
+      const timeA = (a.createdAt || a.sentAt)?.seconds || 0;
+      const timeB = (b.createdAt || b.sentAt)?.seconds || 0;
+      return timeB - timeA;
+    }).slice(0, 10);
+  }, [localNotifications, broadcasts]);
 
   const unreadCount = useMemo(() => 
     localNotifications.filter(n => !n.isRead).length
   , [localNotifications]);
 
-  const handleMarkAsRead = async (id: string) => {
-    if (!user) return;
+  const handleMarkAsRead = async (id: string, isGlobal?: boolean) => {
+    if (!user || isGlobal) return; // Global broadcasts are read-only alerts
     const ref = doc(db, 'users', user.uid, 'notifications', id);
     updateDoc(ref, { isRead: true });
   };
@@ -83,34 +109,35 @@ export function NotificationBell() {
           )}
         </div>
         <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-          {localNotifications.length === 0 ? (
+          {mergedNotifications.length === 0 ? (
             <div className="p-12 text-center flex flex-col items-center opacity-40">
               <Bell className="w-8 h-8 mb-2 text-muted-foreground" />
               <p className="text-[10px] uppercase font-bold tracking-widest">No new alerts</p>
             </div>
           ) : (
             <div className="divide-y divide-border/30">
-              {localNotifications.map((n) => (
+              {mergedNotifications.map((n) => (
                 <div 
                   key={n.id} 
                   className={cn(
                     "p-4 transition-all cursor-pointer group relative",
-                    !n.isRead ? "bg-primary/5 border-l-2 border-primary" : "hover:bg-secondary/20"
+                    n.isGlobal ? "bg-primary/10 border-l-2 border-primary" : (!n.isRead ? "bg-secondary/40 border-l-2 border-accent" : "hover:bg-secondary/20")
                   )}
-                  onClick={() => handleMarkAsRead(n.id)}
+                  onClick={() => handleMarkAsRead(n.id, n.isGlobal)}
                 >
                   <div className="flex justify-between items-start gap-2 mb-1">
-                    <p className={cn("text-[11px] font-black uppercase tracking-tight", !n.isRead ? "text-white" : "text-muted-foreground")}>
+                    <p className={cn("text-[11px] font-black uppercase tracking-tight", (n.isGlobal || !n.isRead) ? "text-white" : "text-muted-foreground")}>
+                      {n.isGlobal && <span className="text-primary mr-1">📢</span>}
                       {n.title}
                     </p>
                     <span className="text-[8px] font-bold text-muted-foreground uppercase whitespace-nowrap pt-0.5">
-                      {n.createdAt?.seconds ? formatDistanceToNow(n.createdAt.seconds * 1000) + ' ago' : 'Just now'}
+                      { (n.createdAt?.seconds || n.sentAt?.seconds) ? formatDistanceToNow((n.createdAt?.seconds || n.sentAt?.seconds) * 1000) + ' ago' : 'Just now'}
                     </span>
                   </div>
                   <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-2 pr-4">
                     {n.message}
                   </p>
-                  {!n.isRead && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary" />}
+                  {!n.isRead && !n.isGlobal && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-accent" />}
                 </div>
               ))}
             </div>

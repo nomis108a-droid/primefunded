@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone
 } from 'lucide-react';
 import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, manualBreachAccountAction, auditAndResetFridayBreachesAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -97,7 +97,7 @@ export default function AdminPage() {
     setIsLoading(true);
     
     try {
-      const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
+      const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.allSettled([
         getDocs(collection(db, 'users')),
         getDocs(collection(db, 'demoAccounts')),
         getDocs(query(collection(db, 'demoTrades'), limit(500), orderBy('openedAt', 'desc'))),
@@ -108,19 +108,21 @@ export default function AdminPage() {
         getDocs(collection(db, 'breaches')),
       ]);
       
+      const getData = (res: PromiseSettledResult<any>) => res.status === 'fulfilled' ? res.value : { docs: [] };
+      
       setAdminData({
-        users: usersSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.joinDate || 0).getTime() - new Date(a.joinDate || 0).getTime()),
-        demoAccounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        demoTrades: tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0)),
-        payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        broadcasts: broadcastsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-        breaches: breachesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+        users: getData(usersSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.joinDate || 0).getTime() - new Date(a.joinDate || 0).getTime()),
+        demoAccounts: getData(accountsSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        demoTrades: getData(tradesSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        orders: getData(ordersSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0)),
+        payouts: getData(payoutsSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        referrals: getData(referralsSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        broadcasts: getData(broadcastsSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        breaches: getData(breachesSnap).docs.map((d: any) => ({ id: d.id, ...d.data() })),
       });
       setIsRateLimited(false);
     } catch (err: any) {
-      console.error("[Admin] Sync fault:", err);
+      console.error("[Admin) Sync fault:", err);
       if (err.message?.includes('429')) {
         setIsRateLimited(true);
         toast({ variant: "destructive", title: "Rate Limited", description: "Terminal synchronization paused for 60s." });
@@ -203,6 +205,24 @@ export default function AdminPage() {
       } else throw new Error(res.error);
     } catch (err: any) {
       toast({ variant: "destructive", title: "Action Failed", description: err.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendBroadcast = async () => {
+    if (!broadcastForm.title || !broadcastForm.message) return;
+    setActionLoading(true);
+    try {
+      const res = await sendGlobalBroadcastAction(broadcastForm);
+      if (res.success) {
+        toast({ title: "Broadcast Sent", description: "The message has been deployed to all users." });
+        setIsBroadcastModalOpen(false);
+        setBroadcastForm({ title: '', message: '', type: 'info' });
+        refreshData();
+      } else throw new Error(res.error);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Broadcast Failed", description: err.message });
     } finally {
       setActionLoading(false);
     }
@@ -314,13 +334,8 @@ export default function AdminPage() {
     })
   , [adminData.users, searchTerm]);
 
-  /**
-   * Unified Breach Aggregator: Fixes visibility bug by scanning both log collection AND account collection
-   */
   const unifiedBreaches = useMemo(() => {
     const list = [...adminData.breaches];
-    
-    // Add active "blown" accounts that might be missing from the breaches collection
     adminData.demoAccounts.forEach((acc: any) => {
       if (acc.status === 'blown' || acc.status === 'breach') {
         const alreadyIn = list.some(b => b.accountId === acc.id);
@@ -339,7 +354,6 @@ export default function AdminPage() {
         }
       }
     });
-
     return list.sort((a, b) => {
       const timeA = a.breachedAt?.seconds || new Date(a.breachedAt).getTime() / 1000 || 0;
       const timeB = b.breachedAt?.seconds || new Date(b.breachedAt).getTime() / 1000 || 0;
@@ -367,9 +381,6 @@ export default function AdminPage() {
               <Button variant="outline" size="sm" className="h-10 px-4" asChild>
                 <Link href="/admin/price-tracker"><Activity className="w-4 h-4 mr-2" /> Price Synchronizer</Link>
               </Button>
-              <Button variant="outline" size="sm" className="h-10 px-4 border-destructive/20 text-destructive hover:bg-destructive/10" onClick={handleCleanup} disabled={actionLoading}>
-                <Trash2 className="w-4 h-4 mr-2" /> Cleanup Environment
-              </Button>
               <Button size="sm" className="h-10 px-6 font-bold bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
                 <Gift className="w-4 h-4 mr-2" /> Gift Account
               </Button>
@@ -395,6 +406,7 @@ export default function AdminPage() {
                 <TabsTrigger value="orders" className="px-6 font-bold">Order Review</TabsTrigger>
                 <TabsTrigger value="users" className="px-6 font-bold">User Directory</TabsTrigger>
                 <TabsTrigger value="kyc" className="px-6 font-bold">KYC Hub</TabsTrigger>
+                <TabsTrigger value="broadcasts" className="px-6 font-bold">Broadcasts</TabsTrigger>
               </TabsList>
             </Tabs>
             <button onClick={() => scrollTabs('right')} className="absolute -right-4 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-zinc-900 border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -404,41 +416,6 @@ export default function AdminPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          {activeTab === 'breaches' && (
-            <Card className="bg-card/40 border-border/50">
-              <CardContent className="p-0">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                      <th className="p-4">Date</th>
-                      <th className="p-4">Trader Email</th>
-                      <th className="p-4">Account ID</th>
-                      <th className="p-4">Plan / Phase</th>
-                      <th className="p-4">Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {unifiedBreaches.map((b: any) => (
-                      <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
-                        <td className="p-4 text-xs text-muted-foreground">
-                          {b.breachedAt?.seconds ? format(new Date(b.breachedAt.seconds * 1000), 'MMM d, HH:mm') : 
-                           isValid(new Date(b.breachedAt)) ? format(new Date(b.breachedAt), 'MMM d, HH:mm') : '—'}
-                        </td>
-                        <td className="p-4 font-bold text-white">{b.email || b.userId}</td>
-                        <td className="p-4 font-mono text-[10px] text-primary">{b.accountId?.slice(0, 8)}</td>
-                        <td className="p-4 uppercase text-[10px]">{b.planType || '—'} / {b.phase || '—'}</td>
-                        <td className="p-4 text-xs text-destructive/80 font-medium max-w-xs">{b.reason}</td>
-                      </tr>
-                    ))}
-                    {unifiedBreaches.length === 0 && (
-                      <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No liquidation records found.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          )}
-
           {activeTab === 'overview' && (
             <div className="space-y-10">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -492,6 +469,151 @@ export default function AdminPage() {
             </div>
           )}
 
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search by name, email, trader ID..." 
+                  className="pl-10 h-12 bg-card/40 border-border/50" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Trader</th>
+                        <th className="p-4">ID</th>
+                        <th className="p-4">Joined</th>
+                        <th className="p-4">Status</th>
+                        <th className="p-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {filteredUsers.map((u: any) => (
+                        <tr key={u.id} className="hover:bg-white/5">
+                          <td className="p-4">
+                            <p className="font-bold text-white">{u.name || 'Unnamed'}</p>
+                            <p className="text-xs text-muted-foreground">{u.email}</p>
+                          </td>
+                          <td className="p-4 font-mono text-xs">{u.traderId}</td>
+                          <td className="p-4 text-xs">{u.joinDate ? format(new Date(u.joinDate), 'MMM d, yyyy') : '—'}</td>
+                          <td className="p-4"><Badge className="uppercase text-[8px]">{u.status || 'active'}</Badge></td>
+                          <td className="p-4 text-right">
+                             <Button variant="ghost" size="sm" className="text-xs font-bold" onClick={async () => {
+                                setUserDetailLoading(true);
+                                const detail = await fetchUserDetailAction(u.id);
+                                if (detail.success) {
+                                  setUserDetail(detail);
+                                  setIsUserDetailModalOpen(true);
+                                }
+                                setUserDetailLoading(false);
+                             }}>Manage</Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredUsers.length === 0 && (
+                        <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No users found in directory.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'kyc' && (
+            <Card className="bg-card/40 border-border/50">
+              <CardContent className="p-0">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                    <tr>
+                      <th className="p-4">Trader</th>
+                      <th className="p-4">Submitted</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {kycApplications.map((u: any) => (
+                      <tr key={u.id} className="hover:bg-white/5">
+                        <td className="p-4">
+                          <p className="font-bold text-white">{u.name}</p>
+                          <p className="text-xs text-muted-foreground">{u.email}</p>
+                        </td>
+                        <td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td>
+                        <td className="p-4"><Badge className={cn("uppercase text-[8px]", u.kycStatus === 'verified' ? 'bg-emerald-500' : u.kycStatus === 'rejected' ? 'bg-destructive' : 'bg-amber-500')}>{u.kycStatus}</Badge></td>
+                        <td className="p-4 text-right">
+                          <div className="flex justify-end gap-2">
+                             <Button size="sm" variant="outline" className="h-8 text-[10px] font-bold" onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }}>View Docs</Button>
+                             {u.kycStatus === 'pending' && (
+                               <>
+                                 <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleKycAction(u.id, 'verified')}>Approve</Button>
+                                 <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleKycAction(u.id, 'rejected')}>Reject</Button>
+                               </>
+                             )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {kycApplications.length === 0 && (
+                      <tr><td colSpan={4} className="py-20 text-center text-muted-foreground italic">No active KYC applications.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'broadcasts' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                 <div className="flex items-center gap-3">
+                    <Megaphone className="w-6 h-6 text-primary" />
+                    <h2 className="text-2xl font-headline font-bold text-white">System Broadcasts</h2>
+                 </div>
+                 <Button onClick={() => setIsBroadcastModalOpen(true)} className="bg-primary text-black font-bold">
+                    <Send className="w-4 h-4 mr-2" /> New Broadcast
+                 </Button>
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Sent At</th>
+                        <th className="p-4">Title</th>
+                        <th className="p-4">Message</th>
+                        <th className="p-4">Type</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {adminData.broadcasts.map((b: any) => (
+                        <tr key={b.id} className="hover:bg-white/5">
+                          <td className="p-4 text-xs text-muted-foreground">
+                            {b.sentAt?.seconds ? format(new Date(b.sentAt.seconds * 1000), 'MMM d, HH:mm') : 'Recently'}
+                          </td>
+                          <td className="p-4 font-bold text-white">{b.title}</td>
+                          <td className="p-4 text-xs text-muted-foreground max-w-lg truncate">{b.message}</td>
+                          <td className="p-4">
+                            <Badge variant="outline" className="uppercase text-[8px] font-black">{b.type}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                      {adminData.broadcasts.length === 0 && (
+                        <tr><td colSpan={4} className="py-20 text-center text-muted-foreground italic">No broadcasts deployed yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ... other tab sections for breaches, nodes, orders ... */}
           {activeTab === 'nodes' && (
             <Card className="bg-card/40 border-border/50">
               <CardContent className="p-0">
@@ -532,6 +654,41 @@ export default function AdminPage() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'breaches' && (
+            <Card className="bg-card/40 border-border/50">
+              <CardContent className="p-0">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                    <tr>
+                      <th className="p-4">Date</th>
+                      <th className="p-4">Trader Email</th>
+                      <th className="p-4">Account ID</th>
+                      <th className="p-4">Plan / Phase</th>
+                      <th className="p-4">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {unifiedBreaches.map((b: any) => (
+                      <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
+                        <td className="p-4 text-xs text-muted-foreground">
+                          {b.breachedAt?.seconds ? format(new Date(b.breachedAt.seconds * 1000), 'MMM d, HH:mm') : 
+                           isValid(new Date(b.breachedAt)) ? format(new Date(b.breachedAt), 'MMM d, HH:mm') : '—'}
+                        </td>
+                        <td className="p-4 font-bold text-white">{b.email || b.userId}</td>
+                        <td className="p-4 font-mono text-[10px] text-primary">{b.accountId?.slice(0, 8)}</td>
+                        <td className="p-4 uppercase text-[10px]">{b.planType || '—'} / {b.phase || '—'}</td>
+                        <td className="p-4 text-xs text-destructive/80 font-medium max-w-xs">{b.reason}</td>
+                      </tr>
+                    ))}
+                    {unifiedBreaches.length === 0 && (
+                      <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No liquidation records found.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </CardContent>
@@ -586,104 +743,45 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           )}
-
-          {activeTab === 'users' && (
-            <div className="space-y-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search by name, email, trader ID..." 
-                  className="pl-10 h-12 bg-card/40 border-border/50" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              <Card className="bg-card/40 border-border/50">
-                <CardContent className="p-0">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                      <tr>
-                        <th className="p-4">Trader</th>
-                        <th className="p-4">ID</th>
-                        <th className="p-4">Joined</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {filteredUsers.map((u: any) => (
-                        <tr key={u.id} className="hover:bg-white/5">
-                          <td className="p-4">
-                            <p className="font-bold text-white">{u.name}</p>
-                            <p className="text-xs text-muted-foreground">{u.email}</p>
-                          </td>
-                          <td className="p-4 font-mono text-xs">{u.traderId}</td>
-                          <td className="p-4 text-xs">{u.joinDate ? format(new Date(u.joinDate), 'MMM d, yyyy') : '—'}</td>
-                          <td className="p-4"><Badge className="uppercase text-[8px]">{u.status || 'active'}</Badge></td>
-                          <td className="p-4 text-right">
-                             <Button variant="ghost" size="sm" className="text-xs font-bold" onClick={async () => {
-                                setUserDetailLoading(true);
-                                const detail = await fetchUserDetailAction(u.id);
-                                if (detail.success) {
-                                  setUserDetail(detail);
-                                  setIsUserDetailModalOpen(true);
-                                }
-                                setUserDetailLoading(false);
-                             }}>Manage</Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {activeTab === 'kyc' && (
-            <Card className="bg-card/40 border-border/50">
-              <CardContent className="p-0">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                      <th className="p-4">Trader</th>
-                      <th className="p-4">Submitted</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {kycApplications.map((u: any) => (
-                      <tr key={u.id} className="hover:bg-white/5">
-                        <td className="p-4">
-                          <p className="font-bold text-white">{u.name}</p>
-                          <p className="text-xs text-muted-foreground">{u.email}</p>
-                        </td>
-                        <td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td>
-                        <td className="p-4"><Badge className="uppercase text-[8px]">{u.kycStatus}</Badge></td>
-                        <td className="p-4 text-right">
-                          <div className="flex justify-end gap-2">
-                             <Button size="sm" variant="outline" className="h-8 text-[10px] font-bold" onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }}>View Docs</Button>
-                             {u.kycStatus === 'pending' && (
-                               <>
-                                 <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleKycAction(u.id, 'verified')}>Approve</Button>
-                                 <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleKycAction(u.id, 'rejected')}>Reject</Button>
-                               </>
-                             )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {kycApplications.length === 0 && (
-                      <tr><td colSpan={4} className="py-20 text-center text-muted-foreground italic">No active KYC applications.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </main>
+
+      {/* Broadcast Modal */}
+      <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
+        <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Global Broadcast</DialogTitle>
+            <DialogDescription>This message will be visible to all active traders in real-time.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+             <div className="space-y-2">
+                <Label>Broadcast Title</Label>
+                <Input value={broadcastForm.title} onChange={e => setBroadcastForm({...broadcastForm, title: e.target.value})} placeholder="e.g. System Maintenance" />
+             </div>
+             <div className="space-y-2">
+                <Label>Message Content</Label>
+                <Textarea value={broadcastForm.message} onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})} placeholder="Enter message for all users..." />
+             </div>
+             <div className="space-y-2">
+                <Label>Alert Level</Label>
+                <Select value={broadcastForm.type} onValueChange={v => setBroadcastForm({...broadcastForm, type: v})}>
+                   <SelectTrigger className="bg-zinc-900 border-white/5"><SelectValue /></SelectTrigger>
+                   <SelectContent>
+                      <SelectItem value="info">Information</SelectItem>
+                      <SelectItem value="warning">Warning</SelectItem>
+                      <SelectItem value="payout">Payout Update</SelectItem>
+                   </SelectContent>
+                </Select>
+             </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsBroadcastModalOpen(false)}>Cancel</Button>
+            <Button onClick={handleSendBroadcast} disabled={actionLoading} className="bg-primary text-black font-black">
+               {actionLoading ? <Loader2 className="animate-spin w-4 h-4" /> : <Send className="w-4 h-4 mr-2" />} DEPLOY BROADCAST
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Friday Audit Modal */}
       <Dialog open={isFridayModalOpen} onOpenChange={setIsFridayModalOpen}>
@@ -733,20 +831,6 @@ export default function AdminPage() {
               </div>
             )}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Image Preview Modal */}
-      <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
-        <DialogContent className="max-w-4xl bg-black border-none p-0 overflow-hidden">
-           {previewImage ? (
-             <div className="relative aspect-video flex items-center justify-center bg-zinc-900">
-                <img src={previewImage} alt="Document Proof" className="max-h-full max-w-full object-contain" />
-                <Button variant="secondary" className="absolute top-4 right-4 h-10 w-10 p-0 rounded-full" onClick={() => setIsImageModalOpen(false)}><XCircle /></Button>
-             </div>
-           ) : (
-             <div className="p-20 text-center text-muted-foreground">No image data available.</div>
-           )}
         </DialogContent>
       </Dialog>
 
