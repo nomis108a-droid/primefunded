@@ -342,7 +342,7 @@ export default function DemoPage() {
       };
       updateMarketStatus();
       const interval = setInterval(updateMarketStatus, 60000);
-      return () => clearInterval(interval);
+      return () => clearInterval(updateMarketStatus);
     }
   }, [selectedSymbol, hasMounted]);
 
@@ -734,6 +734,15 @@ export default function DemoPage() {
           <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/5"><UserCircle className="w-3 h-3 text-primary" /><span className="text-[10px] font-black uppercase text-zinc-400">ID: {userData?.traderId || '--------'}</span></div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
+          {isMobile && hasMounted && (
+            <Button 
+              size="sm" 
+              className="bg-primary text-black font-black text-[10px] h-8 px-3 rounded-lg"
+              onClick={() => setIsOrderSheetOpen(true)}
+            >
+              TRADE
+            </Button>
+          )}
           {!isMobile && hasMounted && (
             <>
               <Button variant="ghost" size="sm" className="h-9 px-3 gap-2 text-xs font-bold text-zinc-400" onClick={() => setIsAlertModalOpen(true)}><Bell className="w-4 h-4" /> Set Alert</Button>
@@ -829,6 +838,24 @@ export default function DemoPage() {
            />
         </aside>
       </div>
+
+      {/* Mobile Action Bar */}
+      {isMobile && hasMounted && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between px-4 z-[55] pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.5)]">
+           <Button 
+             className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs tracking-widest rounded-xl mr-2 active:scale-95 transition-transform"
+             onClick={() => setIsOrderSheetOpen(true)}
+           >
+             BUY
+           </Button>
+           <Button 
+             className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-white font-black text-xs tracking-widest rounded-xl ml-2 active:scale-95 transition-transform"
+             onClick={() => setIsOrderSheetOpen(true)}
+           >
+             SELL
+           </Button>
+        </div>
+      )}
 
       <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
         <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
