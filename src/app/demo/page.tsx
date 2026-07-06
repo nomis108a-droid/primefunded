@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -148,77 +147,105 @@ export default function DemoPage() {
 
   // SYNC TRADE OVERLAYS (Lines & Markers)
   useEffect(() => {
-    if (!mainSeriesRef.current || !isChartReady) return;
+    // CRITICAL: Prevent "Object is disposed" error by checking chart and series availability
+    if (!mainSeriesRef.current || !chartInstanceRef.current || !isChartReady) return;
 
-    // 1. Markers (BUY/SELL arrows)
-    const markers = openTrades
-      .filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase())
-      .map(t => {
-        const time = t.openedAt?.seconds || (new Date(t.openedAt).getTime() / 1000);
-        return {
-          time: Math.floor(time),
-          position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
-          color: t.type === 'buy' ? '#10b981' : '#ef4444',
-          shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
-          text: t.type.toUpperCase(),
-        };
-      });
-    mainSeriesRef.current.setMarkers(markers as any);
-
-    // 2. Price Lines (Entry, SL, TP)
-    const activeIds = new Set(openTrades.map(t => t.id));
-    priceLinesRef.current.forEach((lines, id) => {
-      if (!activeIds.has(id)) {
-        lines.forEach(l => mainSeriesRef.current?.removePriceLine(l));
-        priceLinesRef.current.delete(id);
-      }
-    });
-
-    openTrades.forEach(trade => {
-      if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
-      let lines = priceLinesRef.current.get(trade.id);
+    try {
+      // 1. Markers (BUY/SELL arrows)
+      const markers = openTrades
+        .filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase())
+        .map(t => {
+          const time = t.openedAt?.seconds || (new Date(t.openedAt).getTime() / 1000);
+          return {
+            time: Math.floor(time),
+            position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
+            color: t.type === 'buy' ? '#10b981' : '#ef4444',
+            shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
+            text: t.type.toUpperCase(),
+          };
+        });
       
-      if (!lines) {
-        const pnl = calculateTradePnL(trade);
-        const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        
-        const entryLine = mainSeriesRef.current!.createPriceLine({
-          price: trade.openPrice,
-          color: '#71717a',
-          lineWidth: 1,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`,
-        });
-        
-        const newLines = [entryLine];
-        
-        if (trade.sl) {
-          newLines.push(mainSeriesRef.current!.createPriceLine({
-            price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL',
-          }));
-        }
-        if (trade.tp) {
-          newLines.push(mainSeriesRef.current!.createPriceLine({
-            price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP',
-          }));
-        }
-        priceLinesRef.current.set(trade.id, newLines);
-      } else {
-        // Update PnL title on existing entry line
-        const pnl = calculateTradePnL(trade);
-        const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        lines[0].applyOptions({
-          title: `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`
-        });
+      // Ensure the series is still valid before updating markers
+      if (mainSeriesRef.current) {
+        mainSeriesRef.current.setMarkers(markers as any);
       }
-    });
+
+      // 2. Price Lines (Entry, SL, TP)
+      const activeIds = new Set(openTrades.map(t => t.id));
+      priceLinesRef.current.forEach((lines, id) => {
+        if (!activeIds.has(id)) {
+          lines.forEach(l => {
+            try {
+              if (mainSeriesRef.current) mainSeriesRef.current.removePriceLine(l);
+            } catch (e) {
+              // Silently ignore disposal errors during cleanup
+            }
+          });
+          priceLinesRef.current.delete(id);
+        }
+      });
+
+      openTrades.forEach(trade => {
+        if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
+        if (!mainSeriesRef.current) return;
+
+        let lines = priceLinesRef.current.get(trade.id);
+        
+        if (!lines) {
+          const pnl = calculateTradePnL(trade);
+          const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          
+          try {
+            const entryLine = mainSeriesRef.current.createPriceLine({
+              price: trade.openPrice,
+              color: '#71717a',
+              lineWidth: 1,
+              lineStyle: 2,
+              axisLabelVisible: true,
+              title: `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`,
+            });
+            
+            const newLines = [entryLine];
+            
+            if (trade.sl) {
+              newLines.push(mainSeriesRef.current.createPriceLine({
+                price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'SL',
+              }));
+            }
+            if (trade.tp) {
+              newLines.push(mainSeriesRef.current.createPriceLine({
+                price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'TP',
+              }));
+            }
+            priceLinesRef.current.set(trade.id, newLines);
+          } catch (e) {
+            // Log or handle creation failure
+          }
+        } else {
+          // Update PnL title on existing entry line
+          const pnl = calculateTradePnL(trade);
+          const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          try {
+            lines[0].applyOptions({
+              title: `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`
+            });
+          } catch (e) {
+            // Handle update failure if line was disposed
+          }
+        }
+      });
+    } catch (err) {
+      console.warn("[Chart-Overlay] Sync issue detected:", err);
+    }
   }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
 
   // CHART INITIALIZATION
   useEffect(() => {
     if (!chartContainerRef.current) return;
     setIsChartReady(false);
+    
+    // Safety: Ensure previous references are cleared
+    priceLinesRef.current.clear();
     
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter, sans-serif' },
@@ -241,23 +268,30 @@ export default function DemoPage() {
 
     const handleResize = () => { 
       if (chartContainerRef.current && chart) {
-        chart.applyOptions({ 
-          width: chartContainerRef.current.clientWidth, 
-          height: chartContainerRef.current.clientHeight 
-        }); 
+        try {
+          chart.applyOptions({ 
+            width: chartContainerRef.current.clientWidth, 
+            height: chartContainerRef.current.clientHeight 
+          }); 
+        } catch (e) {}
       }
     };
     
     window.addEventListener('resize', handleResize);
     return () => { 
       window.removeEventListener('resize', handleResize); 
-      chart.remove(); 
+      setIsChartReady(false);
+      try {
+        chart.remove(); 
+      } catch (e) {}
+      chartInstanceRef.current = null;
+      mainSeriesRef.current = null;
     };
   }, [selectedSymbol]);
 
   // LOAD HISTORY & SYNC LIVE TICKS
   useEffect(() => {
-    if (!isChartReady) return;
+    if (!isChartReady || !mainSeriesRef.current) return;
     
     const fetchHistory = async () => {
       if (isInitialLoad) setIsChartLoading(true);
@@ -268,12 +302,12 @@ export default function DemoPage() {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`, { signal: controller.signal });
         const data = await res.json();
         
-        if (data.candles && mainSeriesRef.current) {
+        if (data.candles && mainSeriesRef.current && isChartReady) {
           mainSeriesRef.current.setData(data.candles);
           chartInstanceRef.current?.timeScale().fitContent();
           
           // Force immediate update with active price if available
-          if (activePrice) {
+          if (activePrice && mainSeriesRef.current) {
             const lastCandle = data.candles[data.candles.length - 1];
             if (lastCandle) {
               mainSeriesRef.current.update({ 
@@ -286,7 +320,7 @@ export default function DemoPage() {
           }
         }
       } catch(e) { 
-        console.warn("[Chart] History fetch failed", e); 
+        console.warn("[Chart] History fetch issue", e); 
       } finally { 
         clearTimeout(timeoutId); 
         setIsChartLoading(false); 
@@ -300,16 +334,20 @@ export default function DemoPage() {
   // LIVE TICK INJECTION
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
-      const data = mainSeriesRef.current.data();
-      if (data.length === 0) return;
-      const lastCandle = data[data.length - 1] as any;
-      if (lastCandle) {
-        mainSeriesRef.current.update({ 
-          ...lastCandle, 
-          close: activePrice.price, 
-          high: Math.max(lastCandle.high, activePrice.price), 
-          low: Math.min(lastCandle.low, activePrice.price) 
-        });
+      try {
+        const data = mainSeriesRef.current.data();
+        if (data.length === 0) return;
+        const lastCandle = data[data.length - 1] as any;
+        if (lastCandle) {
+          mainSeriesRef.current.update({ 
+            ...lastCandle, 
+            close: activePrice.price, 
+            high: Math.max(lastCandle.high, activePrice.price), 
+            low: Math.min(lastCandle.low, activePrice.price) 
+          });
+        }
+      } catch (e) {
+        // Silently ignore update errors during disposal/switching
       }
     }
   }, [activePrice, isChartReady]);
@@ -348,7 +386,7 @@ export default function DemoPage() {
       const token = await user.getIdToken(true);
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ closePrice })
       });
       if (res.ok) toast({ title: "✓ Position Closed" });
