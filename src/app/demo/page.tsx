@@ -32,6 +32,7 @@ import { useLivePrices } from "@/hooks/useLivePrice";
 import { useTickStream } from "@/hooks/useTickStream";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CONTRACT_SIZE } from "@/lib/rulesConfig";
+import { getTradeDate } from "@/lib/tradeUtils";
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
@@ -299,27 +300,32 @@ export default function DemoPage() {
     if (!mainSeriesRef.current || !chartInstanceRef.current || !isChartReady) return;
 
     try {
-      // 1. Markers
+      // 1. RECONCILE MARKERS
       const markers = openTrades
-        .filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase())
+        .filter(t => (t.symbol || '').toUpperCase().trim() === selectedSymbol.toUpperCase().trim())
         .map(t => {
-          const time = t.openedAt?.seconds || (new Date(t.openedAt).getTime() / 1000);
+          const date = getTradeDate(t.openedAt);
+          const time = date ? Math.floor(date.getTime() / 1000) : null;
+          if (!time) return null;
           return {
-            time: Math.floor(time),
+            time: time,
             position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
             color: t.type === 'buy' ? '#10b981' : '#ef4444',
             shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
             text: t.type.toUpperCase(),
           };
-        });
+        })
+        .filter(m => m !== null);
       
       mainSeriesRef.current.setMarkers(markers as any);
 
-      // 2. Reconcile Price Lines
+      // 2. RECONCILE PRICE LINES
       const activeIds = new Set(openTrades.map(t => t.id));
       
+      // Cleanup lines for trades that are no longer active or are for other symbols
       priceLinesRef.current.forEach((lines, id) => {
-        if (!activeIds.has(id)) {
+        const trade = openTrades.find(t => t.id === id);
+        if (!activeIds.has(id) || (trade && (trade.symbol || '').toUpperCase().trim() !== selectedSymbol.toUpperCase().trim())) {
           lines.forEach(l => {
             try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {}
           });
@@ -327,8 +333,9 @@ export default function DemoPage() {
         }
       });
 
+      // Update or create lines for active trades on current symbol
       openTrades.forEach(trade => {
-        if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
+        if ((trade.symbol || '').toUpperCase().trim() !== selectedSymbol.toUpperCase().trim()) return;
         if (!mainSeriesRef.current) return;
 
         const { pnl, pct } = calculateTradePnL(trade);
@@ -338,6 +345,7 @@ export default function DemoPage() {
 
         let lines = priceLinesRef.current.get(trade.id);
         
+        // If lines don't exist, create the full set
         if (!lines) {
           try {
             const entryLine = mainSeriesRef.current.createPriceLine({
@@ -351,12 +359,12 @@ export default function DemoPage() {
             
             const newLines = [entryLine];
             
-            if (trade.sl) {
+            if (trade.sl && parseFloat(String(trade.sl)) > 0) {
               newLines.push(mainSeriesRef.current.createPriceLine({
                 price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL',
               }));
             }
-            if (trade.tp) {
+            if (trade.tp && parseFloat(String(trade.tp)) > 0) {
               newLines.push(mainSeriesRef.current.createPriceLine({
                 price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP',
               }));
@@ -364,8 +372,22 @@ export default function DemoPage() {
             priceLinesRef.current.set(trade.id, newLines);
           } catch(e) {}
         } else {
+          // If lines exist, update Entry PnL and reconcile SL/TP changes
           try {
             lines[0].applyOptions({ title });
+            
+            // Re-sync SL/TP lines if they were added or changed
+            const currentSl = trade.sl && parseFloat(String(trade.sl)) > 0 ? trade.sl : null;
+            const currentTp = trade.tp && parseFloat(String(trade.tp)) > 0 ? trade.tp : null;
+            
+            // This is a simple approach: if sl/tp changed, we just rebuild this specific trade's lines next cycle
+            // but for now, we'll just check if the length matches expectations
+            const expectedCount = 1 + (currentSl ? 1 : 0) + (currentTp ? 1 : 0);
+            if (lines.length !== expectedCount) {
+               // Remove and clear to force recreation
+               lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
+               priceLinesRef.current.delete(trade.id);
+            }
           } catch(e) {}
         }
       });

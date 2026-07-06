@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -239,11 +238,30 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       if (!isSelected || locked || isTemp) return null;
       return (
         <foreignObject x={p1.x - 40} y={Math.min(p1.y, p2.y) - 60} width="120" height="40" className="pointer-events-auto overflow-visible">
-          <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg p-1 shadow-2xl scale-90">
-             <button onClick={() => deleteDrawing(drawing.id)} className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-white/5 rounded"><Trash2 size={14} /></button>
+          <div 
+            onMouseDown={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg p-1 shadow-2xl scale-90"
+          >
+             <button 
+               onMouseDown={(e) => e.stopPropagation()}
+               onClick={(e) => { e.stopPropagation(); deleteDrawing(drawing.id); }} 
+               className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-white/5 rounded transition-colors"
+             >
+               <Trash2 size={14} />
+             </button>
              <div className="w-px h-4 bg-zinc-800" />
-             <button className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-primary hover:bg-white/5 rounded"><Settings2 size={14} /></button>
-             <button className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-primary hover:bg-white/5 rounded"><GripVertical size={14} /></button>
+             <button 
+               onMouseDown={(e) => e.stopPropagation()}
+               className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-primary hover:bg-white/5 rounded transition-colors"
+             >
+               <Settings2 size={14} />
+             </button>
+             <button 
+               onMouseDown={(e) => e.stopPropagation()}
+               className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-primary hover:bg-white/5 rounded transition-colors"
+             >
+               <GripVertical size={14} />
+             </button>
           </div>
         </foreignObject>
       );
