@@ -19,9 +19,11 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: "No auth token" }, { status: 401 });
 
     let uid: string;
+    let email: string | null = null;
     try {
       const decoded = await getAdminAuth().verifyIdToken(token);
       uid = decoded.uid;
+      email = decoded.email || null;
     } catch (err) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 });
     }
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
     const db = getAdminDb();
     const docRef = await db.collection("demoAccounts").add({
       userId: uid,
+      email,
       plan,
       planType,
       phase,

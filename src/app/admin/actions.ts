@@ -313,7 +313,7 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
 
     const userRef = db.collection('users').doc(userId);
     const userSnap = await userRef.get();
-    const userEmail = userSnap.data()?.email || accData.email;
+    const userEmail = userSnap.data()?.email || accData.email || null;
 
     const openTradesSnap = await db.collection('demoTrades')
       .where('accountId', '==', accountId)

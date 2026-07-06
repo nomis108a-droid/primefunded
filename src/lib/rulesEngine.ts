@@ -309,7 +309,14 @@ export async function auditDemoAccount(accountId: string) {
 
     batch.update(db.collection('users').doc(userId), { accountStatus: 'breached' });
     batch.set(db.collection('breaches').doc(), {
-      accountId, userId, email, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp(), planType, phase
+      accountId, 
+      userId, 
+      email: email || null, 
+      reason: breachReason, 
+      type: 'hard', 
+      breachedAt: FieldValue.serverTimestamp(), 
+      planType: planType || null, 
+      phase: phase || null
     });
 
     batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
