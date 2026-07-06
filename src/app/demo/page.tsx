@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
@@ -844,7 +843,7 @@ export default function DemoPage() {
              hasMounted={hasMounted} 
              actionLoading={actionLoading} 
              isPriceValid={isPriceValid} 
-             hasPendingPayout, 
+             hasPendingPayout={hasPendingPayout} 
              marketInfo={marketInfo} 
              activePrice={activePrice} 
              selectedSymbol={selectedSymbol} 
