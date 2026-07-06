@@ -3,19 +3,12 @@ import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditActiveOpenPositions, auditDemoAccount } from '@/lib/rulesEngine';
 import { setLatestOandaTick } from './oandaStream';
 import { setLatestCoinbaseTick } from './coinbaseStream';
+import { CONTRACT_SIZE } from './rulesConfig';
 
 /**
  * @fileOverview Institutional Risk Auditor & Execution Engine
  * Monitors nodes with active exposure and processes automated exit orders (TP/SL).
  */
-
-const CONTRACT_SIZE: Record<string, number> = {
-  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
-  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
-  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
-  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
-  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
-};
 
 /**
  * Synchronizes local memory ticks across all server nodes by listening to RTDB.
@@ -39,10 +32,11 @@ export function startGlobalPriceSync() {
           ask: Number(tick.ask)
         };
 
-        if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol)) {
-          setLatestCoinbaseTick(symbol, payload);
+        const symUpper = symbol.toUpperCase().trim();
+        if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symUpper)) {
+          setLatestCoinbaseTick(symUpper, payload);
         } else {
-          setLatestOandaTick(symbol, payload);
+          setLatestOandaTick(symUpper, payload);
         }
       });
     });
@@ -56,17 +50,17 @@ async function checkTpSlHits(db: any) {
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
     if (openTradesSnap.empty) return;
 
-    const symbols = [...new Set(openTradesSnap.docs.map((d: any) => d.data().symbol?.toUpperCase()).filter(Boolean))];
+    const symbols = [...new Set(openTradesSnap.docs.map((d: any) => d.data().symbol?.toUpperCase().trim()).filter(Boolean))];
     const priceSnaps = await Promise.all(symbols.map((s: string) => db.collection('livePrices').doc(s).get()));
     
     const prices: Record<string, any> = {};
     priceSnaps.forEach((snap: any) => { 
-      if (snap.exists) prices[snap.id] = snap.data(); 
+      if (snap.exists) prices[snap.id.toUpperCase().trim()] = snap.data(); 
     });
 
     for (const tradeDoc of openTradesSnap.docs) {
       const trade = tradeDoc.data();
-      const symbol = trade.symbol?.toUpperCase();
+      const symbol = (trade.symbol || "").toUpperCase().trim();
       const priceData = prices[symbol];
       if (!priceData) continue;
 

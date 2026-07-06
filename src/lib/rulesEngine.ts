@@ -1,4 +1,4 @@
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
@@ -21,14 +21,6 @@ type TradeRecord = {
   openPrice?: number;
   ref: any;
   [key: string]: any;
-};
-
-const CONTRACT_SIZE: Record<string, number> = {
-  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
-  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
-  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
-  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
-  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
 };
 
 function getTradeDate(time: any) {
@@ -55,7 +47,7 @@ async function enforceSymbolFloatingLossLimits(
 
   const bySymbol: Record<string, { trades: TradeRecord[]; pnl: number }> = {};
   for (const t of openTrades) {
-    const sym = t.symbol?.toUpperCase() || '';
+    const sym = (t.symbol || '').toUpperCase().trim();
     const priceData = prices[sym];
     if (!priceData) continue;
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
@@ -120,7 +112,7 @@ async function enforceSingleTradeLossLimit(
   const limitUsd = startBalance * (maxSingleTradeLossPct / 100);
   
   for (const t of openTrades) {
-    const sym = t.symbol?.toUpperCase() || '';
+    const sym = (t.symbol || '').toUpperCase().trim();
     const priceData = prices[sym];
     if (!priceData) continue;
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
@@ -159,7 +151,7 @@ export async function auditDemoAccount(accountId: string) {
 
   const trades: TradeRecord[] = tradesSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() } as TradeRecord));
   const prices: Record<string, any> = {};
-  pricesSnap.docs.forEach(d => prices[d.id.toUpperCase()] = d.data());
+  pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
 
   let openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
@@ -195,7 +187,7 @@ export async function auditDemoAccount(accountId: string) {
   if (!breachReason && universal.noMartingale) {
     const symGroups: Record<string, TradeRecord[]> = {};
     trades.forEach(t => {
-      const s = t.symbol || '';
+      const s = (t.symbol || '').toUpperCase().trim();
       if (!symGroups[s]) symGroups[s] = [];
       symGroups[s].push(t);
     });
@@ -236,10 +228,11 @@ export async function auditDemoAccount(accountId: string) {
 
   let totalFloatingPnl = 0;
   for (const t of openTrades) {
-    const priceData = prices[t.symbol?.toUpperCase() || ''];
+    const sym = (t.symbol?.toUpperCase() || '').trim();
+    const priceData = prices[sym];
     if (!priceData) continue;
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-    const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
+    const contractSize = CONTRACT_SIZE[sym] || 100000;
     totalFloatingPnl += (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
   }
 
@@ -299,9 +292,10 @@ export async function auditDemoAccount(accountId: string) {
     });
 
     for (const t of openTrades) {
-      const priceData = prices[t.symbol?.toUpperCase() || ''];
+      const sym = (t.symbol?.toUpperCase() || '').trim();
+      const priceData = prices[sym];
       const exitPrice = priceData ? (t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price)) : t.openPrice;
-      const contractSize = CONTRACT_SIZE[t.symbol?.toUpperCase() || ''] || 100000;
+      const contractSize = CONTRACT_SIZE[sym] || 100000;
       const finalPnl = priceData ? (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize : 0;
 
       batch.update(t.ref, {

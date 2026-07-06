@@ -16,6 +16,26 @@ export type PlanPhaseRules = {
   minTradesPerSymbolForPayout?: number; 
 };
 
+export const CONTRACT_SIZE: Record<string, number> = {
+  XAUUSD: 100, 
+  XAGUSD: 5000, 
+  XPTUSD: 50,
+  EURUSD: 100000, 
+  GBPUSD: 100000, 
+  USDJPY: 100000,
+  AUDUSD: 100000, 
+  USDCHF: 100000, 
+  USDCAD: 100000, 
+  NZDUSD: 100000,
+  BTCUSD: 1, 
+  ETHUSD: 1, 
+  SOLUSD: 1, 
+  XRPUSD: 1000,
+  BNBUSD: 1, 
+  DOGEUSD: 1000, 
+  ADAUSD: 1000
+};
+
 export const RULES_CONFIG = {
   plans: {
     "1-step-pro": {

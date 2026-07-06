@@ -1,27 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
  * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
- * Updated: Removed Friday overnight holding rule.
+ * Updated: Standardized case-insensitive symbol handling.
  */
-
-const CONTRACT_SIZE: Record<string, number> = {
-  XAUUSD: 100, BTCUSD: 1, ETHUSD: 1, EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
-};
-
-function getContractSize(symbol: string): number {
-  return CONTRACT_SIZE[symbol] || 100000;
-}
 
 function calculateTradePnl(trade: any, priceData: any) {
   if (!priceData || !priceData.price) return 0;
+  const sym = (trade.symbol || "").toUpperCase().trim();
   const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
   const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-  return diff * trade.lots * getContractSize(trade.symbol);
+  const contractSize = CONTRACT_SIZE[sym] || 100000;
+  return diff * trade.lots * contractSize;
 }
 
 export async function GET(req: NextRequest) {
@@ -38,13 +32,13 @@ export async function GET(req: NextRequest) {
     const pricesSnap = await db.collection('livePrices').get();
 
     const prices: Record<string, any> = {};
-    pricesSnap.docs.forEach(d => prices[d.id] = d.data());
+    pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
 
     const accountTrades: Record<string, any[]> = {};
     openTradesSnap.docs.forEach(d => {
       const data = d.data() as any;
       const t = { id: d.id, ref: d.ref, ...data };
-      const accountId = data.accountId;
+      const accountId = data.accountId as string;
       if (!accountId) return;
       if (!accountTrades[accountId]) accountTrades[accountId] = [];
       accountTrades[accountId].push(t);
@@ -69,9 +63,11 @@ export async function GET(req: NextRequest) {
           await db.runTransaction(async (tx) => {
             let finalBalance = acc.balance;
             for (const t of trades) {
-              const priceData = prices[t.symbol];
+              const sym = (t.symbol || "").toUpperCase().trim();
+              const priceData = prices[sym];
               const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
-              const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * getContractSize(t.symbol);
+              const contractSize = CONTRACT_SIZE[sym] || 100000;
+              const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * contractSize;
               tx.update(t.ref, {
                 status: 'closed',
                 closeReason: 'liquidation',
@@ -106,14 +102,15 @@ export async function GET(req: NextRequest) {
       let floatingNegativePnl = 0;
       
       for (const t of trades) {
-        const pnl = calculateTradePnl(t, prices[t.symbol]);
+        const sym = (t.symbol || "").toUpperCase().trim();
+        const pnl = calculateTradePnl(t, prices[sym]);
         
         // ── RULE: MAX FLOATING LOSS (1% per single trade) ─────────
         const startBalance = acc.startBalance || 100000;
         const floatingLimit = startBalance * (rules.maxFloatingLoss || 1) / 100;
         
         if (pnl < 0 && Math.abs(pnl) >= floatingLimit && (planKey === '1-step-pro' || planKey === 'instant-funding' || planKey === 'instant-pro')) {
-           const priceData = prices[t.symbol];
+           const priceData = prices[sym];
            const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
            
            await db.runTransaction(async (tx) => {
@@ -162,10 +159,12 @@ export async function GET(req: NextRequest) {
           let finalBalance = acc.balance;
           
           for (const t of trades) {
-            const priceData = prices[t.symbol];
+            const sym = (t.symbol || "").toUpperCase().trim();
+            const priceData = prices[sym];
             if (!priceData) continue;
             const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-            const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * getContractSize(t.symbol);
+            const contractSize = CONTRACT_SIZE[sym] || 100000;
+            const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * contractSize;
             
             tx.update(t.ref, {
               status: 'closed',
@@ -191,7 +190,8 @@ export async function GET(req: NextRequest) {
       }
 
       for (const t of trades) {
-        const priceData = prices[t.symbol];
+        const sym = (t.symbol || "").toUpperCase().trim();
+        const priceData = prices[sym];
         if (!priceData) continue;
 
         const bid = priceData.bid || priceData.price;
@@ -209,7 +209,8 @@ export async function GET(req: NextRequest) {
         }
 
         if (triggerPrice > 0) {
-          const pnl = (t.type === 'buy' ? triggerPrice - t.openPrice : t.openPrice - triggerPrice) * t.lots * getContractSize(t.symbol);
+          const contractSize = CONTRACT_SIZE[sym] || 100000;
+          const pnl = (t.type === 'buy' ? triggerPrice - t.openPrice : t.openPrice - triggerPrice) * t.lots * contractSize;
           
           await db.runTransaction(async (tx) => {
             const currentAcc = (await tx.get(accDoc.ref)).data()!;

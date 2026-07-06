@@ -13,7 +13,7 @@ export async function GET(
   { params }: { params: Promise<{ symbol: string }> }
 ) {
   const { symbol: rawSymbol } = await params;
-  const symbol = (rawSymbol || "").split(':')[0].toUpperCase();
+  const symbol = (rawSymbol || "").split(':')[0].toUpperCase().trim();
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
