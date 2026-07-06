@@ -282,9 +282,21 @@ export default function DemoPage() {
 
   const activePrice = useMemo(() => {
     const sym = selectedSymbol.toUpperCase();
-    if (streamTick && Number(streamTick.price) > 0) return streamTick;
-    const rtdbTick = livePrices[sym];
-    if (rtdbTick && Number(rtdbTick.price) > 0) return rtdbTick;
+    let tick = null;
+    
+    if (streamTick && Number(streamTick.price) > 0) {
+      tick = streamTick;
+    } else {
+      const rtdbTick = livePrices[sym];
+      if (rtdbTick && Number(rtdbTick.price) > 0) tick = rtdbTick;
+    }
+
+    if (tick) {
+      // Ensure mid price exists
+      if (!tick.price && tick.bid && tick.ask) tick.price = (tick.bid + tick.ask) / 2;
+      return tick;
+    }
+
     if (historyPrice && historyPrice > 0) {
       return { price: historyPrice, bid: historyPrice * 0.9999, ask: historyPrice * 1.0001, source: 'history-fallback' };
     }
@@ -504,15 +516,22 @@ export default function DemoPage() {
       const price = Number(activePrice.price);
       const prevPrice = lastGoodPriceRef.current[selectedSymbol];
       if (price <= 0 || isNaN(price)) return;
-      if (prevPrice && Math.abs(price - prevPrice) / prevPrice > 0.15) return;
+      
+      // LOOSENED OUTLIER REJECTION: Only reject if jump is > 40% (handles crypto volatility better)
+      const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(selectedSymbol.toUpperCase());
+      const threshold = isCrypto ? 0.40 : 0.15;
+      if (prevPrice && Math.abs(price - prevPrice) / prevPrice > threshold) return;
+      
       lastGoodPriceRef.current[selectedSymbol] = price;
       const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
       const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
+      
       if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
         currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
       } else {
         currentCandleRef.current = { ...currentCandleRef.current, high: Math.max(currentCandleRef.current.high, price), low: Math.min(currentCandleRef.current.low, price), close: price };
       }
+      
       if (chartType === 'line' || chartType === 'area') {
         mainSeriesRef.current.update({ time: candleTime as any, value: price });
       } else {
@@ -721,7 +740,7 @@ export default function DemoPage() {
         </div>
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           <OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout={hasPendingPayout} marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} />
+           <OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout, marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} />
         </aside>
       </div>
 

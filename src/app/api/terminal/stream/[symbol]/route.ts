@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview High-frequency SSE price stream handler.
  * Sanitized to handle route artifacts and hardened with heartbeats.
- * Fixed: Added self-healing poller if background sync is inactive.
+ * Fixed: Standardized Kraken symbol mapping for self-healing poller.
  */
 
 export async function GET(
@@ -54,8 +54,7 @@ export async function GET(
           try {
             const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol);
             if (isCrypto) {
-              const kToPF: Record<string, string> = { 'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD', 'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD', 'SOLUSD': 'SOLUSD', 'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD', 'XRPZUSD': 'XRPUSD', 'ADAUSD': 'ADAUSD', 'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD', 'XXDGZUSD': 'DOGEUSD' };
-              const kPair = symbol === 'BTCUSD' ? 'XBTUSD' : symbol === 'DOGEUSD' ? 'XDGUSD' : symbol === 'XRPUSD' ? 'XRPZUSD' : symbol;
+              const kPair = symbol === 'BTCUSD' ? 'XBTUSD' : symbol === 'DOGEUSD' ? 'XDGUSD' : symbol;
               const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { signal: AbortSignal.timeout(2000) });
               if (res.ok) {
                 const d = await res.json();
@@ -64,6 +63,12 @@ export async function GET(
                   const item = d.result[resKey];
                   tick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
                 }
+              } else if (symbol === 'BNBUSD') {
+                // BNB Fallback via CoinGecko
+                const bnbRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
+                const bnbData = await bnbRes.json();
+                const p = bnbData?.binancecoin?.usd;
+                if (p) tick = { price: p, bid: p * 0.9999, ask: p * 1.0001 };
               }
             } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
               const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
@@ -73,7 +78,7 @@ export async function GET(
                 signal: AbortSignal.timeout(2000) 
               });
               if (res.ok) {
-                const d = await res.json();
+                const d = await r.json();
                 const p = d.prices?.[0];
                 if (p) {
                   const b = parseFloat(p.bids[0].price);

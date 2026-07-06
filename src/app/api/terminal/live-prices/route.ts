@@ -4,10 +4,10 @@ export const dynamic = 'force-dynamic';
 /**
  * @fileOverview Institutional Live Price API
  * Synchronizes liquidity from OANDA (Forex/Metals) and Kraken (Crypto).
- * Corrected Kraken ticker mapping for XRP and DOGE and removed invalid pairs.
+ * Standardized Kraken ticker mapping and added BNB fallback via CoinGecko.
  */
 
-const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPZUSD,ADAUSD,XDGUSD";
+const KRAKEN_PAIRS = "XBTUSD,ETHUSD,SOLUSD,XRPUSD,ADAUSD,XDGUSD";
 
 export async function GET() {
   const prices: Record<string, any> = {};
@@ -56,7 +56,7 @@ export async function GET() {
       );
     }
 
-    // 2. Kraken - Crypto (Hardened Mapping for XRP/DOGE/BTC)
+    // 2. Kraken - Crypto (Standardized Mapping)
     fetchPromises.push(
       fetch(`https://api.kraken.com/0/public/Ticker?pair=${KRAKEN_PAIRS}`, { 
         cache: 'no-store',
@@ -70,9 +70,9 @@ export async function GET() {
               'XXBTZUSD': 'BTCUSD', 'XBTUSD': 'BTCUSD',
               'XETHZUSD': 'ETHUSD', 'ETHUSD': 'ETHUSD',
               'SOLUSD': 'SOLUSD', 
-              'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD', 'XRPZUSD': 'XRPUSD',
+              'XXRPZUSD': 'XRPUSD', 'XRPUSD': 'XRPUSD',
               'ADAUSD': 'ADAUSD', 
-              'XDGUSD': 'DOGEUSD', 'DOGEUSD': 'DOGEUSD', 'XXDGZUSD': 'DOGEUSD'
+              'XDGUSD': 'DOGEUSD'
             };
 
             Object.entries(results).forEach(([kSym, item]: [string, any]) => {
@@ -83,7 +83,7 @@ export async function GET() {
               const bid = parseFloat(item.b[0]);
               const ask = parseFloat(item.a[0]);
               
-              if (isNaN(price)) return;
+              if (isNaN(price) || price <= 0) return;
 
               const dec = (sym === 'BTCUSD' || sym === 'ETHUSD' || sym === 'SOLUSD') ? 2 : (sym === 'DOGEUSD' ? 5 : 4);
 
@@ -97,6 +97,26 @@ export async function GET() {
           }
         }
       }).catch(e => console.warn('[LivePrices] Kraken sync failed'))
+    );
+
+    // 3. BNB Fallback via CoinGecko
+    fetchPromises.push(
+      fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd', { signal: controller.signal })
+        .then(async (r) => {
+          if (r.ok) {
+            const data = await r.json();
+            const price = data?.binancecoin?.usd;
+            if (price && !isNaN(price)) {
+              const spread = price * 0.0005;
+              prices['BNBUSD'] = { 
+                price: +price.toFixed(2), 
+                bid: +(price - spread).toFixed(2), 
+                ask: +(price + spread).toFixed(2), 
+                source: 'coingecko' 
+              };
+            }
+          }
+        }).catch(() => {})
     );
 
     await Promise.allSettled(fetchPromises);

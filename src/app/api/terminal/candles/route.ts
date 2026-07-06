@@ -5,8 +5,7 @@ const CRYPTO_MAP: Record<string, string> = {
   "ETHUSD": "ETHUSD", 
   "SOLUSD": "SOLUSD",
   "XRPUSD": "XRPUSD",
-  "BNBUSD": "BNBUSD",
-  "DOGEUSD": "DOGEUSD",
+  "DOGEUSD": "XDGUSD",
   "ADAUSD": "ADAUSD"
 };
 
@@ -95,7 +94,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Kraken: Crypto (Hardened parsing for institutional quality)
+    // 2. Kraken: Crypto
     else if (CRYPTO_MAP[symbol]) {
       try {
         const pair = CRYPTO_MAP[symbol];
@@ -122,16 +121,8 @@ export async function GET(req: NextRequest) {
               const l = parseFloat(String(v[3]));
               const c = parseFloat(String(v[4]));
 
-              // Validation: Ignore non-numeric or broken candle entries
               if (isNaN(t) || isNaN(o) || isNaN(h) || isNaN(l) || isNaN(c)) continue;
               if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
-
-              // Outlier Rejection: Reject data points with impossible swings (>50% in one interval)
-              // This fixes the "vertical line" symptom caused by exchange artifacts.
-              if (processed.length > 0) {
-                const prevClose = processed[processed.length - 1].close;
-                if (Math.abs(c - prevClose) / prevClose > 0.5) continue;
-              }
 
               processed.push({
                 time: t,
@@ -144,7 +135,6 @@ export async function GET(req: NextRequest) {
             
             candles = processed.sort((a, b) => a.time - b.time);
             
-            // Limit to requested count
             if (candles.length > limit) {
               candles = candles.slice(-limit);
             }
@@ -160,13 +150,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ candles, isFallback: false });
     }
 
-    // 3. Fallback Check: Use last real data from cache if available (within 30s)
     const cached = realCandleCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 30000) {
       return NextResponse.json({ candles: cached.candles, isFallback: false });
     }
 
-    // 4. Fallback: Synthetic
     return NextResponse.json({
       candles: generateSyntheticCandles(symbol, limit),
       isFallback: true
