@@ -32,7 +32,8 @@ export function startGlobalPriceSync() {
         const payload = {
           price: Number(tick.price),
           bid: Number(tick.bid),
-          ask: Number(tick.ask)
+          ask: Number(tick.ask),
+          updatedAt: tick.updatedAt || Date.now()
         };
 
         const symUpper = symbol.toUpperCase().trim();

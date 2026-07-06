@@ -8,7 +8,7 @@ import { broadcastToRtdb } from './rtdbBroadcast';
  * Updates both /livePrices and /market paths for unified synchronization.
  */
 
-let latestOandaTicks: Record<string, { price: number; bid: number; ask: number }> = {};
+let latestOandaTicks: Record<string, { price: number; bid: number; ask: number; updatedAt?: number }> = {};
 let lastWrittenOandaTicks: Record<string, string> = {};
 let isWriting = false;
 let firestoreWriteInterval: NodeJS.Timeout | null = null;
@@ -17,7 +17,7 @@ export function getLatestOandaTicks() {
   return latestOandaTicks;
 }
 
-export function setLatestOandaTick(symbol: string, data: { price: number; bid: number; ask: number }) {
+export function setLatestOandaTick(symbol: string, data: { price: number; bid: number; ask: number; updatedAt?: number }) {
   latestOandaTicks[symbol] = data;
 }
 
@@ -71,6 +71,7 @@ export async function startOandaStream() {
                 price: +price.toFixed(5),
                 bid: +bid.toFixed(5),
                 ask: +ask.toFixed(5),
+                updatedAt: Date.now()
               };
             }
           }
@@ -94,7 +95,7 @@ export function startOandaThrottledFirestoreWrite() {
     if (symbols.length === 0) return;
 
     // 1. Write to RTDB (Near-instant broadcast)
-    broadcastToRtdb(latestOandaTicks);
+    broadcastToRtdb(latestOandaTicks as any);
 
     // 2. Write to Firestore (Audit persistence)
     const db = getAdminDb();

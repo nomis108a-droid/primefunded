@@ -6,9 +6,9 @@ import { getLatestOandaTicks } from '@/lib/oandaStream';
 import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
 
 /**
- * @fileOverview Institutional Order Execution API (V6 - Freshness Hardened)
- * Prevents execution on stale/mock prices by enforcing a 5-second freshness window
- * and validating against a frontend witness price.
+ * @fileOverview Institutional Order Execution API (V7 - Stale Feed Hardened)
+ * Prevents execution on stale prices by checking both database and high-frequency 
+ * memory buffers. Rejects orders if feed age exceeds 10 seconds.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -49,17 +49,24 @@ export async function POST(req: NextRequest) {
     await activeLockRef.set({ timestamp: Date.now(), accountId });
 
     const result = await db.runTransaction(async (tx) => {
-      // 2. FETCH PRICE (Strict Freshness)
+      // 2. FETCH PRICE (Strict Freshness check against DB and Memory)
       const liveRef = db.collection('livePrices').doc(symUpper);
       const liveSnap = await tx.get(liveRef);
       
-      const memTick = getLatestOandaTicks()[symUpper] || getLatestCoinbaseTicks()[symUpper];
-      let feed = liveSnap.exists ? liveSnap.data() : memTick;
+      const oandaMem = getLatestOandaTicks()[symUpper];
+      const cryptoMem = getLatestCoinbaseTicks()[symUpper];
+      const memTick = oandaMem || cryptoMem;
+      
+      let feed = liveSnap.exists ? liveSnap.data() : null;
 
-      if (!feed || !feed.bid || !feed.ask) {
-        const marketRef = db.collection('market').doc(symUpper);
-        const marketSnap = await tx.get(marketRef);
-        feed = marketSnap.exists ? marketSnap.data() : null;
+      // Prefer high-frequency memory ticks if they are fresher than DB records
+      if (memTick) {
+        const dbTime = feed?.updatedAt?.toMillis ? feed.updatedAt.toMillis() : (feed?.updatedAt || 0);
+        const memTime = memTick.updatedAt || 0;
+        
+        if (!feed || memTime > dbTime) {
+          feed = { ...feed, ...memTick };
+        }
       }
 
       if (!feed || !feed.bid || !feed.ask) {
@@ -69,6 +76,13 @@ export async function POST(req: NextRequest) {
       // ── CRITICAL FRESHNESS GUARD ──
       const priceUpdatedAt = feed.updatedAt?.toMillis ? feed.updatedAt.toMillis() : (feed.updatedAt || 0);
       const priceAgeSeconds = (Date.now() - priceUpdatedAt) / 1000;
+
+      // Debugging logs for stale check analysis
+      console.log(`[RiskEngine-Debug] Executing Trade for ${symUpper}`);
+      console.log(`  Current Server Time: ${new Date().toISOString()}`);
+      console.log(`  Market Timestamp:    ${new Date(priceUpdatedAt).toISOString()}`);
+      console.log(`  Price Age (s):       ${priceAgeSeconds.toFixed(1)}s`);
+      console.log(`  Source:              ${memTick && memTick.updatedAt === priceUpdatedAt ? 'Memory' : 'Firestore'}`);
 
       if (priceAgeSeconds > 10) {
         console.error(`[STALE-PRICE-REJECTION] Symbol: ${symUpper}, Age: ${priceAgeSeconds.toFixed(1)}s, Price: ${feed.price}`);
@@ -87,7 +101,7 @@ export async function POST(req: NextRequest) {
         throw new Error(`Price deviation too high (Witness: ${witnessPrice}, Server: ${executionPrice}). Re-try in a moment.`);
       }
 
-      console.log(`[EXECUTION-LOG] UID: ${uid} | ${symUpper} | ${type.toUpperCase()} | Entry: ${executionPrice} | Age: ${priceAgeSeconds.toFixed(1)}s`);
+      console.log(`[EXECUTION-SUCCESS] UID: ${uid} | ${symUpper} | ${type.toUpperCase()} | Entry: ${executionPrice}`);
 
       const accRef = db.collection("demoAccounts").doc(accountId);
       const accSnap = await tx.get(accRef);

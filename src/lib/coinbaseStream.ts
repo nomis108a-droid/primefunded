@@ -18,7 +18,7 @@ const KRAKEN_PAIRS_MAP: Record<string, string> = {
   'DOGEUSD':  'DOGEUSD'
 };
 
-let cryptoPrices: Record<string, { price: number; bid: number; ask: number }> = {};
+let cryptoPrices: Record<string, { price: number; bid: number; ask: number; updatedAt?: number }> = {};
 let isWriting = false;
 let krakenInterval: NodeJS.Timeout | null = null;
 let bnbInterval: NodeJS.Timeout | null = null;
@@ -30,7 +30,7 @@ export function getLatestCoinbaseTicks() {
 /**
  * Updates the local memory buffer from external sources
  */
-export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid: number; ask: number }) {
+export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid: number; ask: number; updatedAt?: number }) {
   cryptoPrices[symbol] = data;
 }
 
@@ -61,7 +61,12 @@ async function fetchKrakenPrices() {
         const ask = parseFloat(ticker.a[0]);
         
         if (!isNaN(price) && price > 0) {
-          cryptoPrices[symbol] = { price: +price.toFixed(5), bid: +bid.toFixed(5), ask: +ask.toFixed(5) };
+          cryptoPrices[symbol] = { 
+            price: +price.toFixed(5), 
+            bid: +bid.toFixed(5), 
+            ask: +ask.toFixed(5),
+            updatedAt: Date.now()
+          };
         }
       });
       
@@ -84,7 +89,12 @@ async function fetchBnbPrice() {
     
     if (price && !isNaN(price)) {
       const spread = price * 0.0005;
-      cryptoPrices['BNBUSD'] = { price: +price.toFixed(2), bid: +(price - spread).toFixed(2), ask: +(price + spread).toFixed(2) };
+      cryptoPrices['BNBUSD'] = { 
+        price: +price.toFixed(2), 
+        bid: +(price - spread).toFixed(2), 
+        ask: +(price + spread).toFixed(2),
+        updatedAt: Date.now()
+      };
     }
   } catch (e) {}
 }
@@ -95,7 +105,7 @@ async function writeCryptoPricesToStorage() {
   
   try {
     // 1. Write to RTDB (Instant broadcast)
-    broadcastToRtdb(cryptoPrices);
+    broadcastToRtdb(cryptoPrices as any);
 
     // 2. Write to Firestore (Audit/persistence)
     const db = getAdminDb();
