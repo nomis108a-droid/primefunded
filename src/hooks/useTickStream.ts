@@ -25,6 +25,7 @@ export function useTickStream(symbol: string) {
   useEffect(() => {
     if (!symbol) return;
     
+    // Ensure state is clean for new symbol connection
     setTick(null);
     setError(false);
     retryCountRef.current = 0;

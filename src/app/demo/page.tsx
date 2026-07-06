@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
@@ -135,6 +134,12 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
 
+  const getPrecision = (s: string) => {
+    if (s.includes('JPY')) return 3;
+    if (['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase())) return 3;
+    return 5;
+  };
+
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
     setActionLoading(true);
@@ -222,7 +227,11 @@ export default function DemoPage() {
       borderVisible: false, 
       wickUpColor: '#10b981', 
       wickDownColor: '#ef4444',
-      priceFormat: { type: 'price', precision: selectedSymbol.includes('JPY') ? 3 : (selectedSymbol === 'XAUUSD' ? 3 : 5), minMove: 0.00001 }
+      priceFormat: { 
+        type: 'price', 
+        precision: getPrecision(selectedSymbol),
+        minMove: selectedSymbol.includes('JPY') || selectedSymbol.includes('XAU') ? 0.001 : 0.00001 
+      }
     });
 
     chartInstanceRef.current = chart;
@@ -260,7 +269,10 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
-      const lastCandle = mainSeriesRef.current.data().slice(-1)[0] as any;
+      const data = mainSeriesRef.current.data();
+      if (data.length === 0) return;
+
+      const lastCandle = data[data.length - 1] as any;
       if (lastCandle) {
         mainSeriesRef.current.update({
           ...lastCandle,
@@ -293,10 +305,17 @@ export default function DemoPage() {
           </Link>
 
           <div className="flex items-center gap-1">
-             <button className="flex items-center gap-2 px-2 md:px-3 py-1 bg-white/5 rounded border border-white/5 hover:border-primary/20 transition-all">
-                <span className="font-black text-[10px] md:text-[11px] text-white tracking-widest">{selectedSymbol}</span>
-                <ChevronDown className="w-3 h-3 text-zinc-500" />
-             </button>
+             <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
+               <SelectTrigger className="flex items-center gap-2 px-2 md:px-3 py-1 bg-white/5 rounded border border-white/5 hover:border-primary/20 transition-all h-8 text-[10px] md:text-[11px] font-black text-white tracking-widest outline-none ring-0 focus:ring-0">
+                  <SelectValue placeholder="Symbol" />
+               </SelectTrigger>
+               <SelectContent className="bg-zinc-900 border-zinc-800 text-white max-h-[300px]">
+                 {SYMBOLS.map(sym => (
+                   <SelectItem key={sym} value={sym} className="text-[10px] font-black tracking-widest">{sym}</SelectItem>
+                 ))}
+               </SelectContent>
+             </Select>
+             
              {!isMobile && <div className="w-px h-4 bg-zinc-800 mx-1" />}
              <div className="flex items-center gap-0.5 overflow-x-auto no-scrollbar max-w-[120px] md:max-w-none">
                {TIMEFRAMES.filter(tf => isMobile ? ['1m', '5m', '15m', '1H', '1D'].includes(tf.label) : true).map(tf => (
@@ -331,11 +350,11 @@ export default function DemoPage() {
                <div className="flex items-center gap-2 mr-1 md:mr-2">
                  <div className="flex flex-col items-end">
                     <span className="text-[8px] md:text-[9px] text-zinc-500 leading-none font-bold uppercase">BID</span>
-                    <span className="font-mono text-[9px] md:text-[10px] text-white leading-none">{activePrice.bid?.toFixed(selectedSymbol.includes('JPY') ? 3 : 5)}</span>
+                    <span className="font-mono text-[9px] md:text-[10px] text-white leading-none">{activePrice.bid?.toFixed(getPrecision(selectedSymbol))}</span>
                  </div>
                  <div className="flex flex-col items-end">
                     <span className="text-[8px] md:text-[9px] text-zinc-500 leading-none font-bold uppercase">ASK</span>
-                    <span className="font-mono text-[9px] md:text-[10px] text-white leading-none">{activePrice.ask?.toFixed(selectedSymbol.includes('JPY') ? 3 : 5)}</span>
+                    <span className="font-mono text-[9px] md:text-[10px] text-white leading-none">{activePrice.ask?.toFixed(getPrecision(selectedSymbol))}</span>
                  </div>
                </div>
              )}
@@ -348,7 +367,7 @@ export default function DemoPage() {
       {/* Main Terminal Grid */}
       <div className="flex-1 flex min-h-0 relative mb-[env(safe-area-inset-bottom)]">
         
-        {/* TradingView-Style Left Toolbar - Hidden on mobile unless requested, but here we keep it slim */}
+        {/* TradingView-Style Left Toolbar */}
         {!isMobile && (
           <aside className="w-10 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-2 gap-2 shrink-0 z-40">
              <ToolButton active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} icon={<Crosshair size={18} />} tooltip="Crosshair (C)" />
@@ -497,7 +516,7 @@ export default function DemoPage() {
                </div>
                
                <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-                  <SelectTrigger className="bg-zinc-900 border-zinc-800 h-10 text-[11px] font-bold">
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800 h-10 text-[11px] font-bold outline-none ring-0 focus:ring-0">
                     <SelectValue placeholder="Select Account" />
                   </SelectTrigger>
                   <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
@@ -543,11 +562,11 @@ export default function DemoPage() {
                 <SheetTitle className="text-2xl font-black font-headline tracking-tighter text-white uppercase italic">{selectedSymbol}</SheetTitle>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge className="bg-primary/10 text-primary border-primary/20 text-[9px] uppercase font-black px-2 py-0.5">CFD</Badge>
-                  {activePrice && <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Spread: {Math.abs(activePrice.ask - activePrice.bid).toFixed(selectedSymbol.includes('JPY') ? 3 : 5)}</span>}
+                  {activePrice && <span className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Spread: {Math.abs(activePrice.ask - activePrice.bid).toFixed(getPrecision(selectedSymbol))}</span>}
                 </div>
               </div>
               <Select value={currentAccountId ?? ""} onValueChange={setCurrentAccountId}>
-                <SelectTrigger className="w-[140px] bg-zinc-900 border-zinc-800 h-9 text-[10px] font-bold">
+                <SelectTrigger className="w-[140px] bg-zinc-900 border-zinc-800 h-9 text-[10px] font-bold outline-none ring-0 focus:ring-0">
                   <SelectValue placeholder="Node ID" />
                 </SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
@@ -629,7 +648,7 @@ function AccountMobileStat({ label, value, color = "text-white" }: any) {
 }
 
 function OrderControls({ actionLoading, activePrice, selectedSymbol, lotsInput, setLotsInput, sl, setSl, tp, setTp, placeTrade, isMobile }: any) {
-  const precision = selectedSymbol.includes('JPY') ? 3 : (selectedSymbol === 'XAUUSD' ? 3 : 5);
+  const precision = selectedSymbol.includes('JPY') ? 3 : (['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(selectedSymbol.toUpperCase()) ? 3 : 5);
   const spread = activePrice ? Math.abs(activePrice.ask - activePrice.bid) : 0;
 
   return (
