@@ -21,7 +21,7 @@ export async function GET(
       let lastPrice = 0;
       let lastManualPoll = 0;
 
-      // Immediate "connected" signal
+      // Immediate "connected" signal to UI
       try {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbol })}\n\n`));
       } catch (e) {}
@@ -67,7 +67,6 @@ export async function GET(
                   }
                 }
               } else if (symbol === 'BNBUSD') {
-                // BNB Fallback via CoinGecko
                 const bnbRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
                 const bnbData = await bnbRes.json();
                 const p = bnbData?.binancecoin?.usd;
@@ -86,11 +85,19 @@ export async function GET(
                 const p = d.candles?.[0]?.mid;
                 if (p) {
                   const o = parseFloat(p.o);
-                  tick = { bid: o, ask: o, price: o };
+                  // Apply institutional spread estimate for fallbacks (1.5 pips for FX, 25c for Gold)
+                  const spread = symbol.includes('JPY') ? 0.015 : symbol.includes('XAU') ? 0.25 : 0.00015;
+                  tick = { 
+                    bid: +(o - spread/2).toFixed(5), 
+                    ask: +(o + spread/2).toFixed(5), 
+                    price: o 
+                  };
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            console.error('[SSE-Fallback] Sync error:', e);
+          }
         }
         
         if (tick && tick.price && tick.price !== lastPrice) {
@@ -110,7 +117,7 @@ export async function GET(
         }
       }, 150);
 
-      // Rotate connection
+      // Rotate connection to prevent leakage
       const lifetimeTimeout = setTimeout(() => {
         clearInterval(interval);
         clearInterval(heartbeat);

@@ -88,6 +88,18 @@ export default function DemoPage() {
     setHasMounted(true); 
   }, []);
 
+  // Fail-safe timer to remove loading overlay
+  useEffect(() => {
+    if (isChartLoading) {
+      const timer = setTimeout(() => {
+        console.warn("[Chart] Loading fail-safe triggered. Forcing chart to render.");
+        setIsChartLoading(false);
+        setIsInitialLoad(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [isChartLoading]);
+
   // Time & Countdown Logic
   useEffect(() => {
     if (!hasMounted) return;
