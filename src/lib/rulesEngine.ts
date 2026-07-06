@@ -1,4 +1,3 @@
-
 import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -7,7 +6,7 @@ import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 /**
  * @fileOverview Institutional Demo Audit Engine (V4)
  * Evaluates internal demo accounts and trades against prop firm hard-breach risk protocols.
- * Strictly uses BID for BUY close and ASK for SELL close conditions.
+ * Strictly uses BID for BUY close and ASK for SELL close conditions for all PnL and risk math.
  */
 
 type TradeRecord = {
@@ -123,7 +122,6 @@ async function enforceSingleTradeLossLimit(
     const priceData = prices[sym];
     if (!priceData) continue;
     
-    // BUY positions close at BID, SELL positions close at ASK
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
@@ -135,6 +133,9 @@ async function enforceSingleTradeLossLimit(
   return null;
 }
 
+/**
+ * Audits a single demo account for drawdown and challenge passage.
+ */
 export async function auditDemoAccount(accountId: string) {
   const db = getAdminDb();
   const accRef = db.collection('demoAccounts').doc(accountId);
@@ -155,14 +156,14 @@ export async function auditDemoAccount(accountId: string) {
 
   const [tradesSnap, pricesSnap] = await Promise.all([
     db.collection('demoTrades').where('accountId', '==', accountId).get(),
-    db.collection('market').get() // Unified price source
+    db.collection('market').get()
   ]);
 
   const trades: TradeRecord[] = tradesSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() } as TradeRecord));
   const prices: Record<string, any> = {};
   pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
 
-  // Fallback if unified market collection is still populating
+  // Fallback if unified market collection is empty
   if (Object.keys(prices).length === 0) {
     const backupPrices = await db.collection('livePrices').get();
     backupPrices.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
@@ -173,16 +174,16 @@ export async function auditDemoAccount(accountId: string) {
 
   let breachReason = '';
 
-  // 1. Account Expiry
+  // 1. Account Expiry Check
   if (rules.accountExpiryDays && createdAt) {
     const createdTime = (createdAt as Timestamp).toDate().getTime();
     const expiryMs = rules.accountExpiryDays * 24 * 60 * 60 * 1000;
     if (Date.now() > (createdTime + expiryMs)) {
-      breachReason = `Account expired: Your ${rules.accountExpiryDays}-day window has ended.`;
+      breachReason = `Account expired: Your ${rules.accountExpiryDays}-day trading window has ended.`;
     }
   }
 
-  // 2. Frequency Check
+  // 2. Execution Frequency Check
   if (!breachReason) {
     const sortedByOpen = [...trades].sort((a, b) => 
       getTradeDate(a.openedAt)!.getTime() - getTradeDate(b.openedAt)!.getTime()
@@ -192,13 +193,13 @@ export async function auditDemoAccount(accountId: string) {
       const currOpen = getTradeDate(sortedByOpen[i].openedAt)!.getTime();
       const diff = (currOpen - prevOpen) / 1000;
       if (diff < (universal.maxExecutionFrequencySeconds || 180)) {
-        breachReason = `Execution frequency violation: Trade opened too fast (min 3 mins required)`;
+        breachReason = `Execution frequency violation: Trade opened too fast (min 3 mins required between orders).`;
         break;
       }
     }
   }
 
-  // 3. Martingale Check
+  // 3. Martingale Audit
   if (!breachReason && universal.noMartingale) {
     const symGroups: Record<string, TradeRecord[]> = {};
     trades.forEach(t => {
@@ -216,7 +217,7 @@ export async function auditDemoAccount(accountId: string) {
            const prevCloseTime = getTradeDate(prev.closedAt)!.getTime();
            const currOpenTime = getTradeDate(curr.openedAt)!.getTime();
            if (currOpenTime > prevCloseTime && curr.lots! > prev.lots!) {
-              breachReason = `Martingale violation: Lot size increased after loss on ${sym}`;
+              breachReason = `Martingale violation: Lot size increased after a loss on ${sym}.`;
               break;
            }
         }
@@ -225,7 +226,7 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
-  // 4. Soft Breach: Floating Loss (Uses strict Bid/Ask)
+  // 4. Soft Breach: Symbol Floating Loss (Uses strict Bid/Ask)
   let realizedLossFromForceClose = 0;
   if (!breachReason && rules.maxFloatingLoss && openTrades.length > 0) {
     const floatingResult = await enforceSymbolFloatingLossLimits(
@@ -241,6 +242,7 @@ export async function auditDemoAccount(accountId: string) {
     if (singleBreach) breachReason = singleBreach;
   }
 
+  // 6. Calculate Current Total Floating PnL
   let totalFloatingPnl = 0;
   for (const t of openTrades) {
     const sym = (t.symbol?.toUpperCase() || '').trim();
@@ -257,7 +259,7 @@ export async function auditDemoAccount(accountId: string) {
   sessionStart.setUTCHours(2, 0, 0, 0); 
   if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
 
-  // 6. Drawdown Logic
+  // 7. Drawdown Logic (Hard Breach)
   let realizedLossToday = realizedLossFromForceClose;
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
@@ -270,15 +272,15 @@ export async function auditDemoAccount(accountId: string) {
   const totalDailyRisk = realizedLossToday + (totalFloatingPnl < 0 ? Math.abs(totalFloatingPnl) : 0);
 
   if (!breachReason && totalDailyRisk >= dailyLimit) {
-    breachReason = `Daily drawdown violation: Total risk exceeded ${rules.dailyDrawdown}% limit.`;
+    breachReason = `Daily drawdown violation: Total risk (Realized Loss + Floating Loss) exceeded ${rules.dailyDrawdown}% limit.`;
   }
 
   const maxLimit = initialBalance * (rules.maxDrawdown / 100);
   if (!breachReason && (initialBalance - currentEquity) >= maxLimit) {
-    breachReason = `Maximum drawdown violation: Total loss exceeded ${rules.maxDrawdown}% limit.`;
+    breachReason = `Maximum drawdown violation: Total equity loss exceeded ${rules.maxDrawdown}% limit.`;
   }
 
-  // 7. Passage Check
+  // 8. Challenge Passage Audit
   const tradingWindows = new Set<string>(); 
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
@@ -297,13 +299,15 @@ export async function auditDemoAccount(accountId: string) {
   
   const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired;
 
+  // 9. Process Breach or Passage
   if (breachReason) {
     const batch = db.batch();
     batch.update(accRef, {
       status: 'blown',
       breachReason,
       equity: currentEquity,
-      blownAt: FieldValue.serverTimestamp()
+      blownAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
     });
 
     for (const t of openTrades) {
@@ -338,7 +342,7 @@ export async function auditDemoAccount(accountId: string) {
 
     batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
       userId, type: 'account_breached', title: '❌ Account Breached', 
-      message: `Your demo account has been liquidated: ${breachReason}`, 
+      message: `Your node terminal has been liquidated: ${breachReason}`, 
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
 
@@ -353,7 +357,7 @@ export async function auditDemoAccount(accountId: string) {
     batch.update(db.collection('users').doc(userId), { accountStatus: 'passed' });
     batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
       userId, type: 'phase_passed', title: '✅ Challenge Passed!', 
-      message: `Congratulations! You reached the profit target and met the minimum trading requirements.`, 
+      message: `Congratulations! You reached the profit target and met the minimum trading requirements. Your next node will be provisioned shortly.`, 
       isRead: false, createdAt: FieldValue.serverTimestamp()
     });
     await batch.commit();
@@ -361,28 +365,14 @@ export async function auditDemoAccount(accountId: string) {
     return { passed: true };
   }
 
+  // 10. Update real-time equity if no breach/passage occurred
   await accRef.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
   return { status: 'active', equity: currentEquity };
 }
 
-export async function runDemoAudit() {
-  const db = getAdminDb();
-  const snapshot = await db.collection('demoAccounts').where('status', '==', 'active').get();
-  const results = { totalChecked: snapshot.size, breachesDetected: 0, passed: 0, errors: 0 };
-  
-  await Promise.all(snapshot.docs.map(async (doc) => {
-    try {
-      const res = await auditDemoAccount(doc.id);
-      if (res?.breached) results.breachesDetected++;
-      else if (res?.passed) results.passed++;
-    } catch (err) {
-      results.errors++;
-    }
-  }));
-  
-  return results;
-}
-
+/**
+ * Targeted audit for accounts with active exposure.
+ */
 export async function auditActiveOpenPositions() {
   const db = getAdminDb();
   const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
@@ -410,7 +400,7 @@ export async function auditActiveOpenPositions() {
         if (res?.breached) results.breachesDetected++;
         else if (res?.passed) results.passed++;
       } catch (err) {
-        console.error(`[RiskAudit] Targeted audit failed for Node ${accountId}:`, err);
+        console.error(`[RiskAudit] Failed for Node ${accountId}:`, err);
         results.errors++;
       }
     }));

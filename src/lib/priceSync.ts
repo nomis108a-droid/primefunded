@@ -8,7 +8,10 @@ import { CONTRACT_SIZE } from './rulesConfig';
 /**
  * @fileOverview Institutional Risk Auditor & Execution Engine
  * Monitors nodes with active exposure and processes automated exit orders (TP/SL).
+ * Enforces strict Bid/Ask exit logic for all internal trading nodes.
  */
+
+let isSyncing = false;
 
 /**
  * Synchronizes local memory ticks across all server nodes by listening to RTDB.
@@ -48,6 +51,7 @@ export function startGlobalPriceSync() {
 /**
  * Institutional SL/TP Watcher
  * Evaluates all open positions against authoritative Bid/Ask ticks.
+ * BUY exit triggers on BID. SELL exit triggers on ASK.
  */
 async function checkTpSlHits(db: any) {
   try {
@@ -55,7 +59,7 @@ async function checkTpSlHits(db: any) {
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
     if (openTradesSnap.empty) return;
 
-    // 2. Fetch authoritative prices for only the involved symbols to minimize overhead
+    // 2. Fetch authoritative prices for involved symbols
     const symbols = [...new Set(openTradesSnap.docs.map((d: any) => d.data().symbol?.toUpperCase().trim()).filter(Boolean))];
     const priceSnaps = await Promise.all(symbols.map((s: string) => db.collection('livePrices').doc(s).get()));
     
@@ -80,7 +84,7 @@ async function checkTpSlHits(db: any) {
       let triggerReason: 'take_profit' | 'stop_loss' | null = null;
       let executionPrice = 0;
 
-      // 3. STRICT BID/ASK EXIT LOGIC
+      // 3. INSTITUTIONAL BID/ASK EXIT LOGIC
       // BUY positions exit at BID
       if (trade.type === 'buy') {
         if (trade.tp && trade.tp > 0 && bid >= trade.tp) { 
@@ -122,7 +126,8 @@ async function checkTpSlHits(db: any) {
             closeAsk: ask,
             pnl: finalPnL,
             closeReason: triggerReason,
-            isAutoClosed: true
+            isAutoClosed: true,
+            updatedAt: FieldValue.serverTimestamp()
           });
 
           tx.update(db.collection('demoAccounts').doc(trade.accountId), {
@@ -130,41 +135,51 @@ async function checkTpSlHits(db: any) {
             updatedAt: FieldValue.serverTimestamp()
           });
           
-          // Log specific auto-close event for audit
+          // Log specific auto-close event for audit review
           tx.set(db.collection('system_logs').doc(), {
             type: 'auto_exit',
             tradeId: tradeDoc.id,
             accountId: trade.accountId,
+            userId: trade.userId,
             reason: triggerReason,
             price: executionPrice,
+            bid: bid,
+            ask: ask,
             timestamp: FieldValue.serverTimestamp()
           });
         });
 
-        // Trigger immediate rule audit for this account
+        // Trigger immediate rule audit for this account to realize status changes
         await auditDemoAccount(trade.accountId);
       }
     }
   } catch (err: any) {
-    console.error('[RiskEngine] SL/TP evaluation failure:', err.message);
+    console.error('[RiskEngine] TP/SL monitor error:', err.message);
   }
 }
 
+/**
+ * Main Synchronization Cycle
+ * Orchestrates SL/TP hit detection and global risk auditing.
+ */
 export async function syncPricesAndAudit() {
-  const db = getAdminDb();
+  if (isSyncing) return { skipped: true };
+  isSyncing = true;
 
   try {
-    const lockRef = db.collection('_system').doc('priceSyncLock');
-    await lockRef.set({ lockedAt: Timestamp.now(), instanceId: process.env.K_REVISION || 'unknown' });
+    const db = getAdminDb();
     
-    // Evaluate SL/TP hits first to realize PnL before auditing drawdown
+    // 1. Evaluate SL/TP hits first (Active Market Execution)
     await checkTpSlHits(db);
     
-    // Perform standard challenge rule audits (Drawdown, Phase Passage, etc.)
+    // 2. Perform challenge rule audits (Risk Compliance)
     const result = await auditActiveOpenPositions();
     
     return { success: true, ...result };
   } catch (error: any) {
+    console.error('[PriceSync] Cycle fault:', error.message);
     throw error;
+  } finally {
+    isSyncing = false;
   }
 }
