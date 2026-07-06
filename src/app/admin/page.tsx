@@ -22,7 +22,7 @@ import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import Image from 'next/image';
 import { db, auth as clientAuth } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, where, getCountFromServer } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { firebaseConfig } from '@/firebase/config';
 
@@ -59,7 +59,8 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [adminData, setAdminData] = useState<any>({ 
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], demoAccounts: [], demoTrades: [] 
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], breaches: [], demoAccounts: [], demoTrades: [],
+    totalUsersCount: 0, totalNodesCount: 0
   });
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -99,6 +100,12 @@ export default function AdminPage() {
     try {
       console.log(`[Admin] Initializing data sync for Project: ${firebaseConfig.projectId}`);
       
+      // Perform AGGREGATION QUERIES for global totals (bypasses 1000 limit)
+      const [usersTotalSnap, nodesTotalSnap] = await Promise.all([
+        getCountFromServer(collection(db, 'users')),
+        getCountFromServer(collection(db, 'demoAccounts'))
+      ]);
+
       const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.allSettled([
         getDocs(query(collection(db, 'users'), limit(1000), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'demoAccounts'), limit(1000), orderBy('createdAt', 'desc'))),
@@ -125,6 +132,8 @@ export default function AdminPage() {
         referrals: getData(referralsSnap, 'referrals').docs.map((d: any) => ({ id: d.id, ...d.data() })),
         broadcasts: getData(broadcastsSnap, 'broadcasts').docs.map((d: any) => ({ id: d.id, ...d.data() })),
         breaches: getData(breachesSnap, 'breaches').docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        totalUsersCount: usersTotalSnap.data().count,
+        totalNodesCount: nodesTotalSnap.data().count
       };
 
       setAdminData(newAdminData);
@@ -505,9 +514,9 @@ export default function AdminPage() {
           {activeTab === 'overview' && (
             <div className="space-y-10">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
-                <StatCard title="Active Traders" value={adminData.users.length} icon={<Users />} color="blue" />
+                <StatCard title="Active Traders" value={(adminData.totalUsersCount || adminData.users.length).toLocaleString()} icon={<Users />} color="blue" />
                 <StatCard title="Total Volume" value={`$${(adminData.demoAccounts.reduce((acc: any, curr: any) => acc + (curr.balance || 0), 0) / 1000000).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
-                <StatCard title="Total Registered Nodes" value={adminData.demoAccounts.length} icon={<Database />} color="blue" />
+                <StatCard title="Total Registered Nodes" value={(adminData.totalNodesCount || adminData.demoAccounts.length).toLocaleString()} icon={<Database />} color="blue" />
                 <StatCard title="Pending Orders" value={adminData.orders.filter((o: any) => o.status === 'pending').length} icon={<CreditCard />} color="amber" />
                 <StatCard title="Phase Passers" value={phasePassers.length} icon={<Trophy />} color="purple" />
                 <StatCard title="Total Liquidation" value={unifiedBreaches.length} icon={<Skull />} color="red" />
@@ -634,14 +643,20 @@ export default function AdminPage() {
 
           {activeTab === 'users' && (
             <div className="space-y-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search by name, email, trader ID..." 
-                  className="pl-10 h-12 bg-card/40 border-border/50" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+              <div className="flex justify-between items-center">
+                 <div className="flex items-center gap-3">
+                    <Users className="w-6 h-6 text-primary" />
+                    <h2 className="text-2xl font-headline font-bold text-white">User Directory ({adminData.totalUsersCount?.toLocaleString() || adminData.users.length})</h2>
+                 </div>
+                 <div className="relative w-full max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="Search by name, email, trader ID..." 
+                      className="pl-10 h-11 bg-card/40 border-border/50" 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                 </div>
               </div>
               <Card className="bg-card/40 border-border/50">
                 <CardContent className="p-0">
@@ -677,6 +692,9 @@ export default function AdminPage() {
                   </table>
                 </CardContent>
               </Card>
+              <div className="flex justify-center py-4">
+                 <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest italic opacity-40">Viewing up to 1,000 most recent records. Use search for specific accounts.</p>
+              </div>
             </div>
           )}
 
@@ -802,14 +820,20 @@ export default function AdminPage() {
 
           {activeTab === 'nodes' && (
             <div className="space-y-6">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search accounts by ID, email, or label..." 
-                  className="pl-10 h-12 bg-card/40 border-border/50" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+              <div className="flex justify-between items-center">
+                 <div className="flex items-center gap-3">
+                    <Database className="w-6 h-6 text-primary" />
+                    <h2 className="text-2xl font-headline font-bold text-white">Active Nodes ({adminData.totalNodesCount?.toLocaleString() || adminData.demoAccounts.length})</h2>
+                 </div>
+                 <div className="relative w-full max-w-md">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="Search accounts by ID, email, or label..." 
+                      className="pl-10 h-11 bg-card/40 border-border/50" 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                 </div>
               </div>
               <Card className="bg-card/40 border-border/50">
                 <CardContent className="p-0">
@@ -1378,11 +1402,11 @@ export default function AdminPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-xs uppercase font-bold text-primary">Admin Email</Label>
-                <Input type="email" value={adminEmailInput} onChange={(e) => setAdminEmailInput(e.target.value)} placeholder="Gmail address" className="bg-secondary/50" required />
+                <Input type="email" value={adminEmailInput} onChange={(e) => setAdminEmailInput(target.value)} placeholder="Gmail address" className="bg-secondary/50" required />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs uppercase font-bold text-primary">Master Password</Label>
-                <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" required />
+                <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" required />
               </div>
             </div>
             {adminError && <p className="text-center text-xs font-bold text-destructive animate-pulse">{adminError}</p>}
