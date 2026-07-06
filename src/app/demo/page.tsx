@@ -255,6 +255,15 @@ export default function DemoPage() {
 
   const [historyPrice, setHistoryPrice] = useState<number | null>(null);
 
+  // CRITICAL: Synchronously clear chart-specific state when symbol or interval changes 
+  // to prevent stale data from leaking into the new chart rendering cycle.
+  const [lastStateKey, setLastStateKey] = useState("");
+  const currentStateKey = `${selectedSymbol}-${selectedInterval}`;
+  if (lastStateKey !== currentStateKey) {
+    setLastStateKey(currentStateKey);
+    setHistoryPrice(null);
+  }
+
   const [chartSettings, setChartSettings] = useState({
     scales: { mode: 'auto', type: 'regular', position: 'right', labels: { currentPrice: true, ohlc: true, prevClose: false, indicators: true, tradeLines: true }, lines: { lastPrice: true, prevClose: false, bid: true, ask: true, gridVert: true, gridHorz: true }, showPlusButton: true },
     canvas: { background: { type: 'solid', color: '#09090b', opacity: 1 }, grid: { type: 'both', vert: { color: '#18181b', opacity: 1 }, horz: { color: '#18181b', opacity: 1 } }, sessionBreaks: { enabled: false, color: '#27272a', width: 1, style: 2 }, crosshair: { mode: 'normal', color: '#71717a', width: 1, style: 1 }, watermark: { visible: false, color: 'rgba(171, 190, 192, 0.3)', fontSize: 48, text: '' }, scales: { textColor: '#71717a', fontSize: 12 }, candles: { upColor: '#10b981', downColor: '#ef4444', borderVisible: true, borderUpColor: '#10b981', borderDownColor: '#ef4444', wickUpColor: '#10b981', wickDownColor: '#ef4444' }, theme: 'dark' }
@@ -359,12 +368,11 @@ export default function DemoPage() {
     };
   }, [handleResize]);
 
-  // RESET state on symbol OR interval change to prevent giant bars from 0 caused by overlapping/stale refs
+  // Synchronous ref clear on navigation to prevent bar pollution
   useEffect(() => {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
     setIsFallbackData(false);
-    setHistoryPrice(null);
     if (chartInstanceRef.current) {
       chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
     }
@@ -506,8 +514,6 @@ export default function DemoPage() {
           if (mainSeriesRef.current) {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
-             
-             // URGENT FIX: Call fitContent and set autoScale explicitly after history data is set
              chartInstanceRef.current?.timeScale().fitContent();
              mainSeriesRef.current.priceScale().applyOptions({ autoScale: true });
 
@@ -564,6 +570,13 @@ export default function DemoPage() {
       const price = Number(activePrice.price);
       if (price <= 0 || isNaN(price)) return;
       
+      // CRITICAL: Institutional Outlier Guard.
+      // If a tick deviates by >50% from the last history price, it's almost 
+      // certainly a stale stream leak from a previous symbol (e.g. BTC tick in Gold chart).
+      if (historyPrice && Math.abs((price - historyPrice) / historyPrice) > 0.5) {
+        return;
+      }
+      
       const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
       const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
       
@@ -586,7 +599,7 @@ export default function DemoPage() {
         }
       }
     }
-  }, [activePrice, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol]);
+  }, [activePrice, selectedInterval, isChartLoading, isChartReady, chartType, selectedSymbol, historyPrice]);
 
   useEffect(() => {
     if (openTrades.length > 0 && isPriceValid) {
