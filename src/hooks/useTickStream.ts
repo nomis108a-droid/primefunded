@@ -27,7 +27,6 @@ export function useTickStream(symbol: string) {
     if (!symbol) return;
     
     // Ensure state is clean for new symbol connection
-    setTick(null);
     setError(false);
     retryCountRef.current = 0;
 
@@ -65,7 +64,7 @@ export function useTickStream(symbol: string) {
         setError(true);
         es.close();
         
-        // Exponential backoff only on actual error, not visibility change
+        // Exponential backoff for reconnection
         const delay = Math.min(Math.pow(2, retryCountRef.current) * 1000, 30000);
         retryCountRef.current++;
         reconnectTimeoutRef.current = setTimeout(connect, delay);
