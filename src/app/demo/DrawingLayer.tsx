@@ -1,9 +1,10 @@
+
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IChartApi, ISeriesApi } from 'lightweight-charts';
 import { cn } from '@/lib/utils';
-import { Trash2 } from 'lucide-react';
+import { Trash2, GripVertical, Settings2, Lock, Unlock, Eye, EyeOff } from 'lucide-react';
 
 export interface Point {
   time: number;
@@ -41,7 +42,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
 
   // Persistence
   useEffect(() => {
-    const saved = localStorage.getItem(`drawings_v3_${symbol}`);
+    const saved = localStorage.getItem(`drawings_v4_${symbol}`);
     if (saved) {
       try {
         setDrawings(JSON.parse(saved));
@@ -56,8 +57,8 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
   }, [symbol]);
 
   useEffect(() => {
-    if (drawings.length > 0 || localStorage.getItem(`drawings_v3_${symbol}`)) {
-      localStorage.setItem(`drawings_v3_${symbol}`, JSON.stringify(drawings));
+    if (drawings.length > 0 || localStorage.getItem(`drawings_v4_${symbol}`)) {
+      localStorage.setItem(`drawings_v4_${symbol}`, JSON.stringify(drawings));
     }
   }, [drawings, symbol]);
 
@@ -124,20 +125,16 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     if (time === null || price === null) return;
     const unixTime = typeof time === 'number' ? time : (new Date(time).getTime() / 1000);
 
-    // If activeTool is crosshair, handle selection or deselection
-    if (activeTool === 'crosshair') {
-      // In crosshair mode, clicking empty space deselects
-      // Children (drawings/handles) stop propagation to prevent this
+    if (activeTool === 'crosshair' || activeTool === 'dot') {
       setSelectedId(null);
       return;
     }
 
-    // Drag model for Tier 1 tools
     const newTemp: Drawing = {
       id: 'temp',
       type: activeTool,
       points: [{ time: unixTime, price }, { time: unixTime, price }],
-      color: '#2962ff',
+      color: activeTool === 'fib' ? '#11b3f5' : '#2962ff',
       text: activeTool === 'text' ? 'Analysis Note' : undefined
     };
     setTempDrawing(newTemp);
@@ -157,7 +154,6 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     if (time === null || price === null) return;
     const unixTime = typeof time === 'number' ? time : (new Date(time).getTime() / 1000);
 
-    // Case 1: Creating new drawing (live preview)
     if (tempDrawing && !locked) {
       setTempDrawing(prev => prev ? ({
         ...prev,
@@ -165,7 +161,6 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       }) : null);
     }
 
-    // Case 2: Editing existing drawing (dragging a handle)
     if (selectedId && draggedPointIndex !== null && !locked) {
       setDrawings(prev => prev.map(d => {
         if (d.id === selectedId) {
@@ -187,18 +182,9 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       setDrawings(prev => [...prev, finalDrawing]);
       setTempDrawing(null);
       setSelectedId(finalDrawing.id);
-      
-      // Institutional behavior: return to crosshair after draw to allow manipulation
       setActiveTool('crosshair');
     }
     setDraggedPointIndex(null);
-  };
-
-  const getCursorClass = () => {
-    if (locked) return 'cursor-default';
-    if (activeTool === 'crosshair' || activeTool === 'dot') return 'cursor-crosshair';
-    if (activeTool === 'text' || activeTool === 'note') return 'cursor-text';
-    return 'cursor-cell';
   };
 
   const deleteDrawing = (id: string) => {
@@ -234,11 +220,11 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
             key={`handle-${drawing.id}-${idx}`}
             cx={coords.x}
             cy={coords.y}
-            r={6}
-            fill="white"
+            r={5}
+            fill="#111"
             stroke={drawingColor}
-            strokeWidth={2}
-            className="cursor-move pointer-events-auto shadow-xl"
+            strokeWidth={1.5}
+            className="cursor-move pointer-events-auto"
             onMouseDown={(e) => {
               e.stopPropagation();
               setDraggedPointIndex(idx);
@@ -252,14 +238,13 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
     const renderTools = () => {
       if (!isSelected || locked || isTemp) return null;
       return (
-        <foreignObject x={p1.x + 15} y={p1.y - 45} width="40" height="40" className="pointer-events-auto">
-          <button 
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); deleteDrawing(drawing.id); }}
-            className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-red-500 hover:bg-zinc-700 transition-colors shadow-2xl"
-          >
-            <Trash2 size={16} />
-          </button>
+        <foreignObject x={p1.x - 40} y={Math.min(p1.y, p2.y) - 60} width="120" height="40" className="pointer-events-auto overflow-visible">
+          <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg p-1 shadow-2xl scale-90">
+             <button onClick={() => deleteDrawing(drawing.id)} className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-red-500 hover:bg-white/5 rounded"><Trash2 size={14} /></button>
+             <div className="w-px h-4 bg-zinc-800" />
+             <button className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-primary hover:bg-white/5 rounded"><Settings2 size={14} /></button>
+             <button className="w-7 h-7 flex items-center justify-center text-zinc-400 hover:text-primary hover:bg-white/5 rounded"><GripVertical size={14} /></button>
+          </div>
         </foreignObject>
       );
     };
@@ -272,7 +257,6 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       onMouseDown: handleShapeMouseDown
     };
 
-    // Invisible wide hit-area for easier selection
     const hitAreaProps = {
       stroke: "transparent",
       strokeWidth: 15,
@@ -344,14 +328,20 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
         const rw = Math.abs(p1.x - p2.x);
         const rh = Math.abs(p1.y - p2.y);
         shape = (
-          <rect x={rx} y={ry} width={rw} height={rh} fill={drawingColor + '11'} {...commonProps} />
+          <rect x={rx} y={ry} width={rw} height={rh} fill={drawingColor + '15'} {...commonProps} />
         );
         break;
       case 'circle':
         if (p2.x === null || p2.y === null) break;
         const radius = Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
         shape = (
-          <circle cx={p1.x} cy={p1.y} r={radius} fill={drawingColor + '11'} {...commonProps} />
+          <circle cx={p1.x} cy={p1.y} r={radius} fill={drawingColor + '15'} {...commonProps} />
+        );
+        break;
+      case 'brush':
+        if (p2.x === null || p2.y === null) break;
+        shape = (
+          <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} {...commonProps} strokeLinecap="round" />
         );
         break;
       case 'fib':
@@ -367,28 +357,11 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
               if (fibY === null) return null;
               return (
                 <g key={r}>
-                  <line x1={Math.min(p1.x, p2.x)} y1={fibY} x2={Math.max(p1.x, p2.x)} y2={fibY} stroke={drawingColor} strokeWidth={1} opacity={0.6} />
-                  <text x={Math.max(p1.x, p2.x) + 5} y={fibY + 4} fill={drawingColor} fontSize="10" className="select-none font-bold">{r.toFixed(3)}</text>
+                  <line x1={Math.min(p1.x, p2.x)} y1={fibY} x2={Math.max(p1.x, p2.x)} y2={fibY} stroke={drawingColor} strokeWidth={1} opacity={0.4} />
+                  <text x={Math.max(p1.x, p2.x) + 5} y={fibY + 4} fill={drawingColor} fontSize="9" className="select-none font-bold opacity-80">{r.toFixed(3)}</text>
                 </g>
               );
             })}
-          </g>
-        );
-        break;
-      case 'long':
-      case 'short':
-        if (p2.x === null || p2.y === null) break;
-        const isLong = drawing.type === 'long';
-        const entry = p1.y;
-        const target = p2.y;
-        const stopY = entry + (entry - target);
-        const boxX = Math.min(p1.x, p2.x);
-        const boxW = Math.abs(p1.x - p2.x);
-        shape = (
-          <g onMouseDown={handleShapeMouseDown} className="cursor-pointer pointer-events-auto">
-            <rect x={boxX} y={Math.min(entry, target)} width={boxW} height={Math.abs(entry - target)} fill={isLong ? '#10b98122' : '#ef444422'} stroke={isLong ? '#10b981' : '#ef4444'} strokeWidth={1} />
-            <rect x={boxX} y={Math.min(entry, stopY)} width={boxW} height={Math.abs(entry - stopY)} fill={isLong ? '#ef444422' : '#10b98122'} stroke={isLong ? '#ef4444' : '#10b981'} strokeWidth={1} />
-            <line x1={boxX} y1={entry} x2={boxX + boxW} y2={entry} stroke="white" strokeWidth={1} opacity={0.5} />
           </g>
         );
         break;
@@ -418,7 +391,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       className={cn(
         "absolute inset-0 z-30 w-full h-full", 
         (activeTool !== 'crosshair' || selectedId || tempDrawing || draggedPointIndex !== null) ? "pointer-events-auto" : "pointer-events-none",
-        getCursorClass()
+        activeTool === 'crosshair' ? "cursor-crosshair" : "cursor-cell"
       )} 
       onMouseDown={handleMouseDown} 
       onMouseMove={handleMouseMove} 
