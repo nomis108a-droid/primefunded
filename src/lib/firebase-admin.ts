@@ -33,6 +33,7 @@ function getAdminApp(): App {
       const json = JSON.parse(decoded);
       
       if (json.private_key) {
+        // Sanitize the private key to ensure it's a valid PEM format
         json.private_key = json.private_key
           .replace(/\\n/g, '\n')
           .replace(/"/g, '')
@@ -66,6 +67,7 @@ function getAdminApp(): App {
   } catch (err: any) {
     console.warn("[Firebase-Admin] Authentication configuration missing or ADC unavailable.");
     
+    // Final fallback to no-auth initialization for local development/studio previews
     return initializeApp(baseConfig, 'pf-admin');
   }
 }

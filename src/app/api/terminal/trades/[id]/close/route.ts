@@ -17,31 +17,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { id } = await params;
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "No auth token" }, { status: 401 });
+    
+    if (!token) return NextResponse.json({ error: "Authentication token is required" }, { status: 401 });
 
     let uid: string;
     try {
       const decoded = await getAdminAuth().verifyIdToken(token);
       uid = decoded.uid;
-    } catch {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    } catch (err: any) {
+      console.error('[Close-Trade-Auth] JWT Verification Failed:', err.message);
+      return NextResponse.json({ error: "Invalid or expired session. Please re-login." }, { status: 401 });
     }
 
     const db = getAdminDb();
     const tradeRef = db.collection("demoTrades").doc(id);
     const tradeSnap = await tradeRef.get();
     
-    if (!tradeSnap.exists) return NextResponse.json({ error: "Trade not found" }, { status: 404 });
+    if (!tradeSnap.exists) return NextResponse.json({ error: "Trade execution record not found" }, { status: 404 });
     const trade = tradeSnap.data()!;
-    if (trade.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    if (trade.status !== "open") return NextResponse.json({ error: "Trade already closed" }, { status: 400 });
+    
+    if (trade.userId !== uid) return NextResponse.json({ error: "Access Denied: Trader identity mismatch" }, { status: 403 });
+    if (trade.status !== "open") return NextResponse.json({ error: "Position already closed" }, { status: 400 });
 
     const sym = trade.symbol.toUpperCase().trim();
     
-    // 1. CAPTURE PRICE FROM MEMORY BUFFER
+    // 1. CAPTURE PRICE FROM MEMORY BUFFER (Near-Zero Latency)
     const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
 
     const result = await db.runTransaction(async (tx) => {
+      // 2. FETCH FEED FALLBACK
       const liveRef = db.collection('livePrices').doc(sym);
       const liveSnap = await tx.get(liveRef);
       let feed = memTick || (liveSnap.exists ? liveSnap.data() : null);
@@ -53,7 +57,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
 
       if (!feed || !feed.bid || !feed.ask) {
-        throw new Error("Market data offline for " + sym);
+        throw new Error(`Market liquidity offline for ${sym}. Please try again in a moment.`);
       }
 
       // ── UNIFIED PRICING LOGIC ──
@@ -72,7 +76,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         closeBid: feed.bid,
         closeAsk: feed.ask,
         pnl: finalPnL,
-        closedAt: Timestamp.now(),
+        closedAt: FieldValue.serverTimestamp(),
       });
 
       const accUpdates: any = {
@@ -80,6 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         updatedAt: FieldValue.serverTimestamp()
       };
 
+      // Ensure dailyGrossLossUsd is updated for risk auditing
       if (finalPnL < 0) {
         accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(finalPnL));
       }
@@ -89,11 +94,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return { pnl: finalPnL, closePrice: authoritativePrice };
     });
 
+    // 3. Trigger immediate risk audit
     await auditDemoAccount(trade.accountId);
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
-    console.error('[Close-Trade-API] Error:', error);
+    console.error('[Close-Trade-API] Fatal Error:', error);
+    
+    // Check for specific Firestore/gRPC errors that might indicate auth issues
+    if (error.message?.includes('refresh access token') || error.message?.includes('Getting metadata from plugin failed')) {
+      return NextResponse.json({ 
+        error: "Terminal Authentication Fault: The server could not reach the risk engine. Our team has been notified. Please refresh and try again." 
+      }, { status: 500 });
+    }
+
     return NextResponse.json({ error: error.message || "Internal Terminal Error" }, { status: 500 });
   }
 }

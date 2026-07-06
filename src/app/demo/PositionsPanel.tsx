@@ -91,14 +91,18 @@ export function PositionsPanel({
                   
                   // INSTITUTIONAL PNL LOGIC
                   // Buy position closes at Bid, Sell at Ask
-                  const currentPrice = pData ? (t.type === 'buy' ? pData.bid : pData.ask) : t.openPrice;
+                  const currentPrice = pData ? (t.type === 'buy' ? pData.bid : pData.ask) : null;
                   const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
                   
-                  const pnl = t.type === 'buy' 
-                    ? (currentPrice - t.openPrice) * contractSize * t.lots 
-                    : (t.openPrice - currentPrice) * contractSize * t.lots;
+                  const pnl = currentPrice 
+                    ? (t.type === 'buy' 
+                        ? (currentPrice - t.openPrice) * contractSize * t.lots 
+                        : (t.openPrice - currentPrice) * contractSize * t.lots)
+                    : 0;
                     
-                  const pct = ((currentPrice - t.openPrice) / t.openPrice) * 100 * (t.type === 'buy' ? 1 : -1);
+                  const pct = currentPrice
+                    ? ((currentPrice - t.openPrice) / t.openPrice) * 100 * (t.type === 'buy' ? 1 : -1)
+                    : 0;
                   
                   return (
                     <tr key={t.id} className="hover:bg-white/[0.02] group transition-colors">
@@ -114,13 +118,13 @@ export function PositionsPanel({
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{t.lots.toFixed(2)}</td>
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{formatPrice(t.openPrice, t.symbol)}</td>
                       <td className={cn("py-1.5 px-2 font-mono font-bold", pData ? "text-primary" : "text-zinc-500")}>
-                        {formatPrice(currentPrice, t.symbol)}
+                        {pData ? formatPrice(currentPrice!, t.symbol) : 'SYNC...'}
                       </td>
                       <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>
-                        {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {pData ? (pnl >= 0 ? '+' : '') + pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                       </td>
                       <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pct >= 0 ? "text-emerald-500" : "text-red-500")}>
-                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                        {pData ? (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%' : '—'}
                       </td>
                       <td className="py-1.5 px-3 text-right">
                         <button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/40 hover:text-red-500 transition-all rounded">
