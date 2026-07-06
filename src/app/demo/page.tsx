@@ -251,12 +251,24 @@ export default function DemoPage() {
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
     setActionLoading(true);
+    
+    // Capture the price the user actually sees as a witness
+    const witness = type === 'buy' ? activePrice.ask : activePrice.bid;
+
     try {
       const token = await user.getIdToken();
       const res = await fetch('/api/terminal/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ accountId: selectedAccount.id, symbol: selectedSymbol, type, lots: parseFloat(lotsInput), sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null })
+        body: JSON.stringify({ 
+          accountId: selectedAccount.id, 
+          symbol: selectedSymbol, 
+          type, 
+          lots: parseFloat(lotsInput), 
+          sl: sl ? parseFloat(sl) : null, 
+          tp: tp ? parseFloat(tp) : null,
+          witnessPrice: witness
+        })
       });
       const data = await res.json();
       if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" });
