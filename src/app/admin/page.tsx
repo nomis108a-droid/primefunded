@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -399,23 +400,28 @@ export default function AdminPage() {
 
   // Utility to handle opening inspection for a user
   const handleInspectUser = async (userId: string) => {
-    console.log(`[Admin] Opening inspection for user: ${userId}`);
+    if (!userId) return;
+    console.log(`[Admin] Opening inspection for user UID: ${userId}`);
+    
     setUserDetailLoading(true);
     setIsUserDetailModalOpen(true); // Open early to show loading state
     
     try {
       const detail = await fetchUserDetailAction(userId);
-      if (detail.success) {
+      if (detail && detail.success) {
         setUserDetail(detail);
       } else {
+        const errorMsg = detail?.error || "Could not retrieve trader records.";
+        console.error(`[Admin] fetchUserDetailAction returned error:`, errorMsg);
         toast({
           variant: "destructive",
           title: "Inspection Failed",
-          description: detail.error || "Could not retrieve trader records."
+          description: errorMsg
         });
         setIsUserDetailModalOpen(false);
       }
     } catch (err: any) {
+      console.error(`[Admin] handleInspectUser Exception:`, err);
       toast({
         variant: "destructive",
         title: "System Error",
@@ -1160,8 +1166,7 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Manual Breach Modal */}
+      {/* ... rest of existing dialogs ... */}
       <Dialog open={breachForm.isOpen} onOpenChange={(v) => setBreachForm({...breachForm, isOpen: v})}>
         <DialogContent className="bg-zinc-950 border-destructive/20 text-white max-w-md z-[80]">
           <DialogHeader>

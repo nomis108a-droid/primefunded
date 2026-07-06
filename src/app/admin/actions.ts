@@ -10,17 +10,39 @@ import { sendBreachEmail } from '@/lib/email';
 
 /**
  * INSTITUTIONAL HELPER: Serialization
+ * Converts non-serializable objects (like Timestamps) to strings for client consumption.
  */
 function serializeData(data: any): any {
   if (data === null || data === undefined) return data;
-  if (data && typeof data.toDate === 'function') return data.toDate().toISOString();
+  
+  // Handle Firestore Timestamps
+  if (typeof data.toDate === 'function') {
+    try {
+      return data.toDate().toISOString();
+    } catch (e) {
+      return String(data);
+    }
+  }
+  
   if (data instanceof Date) return data.toISOString();
+  
   if (Array.isArray(data)) return data.map(serializeData);
-  if (typeof data === 'object' && data.constructor === Object) {
+  
+  if (typeof data === 'object') {
+    // Prevent crashes on complex Node/Firebase objects
+    if (data.constructor && data.constructor.name !== 'Object' && data.constructor.name !== 'Array') {
+      return String(data);
+    }
+    
     const result: any = {};
-    for (const key in data) result[key] = serializeData(data[key]);
+    for (const key in data) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        result[key] = serializeData(data[key]);
+      }
+    }
     return result;
   }
+  
   return data;
 }
 
@@ -203,49 +225,58 @@ export async function processKycAction(id: string, status: string, reason?: stri
 
 export async function fetchUserDetailAction(userId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  if (!userId) return { success: false, error: "Missing Trader UID" };
+
   try {
     const db = getAdminDb();
     
-    // Perform parallel fetch
-    const [userSnap, accountsSnap, referralsSnap, payoutsSnap] = await Promise.all([
-      db.collection('users').doc(userId).get(),
-      db.collection('demoAccounts').where('userId', '==', userId).get(),
-      db.collection('referrals').where('referrerId', '==', userId).get(),
-      db.collection('payouts').where('userId', '==', userId).orderBy('createdAt', 'desc').get()
-    ]);
-
+    // 1. User Profile (Required)
+    const userSnap = await db.collection('users').doc(userId).get();
     if (!userSnap.exists) return { success: false, error: "User profile document not found" };
 
-    // Fetch trades separately to handle potential index issues with orderBy
-    let trades: any[] = [];
-    try {
-      const tradesSnap = await db.collection('demoTrades')
-        .where('userId', '==', userId)
-        .orderBy('openedAt', 'desc')
-        .limit(100)
-        .get();
-      trades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (indexError) {
-      console.warn("[Admin-Action] OrderBy openedAt failed, falling back to unordered trades fetch.");
-      const fallbackTradesSnap = await db.collection('demoTrades')
-        .where('userId', '==', userId)
-        .limit(100)
-        .get();
-      trades = fallbackTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
+    // 2. Resilient individual fetches for sub-collections to avoid Promise.all strict rejection
+    const fetchCol = async (col: string, field: string, val: string) => {
+      try {
+        const snap = await db.collection(col).where(field, '==', val).get();
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      } catch (e) {
+        console.warn(`[Admin-Action] Inspection fetch failed for ${col}:`, e);
+        return [];
+      }
+    };
+
+    const [accounts, referrals, payoutsRaw, tradesRaw] = await Promise.all([
+      fetchCol('demoAccounts', 'userId', userId),
+      fetchCol('referrals', 'referrerId', userId),
+      fetchCol('payouts', 'userId', userId),
+      fetchCol('demoTrades', 'userId', userId)
+    ]);
+
+    // Apply sorting in memory to ensure reliable display without requiring strict composite indexes
+    const sortedTrades = [...tradesRaw].sort((a: any, b: any) => {
+      const tA = a.openedAt?.seconds || new Date(a.openedAt || 0).getTime();
+      const tB = b.openedAt?.seconds || new Date(b.openedAt || 0).getTime();
+      return tB - tA;
+    }).slice(0, 150);
+
+    const sortedPayouts = [...payoutsRaw].sort((a: any, b: any) => {
+      const tA = a.createdAt?.seconds || new Date(a.createdAt || 0).getTime();
+      const tB = b.createdAt?.seconds || new Date(b.createdAt || 0).getTime();
+      return tB - tA;
+    });
 
     const data = {
       user: { id: userSnap.id, ...userSnap.data() },
-      accounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      trades: trades,
-      referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      accounts,
+      trades: sortedTrades,
+      referrals,
+      payouts: sortedPayouts
     };
 
     return { success: true, ...serializeData(data) };
   } catch (err: any) {
-    console.error("[Admin-Action] fetchUserDetailAction Failure:", err);
-    return { success: false, error: err.message };
+    console.error("[Admin-Action] fetchUserDetailAction Fatal Failure:", err);
+    return { success: false, error: "Institutional sync fault: " + err.message };
   }
 }
 
