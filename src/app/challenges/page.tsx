@@ -21,11 +21,11 @@ import { useCollection } from '@/firebase';
 /**
  * PROMO CONFIGURATION
  * Centralized settings for the 50% OFF campaign
+ * Expiry: July 12, 2026, 12:00 PM IST (06:30 AM UTC)
  */
 const PROMO_CONFIG = {
   discountPercent: 50,
-  // Set to 7 days from now (approx Feb 25, 2025)
-  endDate: new Date('2025-02-25T23:59:59Z'),
+  endDate: new Date('2026-07-12T06:30:00Z'),
   label: "50% OFF ANNIVERSARY SPECIAL"
 };
 
@@ -205,7 +205,8 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
   const [isLive, setIsLive] = useState(false);
   const [followConfirmed, setFollowConfirmed] = useState(false);
 
-  const isFree5kTier = planName === '2-step' && tier.size === '$5,000' && !isPromoActive;
+  // The Giveaway is a separate feature specifically for the 5k 2-step card
+  const isFree5kTier = planName === '2-step' && tier.size === '$5,000';
 
   useEffect(() => {
     if (!isFree5kTier) return;
@@ -270,30 +271,22 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
 
         <CardContent className="flex-1 flex flex-col">
           <div className="text-center mb-6">
-            {isFree5kTier ? (
-              <div className="text-center">
-                <span className="text-3xl font-black text-primary line-through opacity-40">$39</span>
-                <div className="text-3xl font-black text-green-400">FREE</div>
-                <div className="text-[10px] text-zinc-400 uppercase tracking-widest">With Coupon Code</div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center">
-                {isPromoActive ? (
-                  <div className="flex flex-col items-center">
-                    <span className="text-xl font-bold text-destructive/60 line-through decoration-destructive mb-1">
-                      ${tier.price}
-                    </span>
-                    <span className="text-4xl font-headline font-bold text-primary cyan-glow">
-                      ${discountedPrice}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-3xl font-headline font-bold text-white">
+            <div className="flex flex-col items-center justify-center">
+              {isPromoActive ? (
+                <div className="flex flex-col items-center">
+                  <span className="text-xl font-bold text-muted-foreground/60 line-through decoration-destructive/50 mb-1">
                     ${tier.price}
                   </span>
-                )}
-              </div>
-            )}
+                  <span className="text-4xl font-headline font-bold text-primary cyan-glow">
+                    ${discountedPrice}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-3xl font-headline font-bold text-white">
+                  ${tier.price}
+                </span>
+              )}
+            </div>
           </div>
           
           <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full">
@@ -335,85 +328,63 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
         </CardContent>
 
         <CardFooter className="pt-4 pb-8 px-6">
-          {isFree5kTier ? (
-            coupon5kExpired ? (
-              <div className="w-full py-3 text-center text-red-400 font-bold text-sm border border-red-400/30 rounded-lg bg-red-400/5">
-                🚫 Offer Expired — All 500 Slots Claimed
-              </div>
-            ) : coupon5kSuccess ? (
-              <div className="w-full p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center space-y-2">
-                <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
-                <p className="text-[11px] font-bold text-emerald-400 leading-tight">✅ Claim submitted! Admin will review and approve within 24 hours.</p>
-              </div>
-            ) : (!isLive || !followConfirmed) ? (
-              <div className="space-y-3 w-full">
-                <a 
-                  href="https://www.instagram.com/primefunded.fund?utm_source=qr&igsh=Z2NwNmJzaHB1dXNh"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)'}}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-white text-sm hover:scale-[1.02] transition-transform"
-                  onClick={() => setTimeout(() => setFollowConfirmed(true), 2000)}
-                >
-                  Follow on Instagram to Participate
-                </a>
-                {!isLive && (
-                  <div className="grid grid-cols-4 gap-1 text-center">
-                    {[['D', timeLeft.days], ['H', timeLeft.hours], ['M', timeLeft.minutes], ['S', timeLeft.seconds]].map(([l, v]) => (
-                      <div key={l as string} className="bg-zinc-900 rounded-lg p-2">
-                        <div className="text-lg font-black text-primary tabular-nums">{String(v).padStart(2,'0')}</div>
-                        <div className="text-[8px] text-zinc-500 uppercase font-bold">{l as string}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <p className="text-[9px] text-zinc-500 text-center">Follow Instagram + wait for launch to claim</p>
-              </div>
-            ) : (
-              <div className="space-y-2 w-full">
-                <Input
-                  placeholder="Enter coupon code (e.g. PRIME500)"
-                  value={coupon5k}
-                  onChange={e => { setCoupon5k(e.target.value.toUpperCase()); setCoupon5kError(''); }}
-                  className="bg-zinc-900 border-zinc-700 text-white h-11 text-center font-mono tracking-widest uppercase"
-                />
-                {coupon5kError && <p className="text-red-400 text-xs text-center font-bold">{coupon5kError}</p>}
-                <Button
-                  className="w-full h-12 font-black cyan-box-glow"
-                  disabled={coupon5kLoading}
-                  onClick={async () => {
-                    if (!user) { router.push('/login?redirect=/challenges'); return; }
-                    if (coupon5k !== 'PRIME500') { setCoupon5kError('Invalid coupon code'); return; }
-                    setCoupon5kLoading(true);
-                    try {
-                      const token = await user.getIdToken();
-                      const res = await fetch('/api/giveaway/claim', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ code: 'PRIME500' })
-                      });
-                      const data = await res.json();
-                      if (!res.ok) throw new Error(data.error);
-                      toast({ title: '🎉 Claim Submitted!', description: 'Admin will review and approve within 24 hours.' });
-                      setCoupon5kSuccess(true);
-                    } catch (err: any) {
-                      setCoupon5kError(err.message);
-                    } finally {
-                      setCoupon5kLoading(false);
-                    }
-                  }}
-                >
-                  {coupon5kLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Claim Free Account'}
+          {isFree5kTier && !coupon5kSuccess && !coupon5kExpired && (isLive && followConfirmed) ? (
+            <div className="space-y-2 w-full">
+              <Input
+                placeholder="Enter coupon code (e.g. PRIME500)"
+                value={coupon5k}
+                onChange={e => { setCoupon5k(e.target.value.toUpperCase()); setCoupon5kError(''); }}
+                className="bg-zinc-900 border-zinc-700 text-white h-11 text-center font-mono tracking-widest uppercase mb-2"
+              />
+              {coupon5kError && <p className="text-red-400 text-xs text-center font-bold">{coupon5kError}</p>}
+              <Button
+                className="w-full h-12 font-black cyan-box-glow"
+                disabled={coupon5kLoading}
+                onClick={async () => {
+                  if (!user) { router.push('/login?redirect=/challenges'); return; }
+                  if (coupon5k !== 'PRIME500') { setCoupon5kError('Invalid coupon code'); return; }
+                  setCoupon5kLoading(true);
+                  try {
+                    const token = await user.getIdToken();
+                    const res = await fetch('/api/giveaway/claim', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                      body: JSON.stringify({ code: 'PRIME500' })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error);
+                    toast({ title: '🎉 Claim Submitted!', description: 'Admin will review and approve within 24 hours.' });
+                    setCoupon5kSuccess(true);
+                  } catch (err: any) {
+                    setCoupon5kError(err.message);
+                  } finally {
+                    setCoupon5kLoading(false);
+                  }
+                }}
+              >
+                {coupon5kLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Claim Free Account'}
+              </Button>
+              <div className="mt-4 border-t border-white/5 pt-4">
+                <Button className="w-full h-11 font-bold rounded-xl bg-secondary hover:bg-secondary/80 cursor-pointer" asChild>
+                  <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${discountedPrice}`}>
+                    Or Buy 50% Off
+                  </Link>
                 </Button>
-                <p className="text-[9px] text-zinc-500 text-center">500 slots only • Expires when full</p>
               </div>
-            )
+            </div>
           ) : (
-            <Button className="w-full h-11 font-bold rounded-xl cyan-box-glow cursor-pointer" asChild>
-              <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${discountedPrice}`}>
-                Start Challenge
-              </Link>
-            </Button>
+            <div className="w-full space-y-4">
+               {isFree5kTier && coupon5kExpired && (
+                 <div className="py-2 text-center text-red-400 font-bold text-[10px] uppercase tracking-widest border border-red-400/20 rounded-lg bg-red-400/5 mb-2">
+                   🚫 Giveaway Slots Full
+                 </div>
+               )}
+               <Button className="w-full h-11 font-bold rounded-xl cyan-box-glow cursor-pointer" asChild>
+                <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${discountedPrice}`}>
+                  Start Challenge
+                </Link>
+              </Button>
+            </div>
           )}
         </CardFooter>
       </Card>
@@ -583,7 +554,7 @@ export default function ChallengesPage() {
                       </div>
                       <div>
                         <h3 className="text-2xl font-headline font-bold text-white uppercase italic tracking-tighter">FLASH SALE: 50% OFF SITE-WIDE</h3>
-                        <p className="text-accent text-xs font-black uppercase tracking-[0.2em]">Limited Time Anniversary Special</p>
+                        <p className="text-accent text-xs font-black uppercase tracking-[0.2em]">Anniversary celebration ends soon</p>
                       </div>
                     </div>
 
