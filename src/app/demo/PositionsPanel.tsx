@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -95,7 +94,9 @@ export function PositionsPanel({
                     <th className="py-2 px-2">Entry</th>
                     <th className="py-2 px-2">S/L</th>
                     <th className="py-2 px-2">T/P</th>
+                    <th className="py-2 px-2">Current Price</th>
                     <th className="py-2 px-2 text-right">PnL (USD)</th>
+                    <th className="py-2 px-2 text-right">PnL (%)</th>
                     <th className="py-2 px-3 text-right">Action</th>
                   </tr>
                 </thead>
@@ -106,21 +107,42 @@ export function PositionsPanel({
                     const symbolUpper = t.symbol.toUpperCase();
                     const pData = livePrices[symbolUpper];
                     let pnl = 0;
+                    let pct = 0;
+                    const currentPrice = pData ? (t.type === 'buy' ? pData.bid : pData.ask) : t.openPrice;
+                    
                     if (pData) {
-                      const exitPrice = t.type === 'buy' ? pData.bid : pData.ask;
                       const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
-                      pnl = t.type === 'buy' ? (exitPrice - t.openPrice) * contractSize * t.lots : (t.openPrice - exitPrice) * contractSize * t.lots;
+                      pnl = t.type === 'buy' ? (currentPrice - t.openPrice) * contractSize * t.lots : (t.openPrice - currentPrice) * contractSize * t.lots;
+                      pct = ((currentPrice - t.openPrice) / t.openPrice) * 100 * (t.type === 'buy' ? 1 : -1);
                     }
+                    
                     return (
                       <tr key={t.id} className="hover:bg-white/[0.02] group transition-colors">
                         <td className="py-1.5 px-3 font-bold text-white tracking-wide">{t.symbol}</td>
-                        <td className="py-1.5 px-2"><span className={cn("font-black uppercase px-1.5 py-0.5 rounded-[2px]", t.type === 'buy' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>{t.type}</span></td>
+                        <td className="py-1.5 px-2">
+                          <span className={cn(
+                            "font-black uppercase px-1.5 py-0.5 rounded-[2px] text-[8px]", 
+                            t.type === 'buy' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                          )}>
+                            {t.type}
+                          </span>
+                        </td>
                         <td className="py-1.5 px-2 font-mono text-zinc-400">{t.lots.toFixed(2)}</td>
                         <td className="py-1.5 px-2 font-mono text-zinc-400">{formatPrice(t.openPrice, t.symbol)}</td>
                         <td className="py-1.5 px-2 font-mono text-zinc-500">{t.sl ? formatPrice(t.sl, t.symbol) : '—'}</td>
                         <td className="py-1.5 px-2 font-mono text-zinc-500">{t.tp ? formatPrice(t.tp, t.symbol) : '—'}</td>
-                        <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        <td className="py-1.5 px-3 text-right"><button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/40 hover:text-red-500 transition-all rounded"><XCircle size={14} /></button></td>
+                        <td className="py-1.5 px-2 font-mono text-primary">{formatPrice(currentPrice, t.symbol)}</td>
+                        <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>
+                          {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className={cn("py-1.5 px-2 text-right font-mono font-bold", pct >= 0 ? "text-emerald-500" : "text-red-500")}>
+                          {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                        </td>
+                        <td className="py-1.5 px-3 text-right">
+                          <button onClick={() => closeTrade(t.id)} className="p-1 hover:bg-red-500/20 text-red-500/40 hover:text-red-500 transition-all rounded">
+                            <XCircle size={14} />
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -163,19 +185,29 @@ export function PositionsPanel({
                 const symbolUpper = t.symbol.toUpperCase();
                 const pData = livePrices[symbolUpper];
                 let pnl = 0;
+                let pct = 0;
+                const currentPrice = pData ? (t.type === 'buy' ? pData.bid : pData.ask) : t.openPrice;
+
                 if (pData) {
-                  const exitPrice = t.type === 'buy' ? pData.bid : pData.ask;
                   const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
-                  pnl = t.type === 'buy' ? (exitPrice - t.openPrice) * contractSize * t.lots : (t.openPrice - exitPrice) * contractSize * t.lots;
+                  pnl = t.type === 'buy' ? (currentPrice - t.openPrice) * contractSize * t.lots : (t.openPrice - currentPrice) * contractSize * t.lots;
+                  pct = ((currentPrice - t.openPrice) / t.openPrice) * 100 * (t.type === 'buy' ? 1 : -1);
                 }
                 return (
                   <div key={t.id} className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-5 space-y-4 relative overflow-hidden group">
                     <div className={cn("absolute top-0 left-0 w-1 h-full", t.type === 'buy' ? "bg-emerald-500" : "bg-red-500")} />
                     <div className="flex justify-between items-start">
                       <div><h4 className="text-lg font-black text-white italic tracking-tighter uppercase">{t.symbol}</h4><div className="flex items-center gap-2 mt-0.5"><span className={cn("text-[9px] font-black uppercase px-1.5 py-0.5 rounded", t.type === 'buy' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>{t.type} {t.lots.toFixed(2)}</span><span className="text-[9px] font-mono text-zinc-500">#{t.id?.slice(0, 8)}</span></div></div>
-                      <div className="text-right"><p className={cn("text-xl font-bold font-mono tabular-nums leading-none", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p><p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mt-1.5">Unrealized P&L</p></div>
+                      <div className="text-right">
+                        <p className={cn("text-xl font-bold font-mono tabular-nums leading-none", pnl >= 0 ? "text-emerald-500" : "text-red-500")}>
+                          {pnl >= 0 ? '+' : ''}{pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className={cn("text-[9px] font-black uppercase mt-1.5", pct >= 0 ? "text-emerald-500" : "text-red-500")}>
+                          {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                        </p>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-3"><div><p className="text-[8px] font-black uppercase text-zinc-500 mb-0.5">Entry Price</p><p className="text-xs font-bold font-mono text-white">{formatPrice(t.openPrice, t.symbol)}</p></div><div className="text-right"><p className="text-[8px] font-black uppercase text-zinc-500 mb-0.5">Current</p><p className="text-xs font-bold font-mono text-primary">{pData ? (t.type === 'buy' ? pData.bid : pData.ask).toFixed(getPrecision(t.symbol)) : '—'}</p></div></div>
+                    <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-3"><div><p className="text-[8px] font-black uppercase text-zinc-500 mb-0.5">Entry Price</p><p className="text-xs font-bold font-mono text-white">{formatPrice(t.openPrice, t.symbol)}</p></div><div className="text-right"><p className="text-[8px] font-black uppercase text-zinc-500 mb-0.5">Current</p><p className="text-xs font-bold font-mono text-primary">{formatPrice(currentPrice, t.symbol)}</p></div></div>
                     <div className="flex gap-3"><Button variant="outline" size="sm" className="flex-1 h-11 border-zinc-800 font-bold text-xs rounded-xl" onClick={() => closeTrade(t.id)}><X size={14} className="mr-2" /> Partial Exit</Button><Button size="sm" className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl" onClick={() => closeTrade(t.id)}>CLOSE POSITION</Button></div>
                   </div>
                 );

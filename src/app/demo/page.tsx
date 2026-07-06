@@ -141,18 +141,19 @@ export default function DemoPage() {
   const calculateTradePnL = useCallback((trade: any) => {
     const symbolUpper = trade.symbol.toUpperCase();
     const pData = livePrices[symbolUpper] || activePrice;
-    if (!pData) return 0;
+    if (!pData) return { pnl: 0, pct: 0 };
     const currentPrice = trade.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
     const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
-    return diff * trade.lots * contractSize;
+    const pnl = diff * trade.lots * contractSize;
+    const pct = (diff / trade.openPrice) * 100;
+    return { pnl, pct };
   }, [livePrices, activePrice]);
 
   // CHART INITIALIZATION
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
-    // Safety: Reset state before creating new chart
     setIsChartReady(false);
     priceLinesRef.current.clear();
     
@@ -227,7 +228,7 @@ export default function DemoPage() {
     };
   }, [selectedSymbol]);
 
-  // LOAD HISTORY & SYNC
+  // LOAD HISTORY
   useEffect(() => {
     if (!isChartReady || !mainSeriesRef.current) return;
     
@@ -241,7 +242,6 @@ export default function DemoPage() {
           mainSeriesRef.current.setData(data.candles);
           chartInstanceRef.current?.timeScale().fitContent();
           
-          // Apply active price to the new history immediately
           if (activePrice) {
             const lastCandle = data.candles[data.candles.length - 1];
             if (lastCandle) {
@@ -265,7 +265,7 @@ export default function DemoPage() {
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // LIVE TICK INJECTION
+  // TICK INJECTION
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const data = mainSeriesRef.current.data();
@@ -282,12 +282,12 @@ export default function DemoPage() {
     }
   }, [activePrice, isChartReady]);
 
-  // RECONCILE TRADE OVERLAYS (Lines & Markers)
+  // TRADE OVERLAYS
   useEffect(() => {
     if (!mainSeriesRef.current || !chartInstanceRef.current || !isChartReady) return;
 
     try {
-      // 1. Markers (BUY/SELL arrows)
+      // 1. Markers
       const markers = openTrades
         .filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase())
         .map(t => {
@@ -306,7 +306,6 @@ export default function DemoPage() {
       // 2. Reconcile Price Lines
       const activeIds = new Set(openTrades.map(t => t.id));
       
-      // Cleanup lines for closed trades
       priceLinesRef.current.forEach((lines, id) => {
         if (!activeIds.has(id)) {
           lines.forEach(l => {
@@ -316,23 +315,22 @@ export default function DemoPage() {
         }
       });
 
-      // Update/Create lines for open trades
       openTrades.forEach(trade => {
         if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
         if (!mainSeriesRef.current) return;
 
-        const pnl = calculateTradePnL(trade);
+        const { pnl, pct } = calculateTradePnL(trade);
         const pnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        const title = `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr}`;
+        const pctStr = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        const title = `${trade.type.toUpperCase()} ${trade.lots} | $${pnlStr} (${pctStr})`;
 
         let lines = priceLinesRef.current.get(trade.id);
         
         if (!lines) {
-          // Create new line set
           try {
             const entryLine = mainSeriesRef.current.createPriceLine({
               price: trade.openPrice,
-              color: '#71717a',
+              color: '#11b3f5',
               lineWidth: 1,
               lineStyle: LineStyle.Dashed,
               axisLabelVisible: true,
@@ -354,7 +352,6 @@ export default function DemoPage() {
             priceLinesRef.current.set(trade.id, newLines);
           } catch(e) {}
         } else {
-          // Update existing Entry line title with live PnL
           try {
             lines[0].applyOptions({ title });
           } catch(e) {}
@@ -577,8 +574,8 @@ function OrderControls({ actionLoading, activePrice, selectedSymbol, lotsInput, 
         <div className="space-y-3"><Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest px-1">Market Volume (Lots)</Label><div className="flex gap-3"><button onClick={() => setLotsInput((Math.max(0.01, parseFloat(lotsInput) - 0.01)).toFixed(2))} className="w-14 h-14 bg-zinc-900 rounded-2xl border border-zinc-800 font-bold text-xl hover:bg-zinc-800 active:scale-90 transition-all flex items-center justify-center"><Minus size={24} /></button><Input type="number" inputMode="decimal" value={lotsInput} onChange={(e) => setLotsInput(e.target.value)} className="h-14 bg-zinc-900/50 text-center font-mono text-xl font-bold text-white border-zinc-800 focus:border-primary/50 rounded-2xl shadow-inner" /><button onClick={() => setLotsInput((parseFloat(lotsInput) + 0.01).toFixed(2))} className="w-14 h-14 bg-zinc-900 rounded-2xl border border-zinc-800 font-bold text-xl hover:bg-zinc-800 active:scale-90 transition-all flex items-center justify-center"><Plus size={24} /></button></div></div>
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest px-1">Stop Loss</Label><Input type="number" inputMode="decimal" placeholder="0.000" value={sl} onChange={(e) => setSl(e.target.value)} className="h-12 bg-zinc-900/50 border-zinc-800 text-sm font-bold font-mono rounded-xl focus:border-red-500/30" /></div><div className="space-y-2"><Label className="text-[9px] font-black uppercase text-zinc-500 tracking-widest px-1">Take Profit</Label><Input type="number" inputMode="decimal" placeholder="0.000" value={tp} onChange={(e) => setTp(e.target.value)} className="h-12 bg-zinc-900/50 border-zinc-800 text-sm font-bold font-mono rounded-xl focus:border-emerald-500/30" /></div></div>
         <div className={cn("pt-4 grid gap-4", isMobile ? "pb-8" : "grid-cols-2")}>
-          <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading || !activePrice} className="h-16 md:h-14 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs md:text-[11px] uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 shadow-[0_4px_15px_rgba(16,185,129,0.3)] flex flex-col items-center justify-center gap-1">{actionLoading ? <Loader2 className="animate-spin w-5 h-5" /> : (<><span>Buy / Long</span><span className="text-[9px] font-mono opacity-80">@ {activePrice?.ask?.toFixed(precision)}</span></>)}</button>
-          <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading || !activePrice} className="h-16 md:h-14 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-black text-xs md:text-[11px] uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 shadow-[0_4px_15px_rgba(239,68,68,0.3)] flex flex-col items-center justify-center gap-1">{actionLoading ? <Loader2 className="animate-spin w-5 h-5" /> : (<><span>Sell / Short</span><span className="text-[9px] font-mono opacity-80">@ {activePrice?.bid?.toFixed(precision)}</span></>)}</button>
+          <button type="button" onClick={() => placeTrade('buy')} disabled={actionLoading || !activePrice} className="h-16 md:h-14 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs md:text-[11px] uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 shadow-[0_4px_15px_rgba(16,185,129,0.3)] flex flex-col items-center justify-center gap-1">{actionLoading ? <Loader2 className="animate-spin w-5 h-5" /> : (<><span>BUY / LONG</span><span className="text-[9px] font-mono opacity-80">@ {activePrice?.ask?.toFixed(precision)}</span></>)}</button>
+          <button type="button" onClick={() => placeTrade('sell')} disabled={actionLoading || !activePrice} className="h-16 md:h-14 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-black text-xs md:text-[11px] uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 shadow-[0_4px_15px_rgba(239,68,68,0.3)] flex flex-col items-center justify-center gap-1">{actionLoading ? <Loader2 className="animate-spin w-5 h-5" /> : (<><span>SELL / SHORT</span><span className="text-[9px] font-mono opacity-80">@ {activePrice?.bid?.toFixed(precision)}</span></>)}</button>
         </div>
       </div>
     </div>
