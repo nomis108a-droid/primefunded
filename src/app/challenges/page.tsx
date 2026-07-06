@@ -554,7 +554,7 @@ export default function ChallengesPage() {
                       </div>
                       <div>
                         <h3 className="text-2xl font-headline font-bold text-white uppercase italic tracking-tighter">FLASH SALE: 50% OFF SITE-WIDE</h3>
-                        <p className="text-accent text-xs font-black uppercase tracking-[0.2em]">Anniversary celebration ends soon</p>
+                        <p className="text-accent text-xs font-bold tracking-tight">Missed the free giveaway? Everyone gets 50% off now — every account, every tier.</p>
                       </div>
                     </div>
 
