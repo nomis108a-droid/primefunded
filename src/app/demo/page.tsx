@@ -506,7 +506,11 @@ export default function DemoPage() {
           if (mainSeriesRef.current) {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
+             
+             // URGENT FIX: Call fitContent and set autoScale explicitly after history data is set
              chartInstanceRef.current?.timeScale().fitContent();
+             mainSeriesRef.current.priceScale().applyOptions({ autoScale: true });
+
              setTimeout(() => {
                chartInstanceRef.current?.timeScale().scrollToRealTime();
                chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
