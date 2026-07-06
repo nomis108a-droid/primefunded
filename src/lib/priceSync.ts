@@ -72,14 +72,16 @@ async function checkTpSlHits(db: any) {
       const symbol = (trade.symbol || "").toUpperCase().trim();
       const priceData = prices[symbol];
       
-      // ADMIN CLEANUP: Close stale trades stuck at bugged price
-      if (trade.openPrice === 4185.658 && trade.status === 'open') {
-        console.log(`[Cleanup] Closing stale trade ${tradeDoc.id} with bugged price 4185.658`);
+      // ADMIN CLEANUP: Precision-hardened logic to close bugged demo positions
+      const openPrice = parseFloat(trade.openPrice || 0);
+      if (Math.abs(openPrice - 4185.658) < 0.01 && trade.status === 'open') {
+        console.log(`[Cleanup] Terminating stale trade ${tradeDoc.id} (Price: ${openPrice})`);
         await tradeDoc.ref.update({ 
           status: 'closed', 
           closeReason: 'admin_cleanup', 
           pnl: 0, 
-          closedAt: FieldValue.serverTimestamp() 
+          closedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
         });
         continue;
       }
@@ -88,7 +90,6 @@ async function checkTpSlHits(db: any) {
 
       const bid = parseFloat(priceData.bid);
       const ask = parseFloat(priceData.ask);
-      const openPrice = parseFloat(trade.openPrice || 0);
       const lots = parseFloat(trade.lots || 0);
       const contractSize = CONTRACT_SIZE[symbol] || 100000;
 

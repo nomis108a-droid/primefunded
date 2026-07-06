@@ -15,7 +15,8 @@ import {
   Square, Type, Eraser, SeparatorVertical,
   Clock as ClockIcon, Lock, Unlock,
   UserCircle, XCircle,
-  MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus
+  MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus,
+  TrendingUp, TrendingDown, Wallet, ShieldCheck, ChevronDown
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,6 @@ export default function DemoPage() {
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [isChartLoading, setIsChartLoading] = useState(true);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isChartReady, setIsChartReady] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
   const [selectedInterval, setSelectedInterval] = useState("1min");
@@ -66,8 +66,6 @@ export default function DemoPage() {
   const [activeTool, setActiveTool] = useState('crosshair');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
-  const [drawingsLocked, setDrawingsLocked] = useState(false);
-  const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [mobileTab, setMobileTab] = useState<'chart' | 'positions' | 'history' | 'account'>('chart');
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -80,11 +78,9 @@ export default function DemoPage() {
   // Market Data
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
-  
-  // High-frequency active symbol tick
   const activePrice = useMemo(() => streamTick?.price ? streamTick : livePrices[selectedSymbol.toUpperCase()] || null, [streamTick, livePrices, selectedSymbol]);
 
-  // Fused Price Accumulator: Decouples positions from current chart symbol
+  // Persistent Price Accumulator: Decouples positions from current chart symbol
   const [fusedPrices, setFusedPrices] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -159,15 +155,6 @@ export default function DemoPage() {
     if (!isChartReady || !mainSeriesRef.current) return;
     setIsChartLoading(true);
     
-    // Fail-safe timer to prevent infinite loading screen
-    const failSafe = setTimeout(() => {
-      if (isChartLoading) {
-        console.warn('[Chart] Loading fail-safe triggered. Forcing chart to render.');
-        setIsChartLoading(false);
-        setIsInitialLoad(false);
-      }
-    }, 10000);
-
     const fetchHistory = async () => {
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
@@ -179,9 +166,7 @@ export default function DemoPage() {
       } catch(e) {
         console.error('[Chart] History fetch failed:', e);
       } finally { 
-        clearTimeout(failSafe);
         setIsChartLoading(false); 
-        setIsInitialLoad(false); 
       }
     };
     fetchHistory();
@@ -205,7 +190,6 @@ export default function DemoPage() {
     const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === selectedSymbol.toUpperCase().trim());
     const activeIds = new Set(currentSymbolTrades.map(t => t.id));
     
-    // 1. Cleanup removed trades
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
         lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
@@ -213,7 +197,6 @@ export default function DemoPage() {
       }
     });
 
-    // 2. Reconcile / Create Overlays
     currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
       const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
@@ -248,7 +231,6 @@ export default function DemoPage() {
       }
     });
 
-    // 3. Markers
     const markers = currentSymbolTrades.map(t => {
       const tDate = getTradeDate(t.openedAt);
       if (!tDate) return null;
@@ -301,6 +283,113 @@ export default function DemoPage() {
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
 
+  const OrderPanelContent = () => (
+    <div className="flex flex-col h-full space-y-6">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-[10px] font-black uppercase text-zinc-500">Execution Node</Label>
+          <Select value={currentAccountId || selectedAccount?.id} onValueChange={setCurrentAccountId}>
+            <SelectTrigger className="bg-secondary/30 h-10 border-border/50 text-white">
+              <SelectValue placeholder="Select Account" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+              {activeAccounts.map(acc => (
+                <SelectItem key={acc.id} value={acc.id} className="text-xs font-bold">
+                  {acc.label} (${(acc.balance || 0).toLocaleString()})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-xl">
+           <div className="flex justify-between items-end mb-1">
+              <span className="text-[10px] font-black uppercase text-zinc-500">Market Price</span>
+              <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-emerald-500/30 text-emerald-500 animate-pulse uppercase">Live</Badge>
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-zinc-600 uppercase">Bid</span>
+                <span className="text-lg font-mono font-black text-white">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[9px] font-bold text-zinc-600 uppercase">Ask</span>
+                <span className="text-lg font-mono font-black text-white">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+              </div>
+           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
+          <div className="relative">
+            <Input 
+              type="number" 
+              value={lotsInput} 
+              onChange={e => setLotsInput(e.target.value)} 
+              className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
+            />
+            <div className="absolute inset-y-0 left-0 flex items-center px-3">
+              <button onClick={() => setLotsInput(String(Math.max(0.01, parseFloat(lotsInput) - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
+            </div>
+            <div className="absolute inset-y-0 right-0 flex items-center px-3">
+              <button onClick={() => setLotsInput(String((parseFloat(lotsInput) + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label>
+            <Input type="number" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label>
+            <Input type="number" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+        <button 
+          onClick={() => placeTrade('buy')} 
+          disabled={actionLoading || !activePrice}
+          className="h-20 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
+        >
+          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          <span className="text-sm tracking-widest relative z-10">BUY</span>
+          <span className="text-[10px] opacity-70 relative z-10">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 -rotate-45 opacity-20" />
+        </button>
+        <button 
+          onClick={() => placeTrade('sell')} 
+          disabled={actionLoading || !activePrice}
+          className="h-20 rounded-xl bg-red-600 hover:bg-red-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
+        >
+          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          <span className="text-sm tracking-widest relative z-10">SELL</span>
+          <span className="text-[10px] opacity-70 relative z-10">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
+        </button>
+      </div>
+
+      <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
+        <div className="flex items-center gap-2 text-primary font-black text-[9px] uppercase tracking-widest">
+           <ShieldCheck size={12} /> Compliance Status
+        </div>
+        <div className="space-y-1">
+          <div className="flex justify-between text-[10px]">
+             <span className="text-zinc-500">Plan Type</span>
+             <span className="text-white font-bold uppercase">{selectedAccount?.planType || '1-Step Pro'}</span>
+          </div>
+          <div className="flex justify-between text-[10px]">
+             <span className="text-zinc-500">Day Target</span>
+             <span className="text-emerald-500 font-bold">${(selectedAccount?.profitTarget || 0).toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 overflow-hidden pb-safe">
       <header className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-zinc-950 shrink-0 z-50">
@@ -327,11 +416,13 @@ export default function DemoPage() {
         </div>
         <div className="flex items-center gap-2 md:gap-4">
            {activePrice && <div className="flex items-center gap-2"><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">BID</span><span className="font-mono text-[9px] text-white">{activePrice.bid?.toFixed(getPrecision(selectedSymbol))}</span></div><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">ASK</span><span className="font-mono text-[9px] text-white">{activePrice.ask?.toFixed(getPrecision(selectedSymbol))}</span></div></div>}
-           <Button size="sm" className="bg-primary text-black font-black text-[9px] h-7 px-3 rounded" onClick={() => setIsOrderSheetOpen(true)}>TRADE</Button>
+           {isMobile && <Button size="sm" className="bg-primary text-black font-black text-[9px] h-7 px-3 rounded" onClick={() => setIsOrderSheetOpen(true)}>TRADE</Button>}
            <button onClick={() => setIsSettingsOpen(true)} className="p-1.5 hover:bg-white/5 rounded"><Settings className="w-4 h-4 text-zinc-500" /></button>
         </div>
       </header>
-      <div className="flex-1 flex min-h-0 relative mb-[env(safe-area-inset-bottom)]">
+      
+      <div className="flex-1 flex min-h-0 relative">
+        {/* Left Toolbar */}
         {!isMobile && (
           <aside className="w-10 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-2 gap-2 shrink-0 z-40">
              <ToolButton active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} icon={<Crosshair size={18} />} />
@@ -352,10 +443,12 @@ export default function DemoPage() {
              </div>
           </aside>
         )}
-        <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col">
+
+        {/* Center: Chart + Positions */}
+        <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
           <div className={cn("flex-1 relative overflow-hidden", isMobile && mobileTab !== 'chart' && "hidden")} ref={chartContainerRef}>
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
-              <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} locked={drawingsLocked} hidden={drawingsHidden} />
+              <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} />
             )}
             {isChartLoading && (
               <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
@@ -373,7 +466,24 @@ export default function DemoPage() {
             </div>
           )}
         </div>
+
+        {/* Right Sidebar: Execution Panel */}
+        {!isMobile && (
+          <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
+            <div className="flex items-center gap-3 mb-8">
+               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10">
+                  <TrendingUp size={20} />
+               </div>
+               <div>
+                  <h2 className="text-sm font-headline font-bold text-white uppercase tracking-tight">Order Entry</h2>
+                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Institutional Node</p>
+               </div>
+            </div>
+            <OrderPanelContent />
+          </aside>
+        )}
       </div>
+
       {isMobile && (
         <nav className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around shrink-0 z-50">
           <MobileNavButton active={mobileTab === 'chart'} onClick={() => setMobileTab('chart')} icon={<Activity size={20} />} label="Chart" />
@@ -382,10 +492,28 @@ export default function DemoPage() {
           <MobileNavButton active={mobileTab === 'account'} onClick={() => setMobileTab('account')} icon={<UserCircle size={20} />} label="Account" />
         </nav>
       )}
+
       <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
-        <SheetContent side="bottom" className="h-[85vh] bg-zinc-950 border-zinc-800 p-6"><SheetHeader><SheetTitle className="text-white font-black font-headline italic uppercase">{selectedSymbol}</SheetTitle></SheetHeader><div className="space-y-6 mt-6"><div className="space-y-3"><Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label><Input type="number" value={lotsInput} onChange={e => setLotsInput(e.target.value)} className="h-12 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white" /></div><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label><Input type="number" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-10 bg-zinc-900 border-zinc-800" /></div><div className="space-y-2"><Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label><Input type="number" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-10 bg-zinc-900 border-zinc-800" /></div></div><div className="grid gap-4 pt-4"><button onClick={() => placeTrade('buy')} className="h-14 rounded-xl bg-emerald-600 font-black text-white shadow-lg active:scale-95 transition-all">BUY / LONG</button><button onClick={() => placeTrade('sell')} className="h-14 rounded-xl bg-red-600 font-black text-white shadow-lg active:scale-95 transition-all">SELL / SHORT</button></div></div></SheetContent>
+        <SheetContent side="bottom" className="h-[85vh] bg-zinc-950 border-zinc-800 p-6">
+          <SheetHeader>
+            <SheetTitle className="text-white font-black font-headline italic uppercase flex items-center justify-between">
+              {selectedSymbol}
+              <Badge className="bg-primary text-black">LIVE EXECUTION</Badge>
+            </SheetTitle>
+          </SheetHeader>
+          <div className="mt-8 h-full">
+            <OrderPanelContent />
+          </div>
+        </SheetContent>
       </Sheet>
-      <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} onSettingsChange={() => {}} onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} />
+
+      <ChartSettingsModal 
+        open={isSettingsOpen} 
+        onOpenChange={setIsSettingsOpen} 
+        settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} 
+        onSettingsChange={() => {}} 
+        onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} 
+      />
     </div>
   );
 }
