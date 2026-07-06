@@ -76,18 +76,17 @@ export async function GET(
             } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
               const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
               const instr = oMap[symbol] || symbol;
-              const res = await fetch(`https://api-fxpractice.oanda.com/v3/accounts/${process.env.OANDA_ACCOUNT_ID}/pricing?instruments=${instr}`, { 
+              const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
                 headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
                 signal: AbortSignal.timeout(2000),
                 cache: 'no-store'
               });
               if (res.ok) {
                 const d = await res.json();
-                const p = d.prices?.[0];
+                const p = d.candles?.[0]?.mid;
                 if (p) {
-                  const b = parseFloat(p.bids[0].price);
-                  const a = parseFloat(p.asks[0].price);
-                  tick = { bid: b, ask: a, price: (b + a) / 2 };
+                  const o = parseFloat(p.o);
+                  tick = { bid: o, ask: o, price: o };
                 }
               }
             }

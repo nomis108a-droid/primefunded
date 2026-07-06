@@ -40,10 +40,7 @@ export async function POST(req: NextRequest) {
     const symUpper = symbol.toUpperCase().trim();
     const lots = parseFloat(String(rawLots));
 
-    // 1. CAPTURE PRICE FROM AUTHORITATIVE MEMORY BUFFER (Near-Zero Latency)
-    const memTick = getLatestOandaTicks()[symUpper] || getLatestCoinbaseTicks()[symUpper];
-    
-    // 2. GLOBAL EXECUTION LOCK: Prevent Duplicate Positions
+    // 1. GLOBAL EXECUTION LOCK: Prevent Duplicate Positions
     const activeLockRef = db.collection('_locks').doc(uid);
     const lockSnap = await activeLockRef.get();
     if (lockSnap.exists) {
@@ -58,18 +55,22 @@ export async function POST(req: NextRequest) {
     const tradeRef = db.collection("demoTrades").doc();
 
     const result = await db.runTransaction(async (tx) => {
-      // 3. FETCH FEED (Inside transaction for fallback/verification)
+      // 2. FETCH FEED (Inside transaction for absolute freshness)
+      // Prioritize Firestore LivePrices over Memory Buffer to ensure cross-instance accuracy
       const liveRef = db.collection('livePrices').doc(symUpper);
       const liveSnap = await tx.get(liveRef);
-      let feed = memTick || (liveSnap.exists ? liveSnap.data() : null);
+      
+      const memTick = getLatestOandaTicks()[symUpper] || getLatestCoinbaseTicks()[symUpper];
+      let feed = liveSnap.exists ? liveSnap.data() : memTick;
 
-      if (!feed) {
+      if (!feed || !feed.bid || !feed.ask) {
         const marketRef = db.collection('market').doc(symUpper);
         const marketSnap = await tx.get(marketRef);
         feed = marketSnap.exists ? marketSnap.data() : null;
       }
 
-      if (!feed || !feed.bid || !feed.ask) {
+      if (!feed || !feed.bid || !feed.ask || feed.price <= 0) {
+        console.error(`[EXECUTION-ERROR] Price unavailable for ${symUpper}. Feed:`, feed);
         throw new Error("Market source offline for " + symUpper);
       }
 
@@ -77,7 +78,8 @@ export async function POST(req: NextRequest) {
       // BUY opens at ASK, SELL opens at BID
       const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
-      console.log(`[EXECUTION] Symbol: ${symUpper} | Side: ${type.toUpperCase()} | Entry: ${executionPrice} | Source: ${memTick ? 'MEMORY' : 'FIRESTORE'}`);
+      // CRITICAL DEBUG LOG
+      console.log(`[TRADE-EXECUTION] Symbol: ${symUpper} | Side: ${type.toUpperCase()} | Bid: ${feed.bid} | Ask: ${feed.ask} | Entry: ${executionPrice}`);
 
       const accSnap = await tx.get(accRef);
       if (!accSnap.exists) throw new Error("Account not found");
@@ -86,7 +88,7 @@ export async function POST(req: NextRequest) {
       if (account.userId !== uid) throw new Error("Unauthorized account access");
       if (account.status !== "active") throw new Error(`Account status is ${account.status}`);
 
-      // 4. COMMISSION & LOT CHECK
+      // 3. COMMISSION & LOT CHECK
       const rawPlan = String(account.plan || '10k');
       const planKey = rawPlan.toLowerCase().trim().replace('$', '');
       const maxAllowed = MAX_LOTS[planKey] || 0.5;
@@ -101,7 +103,7 @@ export async function POST(req: NextRequest) {
         return (lots * executionPrice) * 0.0005; 
       })();
 
-      // 5. ATOMIC ORDER ENTRY
+      // 4. ATOMIC ORDER ENTRY
       tx.set(tradeRef, {
         id: tradeRef.id,
         userId: uid,
@@ -118,6 +120,7 @@ export async function POST(req: NextRequest) {
         status: "open",
         pnl: 0,
         openedAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
       });
 
       tx.update(accRef, {
