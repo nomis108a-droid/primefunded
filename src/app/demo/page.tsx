@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
@@ -291,7 +292,6 @@ export default function DemoPage() {
     }
 
     if (tick) {
-      // Ensure mid price exists
       if (!tick.price && tick.bid && tick.ask) tick.price = (tick.bid + tick.ask) / 2;
       return tick;
     }
@@ -351,6 +351,7 @@ export default function DemoPage() {
     };
   }, [handleResize]);
 
+  // RESET state on symbol OR interval change to prevent giant bars from 0 caused by overlapping/stale refs
   useEffect(() => {
     currentCandleRef.current = null;
     oldestTimestamp.current = null;
@@ -359,7 +360,7 @@ export default function DemoPage() {
     if (chartInstanceRef.current) {
       chartInstanceRef.current.priceScale('right').applyOptions({ autoScale: true });
     }
-  }, [selectedSymbol]);
+  }, [selectedSymbol, selectedInterval]);
 
   useEffect(() => {
     if (hasMounted) {
@@ -450,21 +451,36 @@ export default function DemoPage() {
     const controller = new AbortController();
     const cacheKey = `${selectedSymbol}-${selectedInterval}`;
     const cached = candleDataCache.get(cacheKey);
+
     const fetchHistory = async () => {
       if (cached && (Date.now() - cached.lastUpdated < 300000)) { 
         setIsChartLoading(false);
         if (mainSeriesRef.current) mainSeriesRef.current.setData(cached.candles);
         oldestTimestamp.current = cached.candles[0].time;
         setHistoryPrice(cached.candles[cached.candles.length - 1].close);
-      } else { setIsChartLoading(true); }
+      } else { 
+        setIsChartLoading(true); 
+      }
+
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=1000`, { signal: controller.signal });
         if (!res.ok) throw new Error(`Network error: ${res.status}`);
         const data = await res.json();
         const rawCandles = data.candles || [];
+        
         if (!isMounted) return;
+
         if (rawCandles.length > 0) {
-          const sorted = [...rawCandles].map(c => ({ ...c, time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time) })).sort((a: any, b: any) => a.time - b.time).filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
+          // Strict filtering to ensure no zero-timestamp candles (prevents giant bars from 1970)
+          const sorted = [...rawCandles]
+            .map(c => ({ 
+              ...c, 
+              time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time) 
+            }))
+            .filter(c => c.time > 0 && Number(c.close) > 0)
+            .sort((a: any, b: any) => a.time - b.time)
+            .filter((v: any, i: any, a: any) => i === 0 || v.time > a[i - 1].time);
+
           if (mainSeriesRef.current) {
              const formatted = (chartType === 'candles' || chartType === 'bars') ? sorted : sorted.map((c: any) => ({ time: c.time, value: c.close }));
              mainSeriesRef.current.setData(formatted);
@@ -474,8 +490,10 @@ export default function DemoPage() {
                chartInstanceRef.current?.priceScale('right').applyOptions({ autoScale: true });
              }, 150);
           }
+
           setIsFallbackData(!!data.isFallback);
           candleDataCache.set(cacheKey, { candles: sorted, lastUpdated: Date.now() });
+          
           const lastHistCandle = sorted[sorted.length - 1];
           if (!currentCandleRef.current || lastHistCandle.time > currentCandleRef.current.time) {
             currentCandleRef.current = { ...lastHistCandle };
@@ -483,8 +501,13 @@ export default function DemoPage() {
           }
           oldestTimestamp.current = sorted[0].time;
         }
-      } catch (err: any) { if (isMounted && !cached) setChartError(err.message); } finally { if (isMounted) setIsChartLoading(false); }
+      } catch (err: any) { 
+        if (isMounted && !cached) setChartError(err.message); 
+      } finally { 
+        if (isMounted) setIsChartLoading(false); 
+      }
     };
+
     if (isChartReady) fetchHistory();
     return () => { isMounted = false; controller.abort(); };
   }, [isChartReady, selectedSymbol, selectedInterval, chartType, isMobile]);
