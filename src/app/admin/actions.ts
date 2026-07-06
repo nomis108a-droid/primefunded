@@ -205,23 +205,46 @@ export async function fetchUserDetailAction(userId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    const [userSnap, accountsSnap, tradesSnap, referralsSnap, payoutsSnap] = await Promise.all([
+    
+    // Perform parallel fetch
+    const [userSnap, accountsSnap, referralsSnap, payoutsSnap] = await Promise.all([
       db.collection('users').doc(userId).get(),
       db.collection('demoAccounts').where('userId', '==', userId).get(),
-      db.collection('demoTrades').where('userId', '==', userId).orderBy('openedAt', 'desc').limit(100).get(),
       db.collection('referrals').where('referrerId', '==', userId).get(),
       db.collection('payouts').where('userId', '==', userId).orderBy('createdAt', 'desc').get()
     ]);
-    if (!userSnap.exists) return { success: false, error: "User not found" };
+
+    if (!userSnap.exists) return { success: false, error: "User profile document not found" };
+
+    // Fetch trades separately to handle potential index issues with orderBy
+    let trades: any[] = [];
+    try {
+      const tradesSnap = await db.collection('demoTrades')
+        .where('userId', '==', userId)
+        .orderBy('openedAt', 'desc')
+        .limit(100)
+        .get();
+      trades = tradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (indexError) {
+      console.warn("[Admin-Action] OrderBy openedAt failed, falling back to unordered trades fetch.");
+      const fallbackTradesSnap = await db.collection('demoTrades')
+        .where('userId', '==', userId)
+        .limit(100)
+        .get();
+      trades = fallbackTradesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+
     const data = {
       user: { id: userSnap.id, ...userSnap.data() },
       accounts: accountsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      trades: tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      trades: trades,
       referrals: referralsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       payouts: payoutsSnap.docs.map(d => ({ id: d.id, ...d.data() }))
     };
+
     return { success: true, ...serializeData(data) };
   } catch (err: any) {
+    console.error("[Admin-Action] fetchUserDetailAction Failure:", err);
     return { success: false, error: err.message };
   }
 }

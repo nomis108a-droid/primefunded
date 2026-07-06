@@ -14,11 +14,11 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone, Landmark, Share2, Info, ArrowUpRight
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone, Landmark, Share2, Info, ArrowUpRight, Wallet, TrendingUp
 } from 'lucide-react';
 import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, manualBreachAccountAction, auditAndResetFridayBreachesAction } from './actions';
 import { cn } from '@/lib/utils';
-import { format, isValid } from 'date-fns';
+import { format, isValid, differenceInDays } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -398,6 +398,36 @@ export default function AdminPage() {
     })
   , [adminData.orders, searchTerm]);
 
+  // Utility to handle opening inspection for a user
+  const handleInspectUser = async (userId: string) => {
+    console.log(`[Admin] Opening inspection for user: ${userId}`);
+    setUserDetailLoading(true);
+    setIsUserDetailModalOpen(true); // Open early to show loading state
+    
+    try {
+      const detail = await fetchUserDetailAction(userId);
+      if (detail.success) {
+        setUserDetail(detail);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Inspection Failed",
+          description: detail.error || "Could not retrieve trader records."
+        });
+        setIsUserDetailModalOpen(false);
+      }
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "System Error",
+        description: "Terminal connection fault during inspection."
+      });
+      setIsUserDetailModalOpen(false);
+    } finally {
+      setUserDetailLoading(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
@@ -620,15 +650,7 @@ export default function AdminPage() {
                           <td className="p-4 text-xs">{u.joinDate ? format(new Date(u.joinDate), 'MMM d, yyyy') : '—'}</td>
                           <td className="p-4"><Badge className="uppercase text-[8px]">{u.status || 'active'}</Badge></td>
                           <td className="p-4 text-right">
-                             <Button variant="ghost" size="sm" className="text-xs font-bold" onClick={async () => {
-                                setUserDetailLoading(true);
-                                const detail = await fetchUserDetailAction(u.id);
-                                if (detail.success) {
-                                  setUserDetail(detail);
-                                  setIsUserDetailModalOpen(true);
-                                }
-                                setUserDetailLoading(false);
-                             }}>Manage</Button>
+                             <Button variant="ghost" size="sm" className="text-xs font-bold" onClick={() => handleInspectUser(u.id)}>Manage</Button>
                           </td>
                         </tr>
                       ))}
@@ -804,15 +826,7 @@ export default function AdminPage() {
                           </td>
                           <td className="p-4 text-right">
                              <div className="flex justify-end gap-2">
-                               <Button variant="ghost" size="icon" title="Inspect Node" onClick={async () => {
-                                  setUserDetailLoading(true);
-                                  const detail = await fetchUserDetailAction(a.userId);
-                                  if (detail.success) {
-                                    setUserDetail(detail);
-                                    setIsUserDetailModalOpen(true);
-                                  }
-                                  setUserDetailLoading(false);
-                               }}><Eye className="w-4 h-4" /></Button>
+                               <Button variant="ghost" size="icon" title="Inspect Node" onClick={() => handleInspectUser(a.userId)}><Eye className="w-4 h-4" /></Button>
                                <Button variant="ghost" size="icon" title="Reset Balance" onClick={async () => {
                                  if(confirm("Reset this account to starting balance?")) {
                                    await resetDemoAccountAction(a.id);
@@ -946,11 +960,11 @@ export default function AdminPage() {
 
       {/* User Detail Modal */}
       <Dialog open={isUserDetailModalOpen} onOpenChange={setIsUserDetailModalOpen}>
-        <DialogContent className="max-w-6xl h-[90vh] bg-zinc-950 border-white/10 text-white p-0 overflow-hidden flex flex-col">
+        <DialogContent className="max-w-6xl h-[90vh] bg-zinc-950 border-white/10 text-white p-0 overflow-hidden flex flex-col z-[70]">
           {userDetailLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-4">
                <Loader2 className="w-10 h-10 animate-spin text-primary" />
-               <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Fetching node metadata...</p>
+               <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Fetching trader credentials...</p>
             </div>
           ) : userDetail && (
             <>
@@ -1007,44 +1021,61 @@ export default function AdminPage() {
                   
                   <TabsContent value="accounts" className="m-0 space-y-6">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {userDetail.accounts?.map((acc: any) => (
-                        <Card key={acc.id} className={cn("bg-card/40 border-white/5 transition-all overflow-hidden", acc.status === 'blown' && "opacity-60 grayscale border-destructive/20")}>
-                           <div className={cn("h-1.5 w-full", acc.status === 'active' ? "bg-emerald-500" : "bg-destructive")} />
-                           <CardContent className="p-6 space-y-6">
-                             <div className="flex justify-between items-start">
-                               <div>
-                                 <h3 className="text-xl font-bold text-white">{acc.label || 'Standard Challenge'}</h3>
-                                 <p className="text-[10px] font-mono text-primary uppercase tracking-widest mt-1">NODE: {acc.id}</p>
-                               </div>
-                               <Badge className={cn("uppercase text-[10px] font-black", acc.status === 'active' ? "bg-emerald-500 text-black" : "bg-destructive text-white")}>
-                                 {acc.status}
-                               </Badge>
-                             </div>
-                             
-                             <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-4">
-                                <div>
-                                   <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Balance / Equity</p>
-                                   <p className="text-lg font-mono font-bold text-white">${acc.balance?.toLocaleString()} / ${acc.equity?.toLocaleString()}</p>
-                                </div>
-                                <div>
-                                   <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Target</p>
-                                   <p className="text-lg font-mono font-bold text-emerald-500">${acc.profitTarget?.toLocaleString()}</p>
-                                </div>
-                             </div>
+                      {userDetail.accounts?.map((acc: any) => {
+                        const isBlown = acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated';
+                        const start = acc.createdAt?.seconds ? new Date(acc.createdAt.seconds * 1000) : new Date(acc.createdAt || Date.now());
+                        const end = isBlown && acc.blownAt?.seconds ? new Date(acc.blownAt.seconds * 1000) : new Date();
+                        const lifespan = differenceInDays(end, start);
 
-                             <div className="flex justify-between gap-4">
-                                <Button variant="outline" className="flex-1 h-10 text-[10px] font-bold uppercase tracking-widest" onClick={() => { if(confirm("Confirm account factory reset?")) resetDemoAccountAction(acc.id); refreshData(); }}>
-                                  <RotateCcw className="w-3.5 h-3.5 mr-2" /> Reset Balance
-                                </Button>
-                                {acc.status === 'active' && (
-                                  <Button variant="destructive" className="flex-1 h-10 text-[10px] font-bold uppercase tracking-widest" onClick={() => setBreachForm({ accountId: acc.id, reason: '', isOpen: true })}>
-                                    <Skull className="w-3.5 h-3.5 mr-2" /> Manual Breach
+                        return (
+                          <Card key={acc.id} className={cn("bg-card/40 border-white/5 transition-all overflow-hidden", isBlown && "opacity-60 grayscale border-destructive/20")}>
+                             <div className={cn("h-1.5 w-full", acc.status === 'active' ? "bg-emerald-500" : "bg-destructive")} />
+                             <CardContent className="p-6 space-y-6">
+                               <div className="flex justify-between items-start">
+                                 <div>
+                                   <h3 className="text-xl font-bold text-white">{acc.label || 'Standard Challenge'}</h3>
+                                   <p className="text-[10px] font-mono text-primary uppercase tracking-widest mt-1">NODE: {acc.id}</p>
+                                 </div>
+                                 <div className="text-right">
+                                    <Badge className={cn("uppercase text-[10px] font-black", acc.status === 'active' ? "bg-emerald-500 text-black" : "bg-destructive text-white")}>
+                                      {acc.status}
+                                    </Badge>
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Lifespan: {lifespan} Days</p>
+                                 </div>
+                               </div>
+                               
+                               <div className="grid grid-cols-2 gap-4 border-y border-white/5 py-4">
+                                  <div>
+                                     <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Balance / Equity</p>
+                                     <p className="text-lg font-mono font-bold text-white">${acc.balance?.toLocaleString()} / ${acc.equity?.toLocaleString()}</p>
+                                  </div>
+                                  <div>
+                                     <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1">Target</p>
+                                     <p className="text-lg font-mono font-bold text-emerald-500">${acc.profitTarget?.toLocaleString()}</p>
+                                  </div>
+                               </div>
+
+                               {isBlown && acc.breachReason && (
+                                 <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                                    <p className="text-[9px] font-black uppercase text-destructive tracking-widest mb-1">Breach Reason</p>
+                                    <p className="text-xs text-destructive/80 font-medium italic">"{acc.breachReason}"</p>
+                                 </div>
+                               )}
+
+                               <div className="flex justify-between gap-4">
+                                  <Button variant="outline" className="flex-1 h-10 text-[10px] font-bold uppercase tracking-widest" onClick={async () => { if(confirm("Confirm account factory reset?")) { await resetDemoAccountAction(acc.id); refreshData(); const detail = await fetchUserDetailAction(userDetail.user.id); if(detail.success) setUserDetail(detail); } }}>
+                                    <RotateCcw className="w-3.5 h-3.5 mr-2" /> Reset Balance
                                   </Button>
-                                )}
-                             </div>
-                           </CardContent>
-                        </Card>
-                      ))}
+                                  {acc.status === 'active' && (
+                                    <Button variant="destructive" className="flex-1 h-10 text-[10px] font-bold uppercase tracking-widest" onClick={() => setBreachForm({ accountId: acc.id, reason: '', isOpen: true })}>
+                                      <Skull className="w-3.5 h-3.5 mr-2" /> Manual Breach
+                                    </Button>
+                                  )}
+                               </div>
+                             </CardContent>
+                          </Card>
+                        );
+                      })}
                       {userDetail.accounts?.length === 0 && <p className="py-20 text-center text-muted-foreground italic col-span-2">No trading nodes found for this user.</p>}
                     </div>
                   </TabsContent>
@@ -1082,6 +1113,9 @@ export default function AdminPage() {
                                  </td>
                                </tr>
                              ))}
+                             {userDetail.trades?.length === 0 && (
+                               <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No historical executions found.</td></tr>
+                             )}
                            </tbody>
                          </table>
                       </CardContent>
@@ -1100,13 +1134,16 @@ export default function AdminPage() {
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-white/5">
-                                {userDetail.accounts?.filter((a:any) => a.status === 'blown').map((a: any) => (
+                                {userDetail.accounts?.filter((a:any) => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated').map((a: any) => (
                                   <tr key={a.id} className="hover:bg-destructive/5 transition-colors">
                                     <td className="p-4 text-muted-foreground">{a.blownAt ? format(new Date(a.blownAt), 'MMM d, HH:mm') : '—'}</td>
                                     <td className="p-4 font-mono text-primary">{a.id}</td>
                                     <td className="p-4 text-destructive/80 font-bold">{a.breachReason || 'Manual Liquidation'}</td>
                                   </tr>
                                 ))}
+                                {userDetail.accounts?.filter((a:any) => a.status === 'blown').length === 0 && (
+                                  <tr><td colSpan={3} className="py-20 text-center text-muted-foreground italic">No liquidation records found for this trader.</td></tr>
+                                )}
                               </tbody>
                            </table>
                         </CardContent>
@@ -1124,7 +1161,7 @@ export default function AdminPage() {
 
       {/* Manual Breach Modal */}
       <Dialog open={breachForm.isOpen} onOpenChange={(v) => setBreachForm({...breachForm, isOpen: v})}>
-        <DialogContent className="bg-zinc-950 border-destructive/20 text-white max-w-md">
+        <DialogContent className="bg-zinc-950 border-destructive/20 text-white max-w-md z-[80]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3 text-destructive">
                <Skull className="w-6 h-6" /> Terminate Node Node
