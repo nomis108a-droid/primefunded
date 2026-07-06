@@ -51,7 +51,6 @@ export function startGlobalPriceSync() {
 /**
  * Institutional SL/TP Watcher
  * Evaluates all open positions against authoritative Bid/Ask ticks.
- * BUY exit triggers on BID. SELL exit triggers on ASK.
  */
 async function checkTpSlHits(db: any) {
   try {
@@ -73,6 +72,18 @@ async function checkTpSlHits(db: any) {
       const symbol = (trade.symbol || "").toUpperCase().trim();
       const priceData = prices[symbol];
       
+      // ADMIN CLEANUP: Close stale trades stuck at bugged price
+      if (trade.openPrice === 4185.658 && trade.status === 'open') {
+        console.log(`[Cleanup] Closing stale trade ${tradeDoc.id} with bugged price 4185.658`);
+        await tradeDoc.ref.update({ 
+          status: 'closed', 
+          closeReason: 'admin_cleanup', 
+          pnl: 0, 
+          closedAt: FieldValue.serverTimestamp() 
+        });
+        continue;
+      }
+
       if (!priceData || !priceData.bid || !priceData.ask) continue;
 
       const bid = parseFloat(priceData.bid);
@@ -85,7 +96,6 @@ async function checkTpSlHits(db: any) {
       let executionPrice = 0;
 
       // 3. INSTITUTIONAL BID/ASK EXIT LOGIC
-      // BUY positions exit at BID
       if (trade.type === 'buy') {
         if (trade.tp && trade.tp > 0 && bid >= trade.tp) { 
           triggerReason = 'take_profit'; 
@@ -96,7 +106,6 @@ async function checkTpSlHits(db: any) {
           executionPrice = trade.sl; 
         }
       } 
-      // SELL positions exit at ASK
       else if (trade.type === 'sell') {
         if (trade.tp && trade.tp > 0 && ask <= trade.tp) { 
           triggerReason = 'take_profit'; 
@@ -109,11 +118,9 @@ async function checkTpSlHits(db: any) {
       }
 
       if (triggerReason) {
-        // Calculate PnL based on the triggered price level
         const priceDiff = trade.type === 'buy' ? (executionPrice - openPrice) : (openPrice - executionPrice);
         const finalPnL = priceDiff * lots * contractSize;
 
-        // 4. ATOMIC POSITION CLOSURE
         await db.runTransaction(async (tx: any) => {
           const tSnap = await tx.get(tradeDoc.ref);
           if (!tSnap.exists || tSnap.data().status !== 'open') return;
@@ -135,14 +142,12 @@ async function checkTpSlHits(db: any) {
             updatedAt: FieldValue.serverTimestamp()
           };
 
-          // Maintain daily loss counter for risk auditing
           if (finalPnL < 0) {
             accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(finalPnL));
           }
 
           tx.update(db.collection('demoAccounts').doc(trade.accountId), accUpdates);
           
-          // Log specific auto-close event for audit review
           tx.set(db.collection('system_logs').doc(), {
             type: 'auto_exit',
             tradeId: tradeDoc.id,
@@ -150,13 +155,10 @@ async function checkTpSlHits(db: any) {
             userId: trade.userId,
             reason: triggerReason,
             price: executionPrice,
-            bid: bid,
-            ask: ask,
             timestamp: FieldValue.serverTimestamp()
           });
         });
 
-        // Trigger immediate rule audit for this account to realize status changes
         await auditDemoAccount(trade.accountId);
       }
     }
@@ -167,7 +169,6 @@ async function checkTpSlHits(db: any) {
 
 /**
  * Main Synchronization Cycle
- * Orchestrates SL/TP hit detection and global risk auditing.
  */
 export async function syncPricesAndAudit() {
   if (isSyncing) return { skipped: true };
@@ -175,13 +176,8 @@ export async function syncPricesAndAudit() {
 
   try {
     const db = getAdminDb();
-    
-    // 1. Evaluate SL/TP hits first (Active Market Execution)
     await checkTpSlHits(db);
-    
-    // 2. Perform challenge rule audits (Risk Compliance)
     const result = await auditActiveOpenPositions();
-    
     return { success: true, ...result };
   } catch (error: any) {
     console.error('[PriceSync] Cycle fault:', error.message);

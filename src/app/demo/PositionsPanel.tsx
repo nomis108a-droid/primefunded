@@ -73,7 +73,7 @@ export function PositionsPanel({
     }
 
     // Validation
-    const symbolUpper = trade.symbol.toUpperCase();
+    const symbolUpper = trade.symbol.toUpperCase().trim();
     const pData = livePrices[symbolUpper];
     const currentPrice = trade.type === 'buy' ? pData?.bid : pData?.ask;
 
@@ -188,7 +188,6 @@ export function PositionsPanel({
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{t.lots.toFixed(2)}</td>
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{formatPrice(t.openPrice, t.symbol)}</td>
                       
-                      {/* STOP LOSS EDITABLE */}
                       <td className="py-1.5 px-2 font-mono">
                         {editingId === t.id && editingField === 'sl' ? (
                           <div className="flex items-center gap-1">
@@ -211,7 +210,6 @@ export function PositionsPanel({
                         )}
                       </td>
 
-                      {/* TAKE PROFIT EDITABLE */}
                       <td className="py-1.5 px-2 font-mono">
                         {editingId === t.id && editingField === 'tp' ? (
                           <div className="flex items-center gap-1">

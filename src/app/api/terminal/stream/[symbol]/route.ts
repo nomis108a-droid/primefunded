@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestOandaTicks } from '@/lib/oandaStream';
 import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
+import { getAdminRtdb } from '@/lib/firebase-admin';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * @fileOverview High-frequency SSE price stream handler.
+ * Decoupled synchronization: Active symbol streams help populate RTDB for other terminal modules.
  */
 
 export async function GET(
@@ -85,7 +87,6 @@ export async function GET(
                 const p = d.candles?.[0]?.mid;
                 if (p) {
                   const o = parseFloat(p.o);
-                  // Apply institutional spread estimate for fallbacks (1.5 pips for FX, 25c for Gold)
                   const spread = symbol.includes('JPY') ? 0.015 : symbol.includes('XAU') ? 0.25 : 0.00015;
                   tick = { 
                     bid: +(o - spread/2).toFixed(5), 
@@ -94,6 +95,14 @@ export async function GET(
                   };
                 }
               }
+            }
+
+            // High-frequency bridge: Update RTDB during manual poll to help positions panel
+            if (tick && tick.price) {
+              try {
+                const rtdb = getAdminRtdb();
+                rtdb.ref(`livePrices/${symbol}`).update({ ...tick, updatedAt: Date.now() });
+              } catch (e) {}
             }
           } catch (e) {
             console.error('[SSE-Fallback] Sync error:', e);

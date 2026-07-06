@@ -80,16 +80,25 @@ export default function DemoPage() {
   // Market Data
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
+  
+  // High-frequency active symbol tick
   const activePrice = useMemo(() => streamTick?.price ? streamTick : livePrices[selectedSymbol.toUpperCase()] || null, [streamTick, livePrices, selectedSymbol]);
 
-  // Fused Prices for Positions Panel (merges SSE and RTDB)
-  const fusedPrices = useMemo(() => {
-    if (!selectedSymbol || !activePrice) return livePrices;
-    return {
-      ...livePrices,
-      [selectedSymbol.toUpperCase().trim()]: activePrice
-    };
-  }, [livePrices, selectedSymbol, activePrice]);
+  // Fused Price Accumulator: Decouples positions from current chart symbol
+  const [fusedPrices, setFusedPrices] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    setFusedPrices(prev => ({ ...prev, ...livePrices }));
+  }, [livePrices]);
+
+  useEffect(() => {
+    if (activePrice && selectedSymbol) {
+      setFusedPrices(prev => ({
+        ...prev,
+        [selectedSymbol.toUpperCase().trim()]: activePrice
+      }));
+    }
+  }, [activePrice, selectedSymbol]);
 
   // Accounts & Trades
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
@@ -106,7 +115,7 @@ export default function DemoPage() {
   const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
 
   const calculateTradePnL = useCallback((trade: any) => {
-    const symbolUpper = trade.symbol.toUpperCase();
+    const symbolUpper = trade.symbol.toUpperCase().trim();
     const pData = fusedPrices[symbolUpper];
     if (!pData) return { pnl: 0, pct: 0 };
     const currentPrice = trade.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
@@ -149,6 +158,16 @@ export default function DemoPage() {
   useEffect(() => {
     if (!isChartReady || !mainSeriesRef.current) return;
     setIsChartLoading(true);
+    
+    // Fail-safe timer to prevent infinite loading screen
+    const failSafe = setTimeout(() => {
+      if (isChartLoading) {
+        console.warn('[Chart] Loading fail-safe triggered. Forcing chart to render.');
+        setIsChartLoading(false);
+        setIsInitialLoad(false);
+      }
+    }, 10000);
+
     const fetchHistory = async () => {
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
@@ -160,6 +179,7 @@ export default function DemoPage() {
       } catch(e) {
         console.error('[Chart] History fetch failed:', e);
       } finally { 
+        clearTimeout(failSafe);
         setIsChartLoading(false); 
         setIsInitialLoad(false); 
       }
@@ -182,7 +202,7 @@ export default function DemoPage() {
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
     
-    const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase());
+    const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === selectedSymbol.toUpperCase().trim());
     const activeIds = new Set(currentSymbolTrades.map(t => t.id));
     
     // 1. Cleanup removed trades
@@ -197,7 +217,7 @@ export default function DemoPage() {
     currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
       const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
-      const title = `${trade.type.toUpperCase()} ${trade.lots} | $${pnlDisplay} (${pct.toFixed(2)}%)`;
+      const title = `ENTRY ${trade.lots} | $${pnlDisplay} (${pct.toFixed(2)}%)`;
       
       let lines = priceLinesRef.current.get(trade.id);
       const hasSl = trade.sl && trade.sl > 0;
@@ -205,7 +225,6 @@ export default function DemoPage() {
       const expectedLineCount = 1 + (hasSl ? 1 : 0) + (hasTp ? 1 : 0);
 
       if (!lines || lines.length !== expectedLineCount) {
-        // Full recreate if SL/TP changes
         if (lines) lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
         
         const entry = mainSeriesRef.current!.createPriceLine({ 
@@ -225,7 +244,6 @@ export default function DemoPage() {
         }
         priceLinesRef.current.set(trade.id, newLines);
       } else {
-        // Just update PnL on Entry line
         lines[0].applyOptions({ title });
       }
     });
