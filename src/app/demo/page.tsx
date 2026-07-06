@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, Fragment } from "react";
@@ -629,7 +628,7 @@ export default function DemoPage() {
       lines.push(entryLine);
       if (trade.sl) lines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `SL @ ${trade.sl}` }));
       if (trade.tp) lines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `TP @ ${trade.tp}` }));
-      activePriceLinesRef.set(trade.id, lines);
+      activePriceLinesRef.current.set(trade.id, lines);
     });
     return () => { activePriceLinesRef.current.forEach((lines) => { lines.forEach((line) => mainSeriesRef.current?.removePriceLine(line)); }); };
   }, [openTrades, selectedSymbol, isChartReady, calculateOpenPnl]);
