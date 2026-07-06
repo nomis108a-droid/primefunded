@@ -24,7 +24,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { db, auth as clientAuth } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
-import { ADMIN_EMAILS } from '@/lib/admin';
 import { useAuth } from '@/context/AuthContext';
 import { firebaseConfig } from '@/firebase/config';
 
@@ -102,14 +101,14 @@ export default function AdminPage() {
       console.log(`[Admin] Initializing data sync for Project: ${firebaseConfig.projectId}`);
       
       const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.allSettled([
-        getDocs(collection(db, 'users')),
-        getDocs(collection(db, 'demoAccounts')),
+        getDocs(query(collection(db, 'users'), limit(500), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'demoAccounts'), limit(500), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'demoTrades'), limit(500), orderBy('openedAt', 'desc'))),
-        getDocs(collection(db, 'orders')),
-        getDocs(collection(db, 'payouts')),
-        getDocs(collection(db, 'referrals')),
-        getDocs(collection(db, 'broadcasts')),
-        getDocs(collection(db, 'breaches')),
+        getDocs(query(collection(db, 'orders'), limit(500), orderBy('submittedAt', 'desc'))),
+        getDocs(query(collection(db, 'payouts'), limit(500), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'referrals'), limit(500), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'broadcasts'), limit(100), orderBy('sentAt', 'desc'))),
+        getDocs(query(collection(db, 'breaches'), limit(500), orderBy('breachedAt', 'desc'))),
       ]);
       
       const getData = (res: PromiseSettledResult<any>, name: string) => {
@@ -118,17 +117,25 @@ export default function AdminPage() {
         return { docs: [] };
       };
       
-      setAdminData({
-        users: getData(usersSnap, 'users').docs.map((d: any) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => new Date(b.joinDate || 0).getTime() - new Date(a.joinDate || 0).getTime()),
+      const newAdminData = {
+        users: getData(usersSnap, 'users').docs.map((d: any) => ({ id: d.id, ...d.data() })),
         demoAccounts: getData(accountsSnap, 'demoAccounts').docs.map((d: any) => ({ id: d.id, ...d.data() })),
         demoTrades: getData(tradesSnap, 'demoTrades').docs.map((d: any) => ({ id: d.id, ...d.data() })),
-        orders: getData(ordersSnap, 'orders').docs.map((d: any) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.submittedAt?.seconds || 0) - (a.submittedAt?.seconds || 0)),
-        payouts: getData(payoutsSnap, 'payouts').docs.map((d: any) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
-        referrals: getData(referralsSnap, 'referrals').docs.map((d: any) => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
+        orders: getData(ordersSnap, 'orders').docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        payouts: getData(payoutsSnap, 'payouts').docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        referrals: getData(referralsSnap, 'referrals').docs.map((d: any) => ({ id: d.id, ...d.data() })),
         broadcasts: getData(broadcastsSnap, 'broadcasts').docs.map((d: any) => ({ id: d.id, ...d.data() })),
         breaches: getData(breachesSnap, 'breaches').docs.map((d: any) => ({ id: d.id, ...d.data() })),
-      });
+      };
+
+      setAdminData(newAdminData);
       setIsRateLimited(false);
+      
+      toast({
+        title: "Sync Successful",
+        description: `Network records synchronized at ${format(new Date(), 'HH:mm:ss')}.`
+      });
+
     } catch (err: any) {
       console.error("[Admin) Sync fault:", err);
       if (err.message?.includes('429')) {
@@ -318,6 +325,7 @@ export default function AdminPage() {
   const filteredUsers = useMemo(() => 
     adminData.users.filter((u: any) => {
       const term = searchTerm.toLowerCase();
+      if (!term) return true;
       return (
         u.email?.toLowerCase().includes(term) || 
         u.name?.toLowerCase().includes(term) ||
@@ -358,7 +366,6 @@ export default function AdminPage() {
     });
   }, [adminData.breaches, adminData.demoAccounts]);
 
-  // Unified Search Filtering for all list tabs
   const filteredNodes = useMemo(() => 
     adminData.demoAccounts.filter((a: any) => {
       const term = searchTerm.toLowerCase();
@@ -399,13 +406,12 @@ export default function AdminPage() {
     })
   , [adminData.orders, searchTerm]);
 
-  // Utility to handle opening inspection for a user
   const handleInspectUser = async (userId: string) => {
     if (!userId) return;
     console.log(`[Admin] Opening inspection for user UID: ${userId}`);
     
     setUserDetailLoading(true);
-    setIsUserDetailModalOpen(true); // Open early to show loading state
+    setIsUserDetailModalOpen(true);
     
     try {
       const detail = await fetchUserDetailAction(userId);
@@ -413,7 +419,6 @@ export default function AdminPage() {
         setUserDetail(detail);
       } else {
         const errorMsg = detail?.error || "Could not retrieve trader records.";
-        console.error(`[Admin] fetchUserDetailAction returned error:`, errorMsg);
         toast({
           variant: "destructive",
           title: "Inspection Failed",
@@ -422,7 +427,6 @@ export default function AdminPage() {
         setIsUserDetailModalOpen(false);
       }
     } catch (err: any) {
-      console.error(`[Admin] handleInspectUser Exception:`, err);
       toast({
         variant: "destructive",
         title: "System Error",
@@ -458,9 +462,15 @@ export default function AdminPage() {
               <Button size="sm" className="h-10 px-6 font-bold bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
                 <Gift className="w-4 h-4 mr-2" /> Gift Account
               </Button>
-              <Button variant="outline" size="sm" className="h-10 px-4" onClick={refreshData} disabled={isLoading || isRateLimited}>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-10 px-4" 
+                onClick={refreshData} 
+                disabled={isLoading || isRateLimited}
+              >
                 {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                Sync Network
+                {isLoading ? "Syncing..." : "Sync Network"}
               </Button>
               <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground hover:text-white" onClick={handleLogout}>
                 <LogOut className="w-4 h-4" />
