@@ -18,7 +18,7 @@ let storageInstance: FirebaseStorage;
 let rtdbInstance: Database;
 
 /**
- * Initializes the Firebase Client SDK instances using a simplified singleton pattern.
+ * Initializes the Firebase Client SDK instances using a hardened singleton pattern.
  * This resolves "FIRESTORE INTERNAL ASSERTION FAILED" errors by ensuring
  * Firestore is initialized idempotently with memory-based caching.
  */
@@ -32,15 +32,21 @@ export function initializeFirebase() {
   if (!rtdbInstance) rtdbInstance = getDatabase(firebaseApp);
   
   if (!firestoreInstance) {
-    try {
-      // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
-      // that lead to the 'Unexpected state' assertion failure during hot-reloading.
-      firestoreInstance = initializeFirestore(firebaseApp, {
-        localCache: memoryLocalCache(),
-      });
-    } catch (e) {
-      // If already initialized (common in HMR), retrieve the existing instance.
-      firestoreInstance = getFirestore(firebaseApp);
+    // Check if an instance already exists (common in Next.js HMR)
+    const existing = getFirestore(firebaseApp);
+    if (existing) {
+      firestoreInstance = existing;
+    } else {
+      try {
+        // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
+        // that lead to the 'Unexpected state' assertion failure (ID: b815 / ca9).
+        firestoreInstance = initializeFirestore(firebaseApp, {
+          localCache: memoryLocalCache(),
+        });
+      } catch (e) {
+        // Fallback for cases where it's already initialized by a non-singleton path
+        firestoreInstance = getFirestore(firebaseApp);
+      }
     }
   }
   

@@ -78,11 +78,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }, (err) => {
             console.error("[AuthProvider] Profile sync error:", err);
+            
+            const isAssertionError = err.message?.includes('INTERNAL ASSERTION FAILED');
+            
             if (isMounted) {
               setLoading(false);
-              // Retry profile listener after 3 seconds if it fails (robustness against b815)
+              // Retry profile listener after 3 or 5 seconds if it fails
               if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-              retryTimerRef.current = setTimeout(subscribeProfile, 3000);
+              retryTimerRef.current = setTimeout(subscribeProfile, isAssertionError ? 5000 : 3000);
             }
           });
         } catch (e) {
@@ -97,8 +100,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false;
-      if (unsubscribeDoc) unsubscribeDoc();
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (typeof unsubscribeDoc === 'function') {
+        unsubscribeDoc();
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+      }
     };
   }, [user]);
 

@@ -46,9 +46,10 @@ export function useDoc<T = DocumentData>(path: string | null) {
             setLoading(false);
             setError(null);
           },
-          async (serverError: any) => {
+          (serverError: any) => {
             if (!isMounted) return;
-            console.error(`[useDoc] Error for path ${path}:`, serverError);
+            
+            const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
 
             if (serverError.code === 'permission-denied') {
               const permissionError = new FirestorePermissionError({
@@ -64,14 +65,14 @@ export function useDoc<T = DocumentData>(path: string | null) {
             
             setLoading(false);
 
-            // Retry logic (3s)
+            // Retry logic
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
             retryTimerRef.current = setTimeout(() => {
               if (isMounted) {
-                console.log(`[useDoc] Attempting to re-establish listener for ${path}...`);
+                console.log(`[useDoc] Re-establishing listener for ${path}...`);
                 subscribe();
               }
-            }, 3000);
+            }, isAssertionError ? 5000 : 3000);
           }
         );
       } catch (err: any) {
@@ -85,8 +86,12 @@ export function useDoc<T = DocumentData>(path: string | null) {
 
     return () => {
       isMounted = false;
-      if (unsubscribe) unsubscribe();
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+      }
     };
   }, [db, path]);
 

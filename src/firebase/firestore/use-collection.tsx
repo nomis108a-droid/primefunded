@@ -58,52 +58,63 @@ export function useCollection<T = DocumentData>(
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMounted) return;
+      if (!isMounted || !q) return;
 
-      unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          if (!isMounted) return;
-          const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
-          setData(docs);
-          setLoading(false);
-          setError(null);
-        },
-        async (serverError: any) => {
-          if (!isMounted) return;
-          console.error(`[useCollection] Error for path ${path}:`, serverError);
-
-          if (serverError.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-              path: path || 'unknown',
-              operation: 'list',
-            } satisfies SecurityRuleContext);
-            errorEmitter.emit('permission-error', permissionError);
-            setError(permissionError);
-          } else {
-            setError(serverError);
-          }
-          
-          setLoading(false);
-
-          // Retry logic (3s) to handle transient failures or unrecoverable assertion states
-          if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-          retryTimerRef.current = setTimeout(() => {
-            if (isMounted) {
-              console.log(`[useCollection] Attempting to re-establish listener for ${path}...`);
-              subscribe();
+      try {
+        unsubscribe = onSnapshot(
+          q,
+          (snapshot) => {
+            if (!isMounted) return;
+            const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
+            setData(docs);
+            setLoading(false);
+            setError(null);
+          },
+          (serverError: any) => {
+            if (!isMounted) return;
+            
+            // Check for critical assertion errors (b815 / ca9)
+            const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
+            
+            if (serverError.code === 'permission-denied') {
+              const permissionError = new FirestorePermissionError({
+                path: path || 'unknown',
+                operation: 'list',
+              } satisfies SecurityRuleContext);
+              errorEmitter.emit('permission-error', permissionError);
+              setError(permissionError);
+            } else {
+              setError(serverError);
             }
-          }, 3000);
-        }
-      );
+            
+            setLoading(false);
+
+            // Retry logic (3s or 5s for assertions) to handle transient failures
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(() => {
+              if (isMounted) {
+                console.log(`[useCollection] Re-establishing listener for ${path}...`);
+                subscribe();
+              }
+            }, isAssertionError ? 5000 : 3000);
+          }
+        );
+      } catch (err) {
+        console.error(`[useCollection] Subscription exception for ${path}:`, err);
+        setLoading(false);
+      }
     };
 
     subscribe();
 
     return () => {
       isMounted = false;
-      if (unsubscribe) unsubscribe();
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+      }
     };
   }, [q, path]);
 
