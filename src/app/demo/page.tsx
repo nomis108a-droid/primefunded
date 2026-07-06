@@ -519,8 +519,6 @@ export default function DemoPage() {
       const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
       const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
       
-      // Update logic: Trust the price and update the latest candle or create a new one
-      // Eliminating aggressive outlier filtering to prevent crypto chart freezes.
       if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
         currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
       } else if (candleTime === currentCandleRef.current.time) {
@@ -532,8 +530,6 @@ export default function DemoPage() {
         };
       }
       
-      // If tick belongs to an older candle relative to history, Lightweight charts will ignore it.
-      // We only update if the tick is current or forward-moving.
       if (currentCandleRef.current && candleTime >= currentCandleRef.current.time) {
         if (chartType === 'line' || chartType === 'area') {
           mainSeriesRef.current.update({ time: candleTime as any, value: price });
@@ -744,14 +740,48 @@ export default function DemoPage() {
         </div>
 
         <aside className="hidden md:flex w-72 lg:w-80 border-l border-zinc-800 bg-zinc-950 p-4 lg:p-6 flex-col gap-4 lg:gap-8 shrink-0 overflow-y-auto custom-scrollbar z-50">
-           <OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout, marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} />
+           <OrderPanel 
+             hasMounted={hasMounted} 
+             actionLoading={actionLoading} 
+             isPriceValid={isPriceValid} 
+             hasPendingPayout={hasPendingPayout} 
+             marketInfo={marketInfo} 
+             activePrice={activePrice} 
+             selectedSymbol={selectedSymbol} 
+             lotsInput={lotsInput} 
+             setLotsInput={setLotsInput} 
+             lots={lots} 
+             sl={sl} 
+             setSl={setSl} 
+             tp={tp} 
+             setTp={setTp} 
+             placeTrade={placeTrade} 
+           />
         </aside>
       </div>
 
       <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
         <SheetContent side="bottom" className="bg-zinc-950 border-zinc-800 text-white rounded-t-3xl h-[85vh] md:h-auto overflow-y-auto custom-scrollbar">
           <SheetHeader className="pb-4"><div className="w-12 h-1 bg-zinc-800 rounded-full mx-auto mb-4" /><SheetTitle className="text-center font-headline font-bold text-2xl">Execute Order</SheetTitle></SheetHeader>
-          <div className="pb-10 pt-4"><OrderPanel hasMounted={hasMounted} actionLoading={actionLoading} isPriceValid={isPriceValid} hasPendingPayout, marketInfo={marketInfo} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} lots={lots} sl={sl} setSl={setSl} tp={tp} setTp={setTp} placeTrade={placeTrade} /></div>
+          <div className="pb-10 pt-4">
+            <OrderPanel 
+              hasMounted={hasMounted} 
+              actionLoading={actionLoading} 
+              isPriceValid={isPriceValid} 
+              hasPendingPayout={hasPendingPayout} 
+              marketInfo={marketInfo} 
+              activePrice={activePrice} 
+              selectedSymbol={selectedSymbol} 
+              lotsInput={lotsInput} 
+              setLotsInput={setLotsInput} 
+              lots={lots} 
+              sl={sl} 
+              setSl={setSl} 
+              tp={tp} 
+              setTp={setTp} 
+              placeTrade={placeTrade} 
+            />
+          </div>
         </SheetContent>
       </Sheet>
 
