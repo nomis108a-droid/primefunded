@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditDemoAccount } from '@/lib/rulesEngine';
-import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
+import { CONTRACT_SIZE } from '@/lib/rulesConfig';
+import { getLatestOandaTicks } from '@/lib/oandaStream';
+import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
 
 /**
  * @fileOverview Institutional Position Closure API
  * Enforces unified pricing: BUY closes at BID, SELL closes at ASK.
- * Implements authoritative price validation to prevent latency exploits.
+ * Uses memory-buffer price capture for zero-latency accuracy.
  */
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -25,9 +27,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
-    const body = await req.json().catch(() => ({}));
-    const clientPrice = body.closePrice ? parseFloat(String(body.closePrice)) : null;
-
     const db = getAdminDb();
     const tradeRef = db.collection("demoTrades").doc(id);
     const tradeSnap = await tradeRef.get();
@@ -39,11 +38,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const sym = trade.symbol.toUpperCase().trim();
     
+    // 1. CAPTURE PRICE FROM MEMORY BUFFER
+    const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
+
     const result = await db.runTransaction(async (tx) => {
-      // Prioritize livePrices for freshness
       const liveRef = db.collection('livePrices').doc(sym);
       const liveSnap = await tx.get(liveRef);
-      let feed = liveSnap.exists ? liveSnap.data() : null;
+      let feed = memTick || (liveSnap.exists ? liveSnap.data() : null);
 
       if (!feed) {
         const marketRef = db.collection('market').doc(sym);
@@ -59,12 +60,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // BUY positions close at BID, SELL positions close at ASK
       const authoritativePrice = trade.type === 'buy' ? feed.bid : feed.ask;
       
-      // VALIDATION: Deviation check (max 0.015 tolerance for latency)
-      if (clientPrice && Math.abs(clientPrice - authoritativePrice) > 0.015) {
-        // We still use authoritativePrice, but we log the deviation
-        console.warn(`[CLOSE] Price deviation detected: Client ${clientPrice} vs Auth ${authoritativePrice}`);
-      }
-
       const contractSize = CONTRACT_SIZE[sym] || 100000;
       const finalPnL = (trade.type === "buy" ? authoritativePrice - trade.openPrice : trade.openPrice - authoritativePrice) * trade.lots * contractSize;
 
@@ -85,7 +80,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         updatedAt: FieldValue.serverTimestamp()
       };
 
-      // Track realized daily loss for risk engine efficiency
       if (finalPnL < 0) {
         accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(finalPnL));
       }

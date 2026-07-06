@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditDemoAccount } from '@/lib/rulesEngine';
+import { getLatestOandaTicks } from '@/lib/oandaStream';
+import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
 
 /**
  * @fileOverview Institutional Order Execution API
- * Hardened with server-side execution locks and atomic transactions.
+ * Hardened with memory-buffer price capture and server-side execution locks.
  * Enforces unified pricing: BUY opens at ASK, SELL opens at BID.
  */
 
@@ -38,7 +40,10 @@ export async function POST(req: NextRequest) {
     const symUpper = symbol.toUpperCase().trim();
     const lots = parseFloat(String(rawLots));
 
-    // 1. GLOBAL EXECUTION LOCK: Prevent Duplicate Positions
+    // 1. CAPTURE PRICE FROM AUTHORITATIVE MEMORY BUFFER (Near-Zero Latency)
+    const memTick = getLatestOandaTicks()[symUpper] || getLatestCoinbaseTicks()[symUpper];
+    
+    // 2. GLOBAL EXECUTION LOCK: Prevent Duplicate Positions
     const activeLockRef = db.collection('_locks').doc(uid);
     const lockSnap = await activeLockRef.get();
     if (lockSnap.exists) {
@@ -53,11 +58,10 @@ export async function POST(req: NextRequest) {
     const tradeRef = db.collection("demoTrades").doc();
 
     const result = await db.runTransaction(async (tx) => {
-      // 2. FETCH权威FEED (Inside transaction for absolute freshness)
-      // Prioritize livePrices as it is the high-frequency sync destination
+      // 3. FETCH FEED (Inside transaction for fallback/verification)
       const liveRef = db.collection('livePrices').doc(symUpper);
       const liveSnap = await tx.get(liveRef);
-      let feed = liveSnap.exists ? liveSnap.data() : null;
+      let feed = memTick || (liveSnap.exists ? liveSnap.data() : null);
 
       if (!feed) {
         const marketRef = db.collection('market').doc(symUpper);
@@ -73,8 +77,7 @@ export async function POST(req: NextRequest) {
       // BUY opens at ASK, SELL opens at BID
       const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
-      // DEBUG LOG: Verification of price capture accuracy
-      console.log(`[EXECUTION] Symbol: ${symUpper} | Side: ${type.toUpperCase()} | Bid: ${feed.bid} | Ask: ${feed.ask} | Entry: ${executionPrice}`);
+      console.log(`[EXECUTION] Symbol: ${symUpper} | Side: ${type.toUpperCase()} | Entry: ${executionPrice} | Source: ${memTick ? 'MEMORY' : 'FIRESTORE'}`);
 
       const accSnap = await tx.get(accRef);
       if (!accSnap.exists) throw new Error("Account not found");
@@ -83,7 +86,7 @@ export async function POST(req: NextRequest) {
       if (account.userId !== uid) throw new Error("Unauthorized account access");
       if (account.status !== "active") throw new Error(`Account status is ${account.status}`);
 
-      // 3. COMMISSION & LOT CHECK
+      // 4. COMMISSION & LOT CHECK
       const rawPlan = String(account.plan || '10k');
       const planKey = rawPlan.toLowerCase().trim().replace('$', '');
       const maxAllowed = MAX_LOTS[planKey] || 0.5;
@@ -98,7 +101,7 @@ export async function POST(req: NextRequest) {
         return (lots * executionPrice) * 0.0005; 
       })();
 
-      // 4. ATOMIC ORDER ENTRY
+      // 5. ATOMIC ORDER ENTRY
       tx.set(tradeRef, {
         id: tradeRef.id,
         userId: uid,
@@ -125,15 +128,12 @@ export async function POST(req: NextRequest) {
       return { tradeId: tradeRef.id, openPrice: executionPrice };
     });
 
-    // 5. Cleanup
     await activeLockRef.delete();
     await auditDemoAccount(accountId);
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
     console.error('[Trade-API] Fatal Error:', error.message);
-    const activeLockRef = getAdminDb().collection('_locks').doc(getAdminAuth().verifyIdToken(req.headers.get("authorization")?.replace("Bearer ", "") || "").then(d => d.uid).catch(() => "unknown") as any);
-    activeLockRef.delete().catch(() => {});
     return NextResponse.json({ error: error.message || "Internal Error" }, { status: 500 });
   }
 }
