@@ -1,7 +1,6 @@
-
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { 
   onAuthStateChanged, 
   User, 
@@ -32,11 +31,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userData, setUserData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    // DEFENSIVE: Prevent crash if firebase auth is not initialized
     if (!auth) {
-      console.warn('[AuthProvider] Firebase Auth instance is not available.');
       setLoading(false);
       return;
     }
@@ -44,8 +42,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
         setUser(u);
-        
-        // If no user is logged in, we are no longer loading profile data
         if (!u) {
           setUserData(null);
           setLoading(false);
@@ -65,28 +61,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let unsubscribeDoc: (() => void) | undefined;
+    let isMounted = true;
 
-    if (user && db) {
-      try {
-        const userRef = doc(db, 'users', user.uid);
-        unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
-          if (snapshot.exists()) {
-            setUserData(snapshot.data());
-          }
-          setLoading(false);
-        }, (err) => {
-          console.error("[AuthProvider] Profile sync error:", err);
-          setLoading(false);
-        });
-      } catch (e) {
-        setLoading(false);
+    const subscribeProfile = () => {
+      if (!isMounted) return;
+
+      if (user && db) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
+            if (isMounted) {
+              if (snapshot.exists()) {
+                setUserData(snapshot.data());
+              }
+              setLoading(false);
+            }
+          }, (err) => {
+            console.error("[AuthProvider] Profile sync error:", err);
+            if (isMounted) {
+              setLoading(false);
+              // Retry profile listener after 3 seconds if it fails (robustness against b815)
+              if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+              retryTimerRef.current = setTimeout(subscribeProfile, 3000);
+            }
+          });
+        } catch (e) {
+          if (isMounted) setLoading(false);
+        }
+      } else if (!user && isMounted) {
+        setUserData(null);
       }
-    } else if (!user) {
-      setUserData(null);
-    }
+    };
+
+    subscribeProfile();
 
     return () => {
+      isMounted = false;
       if (unsubscribeDoc) unsubscribeDoc();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [user]);
 

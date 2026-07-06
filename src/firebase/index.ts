@@ -3,6 +3,7 @@ import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { 
   initializeFirestore, 
+  getFirestore,
   type Firestore, 
   memoryLocalCache 
 } from 'firebase/firestore';
@@ -19,7 +20,7 @@ let rtdbInstance: Database;
 /**
  * Initializes the Firebase Client SDK instances using a simplified singleton pattern.
  * This resolves "FIRESTORE INTERNAL ASSERTION FAILED" errors by ensuring
- * Firestore is only initialized once with stable memory-based settings.
+ * Firestore is initialized idempotently with memory-based caching.
  */
 export function initializeFirebase() {
   if (!firebaseApp) {
@@ -31,11 +32,16 @@ export function initializeFirebase() {
   if (!rtdbInstance) rtdbInstance = getDatabase(firebaseApp);
   
   if (!firestoreInstance) {
-    // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
-    // that lead to the 'Unexpected state' assertion failure during hot-reloading.
-    firestoreInstance = initializeFirestore(firebaseApp, {
-      localCache: memoryLocalCache(),
-    });
+    try {
+      // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
+      // that lead to the 'Unexpected state' assertion failure during hot-reloading.
+      firestoreInstance = initializeFirestore(firebaseApp, {
+        localCache: memoryLocalCache(),
+      });
+    } catch (e) {
+      // If already initialized (common in HMR), retrieve the existing instance.
+      firestoreInstance = getFirestore(firebaseApp);
+    }
   }
   
   return {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import {
   collection,
   onSnapshot,
@@ -16,7 +16,7 @@ const DEFAULT_CONSTRAINTS: QueryConstraint[] = [];
 
 /**
  * useCollection Hook
- * Fetches a collection in real-time with optimized query stability and security guards.
+ * Fetches a collection in real-time with optimized query stability and automated retry logic.
  */
 export function useCollection<T = DocumentData>(
   path: string | null,
@@ -26,6 +26,7 @@ export function useCollection<T = DocumentData>(
   const [data, setData] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Memoize the query object to prevent unnecessary re-subscriptions
   const q = useMemo(() => {
@@ -54,35 +55,55 @@ export function useCollection<T = DocumentData>(
     }
 
     let isMounted = true;
+    let unsubscribe: () => void = () => {};
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        if (!isMounted) return;
-        const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
-        setData(docs);
-        setLoading(false);
-        setError(null);
-      },
-      async (serverError: any) => {
-        if (!isMounted) return;
-        if (serverError.code === 'permission-denied') {
-          const permissionError = new FirestorePermissionError({
-            path: path || 'unknown',
-            operation: 'list',
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-          setError(permissionError);
-        } else {
-          setError(serverError);
+    const subscribe = () => {
+      if (!isMounted) return;
+
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          if (!isMounted) return;
+          const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
+          setData(docs);
+          setLoading(false);
+          setError(null);
+        },
+        async (serverError: any) => {
+          if (!isMounted) return;
+          console.error(`[useCollection] Error for path ${path}:`, serverError);
+
+          if (serverError.code === 'permission-denied') {
+            const permissionError = new FirestorePermissionError({
+              path: path || 'unknown',
+              operation: 'list',
+            } satisfies SecurityRuleContext);
+            errorEmitter.emit('permission-error', permissionError);
+            setError(permissionError);
+          } else {
+            setError(serverError);
+          }
+          
+          setLoading(false);
+
+          // Retry logic (3s) to handle transient failures or unrecoverable assertion states
+          if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = setTimeout(() => {
+            if (isMounted) {
+              console.log(`[useCollection] Attempting to re-establish listener for ${path}...`);
+              subscribe();
+            }
+          }, 3000);
         }
-        setLoading(false);
-      }
-    );
+      );
+    };
+
+    subscribe();
 
     return () => {
       isMounted = false;
-      unsubscribe();
+      if (unsubscribe) unsubscribe();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [q, path]);
 
