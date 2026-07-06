@@ -497,13 +497,19 @@ export default function DemoPage() {
 
         if (rawCandles.length > 0) {
           const sorted = [...rawCandles]
-            .map(c => ({ 
-              ...c, 
-              time: typeof c.time === 'object' && c.time?.seconds ? Number(c.time.seconds) : Number(c.time) 
-            }))
+            .map(c => {
+              let t = 0;
+              if (typeof c.time === 'number') t = c.time;
+              else if (typeof c.time === 'object' && c.time !== null) {
+                t = Number(c.time.seconds || (c.time as any)._seconds || 0);
+              } else {
+                t = Number(c.time);
+              }
+              return { ...c, time: t };
+            })
             .filter(c => {
               const p = (val: any) => parseFloat(String(val));
-              return c.time > 0 && 
+              return !isNaN(c.time) && c.time > 0 && 
                      p(c.open) > 0 && p(c.high) > 0 && p(c.low) > 0 && p(c.close) > 0 &&
                      !isNaN(p(c.open)) && !isNaN(p(c.high)) && !isNaN(p(c.low)) && !isNaN(p(c.close)) &&
                      p(c.high) >= p(c.low);
@@ -577,9 +583,11 @@ export default function DemoPage() {
       const intervalSecs = intervalSecondsMap[selectedInterval] || 60;
       const candleTime = Math.floor(Date.now() / 1000 / intervalSecs) * intervalSecs;
       
-      if (!currentCandleRef.current || candleTime > currentCandleRef.current.time) {
-        currentCandleRef.current = { time: candleTime, open: price, high: price, low: price, close: price };
-      } else if (candleTime === currentCandleRef.current.time) {
+      const barTime = Number(candleTime);
+      
+      if (!currentCandleRef.current || barTime > Number(currentCandleRef.current.time)) {
+        currentCandleRef.current = { time: barTime, open: price, high: price, low: price, close: price };
+      } else if (barTime === Number(currentCandleRef.current.time)) {
         currentCandleRef.current = { 
           ...currentCandleRef.current, 
           high: Math.max(currentCandleRef.current.high, price), 
@@ -588,11 +596,15 @@ export default function DemoPage() {
         };
       }
       
-      if (currentCandleRef.current && candleTime >= currentCandleRef.current.time) {
-        if (chartType === 'line' || chartType === 'area') {
-          mainSeriesRef.current.update({ time: candleTime as any, value: price });
-        } else {
-          mainSeriesRef.current.update(currentCandleRef.current);
+      if (currentCandleRef.current && barTime >= Number(currentCandleRef.current.time)) {
+        try {
+          if (chartType === 'line' || chartType === 'area') {
+            mainSeriesRef.current.update({ time: barTime as any, value: price });
+          } else {
+            mainSeriesRef.current.update(currentCandleRef.current);
+          }
+        } catch (e) {
+          // Silent fail for non-increasing timestamps to prevent UI crashes
         }
       }
     }

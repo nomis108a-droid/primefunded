@@ -27,6 +27,7 @@ export function useCollection<T = DocumentData>(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
 
   // Memoize the query object to prevent unnecessary re-subscriptions
   const q = useMemo(() => {
@@ -48,30 +49,31 @@ export function useCollection<T = DocumentData>(
   }, [db, path, constraints]);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     if (!q) {
       setLoading(false);
       setData([]);
       return;
     }
 
-    let isMounted = true;
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMounted || !q) return;
+      if (!isMountedRef.current || !q) return;
 
       try {
         unsubscribe = onSnapshot(
           q,
           (snapshot) => {
-            if (!isMounted) return;
+            if (!isMountedRef.current) return;
             const docs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as T));
             setData(docs);
             setLoading(false);
             setError(null);
           },
           (serverError: any) => {
-            if (!isMounted) return;
+            if (!isMountedRef.current) return;
             
             // Check for critical assertion errors (b815 / ca9)
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
@@ -91,9 +93,14 @@ export function useCollection<T = DocumentData>(
 
             // Retry logic (3s or 5s for assertions) to handle transient failures
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            
+            // If it's a critical ca9 error, perform a full clean stop before retrying
+            if (isAssertionError) {
+              unsubscribe();
+            }
+
             retryTimerRef.current = setTimeout(() => {
-              if (isMounted) {
-                console.log(`[useCollection] Re-establishing listener for ${path}...`);
+              if (isMountedRef.current) {
                 subscribe();
               }
             }, isAssertionError ? 5000 : 3000);
@@ -101,14 +108,16 @@ export function useCollection<T = DocumentData>(
         );
       } catch (err) {
         console.error(`[useCollection] Subscription exception for ${path}:`, err);
-        setLoading(false);
+        if (isMountedRef.current) setLoading(false);
       }
     };
 
-    subscribe();
+    // Delay initial subscription slightly to avoid race conditions during initialization
+    const initialDelay = setTimeout(subscribe, 50);
 
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
+      clearTimeout(initialDelay);
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }

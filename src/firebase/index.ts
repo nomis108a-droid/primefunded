@@ -17,46 +17,63 @@ let authInstance: Auth;
 let storageInstance: FirebaseStorage;
 let rtdbInstance: Database;
 
+let isInitializing = false;
+
 /**
  * Initializes the Firebase Client SDK instances using a hardened singleton pattern.
  * This resolves "FIRESTORE INTERNAL ASSERTION FAILED" errors by ensuring
  * Firestore is initialized idempotently with memory-based caching.
  */
 export function initializeFirebase() {
-  if (!firebaseApp) {
-    firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  if (isInitializing) {
+    return {
+      firebaseApp,
+      firestore: firestoreInstance,
+      auth: authInstance,
+      storage: storageInstance,
+      rtdb: rtdbInstance,
+    };
   }
-  
-  if (!authInstance) authInstance = getAuth(firebaseApp);
-  if (!storageInstance) storageInstance = getStorage(firebaseApp);
-  if (!rtdbInstance) rtdbInstance = getDatabase(firebaseApp);
-  
-  if (!firestoreInstance) {
-    // Check if an instance already exists (common in Next.js HMR)
-    const existing = getFirestore(firebaseApp);
-    if (existing) {
-      firestoreInstance = existing;
-    } else {
+
+  isInitializing = true;
+
+  try {
+    if (!firebaseApp) {
+      firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+    }
+    
+    if (!authInstance) authInstance = getAuth(firebaseApp);
+    if (!storageInstance) storageInstance = getStorage(firebaseApp);
+    if (!rtdbInstance) rtdbInstance = getDatabase(firebaseApp);
+    
+    if (!firestoreInstance) {
       try {
-        // Explicitly using memoryLocalCache prevents conflicting states in IndexedDB
-        // that lead to the 'Unexpected state' assertion failure (ID: b815 / ca9).
-        firestoreInstance = initializeFirestore(firebaseApp, {
-          localCache: memoryLocalCache(),
-        });
+        // Try getting an existing firestore instance first to avoid "already initialized" errors
+        const existing = getFirestore(firebaseApp);
+        if (existing) {
+          firestoreInstance = existing;
+        } else {
+          // If not initialized, set it up with memory cache to prevent IDB assertion errors (b815/ca9)
+          firestoreInstance = initializeFirestore(firebaseApp, {
+            localCache: memoryLocalCache(),
+          });
+        }
       } catch (e) {
         // Fallback for cases where it's already initialized by a non-singleton path
         firestoreInstance = getFirestore(firebaseApp);
       }
     }
+    
+    return {
+      firebaseApp,
+      firestore: firestoreInstance,
+      auth: authInstance,
+      storage: storageInstance,
+      rtdb: rtdbInstance,
+    };
+  } finally {
+    isInitializing = false;
   }
-  
-  return {
-    firebaseApp,
-    firestore: firestoreInstance,
-    auth: authInstance,
-    storage: storageInstance,
-    rtdb: rtdbInstance,
-  };
 }
 
 /**

@@ -21,19 +21,21 @@ export function useDoc<T = DocumentData>(path: string | null) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (!path || !db) {
       setLoading(false);
       setData(null);
       return;
     }
 
-    let isMounted = true;
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMounted) return;
+      if (!isMountedRef.current) return;
 
       try {
         const docRef = doc(db, path) as DocumentReference<T>;
@@ -41,13 +43,13 @@ export function useDoc<T = DocumentData>(path: string | null) {
         unsubscribe = onSnapshot(
           docRef,
           (snapshot) => {
-            if (!isMounted) return;
+            if (!isMountedRef.current) return;
             setData(snapshot.exists() ? snapshot.data() : null);
             setLoading(false);
             setError(null);
           },
           (serverError: any) => {
-            if (!isMounted) return;
+            if (!isMountedRef.current) return;
             
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
 
@@ -67,9 +69,13 @@ export function useDoc<T = DocumentData>(path: string | null) {
 
             // Retry logic
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            
+            if (isAssertionError) {
+              unsubscribe();
+            }
+
             retryTimerRef.current = setTimeout(() => {
-              if (isMounted) {
-                console.log(`[useDoc] Re-establishing listener for ${path}...`);
+              if (isMountedRef.current) {
                 subscribe();
               }
             }, isAssertionError ? 5000 : 3000);
@@ -77,15 +83,18 @@ export function useDoc<T = DocumentData>(path: string | null) {
         );
       } catch (err: any) {
         console.error('[useDoc] Initialization Error:', err);
-        setError(err);
-        setLoading(false);
+        if (isMountedRef.current) {
+          setError(err);
+          setLoading(false);
+        }
       }
     };
 
-    subscribe();
+    const initialDelay = setTimeout(subscribe, 50);
 
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
+      clearTimeout(initialDelay);
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }

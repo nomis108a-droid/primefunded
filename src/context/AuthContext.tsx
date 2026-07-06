@@ -32,8 +32,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
     if (!auth) {
       setLoading(false);
       return;
@@ -41,6 +43,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+        if (!isMountedRef.current) return;
         setUser(u);
         if (!u) {
           setUserData(null);
@@ -49,6 +52,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       return () => {
+        isMountedRef.current = false;
         if (typeof unsubscribeAuth === 'function') {
           unsubscribeAuth();
         }
@@ -61,16 +65,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let unsubscribeDoc: (() => void) | undefined;
-    let isMounted = true;
 
     const subscribeProfile = () => {
-      if (!isMounted) return;
+      if (!isMountedRef.current) return;
 
       if (user && db) {
         try {
           const userRef = doc(db, 'users', user.uid);
           unsubscribeDoc = onSnapshot(userRef, (snapshot) => {
-            if (isMounted) {
+            if (isMountedRef.current) {
               if (snapshot.exists()) {
                 setUserData(snapshot.data());
               }
@@ -81,17 +84,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             
             const isAssertionError = err.message?.includes('INTERNAL ASSERTION FAILED');
             
-            if (isMounted) {
+            if (isMountedRef.current) {
               setLoading(false);
               // Retry profile listener after 3 or 5 seconds if it fails
               if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+              
+              if (isAssertionError && typeof unsubscribeDoc === 'function') {
+                unsubscribeDoc();
+              }
+              
               retryTimerRef.current = setTimeout(subscribeProfile, isAssertionError ? 5000 : 3000);
             }
           });
         } catch (e) {
-          if (isMounted) setLoading(false);
+          if (isMountedRef.current) setLoading(false);
         }
-      } else if (!user && isMounted) {
+      } else if (!user && isMountedRef.current) {
         setUserData(null);
       }
     };
@@ -99,7 +107,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     subscribeProfile();
 
     return () => {
-      isMounted = false;
       if (typeof unsubscribeDoc === 'function') {
         unsubscribeDoc();
       }
