@@ -112,8 +112,7 @@ export const RULES_CONFIG = {
   universal: {
     minTradeDurationSeconds: 120,
     maxExecutionFrequencySeconds: 180,
-    noMartingale: true,
-    noFridayOvernightHolding: false // REMOVED Friday rule
+    noMartingale: true
   }
 };
 

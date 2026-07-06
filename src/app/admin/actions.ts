@@ -356,7 +356,7 @@ export async function cleanupDemoAccountsAction() {
 }
 
 /**
- * INSTITUTIONAL AUDIT: Scans and optionally resets Friday rule breaches
+ * INSTITUTIONAL AUDIT: Scans and executes FULL STARTING STATE RESET for Friday rule breaches
  */
 export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
@@ -367,9 +367,8 @@ export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) 
       .get();
     
     const affected: any[] = [];
-    const batch = db.batch();
 
-    blownSnap.docs.forEach(doc => {
+    for (const doc of blownSnap.docs) {
       const data = doc.data();
       const reason = (data.breachReason || "").toLowerCase();
       
@@ -378,35 +377,58 @@ export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) 
           id: doc.id,
           email: data.email || 'unknown',
           userId: data.userId,
-          balance: data.balance,
+          startBalance: data.startBalance || 100000,
           breachedAt: data.blownAt ? data.blownAt.toDate().toISOString() : 'unknown'
         });
 
         if (!dryRun) {
+          const startBalance = parseFloat(String(data.startBalance || 100000));
+          const batch = db.batch();
+
+          // 1. Reset Account Node to factory state
           batch.update(doc.ref, {
             status: 'active',
+            balance: startBalance,
+            equity: startBalance,
             breachReason: null,
             blownAt: null,
-            updatedAt: FieldValue.serverTimestamp()
+            dailyGrossLossUsd: 0,
+            updatedAt: FieldValue.serverTimestamp(),
+            lastResetAt: FieldValue.serverTimestamp()
           });
 
-          // Also remove the breach log record
-          const breachRef = db.collection('breaches')
-            .where('accountId', '==', doc.id)
-            .limit(1);
-          
-          // Note: Batch cannot easily delete based on query without fetching.
-          // For simplicity in this logic, we update the user status too.
+          // 2. Delete all trade history associated with this specific account
+          const tradesSnap = await db.collection('demoTrades').where('accountId', '==', doc.id).get();
+          tradesSnap.docs.forEach(t => batch.delete(t.ref));
+
+          // 3. Update parent user accountStatus
           batch.update(db.collection('users').doc(data.userId), {
             accountStatus: 'active',
             updatedAt: FieldValue.serverTimestamp()
           });
+
+          // 4. Record the restoration in a historical audit log
+          batch.set(db.collection('system_logs').doc(), {
+            type: 'friday_rule_reset',
+            accountId: doc.id,
+            userId: data.userId,
+            originalBreachReason: data.breachReason,
+            timestamp: FieldValue.serverTimestamp(),
+            action: 'Full Factory Reset (Rule Discontinued)'
+          });
+
+          // 5. Send notification to trader
+          batch.set(db.collection('users').doc(data.userId).collection('notifications').doc(), {
+            title: '⚡ Account Fully Restored',
+            message: `Your account ${data.label || doc.id} has been reset to its starting state of $${startBalance.toLocaleString()} due to the removal of the Friday overnight rule. You can now resume trading.`,
+            type: 'account_restored',
+            isRead: false,
+            createdAt: FieldValue.serverTimestamp()
+          });
+
+          await batch.commit();
         }
       }
-    });
-
-    if (!dryRun && affected.length > 0) {
-      await batch.commit();
     }
 
     return { success: true, affected: serializeData(affected), dryRun };

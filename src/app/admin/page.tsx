@@ -280,11 +280,11 @@ export default function AdminPage() {
   };
 
   const handleFridayReset = async () => {
-    if (!confirm("RESTORE ALL FRIDAY OVERNIGHT BREACHES? This will reactivate accounts and users.")) return;
+    if (!confirm("RESTORE ALL FRIDAY OVERNIGHT BREACHES? This will reactivate accounts and reset them to FULL STARTING STATE ($10k, $25k etc).")) return;
     setActionLoading(true);
     const res = await auditAndResetFridayBreachesAction(false);
     if (res.success) {
-      toast({ title: "Rule Applied", description: `Restored ${res.affected.length} accounts.` });
+      toast({ title: "Rule Applied", description: `Restored and Factory Reset ${res.affected.length} accounts.` });
       setIsFridayModalOpen(false);
       refreshData();
     }
@@ -605,7 +605,7 @@ export default function AdminPage() {
             </Card>
           )}
           
-          {/* ... Other Tabs (users, referrals, payouts, broadcasts, kyc) remain as they were in current user code ... */}
+          {/* Remaining Tabs remain as they were in current user code */}
         </div>
       </main>
 
@@ -617,7 +617,7 @@ export default function AdminPage() {
               <RotateCcw className="w-5 h-5" /> Friday Rule Restoration Tool
             </DialogTitle>
             <DialogDescription className="text-zinc-400">
-              These accounts were liquidated due to the Friday overnight holding rule. You can restore them below.
+              These accounts were liquidated due to the Friday overnight holding rule. Restoring will perform a FULL FACTORY RESET back to original balance.
             </DialogDescription>
           </DialogHeader>
           
@@ -632,7 +632,7 @@ export default function AdminPage() {
                       <tr>
                         <th className="p-3">Trader Email</th>
                         <th className="p-3">Account ID</th>
-                        <th className="p-3">Final Balance</th>
+                        <th className="p-3">Original Size</th>
                         <th className="p-3">Breach Date</th>
                       </tr>
                     </thead>
@@ -641,7 +641,7 @@ export default function AdminPage() {
                         <tr key={a.id} className="border-t border-white/5">
                           <td className="p-3 font-bold">{a.email}</td>
                           <td className="p-3 font-mono text-[10px]">{a.id}</td>
-                          <td className="p-3 font-mono">${parseFloat(a.balance || 0).toLocaleString()}</td>
+                          <td className="p-3 font-mono">${parseFloat(a.startBalance || 0).toLocaleString()}</td>
                           <td className="p-3 text-zinc-400">{format(new Date(a.breachedAt), 'MMM d, HH:mm')}</td>
                         </tr>
                       ))}
@@ -651,7 +651,7 @@ export default function AdminPage() {
                 <div className="flex justify-end pt-4">
                   <Button className="bg-amber-600 hover:bg-amber-700 text-white font-black" onClick={handleFridayReset} disabled={actionLoading}>
                     {actionLoading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <RotateCcw className="w-4 h-4 mr-2" />}
-                    RESTORE ALL {fridayAudit.length} ACCOUNTS
+                    RESTORE & FACTORY RESET ALL {fridayAudit.length} ACCOUNTS
                   </Button>
                 </div>
               </div>
@@ -682,8 +682,6 @@ export default function AdminPage() {
           </form>
         </DialogContent>
       </Dialog>
-      
-      {/* ... Other Modals remain as they were in current user code ... */}
     </div>
   );
 }
