@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -10,18 +9,6 @@ import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
  * BUY positions close at BID, SELL positions close at ASK.
  */
 
-function calculateTradePnl(trade: any, priceData: any) {
-  if (!priceData || !priceData.price) return 0;
-  const sym = (trade.symbol || "").toUpperCase().trim();
-  
-  // UNIFIED PRICING LOGIC
-  const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-  
-  const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-  const contractSize = CONTRACT_SIZE[sym] || 100000;
-  return diff * trade.lots * contractSize;
-}
-
 export async function GET(req: NextRequest) {
   const key = req.headers.get('x-api-key');
   if (!process.env.TERMINAL_CRON_KEY || key !== process.env.TERMINAL_CRON_KEY) {
@@ -31,245 +18,70 @@ export async function GET(req: NextRequest) {
   const db = getAdminDb();
   
   try {
+    // 1. Fetch only active nodes and open trades
     const activeAccountsSnap = await db.collection('demoAccounts').where('status', '==', 'active').get();
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
     
-    // Fetch unified market source
+    if (openTradesSnap.empty) return NextResponse.json({ success: true, checked: activeAccountsSnap.size, hits: 0 });
+
+    // 2. Fetch authoritative market ticks
     const pricesSnap = await db.collection('market').get();
     const prices: Record<string, any> = {};
     pricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
 
-    // Fallback if market collection is empty
-    if (Object.keys(prices).length === 0) {
-      const backupPrices = await db.collection('livePrices').get();
-      backupPrices.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
-    }
-
-    const accountTrades: Record<string, any[]> = {};
-    openTradesSnap.docs.forEach(d => {
-      const data = d.data() as any;
-      const t = { id: d.id, ref: d.ref, ...data };
-      const accountId = data.accountId as string;
-      if (!accountId) return;
-      if (!accountTrades[accountId]) accountTrades[accountId] = [];
-      accountTrades[accountId].push(t);
-    });
-
-    let liquidated = 0;
     let sltpClosed = 0;
 
-    const now = new Date();
-
-    for (const accDoc of activeAccountsSnap.docs) {
-      const acc = accDoc.data() as any;
-      const trades = accountTrades[accDoc.id] || [];
-      const planKey = getPlanKey(acc.planType || acc.plan || '1-step-pro');
-      const rules = RULES_CONFIG.plans[planKey]?.[acc.phase || 'evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    for (const tradeDoc of openTradesSnap.docs) {
+      const trade = tradeDoc.data() as any;
+      const symbol = (trade.symbol || "").toUpperCase().trim();
+      const priceData = prices[symbol];
       
-      if (planKey === 'instant-funding') {
-        const createdAt = (acc.createdAt as Timestamp).toDate().getTime();
-        const daysOld = (now.getTime() - createdAt) / (1000 * 60 * 60 * 24);
-        if (daysOld > 30) {
-          await db.runTransaction(async (tx) => {
-            let finalBalance = acc.balance;
-            for (const t of trades) {
-              const sym = (t.symbol || "").toUpperCase().trim();
-              const priceData = prices[sym];
-              const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
-              const contractSize = CONTRACT_SIZE[sym] || 100000;
-              const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * contractSize;
-              tx.update(t.ref, {
-                status: 'closed',
-                closeReason: 'liquidation',
-                closePrice: exitPrice,
-                closeBid: priceData?.bid || null,
-                closeAsk: priceData?.ask || null,
-                pnl: tradePnl,
-                closedAt: FieldValue.serverTimestamp()
-              });
-              finalBalance += tradePnl;
-            }
-            tx.update(accDoc.ref, {
-              status: 'blown',
-              breachReason: 'account_validity_expired',
-              balance: finalBalance,
-              equity: finalBalance,
-              updatedAt: FieldValue.serverTimestamp()
-            });
-          });
-          liquidated++;
-          continue;
-        }
-      }
+      if (!priceData || !priceData.bid || !priceData.ask) continue;
 
-      let floatingPnl = 0;
-      let floatingNegativePnl = 0;
+      const bid = priceData.bid;
+      const ask = priceData.ask;
       
-      for (const t of trades) {
-        const sym = (t.symbol || "").toUpperCase().trim();
-        const pnl = calculateTradePnl(t, prices[sym]);
-        
-        const startBalance = acc.startBalance || 100000;
-        const floatingLimit = startBalance * (rules.maxFloatingLoss || 1) / 100;
-        
-        if (pnl < 0 && Math.abs(pnl) >= floatingLimit && (planKey === '1-step-pro' || planKey === 'instant-funding' || planKey === 'instant-pro')) {
-           const priceData = prices[sym];
-           const exitPrice = t.type === 'buy' ? (priceData?.bid || t.openPrice) : (priceData?.ask || t.openPrice);
-           
-           await db.runTransaction(async (tx) => {
-             tx.update(t.ref, {
-               status: 'closed',
-               closeReason: 'liquidation',
-               closePrice: exitPrice,
-               closeBid: priceData?.bid || null,
-               closeAsk: priceData?.ask || null,
-               pnl: pnl,
-               closedAt: FieldValue.serverTimestamp()
-             });
-             tx.update(accDoc.ref, {
-               balance: FieldValue.increment(pnl),
-               updatedAt: FieldValue.serverTimestamp()
-             });
-
-             const notifRef = db.collection('users').doc(acc.userId).collection('notifications').doc();
-             tx.set(notifRef, {
-               title: '🛡️ Trade Auto-Closed',
-               message: `Trade on ${t.symbol} force-closed: single trade floating loss exceeded 1% of your starting balance.`,
-               type: 'risk_warning',
-               isRead: false,
-               createdAt: FieldValue.serverTimestamp()
-             });
-           });
-           continue; 
-        }
-
-        floatingPnl += pnl;
-        if (pnl < 0) floatingNegativePnl += Math.abs(pnl);
+      let triggerPrice = 0;
+      let exitReason = "";
+      
+      // BUY exit at BID, SELL exit at ASK
+      if (trade.type === 'buy') {
+        if (trade.sl && bid <= trade.sl) { triggerPrice = trade.sl; exitReason = "stop_loss"; }
+        else if (trade.tp && bid >= trade.tp) { triggerPrice = trade.tp; exitReason = "take_profit"; }
+      } else {
+        if (trade.sl && ask >= trade.sl) { triggerPrice = trade.sl; exitReason = "stop_loss"; }
+        else if (trade.tp && ask <= trade.tp) { triggerPrice = trade.tp; exitReason = "take_profit"; }
       }
 
-      const currentEquity = acc.balance + floatingPnl;
-      const virtualDailyLoss = (acc.dailyGrossLossUsd || 0) + floatingNegativePnl;
-
-      let breachReason = null;
-
-      if (virtualDailyLoss >= acc.dailyLossLimitUsd) {
-        breachReason = "daily_drawdown_breach";
-      } 
-      else if ((acc.startBalance - currentEquity) >= (acc.maxLoss || acc.startBalance * 0.06)) {
-        breachReason = "max_drawdown_breach";
-      }
-
-      if (breachReason) {
+      if (triggerPrice > 0) {
+        const contractSize = CONTRACT_SIZE[symbol] || 100000;
+        const pnl = (trade.type === 'buy' ? triggerPrice - trade.openPrice : trade.openPrice - triggerPrice) * trade.lots * contractSize;
+        
         await db.runTransaction(async (tx) => {
-          let finalBalance = acc.balance;
-          
-          for (const t of trades) {
-            const sym = (t.symbol || "").toUpperCase().trim();
-            const priceData = prices[sym];
-            if (!priceData) continue;
-            const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
-            const contractSize = CONTRACT_SIZE[sym] || 100000;
-            const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice : t.openPrice - exitPrice) * t.lots * contractSize;
-            
-            tx.update(t.ref, {
-              status: 'closed',
-              closeReason: 'liquidation',
-              closePrice: exitPrice,
-              closeBid: priceData.bid,
-              closeAsk: priceData.ask,
-              pnl: tradePnl,
-              closedAt: FieldValue.serverTimestamp(),
-              liquidated: true
-            });
-            finalBalance += tradePnl;
-          }
+          const accRef = db.collection('demoAccounts').doc(trade.accountId);
+          const accSnap = await tx.get(accRef);
+          if (!accSnap.exists) return;
 
-          tx.update(accDoc.ref, {
-            status: 'blown',
-            breachReason,
-            balance: finalBalance,
-            equity: finalBalance,
+          tx.update(tradeDoc.ref, {
+            status: 'closed',
+            closeReason: exitReason,
+            closePrice: triggerPrice,
+            closeBid: bid,
+            closeAsk: ask,
+            pnl,
+            closedAt: FieldValue.serverTimestamp()
+          });
+
+          tx.update(accRef, {
+            balance: FieldValue.increment(pnl),
             updatedAt: FieldValue.serverTimestamp()
           });
         });
-        liquidated++;
-        continue;
+        sltpClosed++;
       }
-
-      // SL/TP CHECK
-      for (const t of trades) {
-        const sym = (t.symbol || "").toUpperCase().trim();
-        const priceData = prices[sym];
-        if (!priceData) continue;
-
-        // BUY exit at BID, SELL exit at ASK
-        const bid = priceData.bid || priceData.price;
-        const ask = priceData.ask || priceData.price;
-
-        let triggerPrice = 0;
-        let exitReason = "";
-        
-        if (t.type === 'buy') {
-          if (t.sl && bid <= t.sl) { triggerPrice = t.sl; exitReason = "stop_loss"; }
-          else if (t.tp && bid >= t.tp) { triggerPrice = t.tp; exitReason = "take_profit"; }
-        } else {
-          if (t.sl && ask >= t.sl) { triggerPrice = t.sl; exitReason = "stop_loss"; }
-          else if (t.tp && ask <= t.tp) { triggerPrice = t.tp; exitReason = "take_profit"; }
-        }
-
-        if (triggerPrice > 0) {
-          const contractSize = CONTRACT_SIZE[sym] || 100000;
-          const pnl = (t.type === 'buy' ? triggerPrice - t.openPrice : t.openPrice - triggerPrice) * t.lots * contractSize;
-          
-          await db.runTransaction(async (tx) => {
-            const currentAcc = (await tx.get(accDoc.ref)).data()!;
-            const newBalance = currentAcc.balance + pnl;
-            
-            const startBalance = currentAcc.startBalance || 100000;
-            const singleTradeLossLimit = startBalance * (rules.maxSingleTradeLoss || 3) / 100;
-            const isMajorLoss = pnl < 0 && Math.abs(pnl) > singleTradeLossLimit;
-
-            tx.update(t.ref, {
-              status: 'closed',
-              closeReason: exitReason,
-              closePrice: triggerPrice,
-              closeBid: bid,
-              closeAsk: ask,
-              pnl,
-              closedAt: FieldValue.serverTimestamp()
-            });
-
-            const updates: any = {
-              balance: newBalance,
-              equity: newBalance,
-              updatedAt: FieldValue.serverTimestamp()
-            };
-
-            if (pnl < 0) {
-              updates.dailyGrossLossUsd = (currentAcc.dailyGrossLossUsd || 0) + Math.abs(pnl);
-            }
-
-            if (isMajorLoss && ['2-step-classic', '3-step-classic', 'instant-funding', 'instant-pro'].includes(planKey)) {
-              updates.status = 'blown';
-              updates.breachReason = 'single_trade_loss_breach';
-            }
-
-            tx.update(accDoc.ref, updates);
-          });
-          sltpClosed++;
-        }
-      }
-      
-      await accDoc.ref.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      liquidated, 
-      sltpClosed, 
-      checked: activeAccountsSnap.size 
-    });
-
+    return NextResponse.json({ success: true, checked: openTradesSnap.size, hits: sltpClosed });
   } catch (error: any) {
     console.error('[RiskEngine] Critical Failure:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });

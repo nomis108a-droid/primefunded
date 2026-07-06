@@ -16,10 +16,16 @@ export type PlanPhaseRules = {
   minTradesPerSymbolForPayout?: number; 
 };
 
+/**
+ * AUTHORITATIVE CONTRACT SIZE MAP
+ * Prevents PnL multiplier errors.
+ */
 export const CONTRACT_SIZE: Record<string, number> = {
+  // Metals
   XAUUSD: 100, 
   XAGUSD: 5000, 
   XPTUSD: 50,
+  // Forex
   EURUSD: 100000, 
   GBPUSD: 100000, 
   USDJPY: 100000,
@@ -27,6 +33,7 @@ export const CONTRACT_SIZE: Record<string, number> = {
   USDCHF: 100000, 
   USDCAD: 100000, 
   NZDUSD: 100000,
+  // Crypto
   BTCUSD: 1, 
   ETHUSD: 1, 
   SOLUSD: 1, 
@@ -140,7 +147,7 @@ export const RULES_CONFIG = {
  * Standardizes raw plan names from Firestore to rule keys.
  */
 export function getPlanKey(name: string): string {
-  const n = name.toLowerCase();
+  const n = (name || '').toLowerCase();
   if (n.includes('1-step')) return '1-step-pro';
   if (n.includes('2-step')) return '2-step-classic';
   if (n.includes('3-step')) return '3-step-classic';
