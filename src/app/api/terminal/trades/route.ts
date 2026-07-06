@@ -49,51 +49,56 @@ export async function POST(req: NextRequest) {
     }
     await activeLockRef.set({ timestamp: Date.now(), accountId });
 
-    // 2. FETCH权威FEED
-    const marketRef = db.collection('market').doc(symUpper);
-    const marketSnap = await marketRef.get();
-    const feed = marketSnap.exists ? marketSnap.data() : (await db.collection('livePrices').doc(symUpper).get()).data();
-
-    if (!feed || !feed.bid || !feed.ask) {
-      await activeLockRef.delete();
-      return NextResponse.json({ error: "Market source offline" }, { status: 400 });
-    }
-
-    // ── UNIFIED EXECUTION LOGIC ──
-    // BUY opens at ASK, SELL opens at BID
-    const executionPrice = type === 'buy' ? feed.ask : feed.bid;
-
     const accRef = db.collection("demoAccounts").doc(accountId);
-    const accSnap = await accRef.get();
-    
-    if (!accSnap.exists) {
-      await activeLockRef.delete();
-      return NextResponse.json({ error: "Account not found" }, { status: 404 });
-    }
-    
-    const account = accSnap.data()!;
-    if (account.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    if (account.status !== "active") return NextResponse.json({ error: `Account is ${account.status}` }, { status: 400 });
-
-    // 3. COMMISSION & LOT CHECK
-    const rawPlan = String(account.plan || '10k');
-    const planKey = rawPlan.toLowerCase().trim().replace('$', '');
-    const maxAllowed = MAX_LOTS[planKey] || 0.5;
-    if (lots > maxAllowed) {
-      await activeLockRef.delete();
-      return NextResponse.json({ error: `Lot Violation: Max ${maxAllowed} for ${rawPlan}` }, { status: 400 });
-    }
-
-    const commission = (() => {
-      const isForex = !['XAUUSD','BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD','XAGUSD','XPTUSD'].includes(symUpper);
-      if (isForex) return lots * 5; 
-      if (symUpper === 'XAUUSD') return lots * 0.30; 
-      return (lots * executionPrice) * 0.0005; 
-    })();
-
-    // 4. ATOMIC ORDER ENTRY
     const tradeRef = db.collection("demoTrades").doc();
-    await db.runTransaction(async (tx) => {
+
+    const result = await db.runTransaction(async (tx) => {
+      // 2. FETCH权威FEED (Inside transaction for absolute freshness)
+      // Prioritize livePrices as it is the high-frequency sync destination
+      const liveRef = db.collection('livePrices').doc(symUpper);
+      const liveSnap = await tx.get(liveRef);
+      let feed = liveSnap.exists ? liveSnap.data() : null;
+
+      if (!feed) {
+        const marketRef = db.collection('market').doc(symUpper);
+        const marketSnap = await tx.get(marketRef);
+        feed = marketSnap.exists ? marketSnap.data() : null;
+      }
+
+      if (!feed || !feed.bid || !feed.ask) {
+        throw new Error("Market source offline for " + symUpper);
+      }
+
+      // ── UNIFIED EXECUTION LOGIC ──
+      // BUY opens at ASK, SELL opens at BID
+      const executionPrice = type === 'buy' ? feed.ask : feed.bid;
+
+      // DEBUG LOG: Verification of price capture accuracy
+      console.log(`[EXECUTION] Symbol: ${symUpper} | Side: ${type.toUpperCase()} | Bid: ${feed.bid} | Ask: ${feed.ask} | Entry: ${executionPrice}`);
+
+      const accSnap = await tx.get(accRef);
+      if (!accSnap.exists) throw new Error("Account not found");
+      
+      const account = accSnap.data()!;
+      if (account.userId !== uid) throw new Error("Unauthorized account access");
+      if (account.status !== "active") throw new Error(`Account status is ${account.status}`);
+
+      // 3. COMMISSION & LOT CHECK
+      const rawPlan = String(account.plan || '10k');
+      const planKey = rawPlan.toLowerCase().trim().replace('$', '');
+      const maxAllowed = MAX_LOTS[planKey] || 0.5;
+      if (lots > maxAllowed) {
+        throw new Error(`Lot Violation: Max ${maxAllowed} for ${rawPlan}`);
+      }
+
+      const commission = (() => {
+        const isForex = !['XAUUSD','BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD','XAGUSD','XPTUSD'].includes(symUpper);
+        if (isForex) return lots * 5; 
+        if (symUpper === 'XAUUSD') return lots * 0.30; 
+        return (lots * executionPrice) * 0.0005; 
+      })();
+
+      // 4. ATOMIC ORDER ENTRY
       tx.set(tradeRef, {
         id: tradeRef.id,
         userId: uid,
@@ -116,15 +121,19 @@ export async function POST(req: NextRequest) {
         balance: FieldValue.increment(-commission),
         updatedAt: FieldValue.serverTimestamp()
       });
+
+      return { tradeId: tradeRef.id, openPrice: executionPrice };
     });
 
     // 5. Cleanup
     await activeLockRef.delete();
     await auditDemoAccount(accountId);
 
-    return NextResponse.json({ ok: true, tradeId: tradeRef.id, openPrice: executionPrice });
+    return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
-    console.error('[Trade-API] Fatal Error:', error);
-    return NextResponse.json({ error: "Internal Error", details: error.message }, { status: 500 });
+    console.error('[Trade-API] Fatal Error:', error.message);
+    const activeLockRef = getAdminDb().collection('_locks').doc(getAdminAuth().verifyIdToken(req.headers.get("authorization")?.replace("Bearer ", "") || "").then(d => d.uid).catch(() => "unknown") as any);
+    activeLockRef.delete().catch(() => {});
+    return NextResponse.json({ error: error.message || "Internal Error" }, { status: 500 });
   }
 }

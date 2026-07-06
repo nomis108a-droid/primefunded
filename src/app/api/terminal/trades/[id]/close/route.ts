@@ -38,32 +38,38 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (trade.status !== "open") return NextResponse.json({ error: "Trade already closed" }, { status: 400 });
 
     const sym = trade.symbol.toUpperCase().trim();
-    const marketSnap = await db.collection('market').doc(sym).get();
-    const feed = marketSnap.exists ? marketSnap.data() : (await db.collection('livePrices').doc(sym).get()).data();
-
-    if (!feed || !feed.bid || !feed.ask) {
-      return NextResponse.json({ error: "Market data offline" }, { status: 400 });
-    }
-
-    // ── UNIFIED PRICING LOGIC ──
-    // BUY positions close at BID, SELL positions close at ASK
-    const authoritativePrice = trade.type === 'buy' ? feed.bid : feed.ask;
     
-    // VALIDATION: Deviation check (max 0.01 tolerance)
-    if (clientPrice && Math.abs(clientPrice - authoritativePrice) > 0.015) {
-      return NextResponse.json({ 
-        error: "Execution Rejected: Price Deviation. Refresh terminal.",
-        feedPrice: authoritativePrice,
-        clientPrice
-      }, { status: 409 });
-    }
+    const result = await db.runTransaction(async (tx) => {
+      // Prioritize livePrices for freshness
+      const liveRef = db.collection('livePrices').doc(sym);
+      const liveSnap = await tx.get(liveRef);
+      let feed = liveSnap.exists ? liveSnap.data() : null;
 
-    const contractSize = CONTRACT_SIZE[sym] || 100000;
-    const finalPnL = (trade.type === "buy" ? authoritativePrice - trade.openPrice : trade.openPrice - authoritativePrice) * trade.lots * contractSize;
+      if (!feed) {
+        const marketRef = db.collection('market').doc(sym);
+        const marketSnap = await tx.get(marketRef);
+        feed = marketSnap.exists ? marketSnap.data() : null;
+      }
 
-    const accRef = db.collection("demoAccounts").doc(trade.accountId);
-    
-    await db.runTransaction(async (tx) => {
+      if (!feed || !feed.bid || !feed.ask) {
+        throw new Error("Market data offline for " + sym);
+      }
+
+      // ── UNIFIED PRICING LOGIC ──
+      // BUY positions close at BID, SELL positions close at ASK
+      const authoritativePrice = trade.type === 'buy' ? feed.bid : feed.ask;
+      
+      // VALIDATION: Deviation check (max 0.015 tolerance for latency)
+      if (clientPrice && Math.abs(clientPrice - authoritativePrice) > 0.015) {
+        // We still use authoritativePrice, but we log the deviation
+        console.warn(`[CLOSE] Price deviation detected: Client ${clientPrice} vs Auth ${authoritativePrice}`);
+      }
+
+      const contractSize = CONTRACT_SIZE[sym] || 100000;
+      const finalPnL = (trade.type === "buy" ? authoritativePrice - trade.openPrice : trade.openPrice - authoritativePrice) * trade.lots * contractSize;
+
+      const accRef = db.collection("demoAccounts").doc(trade.accountId);
+      
       tx.update(tradeRef, {
         status: "closed",
         closeReason: "manual",
@@ -85,13 +91,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
 
       tx.update(accRef, accUpdates);
+      
+      return { pnl: finalPnL, closePrice: authoritativePrice };
     });
 
     await auditDemoAccount(trade.accountId);
 
-    return NextResponse.json({ ok: true, pnl: finalPnL, closePrice: authoritativePrice });
+    return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
     console.error('[Close-Trade-API] Error:', error);
-    return NextResponse.json({ error: "Internal Terminal Error", details: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Internal Terminal Error" }, { status: 500 });
   }
 }
