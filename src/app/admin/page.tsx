@@ -1402,11 +1402,11 @@ export default function AdminPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-xs uppercase font-bold text-primary">Admin Email</Label>
-                <Input type="email" value={adminEmailInput} onChange={(e) => setAdminEmailInput(target.value)} placeholder="Gmail address" className="bg-secondary/50" required />
+                <Input type="email" value={adminEmailInput} onChange={(e) => setAdminEmailInput(e.target.value)} placeholder="Gmail address" className="bg-secondary/50" required />
               </div>
               <div className="space-y-2">
                 <Label className="text-xs uppercase font-bold text-primary">Master Password</Label>
-                <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" required />
+                <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="h-14 text-center text-2xl font-mono" required />
               </div>
             </div>
             {adminError && <p className="text-center text-xs font-bold text-destructive animate-pulse">{adminError}</p>}
