@@ -49,12 +49,12 @@ export function PositionsPanel({
   const [isSaving, setIsSaving] = useState(false);
 
   const getPrecision = (s: string) => (s.includes("JPY") ? 3 : (['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5));
-  const formatPrice = (price: number | undefined, symbol: string) => price ? price.toFixed(getPrecision(symbol)) : '—';
+  const formatPrice = (price: number | undefined, symbol: string) => price && price > 0 ? price.toFixed(getPrecision(symbol)) : '—';
 
   const handleStartEdit = (tradeId: string, field: 'sl' | 'tp', currentVal: any) => {
     setEditingId(tradeId);
     setEditingField(field);
-    setEditValue(currentVal ? String(currentVal) : "");
+    setEditValue(currentVal && currentVal > 0 ? String(currentVal) : "");
   };
 
   const handleCancelEdit = () => {

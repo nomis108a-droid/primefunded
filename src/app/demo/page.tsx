@@ -70,9 +70,6 @@ export default function DemoPage() {
   const [drawingsHidden, setDrawingsHidden] = useState(false);
   const [mobileTab, setMobileTab] = useState<'chart' | 'positions' | 'history' | 'account'>('chart');
 
-  const [currentTime, setCurrentTime] = useState<Date | null>(null);
-  const [candleCountdown, setCandleCountdown] = useState<string | null>(null);
-
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
@@ -84,6 +81,15 @@ export default function DemoPage() {
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
   const activePrice = useMemo(() => streamTick?.price ? streamTick : livePrices[selectedSymbol.toUpperCase()] || null, [streamTick, livePrices, selectedSymbol]);
+
+  // Fused Prices for Positions Panel (merges SSE and RTDB)
+  const fusedPrices = useMemo(() => {
+    if (!selectedSymbol || !activePrice) return livePrices;
+    return {
+      ...livePrices,
+      [selectedSymbol.toUpperCase().trim()]: activePrice
+    };
+  }, [livePrices, selectedSymbol, activePrice]);
 
   // Accounts & Trades
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
@@ -101,13 +107,13 @@ export default function DemoPage() {
 
   const calculateTradePnL = useCallback((trade: any) => {
     const symbolUpper = trade.symbol.toUpperCase();
-    const pData = livePrices[symbolUpper] || activePrice;
+    const pData = fusedPrices[symbolUpper];
     if (!pData) return { pnl: 0, pct: 0 };
     const currentPrice = trade.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
     const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
-  }, [livePrices, activePrice]);
+  }, [fusedPrices]);
 
   // Chart Init
   useEffect(() => {
@@ -142,6 +148,7 @@ export default function DemoPage() {
   // History Load
   useEffect(() => {
     if (!isChartReady || !mainSeriesRef.current) return;
+    setIsChartLoading(true);
     const fetchHistory = async () => {
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
@@ -150,12 +157,17 @@ export default function DemoPage() {
           mainSeriesRef.current.setData(data.candles);
           chartInstanceRef.current?.timeScale().fitContent();
         }
-      } catch(e) {} finally { setIsChartLoading(false); setIsInitialLoad(false); }
+      } catch(e) {
+        console.error('[Chart] History fetch failed:', e);
+      } finally { 
+        setIsChartLoading(false); 
+        setIsInitialLoad(false); 
+      }
     };
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // Tick Stream
+  // Tick Stream Integration
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const data = mainSeriesRef.current.data();
@@ -166,10 +178,14 @@ export default function DemoPage() {
     }
   }, [activePrice, isChartReady]);
 
-  // Trade Overlays
+  // Trade Overlays (Lines + Markers)
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
-    const activeIds = new Set(openTrades.map(t => t.id));
+    
+    const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase() === selectedSymbol.toUpperCase());
+    const activeIds = new Set(currentSymbolTrades.map(t => t.id));
+    
+    // 1. Cleanup removed trades
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
         lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
@@ -177,29 +193,59 @@ export default function DemoPage() {
       }
     });
 
-    openTrades.forEach(trade => {
-      if (trade.symbol.toUpperCase() !== selectedSymbol.toUpperCase()) return;
+    // 2. Reconcile / Create Overlays
+    currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
-      const title = `${trade.type.toUpperCase()} ${trade.lots} | $${pnl.toFixed(2)} (${pct.toFixed(2)}%)`;
-      let lines = priceLinesRef.current.get(trade.id);
+      const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+      const title = `${trade.type.toUpperCase()} ${trade.lots} | $${pnlDisplay} (${pct.toFixed(2)}%)`;
       
-      if (!lines) {
-        const entry = mainSeriesRef.current!.createPriceLine({ price: trade.openPrice, color: '#11b3f5', lineStyle: LineStyle.Dashed, axisLabelVisible: true, title });
+      let lines = priceLinesRef.current.get(trade.id);
+      const hasSl = trade.sl && trade.sl > 0;
+      const hasTp = trade.tp && trade.tp > 0;
+      const expectedLineCount = 1 + (hasSl ? 1 : 0) + (hasTp ? 1 : 0);
+
+      if (!lines || lines.length !== expectedLineCount) {
+        // Full recreate if SL/TP changes
+        if (lines) lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
+        
+        const entry = mainSeriesRef.current!.createPriceLine({ 
+          price: trade.openPrice, color: '#11b3f5', lineStyle: LineStyle.Dashed, axisLabelVisible: true, title 
+        });
         const newLines = [entry];
-        if (trade.sl > 0) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' }));
-        if (trade.tp > 0) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' }));
+        
+        if (hasSl) {
+          newLines.push(mainSeriesRef.current!.createPriceLine({ 
+            price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' 
+          }));
+        }
+        if (hasTp) {
+          newLines.push(mainSeriesRef.current!.createPriceLine({ 
+            price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' 
+          }));
+        }
         priceLinesRef.current.set(trade.id, newLines);
       } else {
+        // Just update PnL on Entry line
         lines[0].applyOptions({ title });
-        // Reconcile SL/TP changes
-        const currentSl = trade.sl > 0 ? trade.sl : null;
-        const currentTp = trade.tp > 0 ? trade.tp : null;
-        if (lines.length !== (1 + (currentSl ? 1 : 0) + (currentTp ? 1 : 0))) {
-          lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
-          priceLinesRef.current.delete(trade.id);
-        }
       }
     });
+
+    // 3. Markers
+    const markers = currentSymbolTrades.map(t => {
+      const tDate = getTradeDate(t.openedAt);
+      if (!tDate) return null;
+      return {
+        time: tDate.getTime() / 1000,
+        position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
+        color: t.type === 'buy' ? '#10b981' : '#ef4444',
+        shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
+        text: t.type.toUpperCase(),
+        size: 1
+      };
+    }).filter(Boolean);
+
+    mainSeriesRef.current.setMarkers(markers as any);
+
   }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
 
   async function placeTrade(type: 'buy' | 'sell') {
@@ -212,7 +258,8 @@ export default function DemoPage() {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ accountId: selectedAccount.id, symbol: selectedSymbol, type, lots: parseFloat(lotsInput), sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null })
       });
-      if (!res.ok) toast({ title: "Order Rejected", variant: "destructive" });
+      const data = await res.json();
+      if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" });
       else { toast({ title: "✓ Position Opened" }); setIsOrderSheetOpen(false); }
     } catch(e) { toast({ title: "Network Error", variant: "destructive" }); } finally { setActionLoading(false); }
   }
@@ -221,15 +268,17 @@ export default function DemoPage() {
     if (actionLoading || !user) return;
     setActionLoading(true);
     try {
-      const trade = openTrades.find(t => t.id === tradeId);
-      if (!trade) return;
       const token = await user.getIdToken();
       const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       });
       if (res.ok) toast({ title: "✓ Position Closed" });
-    } catch(e) { toast({ title: "Error", variant: "destructive" }); } finally { setActionLoading(false); }
+      else {
+        const data = await res.json();
+        throw new Error(data.error || "Close failed");
+      }
+    } catch(e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setActionLoading(false); }
   }
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
@@ -298,11 +347,11 @@ export default function DemoPage() {
             )}
           </div>
           {!isMobile ? (
-            <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={livePrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
+            <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
           ) : (
             <div className={cn("flex-1 overflow-y-auto bg-zinc-950", mobileTab === 'chart' && "hidden")}>
-               {mobileTab === 'positions' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={livePrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="positions" />}
-               {mobileTab === 'history' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={livePrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="history" />}
+               {mobileTab === 'positions' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="positions" />}
+               {mobileTab === 'history' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="history" />}
             </div>
           )}
         </div>
