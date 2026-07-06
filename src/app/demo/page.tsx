@@ -50,27 +50,195 @@ const TIMEFRAMES = [
 
 /**
  * Institutional Component: Candle Countdown Timer
- * Runs independently to prevent UI blocking during trade execution.
+ * Synchronized with the active timeframe.
  */
-const CandleTimer = memo(function CandleTimer() {
-  const [secondsLeft, setSecondsLeft] = useState(60);
+const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }) {
+  const [timeLeft, setTimeLeft] = useState("");
 
   useEffect(() => {
-    const tick = () => {
-      const now = new Date();
-      setSecondsLeft(60 - now.getSeconds());
+    const getIntervalSeconds = (val: string) => {
+      const map: Record<string, number> = {
+        '1min': 60,
+        '5min': 300,
+        '15min': 900,
+        '30min': 1800,
+        '1h': 3600,
+        '4h': 14400,
+        '1day': 86400
+      };
+      return map[val] || 60;
     };
+
+    const formatTime = (seconds: number) => {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      if (h > 0) return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    };
+
+    const tick = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const intervalSec = getIntervalSeconds(interval);
+      const remaining = intervalSec - (now % intervalSec);
+      setTimeLeft(formatTime(remaining));
+    };
+
     tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [interval]);
 
   return (
     <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10 ml-4">
       <Timer className="w-3 h-3 text-primary animate-pulse" />
       <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
-        New Candle: <span className="text-white tabular-nums">00:{secondsLeft.toString().padStart(2, '0')}</span>
+        New Candle: <span className="text-white tabular-nums">{timeLeft}</span>
       </span>
+    </div>
+  );
+});
+
+/**
+ * Institutional Order Panel Content
+ * Extracted to root to prevent focus loss during state updates.
+ */
+interface OrderPanelProps {
+  currentAccountId: string | null;
+  setCurrentAccountId: (id: string) => void;
+  selectedAccount: any;
+  activeAccounts: any[];
+  activePrice: any;
+  selectedSymbol: string;
+  lotsInput: string;
+  setLotsInput: (val: string) => void;
+  sl: string;
+  setSl: (val: string) => void;
+  tp: string;
+  setTp: (val: string) => void;
+  actionLoading: boolean;
+  placeTrade: (type: 'buy' | 'sell') => void;
+}
+
+const OrderPanelContent = memo(({ 
+  currentAccountId, setCurrentAccountId, selectedAccount, activeAccounts, 
+  activePrice, selectedSymbol, lotsInput, setLotsInput, sl, setSl, tp, setTp, 
+  actionLoading, placeTrade 
+}: OrderPanelProps) => {
+  const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
+
+  return (
+    <div className="flex flex-col h-full space-y-6">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <Label className="text-[10px] font-black uppercase text-zinc-500">Execution Node</Label>
+          <Select value={currentAccountId || selectedAccount?.id} onValueChange={setCurrentAccountId}>
+            <SelectTrigger className="bg-secondary/30 h-10 border-border/50 text-white">
+              <SelectValue placeholder="Select Account" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+              {activeAccounts.map(acc => (
+                <SelectItem key={acc.id} value={acc.id} className="text-xs font-bold">
+                  {acc.label} (${(acc.balance || 0).toLocaleString()})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-xl">
+           <div className="flex justify-between items-end mb-1">
+              <span className="text-[10px] font-black uppercase text-zinc-500">Market Price</span>
+              <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-emerald-500/30 text-emerald-500 animate-pulse uppercase">Live</Badge>
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-zinc-600 uppercase">Bid</span>
+                <span className="text-lg font-mono font-black text-white tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-[9px] font-bold text-zinc-600 uppercase">Ask</span>
+                <span className="text-lg font-mono font-black text-white tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+              </div>
+           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
+          <div className="relative">
+            <Input 
+              type="text" 
+              value={lotsInput} 
+              onChange={e => setLotsInput(e.target.value)} 
+              className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
+            />
+            <div className="absolute inset-y-0 left-0 flex items-center px-3">
+              <button onClick={() => setLotsInput(String(Math.max(0.01, parseFloat(lotsInput) || 0.01 - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
+            </div>
+            <div className="absolute inset-y-0 right-0 flex items-center px-3">
+              <button onClick={() => setLotsInput(String((parseFloat(lotsInput) || 0 + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label>
+            <Input type="text" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label>
+            <Input type="text" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+        <button 
+          onClick={() => placeTrade('buy')} 
+          disabled={actionLoading || !activePrice}
+          className="h-20 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
+        >
+          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            <>
+              <span className="text-sm tracking-widest relative z-10">BUY</span>
+              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+            </>
+          )}
+          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 -rotate-45 opacity-20" />
+        </button>
+        <button 
+          onClick={() => placeTrade('sell')} 
+          disabled={actionLoading || !activePrice}
+          className="h-20 rounded-xl bg-red-600 hover:bg-red-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
+        >
+          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+            <>
+              <span className="text-sm tracking-widest relative z-10">SELL</span>
+              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+            </>
+          )}
+          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
+        </button>
+      </div>
+
+      <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
+        <div className="flex items-center gap-2 text-primary font-black text-[9px] uppercase tracking-widest">
+           <ShieldCheck size={12} /> Compliance Status
+        </div>
+        <div className="space-y-1">
+          <div className="flex justify-between text-[10px]">
+             <span className="text-zinc-500">Plan Type</span>
+             <span className="text-white font-bold uppercase">{selectedAccount?.planType || '1-Step Pro'}</span>
+          </div>
+          <div className="flex justify-between text-[10px]">
+             <span className="text-zinc-500">Day Target</span>
+             <span className="text-emerald-500 font-bold">${(selectedAccount?.profitTarget || 0).toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 });
@@ -345,121 +513,6 @@ export default function DemoPage() {
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
 
-  const OrderPanelContent = memo(() => (
-    <div className="flex flex-col h-full space-y-6">
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase text-zinc-500">Execution Node</Label>
-          <Select value={currentAccountId || selectedAccount?.id} onValueChange={setCurrentAccountId}>
-            <SelectTrigger className="bg-secondary/30 h-10 border-border/50 text-white">
-              <SelectValue placeholder="Select Account" />
-            </SelectTrigger>
-            <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-              {activeAccounts.map(acc => (
-                <SelectItem key={acc.id} value={acc.id} className="text-xs font-bold">
-                  {acc.label} (${(acc.balance || 0).toLocaleString()})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-xl">
-           <div className="flex justify-between items-end mb-1">
-              <span className="text-[10px] font-black uppercase text-zinc-500">Market Price</span>
-              <Badge variant="outline" className="text-[8px] h-4 px-1.5 border-emerald-500/30 text-emerald-500 animate-pulse uppercase">Live</Badge>
-           </div>
-           <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase">Bid</span>
-                <span className="text-lg font-mono font-black text-white tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
-              </div>
-              <div className="flex flex-col items-end">
-                <span className="text-[9px] font-bold text-zinc-600 uppercase">Ask</span>
-                <span className="text-lg font-mono font-black text-white tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
-              </div>
-           </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
-          <div className="relative">
-            <Input 
-              type="number" 
-              value={lotsInput} 
-              onChange={e => setLotsInput(e.target.value)} 
-              className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
-            />
-            <div className="absolute inset-y-0 left-0 flex items-center px-3">
-              <button onClick={() => setLotsInput(String(Math.max(0.01, parseFloat(lotsInput) - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
-            </div>
-            <div className="absolute inset-y-0 right-0 flex items-center px-3">
-              <button onClick={() => setLotsInput(String((parseFloat(lotsInput) + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label>
-            <Input type="number" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label>
-            <Input type="number" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
-        <button 
-          onClick={() => placeTrade('buy')} 
-          disabled={actionLoading || !activePrice}
-          className="h-20 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
-        >
-          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-            <>
-              <span className="text-sm tracking-widest relative z-10">BUY</span>
-              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
-            </>
-          )}
-          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 -rotate-45 opacity-20" />
-        </button>
-        <button 
-          onClick={() => placeTrade('sell')} 
-          disabled={actionLoading || !activePrice}
-          className="h-20 rounded-xl bg-red-600 hover:bg-red-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
-        >
-          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-            <>
-              <span className="text-sm tracking-widest relative z-10">SELL</span>
-              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
-            </>
-          )}
-          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
-        </button>
-      </div>
-
-      <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
-        <div className="flex items-center gap-2 text-primary font-black text-[9px] uppercase tracking-widest">
-           <ShieldCheck size={12} /> Compliance Status
-        </div>
-        <div className="space-y-1">
-          <div className="flex justify-between text-[10px]">
-             <span className="text-zinc-500">Plan Type</span>
-             <span className="text-white font-bold uppercase">{selectedAccount?.planType || '1-Step Pro'}</span>
-          </div>
-          <div className="flex justify-between text-[10px]">
-             <span className="text-zinc-500">Day Target</span>
-             <span className="text-emerald-500 font-bold">${(selectedAccount?.profitTarget || 0).toLocaleString()}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  ));
-
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#09090b] flex flex-col text-zinc-300 overflow-hidden pb-safe">
       <header className="h-10 border-b border-zinc-800 flex items-center justify-between px-3 bg-zinc-950 shrink-0 z-50">
@@ -482,7 +535,7 @@ export default function DemoPage() {
                  <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button>
                ))}
              </div>
-             <CandleTimer />
+             <CandleTimer interval={selectedInterval} />
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
@@ -561,7 +614,22 @@ export default function DemoPage() {
                   <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Institutional Node</p>
                </div>
             </div>
-            <OrderPanelContent />
+            <OrderPanelContent 
+              currentAccountId={currentAccountId}
+              setCurrentAccountId={setCurrentAccountId}
+              selectedAccount={selectedAccount}
+              activeAccounts={activeAccounts}
+              activePrice={activePrice}
+              selectedSymbol={selectedSymbol}
+              lotsInput={lotsInput}
+              setLotsInput={setLotsInput}
+              sl={sl}
+              setSl={setSl}
+              tp={tp}
+              setTp={setTp}
+              actionLoading={actionLoading}
+              placeTrade={placeTrade}
+            />
           </aside>
         )}
       </div>
@@ -584,7 +652,22 @@ export default function DemoPage() {
             </SheetTitle>
           </SheetHeader>
           <div className="mt-8 h-full">
-            <OrderPanelContent />
+            <OrderPanelContent 
+              currentAccountId={currentAccountId}
+              setCurrentAccountId={setCurrentAccountId}
+              selectedAccount={selectedAccount}
+              activeAccounts={activeAccounts}
+              activePrice={activePrice}
+              selectedSymbol={selectedSymbol}
+              lotsInput={lotsInput}
+              setLotsInput={setLotsInput}
+              sl={sl}
+              setSl={setSl}
+              tp={tp}
+              setTp={setTp}
+              actionLoading={actionLoading}
+              placeTrade={placeTrade}
+            />
           </div>
         </SheetContent>
       </Sheet>
