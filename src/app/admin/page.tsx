@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -25,6 +26,15 @@ import { db, auth as clientAuth } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where, getCountFromServer } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { firebaseConfig } from '@/firebase/config';
+
+// Standardized Contract Sizes for Admin Verification
+const CONTRACT_SIZE: Record<string, number> = {
+  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
+  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
+  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
+  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
+};
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -90,7 +100,22 @@ export default function AdminPage() {
   const [fridayAudit, setFridayAudit] = useState<any[] | null>(null);
   const [isFridayModalOpen, setIsFridayModalOpen] = useState(false);
 
+  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
+
   const tabsListRef = useRef<HTMLDivElement>(null);
+
+  // 1. Live Prices Poller for Inspection UI Consistency
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/terminal/live-prices');
+        if (res.ok) setLivePrices(await res.json());
+      } catch (e) {}
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const refreshData = useCallback(async () => {
     if (isSyncingRef.current || isRateLimited) return;
@@ -445,6 +470,16 @@ export default function AdminPage() {
       setUserDetailLoading(false);
     }
   };
+
+  const calculateLivePnl = useCallback((trade: any) => {
+    const sym = trade.symbol?.toUpperCase();
+    const pData = livePrices[sym];
+    if (!pData) return 0;
+    const currentPrice = trade.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
+    const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
+    const contractSize = CONTRACT_SIZE[sym] || 100000;
+    return diff * trade.lots * contractSize;
+  }, [livePrices]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -1049,7 +1084,7 @@ export default function AdminPage() {
                 <TabsList className="bg-transparent border-b border-white/5 h-12 justify-start px-8 gap-8 shrink-0">
                   <TabsTrigger value="overview" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Profile Overview</TabsTrigger>
                   <TabsTrigger value="accounts" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Trading Nodes ({userDetail.accounts?.length})</TabsTrigger>
-                  <TabsTrigger value="history" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Recent Trades ({userDetail.trades?.length})</TabsTrigger>
+                  <TabsTrigger value="history" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Trade Status / History</TabsTrigger>
                   <TabsTrigger value="breaches" className="bg-transparent border-none text-xs font-bold data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none shadow-none px-0">Breach Logs</TabsTrigger>
                 </TabsList>
                 
@@ -1143,31 +1178,41 @@ export default function AdminPage() {
                              <tr>
                                <th className="p-4">Symbol / Type</th>
                                <th className="p-4">Lots</th>
-                               <th className="p-4">Entry / Exit</th>
-                               <th className="p-4 text-right">PnL</th>
+                               <th className="p-4">Entry / Current Price</th>
+                               <th className="p-4 text-right">PnL (USD)</th>
                                <th className="p-4 text-right">Time</th>
                              </tr>
                            </thead>
                            <tbody className="divide-y divide-white/5">
-                             {userDetail.trades?.map((t: any) => (
-                               <tr key={t.id} className="hover:bg-white/5">
-                                 <td className="p-4">
-                                   <p className="font-bold text-white">{t.symbol}</p>
-                                   <p className={cn("text-[9px] uppercase font-black", t.type === 'buy' ? 'text-emerald-500' : 'text-destructive')}>{t.type}</p>
-                                 </td>
-                                 <td className="p-4 font-mono">{t.lots}</td>
-                                 <td className="p-4">
-                                    <p className="text-white">${t.openPrice?.toLocaleString()}</p>
-                                    <p className="text-zinc-500">${t.closePrice?.toLocaleString() || 'OPEN'}</p>
-                                 </td>
-                                 <td className={cn("p-4 text-right font-black tabular-nums", t.pnl >= 0 ? "text-emerald-500" : "text-destructive")}>
-                                   {t.pnl >= 0 ? '+' : ''}{t.pnl?.toLocaleString()}
-                                 </td>
-                                 <td className="p-4 text-right text-muted-foreground">
-                                   {t.openedAt ? format(new Date(t.openedAt), 'MMM d, HH:mm') : '—'}
-                                 </td>
-                               </tr>
-                             ))}
+                             {userDetail.trades?.map((t: any) => {
+                               const isOpen = t.status === 'open';
+                               const livePnl = isOpen ? calculateLivePnl(t) : (t.pnl || 0);
+                               const pData = livePrices[t.symbol?.toUpperCase()];
+                               const currentPriceDisplay = isOpen ? (pData ? (t.type === 'buy' ? pData.bid : pData.ask) : 'SYNC...') : (t.closePrice || '—');
+
+                               return (
+                                 <tr key={t.id} className="hover:bg-white/5">
+                                   <td className="p-4">
+                                     <div className="flex items-center gap-2">
+                                       <p className="font-bold text-white">{t.symbol}</p>
+                                       {isOpen && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                                     </div>
+                                     <p className={cn("text-[9px] uppercase font-black", t.type === 'buy' ? 'text-emerald-500' : 'text-destructive')}>{t.type}</p>
+                                   </td>
+                                   <td className="p-4 font-mono">{t.lots}</td>
+                                   <td className="p-4">
+                                      <p className="text-zinc-500">${t.openPrice?.toLocaleString()}</p>
+                                      <p className={cn("font-bold", isOpen ? "text-primary" : "text-white")}>${currentPriceDisplay?.toLocaleString()}</p>
+                                   </td>
+                                   <td className={cn("p-4 text-right font-black tabular-nums", livePnl >= 0 ? "text-emerald-500" : "text-destructive")}>
+                                     {livePnl >= 0 ? '+' : ''}{livePnl?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                   </td>
+                                   <td className="p-4 text-right text-muted-foreground">
+                                     {t.openedAt ? format(new Date(t.openedAt), 'MMM d, HH:mm') : '—'}
+                                   </td>
+                                 </tr>
+                               );
+                             })}
                              {userDetail.trades?.length === 0 && (
                                <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No historical executions found.</td></tr>
                              )}

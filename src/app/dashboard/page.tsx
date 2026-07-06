@@ -1,6 +1,7 @@
+
 'use client';
 
-import { useEffect, useState, useMemo, memo } from 'react';
+import { useEffect, useState, useMemo, memo, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -36,6 +37,15 @@ import { format, isValid, differenceInHours } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import { TradingDaysCalendar } from '@/components/TradingDaysCalendar';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+
+// Standardized Contract Size Map
+const CONTRACT_SIZE: Record<string, number> = {
+  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
+  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
+  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
+  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
+};
 
 const MetricCard = memo(function MetricCard({ 
   title, 
@@ -179,17 +189,17 @@ export default function DashboardPage() {
     };
   }, [closedTrades]);
 
-  const calculateOpenPnl = (trade: any) => {
-    const priceData = livePrices[trade.symbol.toUpperCase()];
+  const calculateOpenPnl = useCallback((trade: any) => {
+    const symbolUpper = trade.symbol.toUpperCase();
+    const priceData = livePrices[symbolUpper];
     if (!priceData) return 0;
-    const currentPrice = trade.type === 'buy' ? priceData.bid : priceData.ask;
+    const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
     
-    // Contract size approximation
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(trade.symbol.toUpperCase());
-    const contractSize = isForex ? 100000 : (trade.symbol.toUpperCase() === 'XAUUSD' ? 100 : 1);
+    // Use unified institutional contract sizes
+    const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
     return diff * trade.lots * contractSize;
-  };
+  }, [livePrices]);
 
   const closeTrade = async (tradeId: string) => {
     if (!user) return;

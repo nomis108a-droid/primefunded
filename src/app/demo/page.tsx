@@ -57,6 +57,15 @@ const intervalSecondsMap: Record<string, number> = {
   '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '2h': 7200, '4h': 14400, '1day': 86400, '1week': 604800, '1month': 2592000
 };
 
+// Institutional Contract Sizes (Single Source of Truth for Terminal)
+const CONTRACT_SIZE: Record<string, number> = {
+  XAUUSD: 100, XAGUSD: 5000, XPTUSD: 50,
+  EURUSD: 100000, GBPUSD: 100000, USDJPY: 100000,
+  AUDUSD: 100000, USDCHF: 100000, USDCAD: 100000, NZDUSD: 100000,
+  BTCUSD: 1, ETHUSD: 1, SOLUSD: 1, XRPUSD: 1000,
+  BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
+};
+
 const candleDataCache = new Map<string, { candles: any[], lastUpdated: number }>();
 
 function getMarketInfo(symbol: string) {
@@ -591,8 +600,7 @@ export default function DemoPage() {
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(symbolUpper);
-    const contractSize = isForex ? 100000 : (symbolUpper === 'XAUUSD' ? 100 : 1);
+    const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
     return diff * trade.lots * contractSize;
   }, [livePrices, activePrice]);
 
