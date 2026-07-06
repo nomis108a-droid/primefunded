@@ -265,7 +265,6 @@ export default function DemoPage() {
   const livePrices = useLivePrices(SYMBOLS);
   
   const closingTradesRef = useRef<Set<string>>(new Set());
-  const lastGoodPriceRef = useRef<Record<string, number>>({});
 
   const { data: pendingPayouts } = useCollection<any>(
     user?.uid ? 'payouts' : null,
@@ -564,12 +563,13 @@ export default function DemoPage() {
   }, [livePrices, openTrades, handleAutoClose, isPriceValid]);
 
   const calculateOpenPnl = useCallback((trade: any) => {
-    const priceData = livePrices[trade.symbol.toUpperCase()] || activePrice;
+    const symbolUpper = trade.symbol.toUpperCase();
+    const priceData = livePrices[symbolUpper] || activePrice;
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(trade.symbol.toUpperCase());
-    const contractSize = isForex ? 100000 : (trade.symbol.toUpperCase() === 'XAUUSD' ? 100 : 1);
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD', 'XRPUSD', 'DOGEUSD', 'ADAUSD'].includes(symbolUpper);
+    const contractSize = isForex ? 100000 : (symbolUpper === 'XAUUSD' ? 100 : 1);
     return diff * trade.lots * contractSize;
   }, [livePrices, activePrice]);
 
