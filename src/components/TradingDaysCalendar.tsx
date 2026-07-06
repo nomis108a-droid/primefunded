@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -37,7 +38,8 @@ function getTradingDayWindow(date: Date) {
 
 export function TradingDaysCalendar({ accountId, trades, minTradingDays }: TradingDaysCalendarProps) {
   const [hasMounted, setHasMounted] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 6, 1)); // Static start month for hydration
+  // Static baseline date for hydration to match server-side render
+  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 6, 1)); 
 
   useEffect(() => {
     setHasMounted(true);

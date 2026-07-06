@@ -74,15 +74,19 @@ export default function DemoPage() {
   const [drawingsLocked, setDrawingsLocked] = useState(false);
   const [drawingsHidden, setDrawingsHidden] = useState(false);
 
-  // Time & Countdown States
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [candleCountdown, setCandleCountdown] = useState("");
+  // Time & Countdown States - Initialized to null to avoid hydration mismatch
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const [candleCountdown, setCandleCountdown] = useState<string | null>(null);
 
-  useEffect(() => { setHasMounted(true); }, []);
+  useEffect(() => { 
+    setHasMounted(true); 
+  }, []);
 
-  // Sync Clock & Countdown
+  // Sync Clock & Countdown - Client-side only
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (!hasMounted) return;
+
+    const updateTime = () => {
       const now = new Date();
       setCurrentTime(now);
       
@@ -99,9 +103,12 @@ export default function DemoPage() {
       } else {
         setCandleCountdown(`${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`);
       }
-    }, 1000);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 1000);
     return () => clearInterval(interval);
-  }, [selectedInterval]);
+  }, [selectedInterval, hasMounted]);
 
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
@@ -307,7 +314,10 @@ export default function DemoPage() {
 
         <div className="flex items-center gap-4">
            <div className="hidden md:flex items-center gap-4 text-[10px] font-black uppercase tracking-widest text-zinc-500 pr-4 border-r border-zinc-800">
-              <div className="flex items-center gap-1.5"><ClockIcon className="w-3 h-3 text-primary" /> {currentTime.toLocaleTimeString('en-US', { hour12: false })}</div>
+              <div className="flex items-center gap-1.5">
+                <ClockIcon className="w-3 h-3 text-primary" /> 
+                {hasMounted && currentTime ? currentTime.toLocaleTimeString('en-US', { hour12: false }) : '--:--:--'}
+              </div>
               <div className="flex items-center gap-1.5"><UserCircle className="w-3 h-3 text-primary" /> ID: {userData?.traderId}</div>
            </div>
            
@@ -364,7 +374,9 @@ export default function DemoPage() {
             <div className="absolute top-4 right-4 z-40 pointer-events-none text-right">
               <div className="bg-zinc-900/80 backdrop-blur px-3 py-1.5 rounded border border-white/5 flex flex-col items-end">
                 <span className="text-[8px] font-black uppercase text-zinc-500 tracking-widest leading-none mb-1">Candle Closes In</span>
-                <span className="font-mono text-xs font-bold text-primary leading-none tabular-nums">{candleCountdown}</span>
+                <span className="font-mono text-xs font-bold text-primary leading-none tabular-nums">
+                  {hasMounted && candleCountdown ? candleCountdown : '--:--'}
+                </span>
               </div>
             </div>
 

@@ -88,6 +88,11 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   // 1. Fetch Demo Accounts
   const accountConstraints = useMemo(() => {
@@ -103,7 +108,7 @@ export default function DashboardPage() {
     accountConstraints
   );
 
-  // Filter visible accounts (show active/passed prominently, move blown to archive logic)
+  // Filter visible accounts
   const visibleAccounts = useMemo(() => 
     accounts.filter((a: any) => a.status !== 'blown' && a.status !== 'breach' && a.status !== 'terminated')
   , [accounts]);
@@ -135,7 +140,7 @@ export default function DashboardPage() {
     tradeConstraints
   );
 
-  // 3. Separate Open and Closed Trades (Scoped to selected account)
+  // 3. Separate Open and Closed Trades
   const openTrades = useMemo(() => 
     allTrades.filter(t => t.status === 'open' && t.accountId === selectedAccountId), 
   [allTrades, selectedAccountId]);
@@ -195,8 +200,6 @@ export default function DashboardPage() {
     if (!priceData) return 0;
     const currentPrice = trade.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
-    
-    // Use unified institutional contract sizes
     const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
     return diff * trade.lots * contractSize;
   }, [livePrices]);
@@ -228,7 +231,7 @@ export default function DashboardPage() {
   const isSelectedBlown = selectedAccount?.status === 'blown' || selectedAccount?.status === 'breach' || selectedAccount?.status === 'terminated';
 
   const durationData = (() => {
-    if (!selectedAccount) return { label: 'Duration', value: '—' };
+    if (!hasMounted || !selectedAccount) return { label: 'Duration', value: '--:--' };
     const start = selectedAccount.createdAt?.toDate ? selectedAccount.createdAt.toDate() : new Date(selectedAccount.createdAt || Date.now());
     const end = isSelectedBlown && selectedAccount.blownAt?.toDate 
       ? selectedAccount.blownAt.toDate() 
@@ -258,7 +261,6 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* 1. CHALLENGE ACCOUNTS SECTION */}
         <section className="mb-12">
           <div className="flex items-center gap-2 mb-6">
             <Trophy className="w-5 h-5 text-primary" />
@@ -282,7 +284,6 @@ export default function DashboardPage() {
             </Card>
           ) : (
             <div className="space-y-6">
-              {/* Account Selector Pill Row */}
               <div className="flex flex-wrap gap-2">
                 {accounts.map((acc: any) => (
                   <button
@@ -301,7 +302,6 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* Grid View for Account Detail & Calendar */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-1">
                   {selectedAccount && (
@@ -406,7 +406,6 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* 2. STATS ROW */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
           <MetricCard title="Total Trades" value={stats.total.toString()} icon={<Activity className="text-primary w-4 h-4" />} />
           <MetricCard title="Win Rate" value={`${stats.winRate.toFixed(1)}%`} icon={<Award className="text-amber-500 w-4 h-4" />} color="amber" />
@@ -415,7 +414,6 @@ export default function DashboardPage() {
           <MetricCard title="Worst Trade" value={`$${stats.worst.toLocaleString()}`} icon={<TrendingDown className="text-destructive w-4 h-4" />} color="red" />
         </div>
 
-        {/* 3. OPEN POSITIONS SECTION */}
         <section className="mb-12">
           <Card className="border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
@@ -480,7 +478,6 @@ export default function DashboardPage() {
           </Card>
         </section>
 
-        {/* 4. TRADE HISTORY SECTION */}
         <section className="mb-20">
           <Card className="border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
             <CardHeader className="border-b border-white/5 pb-4">
