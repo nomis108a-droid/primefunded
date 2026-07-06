@@ -24,9 +24,9 @@ import { useCollection } from '@/firebase';
  */
 const PROMO_CONFIG = {
   discountPercent: 50,
-  // Set to 7 days from now (approx July 22, 2025)
-  endDate: new Date('2025-07-22T23:59:59Z'),
-  label: "50% OFF LIMITED TIME"
+  // Set to 7 days from now (approx Feb 25, 2025)
+  endDate: new Date('2025-02-25T23:59:59Z'),
+  label: "50% OFF ANNIVERSARY SPECIAL"
 };
 
 const planData = {
@@ -205,7 +205,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
   const [isLive, setIsLive] = useState(false);
   const [followConfirmed, setFollowConfirmed] = useState(false);
 
-  const isFree5kTier = planName === '2-step' && tier.size === '$5,000';
+  const isFree5kTier = planName === '2-step' && tier.size === '$5,000' && !isPromoActive;
 
   useEffect(() => {
     if (!isFree5kTier) return;
@@ -237,8 +237,9 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
   }, [isFree5kTier]);
 
   const discountedPrice = useMemo(() => {
-    if (!isPromoActive) return tier.price;
-    return Math.floor(tier.price * (1 - PROMO_CONFIG.discountPercent / 100));
+    if (!isPromoActive) return String(tier.price);
+    const calculated = tier.price * (1 - PROMO_CONFIG.discountPercent / 100);
+    return calculated.toFixed(2).replace('.00', '');
   }, [tier.price, isPromoActive]);
 
   return (
@@ -254,9 +255,9 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPro
           </div>
         )}
 
-        {isPromoActive && !isFree5kTier && (
+        {isPromoActive && (
           <div className="absolute top-0 left-0 z-10">
-            <div className="bg-accent text-accent-foreground text-[10px] font-black px-3 py-1 rounded-br-lg uppercase tracking-widest animate-pulse">50% OFF</div>
+            <div className="bg-accent text-accent-foreground text-[10px] font-black px-3 py-1 rounded-br-lg uppercase tracking-widest animate-pulse shadow-lg">50% OFF</div>
           </div>
         )}
 
