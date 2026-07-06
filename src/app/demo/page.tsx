@@ -78,6 +78,17 @@ export default function DemoPage() {
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [candleCountdown, setCandleCountdown] = useState<string | null>(null);
 
+  // FAIL-SAFE: Force clear loading state after 10 seconds no matter what
+  useEffect(() => {
+    if (isChartLoading) {
+      const timer = setTimeout(() => {
+        setIsChartLoading(false);
+        setIsInitialLoad(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [isChartLoading]);
+
   useEffect(() => { 
     setHasMounted(true); 
   }, []);
@@ -190,6 +201,9 @@ export default function DemoPage() {
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
+    // Explicitly reset ready state when switching symbols
+    setIsChartReady(false);
+
     const chart = createChart(chartContainerRef.current, {
       layout: { 
         background: { type: ColorType.Solid, color: '#09090b' }, 
@@ -240,7 +254,7 @@ export default function DemoPage() {
     setIsChartReady(true);
 
     const handleResize = () => {
-      if (chartContainerRef.current) {
+      if (chartContainerRef.current && chart) {
         chart.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight });
       }
     };
@@ -254,22 +268,47 @@ export default function DemoPage() {
 
   useEffect(() => {
     if (!isChartReady) return;
+    
     const fetchHistory = async () => {
       if (isInitialLoad) {
         setIsChartLoading(true);
       }
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
       try {
-        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
+        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`, {
+          signal: controller.signal
+        });
         const data = await res.json();
+        
         if (data.candles && mainSeriesRef.current) {
           mainSeriesRef.current.setData(data.candles);
           chartInstanceRef.current?.timeScale().fitContent();
+          
+          // If we have an active price already, apply it immediately to the new data
+          if (activePrice) {
+            const lastCandle = data.candles[data.candles.length - 1];
+            if (lastCandle) {
+              mainSeriesRef.current.update({
+                ...lastCandle,
+                close: activePrice.price,
+                high: Math.max(lastCandle.high, activePrice.price),
+                low: Math.min(lastCandle.low, activePrice.price),
+              });
+            }
+          }
         }
-      } catch(e) {} finally { 
+      } catch(e) {
+        console.warn("[Chart] History fetch failed or timed out", e);
+      } finally { 
+        clearTimeout(timeoutId);
         setIsChartLoading(false); 
         setIsInitialLoad(false);
       }
     };
+    
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
