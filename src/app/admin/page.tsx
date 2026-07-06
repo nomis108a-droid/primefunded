@@ -356,6 +356,47 @@ export default function AdminPage() {
     });
   }, [adminData.breaches, adminData.demoAccounts]);
 
+  // Unified Search Filtering for all list tabs
+  const filteredNodes = useMemo(() => 
+    adminData.demoAccounts.filter((a: any) => {
+      const term = searchTerm.toLowerCase();
+      if (!term) return true;
+      return (
+        a.id?.toLowerCase().includes(term) ||
+        a.userId?.toLowerCase().includes(term) ||
+        a.email?.toLowerCase().includes(term) ||
+        a.label?.toLowerCase().includes(term)
+      );
+    })
+  , [adminData.demoAccounts, searchTerm]);
+
+  const filteredBreaches = useMemo(() => 
+    unifiedBreaches.filter((b: any) => {
+      const term = searchTerm.toLowerCase();
+      if (!term) return true;
+      return (
+        b.accountId?.toLowerCase().includes(term) ||
+        b.userId?.toLowerCase().includes(term) ||
+        b.email?.toLowerCase().includes(term) ||
+        b.reason?.toLowerCase().includes(term)
+      );
+    })
+  , [unifiedBreaches, searchTerm]);
+
+  const filteredOrders = useMemo(() => 
+    adminData.orders.filter((o: any) => {
+      const term = searchTerm.toLowerCase();
+      if (!term) return true;
+      return (
+        o.id?.toLowerCase().includes(term) ||
+        o.email?.toLowerCase().includes(term) ||
+        o.txHash?.toLowerCase().includes(term) ||
+        o.plan?.toLowerCase().includes(term) ||
+        o.accountSize?.toLowerCase().includes(term)
+      );
+    })
+  , [adminData.orders, searchTerm]);
+
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
@@ -721,133 +762,172 @@ export default function AdminPage() {
           )}
 
           {activeTab === 'nodes' && (
-            <Card className="bg-card/40 border-border/50">
-              <CardContent className="p-0">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                      <th className="p-4">Account ID</th>
-                      <th className="p-4">User</th>
-                      <th className="p-4">Balance</th>
-                      <th className="p-4">Equity</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {adminData.demoAccounts.map((a: any) => (
-                      <tr key={a.id} className="hover:bg-primary/5">
-                        <td className="p-4 font-mono text-xs">{a.id.slice(0, 8)}</td>
-                        <td className="p-4 text-white font-bold">{a.userId.slice(0, 8)}...</td>
-                        <td className="p-4 font-mono">${(a.balance || 0).toLocaleString()}</td>
-                        <td className="p-4 font-mono text-primary">${(a.equity || 0).toLocaleString()}</td>
-                        <td className="p-4">
-                          <Badge className={cn(
-                            "uppercase text-[8px]", 
-                            a.status === 'active' ? 'bg-emerald-500' : 
-                            (a.status === 'blown' || a.status === 'breach') ? 'bg-destructive' : 'bg-amber-500'
-                          )}>
-                            {a.status}
-                          </Badge>
-                        </td>
-                        <td className="p-4 text-right">
-                           <Button variant="ghost" size="icon" onClick={async () => {
-                             if(confirm("Reset this account to starting balance?")) {
-                               await resetDemoAccountAction(a.id);
-                               refreshData();
-                             }
-                           }}><RotateCcw className="w-3.5 h-3.5" /></Button>
-                        </td>
+            <div className="space-y-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search accounts by ID, email, or label..." 
+                  className="pl-10 h-12 bg-card/40 border-border/50" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Account ID</th>
+                        <th className="p-4">Trader / Email</th>
+                        <th className="p-4">Balance</th>
+                        <th className="p-4">Equity</th>
+                        <th className="p-4">Status</th>
+                        <th className="p-4 text-right">Action</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {filteredNodes.map((a: any) => (
+                        <tr key={a.id} className="hover:bg-primary/5">
+                          <td className="p-4 font-mono text-xs">{a.id}</td>
+                          <td className="p-4 text-white font-bold">{a.email || a.userId}</td>
+                          <td className="p-4 font-mono">${(a.balance || 0).toLocaleString()}</td>
+                          <td className="p-4 font-mono text-primary">${(a.equity || 0).toLocaleString()}</td>
+                          <td className="p-4">
+                            <Badge className={cn(
+                              "uppercase text-[8px]", 
+                              a.status === 'active' ? 'bg-emerald-500' : 
+                              (a.status === 'blown' || a.status === 'breach') ? 'bg-destructive' : 'bg-amber-500'
+                            )}>
+                              {a.status}
+                            </Badge>
+                          </td>
+                          <td className="p-4 text-right">
+                             <Button variant="ghost" size="icon" onClick={async () => {
+                               if(confirm("Reset this account to starting balance?")) {
+                                 await resetDemoAccountAction(a.id);
+                                 refreshData();
+                               }
+                             }}><RotateCcw className="w-3.5 h-3.5" /></Button>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredNodes.length === 0 && (
+                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">No trading nodes matching the search criteria.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeTab === 'breaches' && (
-            <Card className="bg-card/40 border-border/50">
-              <CardContent className="p-0">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                      <th className="p-4">Date</th>
-                      <th className="p-4">Trader Email</th>
-                      <th className="p-4">Account ID</th>
-                      <th className="p-4">Plan / Phase</th>
-                      <th className="p-4">Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {unifiedBreaches.map((b: any) => (
-                      <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
-                        <td className="p-4 text-xs text-muted-foreground">
-                          {b.breachedAt?.seconds ? format(new Date(b.breachedAt.seconds * 1000), 'MMM d, HH:mm') : 
-                           isValid(new Date(b.breachedAt)) ? format(new Date(b.breachedAt), 'MMM d, HH:mm') : '—'}
-                        </td>
-                        <td className="p-4 font-bold text-white">{b.email || b.userId}</td>
-                        <td className="p-4 font-mono text-[10px] text-primary">{b.accountId?.slice(0, 8)}</td>
-                        <td className="p-4 uppercase text-[10px]">{b.planType || '—'} / {b.phase || '—'}</td>
-                        <td className="p-4 text-xs text-destructive/80 font-medium max-w-xs">{b.reason}</td>
+            <div className="space-y-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search liquidations by email, account, or reason..." 
+                  className="pl-10 h-12 bg-card/40 border-border/50" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Date</th>
+                        <th className="p-4">Trader Email</th>
+                        <th className="p-4">Account ID</th>
+                        <th className="p-4">Plan / Phase</th>
+                        <th className="p-4">Reason</th>
                       </tr>
-                    ))}
-                    {unifiedBreaches.length === 0 && (
-                      <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No liquidation records found.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {filteredBreaches.map((b: any) => (
+                        <tr key={b.id} className="hover:bg-destructive/5 transition-colors">
+                          <td className="p-4 text-xs text-muted-foreground">
+                            {b.breachedAt?.seconds ? format(new Date(b.breachedAt.seconds * 1000), 'MMM d, HH:mm') : 
+                            isValid(new Date(b.breachedAt)) ? format(new Date(b.breachedAt), 'MMM d, HH:mm') : '—'}
+                          </td>
+                          <td className="p-4 font-bold text-white">{b.email || b.userId}</td>
+                          <td className="p-4 font-mono text-[10px] text-primary">{b.accountId}</td>
+                          <td className="p-4 uppercase text-[10px]">{b.planType || '—'} / {b.phase || '—'}</td>
+                          <td className="p-4 text-xs text-destructive/80 font-medium max-w-xs">{b.reason}</td>
+                        </tr>
+                      ))}
+                      {filteredBreaches.length === 0 && (
+                        <tr><td colSpan={5} className="py-20 text-center text-muted-foreground italic">No liquidation records found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {activeTab === 'orders' && (
-            <Card className="bg-card/40 border-border/50">
-              <CardContent className="p-0">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
-                    <tr>
-                      <th className="p-4">Order ID</th>
-                      <th className="p-4">Trader / Plan</th>
-                      <th className="p-4">Amount</th>
-                      <th className="p-4">TX Hash</th>
-                      <th className="p-4">Status</th>
-                      <th className="p-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {adminData.orders.map((o: any) => (
-                      <tr key={o.id} className="hover:bg-primary/5">
-                        <td className="p-4 font-mono text-[10px] text-muted-foreground">{o.id.slice(0, 8)}</td>
-                        <td className="p-4">
-                          <p className="font-bold text-white">{o.email}</p>
-                          <p className="text-[10px] text-primary">{o.plan} {o.accountSize}</p>
-                        </td>
-                        <td className="p-4">
-                          <span className="font-mono text-white font-bold">${o.amountPaid || 0}</span>
-                        </td>
-                        <td className="p-4">
-                          <span className="font-mono text-[10px] text-zinc-400 max-w-[100px] truncate">{o.txHash}</span>
-                        </td>
-                        <td className="p-4">
-                          <Badge className={cn("uppercase text-[8px]", o.status === 'approved' ? 'bg-emerald-500' : o.status === 'rejected' ? 'bg-destructive' : 'bg-amber-500')}>
-                            {o.status}
-                          </Badge>
-                        </td>
-                        <td className="p-4 text-right">
-                          {o.status === 'pending' && (
-                            <div className="flex justify-end gap-2">
-                              <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleOrderAction(o.id, 'approved')}>Approve</Button>
-                              <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleOrderAction(o.id, 'rejected')}>Reject</Button>
-                            </div>
-                          )}
-                        </td>
+            <div className="space-y-6">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search orders by ID, email, hash, or plan..." 
+                  className="pl-10 h-12 bg-card/40 border-border/50" 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <Card className="bg-card/40 border-border/50">
+                <CardContent className="p-0">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
+                      <tr>
+                        <th className="p-4">Order ID</th>
+                        <th className="p-4">Trader / Plan</th>
+                        <th className="p-4">Amount</th>
+                        <th className="p-4">TX Hash</th>
+                        <th className="p-4">Status</th>
+                        <th className="p-4 text-right">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {filteredOrders.map((o: any) => (
+                        <tr key={o.id} className="hover:bg-primary/5">
+                          <td className="p-4 font-mono text-[10px] text-muted-foreground">{o.id}</td>
+                          <td className="p-4">
+                            <p className="font-bold text-white">{o.email}</p>
+                            <p className="text-[10px] text-primary">{o.plan} {o.accountSize}</p>
+                          </td>
+                          <td className="p-4">
+                            <span className="font-mono text-white font-bold">${o.amountPaid || 0}</span>
+                          </td>
+                          <td className="p-4">
+                            <span className="font-mono text-[10px] text-zinc-400 max-w-[100px] truncate">{o.txHash}</span>
+                          </td>
+                          <td className="p-4">
+                            <Badge className={cn("uppercase text-[8px]", o.status === 'approved' ? 'bg-emerald-500' : o.status === 'rejected' ? 'bg-destructive' : 'bg-amber-500')}>
+                              {o.status}
+                            </Badge>
+                          </td>
+                          <td className="p-4 text-right">
+                            {o.status === 'pending' && (
+                              <div className="flex justify-end gap-2">
+                                <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleOrderAction(o.id, 'approved')}>Approve</Button>
+                                <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleOrderAction(o.id, 'rejected')}>Reject</Button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredOrders.length === 0 && (
+                        <tr><td colSpan={6} className="py-20 text-center text-muted-foreground italic">No matching orders found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       </main>
