@@ -194,6 +194,7 @@ export default function AdminPage() {
       const res = await updateOrderStatusAction(id, status, reason);
       if (res.success) {
         toast({ title: `Order ${status.toUpperCase()}` });
+        setOrderRejectModal({ isOpen: false, id: '', reason: '' });
         refreshData();
       } else throw new Error(res.error);
     } catch (err: any) {
@@ -942,12 +943,24 @@ export default function AdminPage() {
                             </Badge>
                           </td>
                           <td className="p-4 text-right">
-                            {o.status === 'pending' && (
-                              <div className="flex justify-end gap-2">
-                                <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleOrderAction(o.id, 'approved')}>Approve</Button>
-                                <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => handleOrderAction(o.id, 'rejected')}>Reject</Button>
-                              </div>
-                            )}
+                            <div className="flex justify-end gap-2">
+                              {o.paymentScreenshot && (
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  className="h-8 text-[10px] font-bold" 
+                                  onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}
+                                >
+                                  View Proof
+                                </Button>
+                              )}
+                              {o.status === 'pending' && (
+                                <>
+                                  <Button size="sm" className="h-8 bg-emerald-600 font-bold" onClick={() => handleOrderAction(o.id, 'approved')}>Approve</Button>
+                                  <Button size="sm" variant="destructive" className="h-8 font-bold" onClick={() => setOrderRejectModal({ isOpen: true, id: o.id, reason: '' })}>Reject</Button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1166,7 +1179,43 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* ... rest of existing dialogs ... */}
+
+      {/* Rejection Modal for Orders */}
+      <Dialog open={orderRejectModal.isOpen} onOpenChange={(v) => setOrderRejectModal({...orderRejectModal, isOpen: v})}>
+        <DialogContent className="bg-zinc-950 border-destructive/20 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <AlertCircle className="w-5 h-5" /> Reject Payment Order
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Provide a clear reason for rejecting this order. The trader will be notified immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase text-zinc-500">Rejection Message (Sent to Trader)</Label>
+              <Textarea 
+                placeholder="e.g. Transaction hash could not be verified on-chain. Please resubmit correct proof."
+                value={orderRejectModal.reason}
+                onChange={(e) => setOrderRejectModal({...orderRejectModal, reason: e.target.value})}
+                className="bg-zinc-900 border-white/10 h-32 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setOrderRejectModal({...orderRejectModal, isOpen: false})}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              className="font-black px-8" 
+              onClick={() => handleOrderAction(orderRejectModal.id, 'rejected', orderRejectModal.reason)}
+              disabled={actionLoading || !orderRejectModal.reason}
+            >
+              {actionLoading ? <Loader2 className="animate-spin w-4 h-4" /> : "CONFIRM REJECTION"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={breachForm.isOpen} onOpenChange={(v) => setBreachForm({...breachForm, isOpen: v})}>
         <DialogContent className="bg-zinc-950 border-destructive/20 text-white max-w-md z-[80]">
           <DialogHeader>
@@ -1283,6 +1332,29 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Preview Modal */}
+      <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
+        <DialogContent className="max-w-4xl p-2 bg-zinc-950 border-white/10 z-[100]">
+           <DialogHeader className="sr-only"><DialogTitle>Image Preview</DialogTitle></DialogHeader>
+           <div className="relative aspect-video w-full">
+              {previewImage ? (
+                <Image 
+                  src={previewImage} 
+                  alt="Preview" 
+                  fill 
+                  className="object-contain" 
+                  unoptimized // Crucial for Base64 previews
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-zinc-500 italic">No image data available</div>
+              )}
+           </div>
+           <DialogFooter className="mt-4">
+              <Button onClick={() => setIsImageModalOpen(false)} variant="secondary" className="font-bold">Close Preview</Button>
+           </DialogFooter>
         </DialogContent>
       </Dialog>
 
