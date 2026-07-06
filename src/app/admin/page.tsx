@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -101,14 +100,14 @@ export default function AdminPage() {
       console.log(`[Admin] Initializing data sync for Project: ${firebaseConfig.projectId}`);
       
       const [usersSnap, accountsSnap, tradesSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.allSettled([
-        getDocs(query(collection(db, 'users'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'demoAccounts'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'demoTrades'), limit(500), orderBy('openedAt', 'desc'))),
-        getDocs(query(collection(db, 'orders'), limit(500), orderBy('submittedAt', 'desc'))),
-        getDocs(query(collection(db, 'payouts'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'referrals'), limit(500), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'users'), limit(1000), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'demoAccounts'), limit(1000), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'demoTrades'), limit(1000), orderBy('openedAt', 'desc'))),
+        getDocs(query(collection(db, 'orders'), limit(1000), orderBy('submittedAt', 'desc'))),
+        getDocs(query(collection(db, 'payouts'), limit(1000), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'referrals'), limit(1000), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'broadcasts'), limit(100), orderBy('sentAt', 'desc'))),
-        getDocs(query(collection(db, 'breaches'), limit(500), orderBy('breachedAt', 'desc'))),
+        getDocs(query(collection(db, 'breaches'), limit(1000), orderBy('breachedAt', 'desc'))),
       ]);
       
       const getData = (res: PromiseSettledResult<any>, name: string) => {
@@ -1260,7 +1259,7 @@ export default function AdminPage() {
 
       {/* Broadcast Modal */}
       <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
-        <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-md">
+        <DialogContent className="bg-zinc-950 border-white/10 text-white max-md">
           <DialogHeader>
             <DialogTitle>Send Global Broadcast</DialogTitle>
             <DialogDescription>This message will be visible to all active traders in real-time.</DialogDescription>

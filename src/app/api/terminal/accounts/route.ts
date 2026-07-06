@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     if (!p) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
 
     const planType = requestedPlanType || "1-step-pro";
-    const phase = "evaluation";
+    const phase = planType.startsWith('instant') ? "funded" : "evaluation";
     const rules = RULES_CONFIG.plans[planType]?.[phase];
 
     if (!rules) {

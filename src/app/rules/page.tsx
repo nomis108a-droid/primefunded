@@ -96,16 +96,16 @@ const PLAN_RULES = {
   },
   'instant-pro': {
     evaluation: [
+      { text: "Institutional Direct Funding: No Evaluation Phases", type: 'check' },
       { text: "Keep 80% of all profits you make", type: 'check' },
-      { text: "Qualified trading day: Minimum 3 trades completed", type: 'check' },
-      { text: "Need at least 5 qualified days for payout eligibility", type: 'check' },
-      { text: "Daily payouts (1 request per 24h)", type: 'check' },
+      { text: "Payout Requirement: Minimum 5 active trading days", type: 'check' },
+      { text: "Payout Requirement: Minimum 15 total completed trades", type: 'check' },
+      { text: "Daily payouts available (1 request per 24h)", type: 'check' },
       { text: "Trading is suspended while a payout request is pending", type: 'warning' },
-      { text: "Your account automatically expires 30 days after purchase", type: 'skull' },
     ],
     funded: [
-      { text: "Do not lose more than 3% in a single day (Hard Breach)", type: 'skull' },
-      { text: "Total loss limit: 5% (Hard Breach)", type: 'skull' },
+      { text: "3% daily drawdown limit (Hard Breach)", type: 'skull' },
+      { text: "5% total loss limit (Hard Breach)", type: 'skull' },
       { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
       { text: "Must complete at least 5 trades per instrument for payout eligibility", type: 'check' },
       { text: "No Martingale allowed (Hard Breach)", type: 'skull' },

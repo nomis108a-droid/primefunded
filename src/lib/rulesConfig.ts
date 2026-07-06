@@ -11,6 +11,7 @@ export type PlanPhaseRules = {
   maxFloatingLoss?: number;       // % of initial balance, per SYMBOL (auto-close)
   maxSingleTradeLoss?: number;    // % of initial balance, per SINGLE trade (hard breach)
   minDailyTrades?: number;
+  minTotalTradesForPayout?: number;
   accountExpiryDays?: number;     // Days until account automatically closes
   minTradesPerSymbolForPayout?: number; 
 };
@@ -103,9 +104,8 @@ export const RULES_CONFIG = {
         maxFloatingLoss: 1,
         maxSingleTradeLoss: 3,
         minTradingDaysBeforePayout: 5,
-        minDailyTrades: 3,
-        minTradesPerSymbolForPayout: 5,
-        accountExpiryDays: 30
+        minTotalTradesForPayout: 15,
+        minTradesPerSymbolForPayout: 5
       }
     }
   } as Record<string, Record<string, PlanPhaseRules>>,
