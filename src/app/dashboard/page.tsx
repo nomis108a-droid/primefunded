@@ -18,7 +18,8 @@ import {
   Loader2,
   XCircle,
   Skull,
-  AlertCircle
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,7 +32,7 @@ import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { NotificationBell } from '@/components/NotificationBell';
 import { cn } from '@/lib/utils';
-import { format, isValid } from 'date-fns';
+import { format, isValid, differenceInHours } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import { TradingDaysCalendar } from '@/components/TradingDaysCalendar';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
@@ -216,6 +217,19 @@ export default function DashboardPage() {
 
   const isSelectedBlown = selectedAccount?.status === 'blown' || selectedAccount?.status === 'breach' || selectedAccount?.status === 'terminated';
 
+  const durationData = (() => {
+    if (!selectedAccount) return { label: 'Duration', value: '—' };
+    const start = selectedAccount.createdAt?.toDate ? selectedAccount.createdAt.toDate() : new Date(selectedAccount.createdAt || Date.now());
+    const end = isSelectedBlown && selectedAccount.blownAt?.toDate 
+      ? selectedAccount.blownAt.toDate() 
+      : (selectedAccount.updatedAt?.toDate ? selectedAccount.updatedAt.toDate() : new Date());
+    
+    const diffHours = differenceInHours(end, start);
+    const label = !isSelectedBlown ? "Active For" : "Duration";
+    const value = diffHours < 24 ? "< 1 Day" : `${Math.floor(diffHours / 24)} Days`;
+    return { label, value };
+  })();
+
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
@@ -303,6 +317,9 @@ export default function DashboardPage() {
                            <span className="text-[10px] font-mono text-muted-foreground">ID: {selectedAccount.id?.slice(0, 8)}</span>
                         </div>
                         <CardTitle className="text-xl font-headline font-bold text-white group-hover:text-primary transition-colors mt-2">{selectedAccount.label}</CardTitle>
+                        <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">
+                          <Clock className="w-3 h-3" /> {durationData.label}: {durationData.value}
+                        </div>
                       </CardHeader>
                       <CardContent className="space-y-6">
                          <div className="grid grid-cols-2 gap-4 border-b border-white/5 pb-4">

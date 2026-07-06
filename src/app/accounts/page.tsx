@@ -12,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import { ShieldCheck, Plus, Terminal, Skull, AlertCircle, Activity, ChevronRight, Clock, History } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { format, differenceInDays } from 'date-fns';
+import { format, differenceInHours } from 'date-fns';
 
 export default function AccountsPage() {
   const { user } = useAuth();
@@ -107,15 +107,19 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
   const pnl = (acc.balance || 0) - (acc.startBalance || 0);
   const isBlown = acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated';
   
-  const lifespan = useMemo(() => {
-    if (!acc.createdAt) return 'Unknown';
+  const lifespanData = useMemo(() => {
+    if (!acc.createdAt) return { label: 'Duration', value: 'Unknown' };
     const start = acc.createdAt.toDate ? acc.createdAt.toDate() : new Date(acc.createdAt);
     const end = isBlown && acc.blownAt 
       ? (acc.blownAt.toDate ? acc.blownAt.toDate() : new Date(acc.blownAt)) 
       : (acc.updatedAt?.toDate ? acc.updatedAt.toDate() : new Date());
-    const days = differenceInDays(end, start);
-    return `${days} Days`;
-  }, [acc, isBlown]);
+    
+    const diffHours = differenceInHours(end, start);
+    const label = isActiveSection && !isBlown ? "Active For" : "Duration";
+    const value = diffHours < 24 ? "< 1 Day" : `${Math.floor(diffHours / 24)} Days`;
+    
+    return { label, value };
+  }, [acc, isBlown, isActiveSection]);
 
   return (
     <Card className={cn(
@@ -146,7 +150,7 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
             {isBlown ? 'BLOWN' : (acc.status || 'Active')}
           </Badge>
           <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-            <Clock className="w-3 h-3" /> Lifespan: {lifespan}
+            <Clock className="w-3 h-3" /> {lifespanData.label}: {lifespanData.value}
           </div>
         </div>
       </CardHeader>

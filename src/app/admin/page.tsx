@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -18,7 +17,7 @@ import {
 } from 'lucide-react';
 import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, manualBreachAccountAction, auditAndResetFridayBreachesAction } from './actions';
 import { cn } from '@/lib/utils';
-import { format, isValid, differenceInDays } from 'date-fns';
+import { format, isValid, differenceInHours } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -1025,7 +1024,9 @@ export default function AdminPage() {
                         const isBlown = acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated';
                         const start = acc.createdAt?.seconds ? new Date(acc.createdAt.seconds * 1000) : new Date(acc.createdAt || Date.now());
                         const end = isBlown && acc.blownAt?.seconds ? new Date(acc.blownAt.seconds * 1000) : new Date();
-                        const lifespan = differenceInDays(end, start);
+                        const diffHours = differenceInHours(end, start);
+                        const lifespanDisplay = diffHours < 24 ? "< 1 Day" : `${Math.floor(diffHours / 24)} Days`;
+                        const lifespanLabel = !isBlown ? "Active For" : "Duration";
 
                         return (
                           <Card key={acc.id} className={cn("bg-card/40 border-white/5 transition-all overflow-hidden", isBlown && "opacity-60 grayscale border-destructive/20")}>
@@ -1040,7 +1041,7 @@ export default function AdminPage() {
                                     <Badge className={cn("uppercase text-[10px] font-black", acc.status === 'active' ? "bg-emerald-500 text-black" : "bg-destructive text-white")}>
                                       {acc.status}
                                     </Badge>
-                                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Lifespan: {lifespan} Days</p>
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">{lifespanLabel}: {lifespanDisplay}</p>
                                  </div>
                                </div>
                                
