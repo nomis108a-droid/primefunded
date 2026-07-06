@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Link as LinkIcon, ExternalLink, Loader2, CheckCircle2, RefreshCw, Timer, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -17,6 +17,17 @@ import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase';
 import { collection, query, where, orderBy, limit } from 'firebase/firestore';
 import { useCollection } from '@/firebase';
+
+/**
+ * PROMO CONFIGURATION
+ * Centralized settings for the 50% OFF campaign
+ */
+const PROMO_CONFIG = {
+  discountPercent: 50,
+  // Set to 7 days from now (approx July 22, 2025)
+  endDate: new Date('2025-07-22T23:59:59Z'),
+  label: "50% OFF LIMITED TIME"
+};
 
 const planData = {
   '1-step': [
@@ -177,7 +188,7 @@ const RULES = {
   }
 };
 
-const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { tier: any, planName: string, delay: number }) {
+const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, isPromoActive }: { tier: any, planName: string, delay: number, isPromoActive: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
@@ -189,7 +200,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
   const [coupon5kExpired, setCoupon5kExpired] = useState(false);
   const [coupon5kSuccess, setCoupon5kSuccess] = useState(false);
 
-  // Gate States
+  // Gate States for Giveaway
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const [isLive, setIsLive] = useState(false);
   const [followConfirmed, setFollowConfirmed] = useState(false);
@@ -199,7 +210,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
   useEffect(() => {
     if (!isFree5kTier) return;
     
-    // 1. Timer Logic
+    // Timer Logic for Giveaway
     const target = new Date('2026-07-05T12:30:00Z');
     const tick = () => {
       const now = new Date();
@@ -215,7 +226,6 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
     tick();
     const t = setInterval(tick, 1000);
 
-    // 2. Expiry Check
     const checkExpiry = async () => {
       const { getDocs, collection } = await import('firebase/firestore');
       const snap = await getDocs(collection(db, 'giveaways'));
@@ -225,6 +235,11 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
 
     return () => clearInterval(t);
   }, [isFree5kTier]);
+
+  const discountedPrice = useMemo(() => {
+    if (!isPromoActive) return tier.price;
+    return Math.floor(tier.price * (1 - PROMO_CONFIG.discountPercent / 100));
+  }, [tier.price, isPromoActive]);
 
   return (
     <motion.div
@@ -236,6 +251,12 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
         {tier.popular && (
           <div className="absolute top-0 right-0 z-10">
             <div className="bg-primary text-primary-foreground text-[10px] font-bold px-3 py-1 rounded-bl-lg uppercase tracking-wider">Most Popular</div>
+          </div>
+        )}
+
+        {isPromoActive && !isFree5kTier && (
+          <div className="absolute top-0 left-0 z-10">
+            <div className="bg-accent text-accent-foreground text-[10px] font-black px-3 py-1 rounded-br-lg uppercase tracking-widest animate-pulse">50% OFF</div>
           </div>
         )}
 
@@ -255,10 +276,21 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
                 <div className="text-[10px] text-zinc-400 uppercase tracking-widest">With Coupon Code</div>
               </div>
             ) : (
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-3xl font-headline font-bold text-white">
-                  ${tier.price}
-                </span>
+              <div className="flex flex-col items-center justify-center">
+                {isPromoActive ? (
+                  <div className="flex flex-col items-center">
+                    <span className="text-xl font-bold text-destructive/60 line-through decoration-destructive mb-1">
+                      ${tier.price}
+                    </span>
+                    <span className="text-4xl font-headline font-bold text-primary cyan-glow">
+                      ${discountedPrice}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-3xl font-headline font-bold text-white">
+                    ${tier.price}
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -377,7 +409,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay }: { t
             )
           ) : (
             <Button className="w-full h-11 font-bold rounded-xl cyan-box-glow cursor-pointer" asChild>
-              <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${tier.price}`}>
+              <Link href={`/payment?plan=${planName}&size=${tier.size}&price=$${discountedPrice}`}>
                 Start Challenge
               </Link>
             </Button>
@@ -458,6 +490,8 @@ const ReferralTerminal = memo(function ReferralTerminal({ referralCode }: { refe
 
 export default function ChallengesPage() {
   const [selectedPlan, setSelectedPlan] = useState('1-step');
+  const [isPromoActive, setIsPromoActive] = useState(false);
+  const [promoTimeLeft, setPromoTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   
   const { user, userData, loading } = useAuth();
   const router = useRouter();
@@ -466,6 +500,27 @@ export default function ChallengesPage() {
   const { data: userOrders } = useCollection<any>(user?.uid ? 'orders' : null, tradeConstraints);
   const latestOrder = userOrders[0];
   const hasRecentRejection = latestOrder?.status === 'rejected';
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const diff = PROMO_CONFIG.endDate.getTime() - now.getTime();
+      if (diff <= 0) {
+        setIsPromoActive(false);
+        return;
+      }
+      setIsPromoActive(true);
+      setPromoTimeLeft({
+        days: Math.floor(diff / 86400000),
+        hours: Math.floor((diff % 86400000) / 3600000),
+        minutes: Math.floor((diff % 3600000) / 60000),
+        seconds: Math.floor((diff % 60000) / 1000)
+      });
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -511,6 +566,42 @@ export default function ChallengesPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
             <div className="lg:col-span-3 space-y-8">
+              
+              <AnimatePresence>
+                {isPromoActive && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="p-6 rounded-[2rem] bg-accent/10 border border-accent/20 flex flex-col md:flex-row items-center justify-between gap-6 shadow-[0_0_50px_rgba(17,179,245,0.1)] relative overflow-hidden"
+                  >
+                    <div className="absolute top-0 left-0 w-full h-full bg-grid-white opacity-5 pointer-events-none" />
+                    <div className="flex items-center gap-4 relative z-10">
+                      <div className="w-14 h-14 rounded-2xl bg-accent/20 flex items-center justify-center shadow-lg">
+                        <Zap className="w-8 h-8 text-accent fill-accent" />
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-headline font-bold text-white uppercase italic tracking-tighter">FLASH SALE: 50% OFF SITE-WIDE</h3>
+                        <p className="text-accent text-xs font-black uppercase tracking-[0.2em]">Limited Time Anniversary Special</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 relative z-10">
+                       <div className="text-right hidden md:block">
+                          <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">OFFER EXPIRES IN</p>
+                          <div className="flex gap-2">
+                             <TimeBox value={promoTimeLeft.days} label="D" />
+                             <TimeBox value={promoTimeLeft.hours} label="H" />
+                             <TimeBox value={promoTimeLeft.minutes} label="M" />
+                             <TimeBox value={promoTimeLeft.seconds} label="S" />
+                          </div>
+                       </div>
+                       <Badge className="h-10 px-6 bg-accent text-accent-foreground font-black text-sm rounded-xl">SAVE 50% NOW</Badge>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {hasRecentRejection && (
                 <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/20 flex flex-col md:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
@@ -557,6 +648,7 @@ export default function ChallengesPage() {
                         tier={tier} 
                         planName={selectedPlan} 
                         delay={idx * 0.03} 
+                        isPromoActive={isPromoActive}
                       />
                     ))}
                   </motion.div>
@@ -570,6 +662,15 @@ export default function ChallengesPage() {
           </div>
         </div>
       </main>
+    </div>
+  );
+}
+
+function TimeBox({ value, label }: { value: number, label: string }) {
+  return (
+    <div className="bg-background/80 px-2 py-1 rounded-md border border-accent/20 min-w-[34px] text-center">
+       <p className="text-xs font-black text-white tabular-nums">{String(value).padStart(2, '0')}</p>
+       <p className="text-[7px] font-bold text-accent">{label}</p>
     </div>
   );
 }
