@@ -12,7 +12,8 @@ import {
   ChevronRight, 
   Clock,
   XCircle,
-  Calendar
+  Calendar,
+  Hourglass
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ import { useCollection } from '@/firebase';
 import { orderBy, where, limit } from 'firebase/firestore';
 import { format, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { getTradeDate } from '@/lib/tradeUtils';
+import { getTradeDate, calculateHoldingTimeSeconds, formatDuration } from '@/lib/tradeUtils';
 
 export default function HistoryPage() {
   const { user } = useAuth();
@@ -99,11 +100,14 @@ export default function HistoryPage() {
 
   const exportToCSV = () => {
     if (!filteredTrades.length) return;
-    const headers = ['Symbol', 'Type', 'Lots', 'Entry', 'Exit', 'PnL', 'Date'];
-    const rows = filteredTrades.map(t => [
-      t.symbol, t.type, t.lots, t.openPrice, t.closePrice, t.pnl, 
-      t.closedAt ? format(getTradeDate(t.closedAt)!, 'yyyy-MM-dd HH:mm:ss') : 'N/A'
-    ]);
+    const headers = ['Symbol', 'Type', 'Lots', 'Entry', 'Exit', 'Duration', 'PnL', 'Date'];
+    const rows = filteredTrades.map(t => {
+      const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
+      return [
+        t.symbol, t.type, t.lots, t.openPrice, t.closePrice, formatDuration(durationSec), t.pnl, 
+        t.closedAt ? format(getTradeDate(t.closedAt)!, 'yyyy-MM-dd HH:mm:ss') : 'N/A'
+      ];
+    });
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
@@ -186,33 +190,42 @@ export default function HistoryPage() {
                     <th className="py-4 px-2 text-right">Lots</th>
                     <th className="py-4 px-4 text-right">Entry</th>
                     <th className="py-4 px-4 text-right">Exit</th>
+                    <th className="py-4 px-4 text-center">Duration</th>
                     <th className="py-4 px-6 text-right">Final P&L</th>
                     <th className="py-4 px-4">Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {tradesLoading ? (
-                    [...Array(5)].map((_, i) => <tr key={i} className="animate-pulse"><td colSpan={7} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                    [...Array(5)].map((_, i) => <tr key={i} className="animate-pulse"><td colSpan={8} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
                   ) : paginatedTrades.length > 0 ? (
-                    paginatedTrades.map((t: any) => (
-                      <tr key={t.id} className="hover:bg-primary/5 transition-colors group">
-                        <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
-                        <td className="py-4 px-2">
-                           <Badge variant="outline" className={cn("text-[9px] font-black uppercase px-2", t.type === 'buy' ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5' : 'border-destructive/30 text-destructive bg-destructive/5')}>{t.type}</Badge>
-                        </td>
-                        <td className="py-4 px-2 text-right text-zinc-400 font-mono">{t.lots}</td>
-                        <td className="py-4 px-4 text-right text-muted-foreground font-mono text-xs">${t.openPrice?.toLocaleString()}</td>
-                        <td className="py-4 px-4 text-right text-white font-mono text-xs">${t.closePrice?.toLocaleString()}</td>
-                        <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
-                          {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-4 px-4 text-xs text-muted-foreground">
-                          {t.closedAt ? format(getTradeDate(t.closedAt)!, 'MMM d, HH:mm') : '—'}
-                        </td>
-                      </tr>
-                    ))
+                    paginatedTrades.map((t: any) => {
+                      const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
+                      return (
+                        <tr key={t.id} className="hover:bg-primary/5 transition-colors group">
+                          <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
+                          <td className="py-4 px-2">
+                             <Badge variant="outline" className={cn("text-[9px] font-black uppercase px-2", t.type === 'buy' ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5' : 'border-destructive/30 text-destructive bg-destructive/5')}>{t.type}</Badge>
+                          </td>
+                          <td className="py-4 px-2 text-right text-zinc-400 font-mono">{t.lots}</td>
+                          <td className="py-4 px-4 text-right text-muted-foreground font-mono text-xs">${t.openPrice?.toLocaleString()}</td>
+                          <td className="py-4 px-4 text-right text-white font-mono text-xs">${t.closePrice?.toLocaleString()}</td>
+                          <td className="py-4 px-4 text-center">
+                            <Badge variant="outline" className="h-5 px-1.5 text-[8px] border-zinc-800 text-zinc-400 flex items-center gap-1 mx-auto justify-center w-fit">
+                              <Hourglass className="w-2.5 h-2.5" /> {formatDuration(durationSec)}
+                            </Badge>
+                          </td>
+                          <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
+                            {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-4 px-4 text-xs text-muted-foreground">
+                            {t.closedAt ? format(getTradeDate(t.closedAt)!, 'MMM d, HH:mm') : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
-                    <tr><td colSpan={7} className="py-32 text-center text-muted-foreground italic">No historical records found for the selected criteria.</td></tr>
+                    <tr><td colSpan={8} className="py-32 text-center text-muted-foreground italic">No historical records found for the selected criteria.</td></tr>
                   )}
                 </tbody>
               </table>

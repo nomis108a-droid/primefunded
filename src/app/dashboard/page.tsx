@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, memo, useCallback } from 'react';
@@ -20,7 +19,8 @@ import {
   XCircle,
   Skull,
   AlertCircle,
-  Clock
+  Clock,
+  Hourglass
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ import Link from 'next/link';
 import { NotificationBell } from '@/components/NotificationBell';
 import { cn } from '@/lib/utils';
 import { format, isValid, differenceInHours } from 'date-fns';
-import { getTradeDate } from '@/lib/tradeUtils';
+import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { TradingDaysCalendar } from '@/components/TradingDaysCalendar';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
@@ -496,6 +496,7 @@ export default function DashboardPage() {
                       <th className="py-4 px-4">Lots</th>
                       <th className="py-4 px-4">Entry</th>
                       <th className="py-4 px-4">Exit Price</th>
+                      <th className="py-4 px-4">Duration</th>
                       <th className="py-4 px-4">Commission</th>
                       <th className="py-4 px-4">Closed At</th>
                       <th className="py-4 px-6 text-right">Final P&L</th>
@@ -503,12 +504,13 @@ export default function DashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {tradesLoading ? (
-                      [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={8} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                      [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={9} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
                     ) : closedTrades.length === 0 ? (
-                      <tr><td colSpan={8} className="py-20 text-center text-muted-foreground italic text-sm">No historical records found.</td></tr>
+                      <tr><td colSpan={9} className="py-20 text-center text-muted-foreground italic text-sm">No historical records found.</td></tr>
                     ) : (
                       closedTrades.slice(0, 50).map((t: any) => {
                         const closedDate = getTradeDate(t.closedAt);
+                        const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
                         return (
                           <tr key={t.id} className="hover:bg-primary/5 transition-colors">
                             <td className="py-4 px-6 font-bold text-white">{t.symbol}</td>
@@ -521,6 +523,11 @@ export default function DashboardPage() {
                             <td className="py-4 px-4 font-mono text-zinc-400">{t.lots}</td>
                             <td className="py-4 px-4 font-mono text-xs text-muted-foreground">${t.openPrice.toLocaleString()}</td>
                             <td className="py-4 px-4 font-mono text-xs text-white">${t.closePrice?.toLocaleString()}</td>
+                            <td className="py-4 px-4">
+                              <Badge variant="outline" className="h-5 px-1.5 text-[8px] border-zinc-800 text-zinc-400 flex items-center gap-1">
+                                <Hourglass className="w-2.5 h-2.5" /> {formatDuration(durationSec)}
+                              </Badge>
+                            </td>
                             <td className="py-4 px-4 font-mono text-xs text-muted-foreground">-${(t.commission || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             <td className="py-4 px-4 text-xs text-muted-foreground">
                                {closedDate && isValid(closedDate) ? format(closedDate, 'MMM d, HH:mm') : '—'}

@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState } from 'react';
@@ -6,10 +5,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { XCircle, Check, X, Loader2, Bell, Trash2, Clock, ChevronDown, ChevronUp, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Activity } from "lucide-react";
+import { XCircle, Check, X, Loader2, Bell, Trash2, Clock, ChevronDown, ChevronUp, Maximize2, Minimize2, ArrowUpRight, ArrowDownRight, Activity, Hourglass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format, differenceInSeconds } from 'date-fns';
-import { getTradeDate, formatDuration } from '@/lib/tradeUtils';
+import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -169,6 +168,7 @@ export function PositionsPanel({
                     <th className="py-2 px-2">Lots</th>
                     <th className="py-2 px-2">Open</th>
                     <th className="py-2 px-2">Close</th>
+                    <th className="py-2 px-2">Dur.</th>
                     <th className="py-2 px-2 text-right">PnL</th>
                     <th className="py-2 px-3 text-right">Time</th>
                   </tr>
@@ -176,6 +176,8 @@ export function PositionsPanel({
                 <tbody className="divide-y divide-zinc-900">
                   {closedTrades.map((t) => {
                     const cDate = getTradeDate(t.closedAt);
+                    const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
+                    const durationStr = formatDuration(durationSec);
                     return (
                       <tr key={t.id} className="hover:bg-white/[0.02] group transition-colors">
                         <td className="py-1.5 px-3 font-bold text-white">{t.symbol}</td>
@@ -183,6 +185,7 @@ export function PositionsPanel({
                         <td className="py-1.5 px-2 font-mono">{t.lots}</td>
                         <td className="py-1.5 px-2 font-mono text-zinc-500">{formatPrice(t.openPrice, t.symbol)}</td>
                         <td className="py-1.5 px-2 font-mono text-zinc-500">{formatPrice(t.closePrice, t.symbol)}</td>
+                        <td className="py-1.5 px-2 font-mono text-zinc-500">{durationStr}</td>
                         <td className={cn("py-1.5 px-2 text-right font-mono font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
                           {(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
@@ -262,25 +265,34 @@ export function PositionsPanel({
                    <Clock className="w-12 h-12 opacity-20" />
                    <p className="text-xs font-black uppercase tracking-widest">No historical logs</p>
                 </div>
-              ) : closedTrades.map(t => (
-                <div key={t.id} className="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-4 flex justify-between items-center group">
-                  <div className="flex items-center gap-4">
-                    <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border", (t.pnl || 0) >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-red-500/10 border-red-500/20 text-red-500")}>
-                      {(t.pnl || 0) >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
+              ) : closedTrades.map(t => {
+                const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
+                const durationStr = formatDuration(durationSec);
+                return (
+                  <div key={t.id} className="bg-zinc-900/30 border border-zinc-800/50 rounded-2xl p-4 flex justify-between items-center group">
+                    <div className="flex items-center gap-4">
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border", (t.pnl || 0) >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-red-500/10 border-red-500/20 text-red-500")}>
+                        {(t.pnl || 0) >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-sm">{t.symbol} <span className="text-[10px] text-zinc-500 font-normal uppercase ml-1">{t.type}</span></h4>
+                        <div className="flex items-center gap-2 mt-0.5">
+                           <p className="text-[10px] text-zinc-500">{t.closedAt ? format(getTradeDate(t.closedAt)!, 'MMM d, HH:mm') : 'Recently'}</p>
+                           <Badge variant="outline" className="h-4 px-1.5 text-[8px] border-zinc-800 text-zinc-400 flex items-center gap-1">
+                              <Hourglass className="w-2 h-2" /> {durationStr}
+                           </Badge>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="font-bold text-white text-sm">{t.symbol} <span className="text-[10px] text-zinc-500 font-normal uppercase ml-1">{t.type}</span></h4>
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{t.closedAt ? format(getTradeDate(t.closedAt)!, 'MMM d, HH:mm') : 'Recently'}</p>
+                    <div className="text-right">
+                      <p className={cn("font-bold font-mono text-sm", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
+                        {(t.pnl || 0) >= 0 ? '+' : ''}{(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-tighter mt-0.5">{t.lots} Lots</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className={cn("font-bold font-mono text-sm", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
-                      {(t.pnl || 0) >= 0 ? '+' : ''}{(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                    <p className="text-[9px] font-black uppercase text-zinc-500 tracking-tighter mt-0.5">{t.lots} Lots</p>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
