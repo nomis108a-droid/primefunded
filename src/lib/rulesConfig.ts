@@ -113,7 +113,7 @@ export const RULES_CONFIG = {
     minTradeDurationSeconds: 120,
     maxExecutionFrequencySeconds: 180,
     noMartingale: true,
-    noFridayOvernightHolding: true
+    noFridayOvernightHolding: false // REMOVED Friday rule
   }
 };
 

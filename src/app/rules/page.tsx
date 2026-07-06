@@ -22,7 +22,6 @@ const PLAN_RULES = {
       { text: "Hold trades for at least 2 minutes", type: 'warning' },
       { text: "No time limit", type: 'check' },
       { text: "No martingale allowed (hard Breach)", type: 'skull' },
-      { text: "Friday overnight holding of Forex/Metal positions results in breach. Crypto is exempt.", type: 'skull' },
     ],
     funded: [
       { text: "80% profit split", type: 'check' },
@@ -34,7 +33,6 @@ const PLAN_RULES = {
       { text: "3% daily drawdown limit (Hard Breach)", type: 'skull' },
       { text: "6% max drawdown limit (Hard Breach)", type: 'skull' },
       { text: "No martingale (Hard Breach)", type: 'skull' },
-      { text: "Friday overnight holding of Forex/Metal positions (XAUUSD, EURUSD etc.) after Friday 21:00 UTC will result in immediate breach.", type: 'skull' },
     ]
   },
   '2-step': {
@@ -46,7 +44,6 @@ const PLAN_RULES = {
       { text: "A single closed trade cannot lose more than 3% (Hard Breach)", type: 'skull' },
       { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
       { text: "You must trade for at least 5 different days", type: 'check' },
-      { text: "Friday overnight holding of Forex/Metal positions results in breach.", type: 'skull' },
     ],
     funded: [
       { text: "Keep 80% of all profits you make", type: 'check' },
@@ -57,7 +54,6 @@ const PLAN_RULES = {
       { text: "Do not lose more than 5% in a single day (Hard Breach)", type: 'skull' },
       { text: "Do not let your total losses reach 10% (Hard Breach)", type: 'skull' },
       { text: "Double-sizing after a loss (Martingale) is forbidden (Hard Breach)", type: 'skull' },
-      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
     ]
   },
   '3-step': {
@@ -69,7 +65,6 @@ const PLAN_RULES = {
       { text: "Do not let your total losses reach 8%", type: 'skull' },
       { text: "A single closed trade cannot lose more than 3%", type: 'skull' },
       { text: "3 minute gap between trades, 2 minute minimum hold", type: 'warning' },
-      { text: "Friday overnight holding of Forex/Metal positions results in breach.", type: 'skull' },
     ],
     funded: [
       { text: "Keep 80% to 100% of all profits you make", type: 'check' },
@@ -78,7 +73,6 @@ const PLAN_RULES = {
       { text: "Do not lose more than 4% in a single day (Hard Breach)", type: 'skull' },
       { text: "Do not let your total losses reach 8% (Hard Breach)", type: 'skull' },
       { text: "No Martingale allowed (Hard Breach)", type: 'skull' },
-      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
     ]
   },
   'instant': {
@@ -97,7 +91,6 @@ const PLAN_RULES = {
       { text: "3% daily drawdown (Hard Breach)", type: 'skull' },
       { text: "4% max drawdown (Hard Breach)", type: 'skull' },
       { text: "3% max loss per single trade (Hard Breach)", type: 'skull' },
-      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
       { text: "Must complete at least 5 trades per instrument for payout eligibility", type: 'check' },
     ]
   },
@@ -114,7 +107,6 @@ const PLAN_RULES = {
       { text: "Do not lose more than 3% in a single day (Hard Breach)", type: 'skull' },
       { text: "Total loss limit: 5% (Hard Breach)", type: 'skull' },
       { text: "Wait at least 3 minutes between trades and hold for 2+ minutes", type: 'warning' },
-      { text: "Friday overnight holding of Forex/Metal positions results in immediate breach.", type: 'skull' },
       { text: "Must complete at least 5 trades per instrument for payout eligibility", type: 'check' },
       { text: "No Martingale allowed (Hard Breach)", type: 'skull' },
     ]
@@ -197,7 +189,6 @@ export default function RulesPage() {
                       <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Maximum Drawdown limit reached</li>
                       <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Unauthorized Martingale / Grid trading</li>
                       <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Frequency or Duration violation</li>
-                      <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-destructive" /> Friday overnight holding of Forex/Metals</li>
                    </ul>
                 </Card>
 

@@ -354,3 +354,63 @@ export async function cleanupDemoAccountsAction() {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * INSTITUTIONAL AUDIT: Scans and optionally resets Friday rule breaches
+ */
+export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) {
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  try {
+    const db = getAdminDb();
+    const blownSnap = await db.collection('demoAccounts')
+      .where('status', '==', 'blown')
+      .get();
+    
+    const affected: any[] = [];
+    const batch = db.batch();
+
+    blownSnap.docs.forEach(doc => {
+      const data = doc.data();
+      const reason = (data.breachReason || "").toLowerCase();
+      
+      if (reason.includes("friday overnight")) {
+        affected.push({
+          id: doc.id,
+          email: data.email || 'unknown',
+          userId: data.userId,
+          balance: data.balance,
+          breachedAt: data.blownAt ? data.blownAt.toDate().toISOString() : 'unknown'
+        });
+
+        if (!dryRun) {
+          batch.update(doc.ref, {
+            status: 'active',
+            breachReason: null,
+            blownAt: null,
+            updatedAt: FieldValue.serverTimestamp()
+          });
+
+          // Also remove the breach log record
+          const breachRef = db.collection('breaches')
+            .where('accountId', '==', doc.id)
+            .limit(1);
+          
+          // Note: Batch cannot easily delete based on query without fetching.
+          // For simplicity in this logic, we update the user status too.
+          batch.update(db.collection('users').doc(data.userId), {
+            accountStatus: 'active',
+            updatedAt: FieldValue.serverTimestamp()
+          });
+        }
+      }
+    });
+
+    if (!dryRun && affected.length > 0) {
+      await batch.commit();
+    }
+
+    return { success: true, affected: serializeData(affected), dryRun };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}

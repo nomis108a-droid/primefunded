@@ -6,7 +6,7 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 /**
  * @fileOverview Institutional SL/TP & Gross Risk Engine
  * Continuous monitoring of open positions, realized gross loss, and force-liquidation.
- * Updated to handle 30-day account expiration for Instant Funding only.
+ * Updated to remove Friday overnight holding rule.
  */
 
 const CONTRACT_SIZE: Record<string, number> = {
@@ -51,7 +51,6 @@ export async function GET(req: NextRequest) {
     let sltpClosed = 0;
 
     const now = new Date();
-    const isFridayNight = now.getUTCDay() === 5 && now.getUTCHours() >= 20;
 
     for (const accDoc of activeAccountsSnap.docs) {
       const acc = accDoc.data();
@@ -103,17 +102,6 @@ export async function GET(req: NextRequest) {
       let floatingPnl = 0;
       let floatingNegativePnl = 0;
       
-      // ── FRIDAY OVERNIGHT WARNING (Instant Plans) ─────
-      if (isFridayNight && trades.length > 0 && (planKey === 'instant-funding' || planKey === 'instant-pro')) {
-        await db.collection('users').doc(acc.userId).collection('notifications').add({
-          title: '⚠️ Friday Overnight Holding',
-          message: 'Friday overnight holding detected - close positions before market close to avoid soft breach.',
-          type: 'risk_warning',
-          isRead: false,
-          createdAt: FieldValue.serverTimestamp()
-        });
-      }
-
       for (const t of trades) {
         const pnl = calculateTradePnl(t, prices[t.symbol]);
         

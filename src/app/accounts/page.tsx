@@ -9,10 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { ShieldCheck, Plus, Terminal, Skull, AlertCircle, Activity, ChevronRight } from 'lucide-react';
+import { ShieldCheck, Plus, Terminal, Skull, AlertCircle, Activity, ChevronRight, Clock, History } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 
 export default function AccountsPage() {
   const { user } = useAuth();
@@ -107,6 +107,16 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
   const pnl = (acc.balance || 0) - (acc.startBalance || 0);
   const isBlown = acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated';
   
+  const lifespan = useMemo(() => {
+    if (!acc.createdAt) return 'Unknown';
+    const start = acc.createdAt.toDate ? acc.createdAt.toDate() : new Date(acc.createdAt);
+    const end = isBlown && acc.blownAt 
+      ? (acc.blownAt.toDate ? acc.blownAt.toDate() : new Date(acc.blownAt)) 
+      : new Date();
+    const days = differenceInDays(end, start);
+    return `${days} Days`;
+  }, [acc, isBlown]);
+
   return (
     <Card className={cn(
       "border-border/50 transition-all shadow-xl",
@@ -127,13 +137,18 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-1">Node ID: {acc.id?.slice(0, 12).toUpperCase()}</p>
           </div>
         </div>
-        <Badge className={cn(
-          "uppercase text-[10px] font-black tracking-widest px-3 py-1",
-          acc.status === 'passed' ? "bg-amber-500 text-white" :
-          isBlown ? "bg-destructive text-white" : "bg-primary text-black"
-        )}>
-          {isBlown ? 'BLOWN' : (acc.status || 'Active')}
-        </Badge>
+        <div className="text-right flex flex-col items-end gap-2">
+          <Badge className={cn(
+            "uppercase text-[10px] font-black tracking-widest px-3 py-1",
+            acc.status === 'passed' ? "bg-amber-500 text-white" :
+            isBlown ? "bg-destructive text-white" : "bg-primary text-black"
+          )}>
+            {isBlown ? 'BLOWN' : (acc.status || 'Active')}
+          </Badge>
+          <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+            <Clock className="w-3 h-3" /> Lifespan: {lifespan}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -142,6 +157,20 @@ function AccountCard({ acc, isActiveSection }: { acc: any, isActiveSection: bool
            <AccountMetric label="Net Performance" value={`${pnl >= 0 ? '+' : ''}$${pnl.toLocaleString()}`} color={pnl >= 0 ? 'text-emerald-500' : 'text-destructive'} />
            <AccountMetric label="Target Status" value={`$${(acc.profitTarget || 0).toLocaleString()}`} />
         </div>
+
+        {isBlown && acc.breachReason && (
+          <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 space-y-3">
+             <div className="flex items-center gap-2 text-destructive font-black text-[10px] uppercase tracking-widest">
+                <AlertCircle className="w-4 h-4" /> Risk Breach Violation Detected
+             </div>
+             <p className="text-xs text-destructive/90 leading-relaxed font-medium bg-destructive/5 p-3 rounded-lg border border-destructive/10">
+                {acc.breachReason}
+             </p>
+             <div className="flex items-center gap-2 text-[9px] text-muted-foreground uppercase font-bold italic">
+                <History className="w-3 h-3" /> Account terminated on {acc.blownAt ? format(acc.blownAt.toDate(), 'PPP p') : 'Unknown Date'}
+             </div>
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           {isActiveSection && !isBlown ? (

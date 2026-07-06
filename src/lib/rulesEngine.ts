@@ -30,8 +30,6 @@ const CONTRACT_SIZE: Record<string, number> = {
   BNBUSD: 1, DOGEUSD: 1000, ADAUSD: 1000
 };
 
-const FOREX_METAL_SYMBOLS = ['XAUUSD', 'XAGUSD', 'XPTUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'USDCAD', 'NZDUSD'];
-
 function getTradeDate(time: any) {
   if (!time) return null;
   if (time.toDate) return time.toDate();
@@ -179,23 +177,6 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
-  // ── RULE: Friday Overnight Holding (Forex/Metal Only) ──
-  if (!breachReason && universal.noFridayOvernightHolding && openTrades.length > 0) {
-    const now = new Date();
-    const isFridayNight = now.getUTCDay() === 5 && now.getUTCHours() >= 21;
-    const isWeekend = now.getUTCDay() === 6 || now.getUTCDay() === 0;
-    const isMondayEarly = now.getUTCDay() === 1 && now.getUTCHours() < 2;
-
-    if (isFridayNight || isWeekend || isMondayEarly) {
-      const forexMetalOpenTrades = openTrades.filter(t => 
-        FOREX_METAL_SYMBOLS.includes(t.symbol?.toUpperCase() || '')
-      );
-      if (forexMetalOpenTrades.length > 0) {
-        breachReason = "Friday overnight violation: Open Forex/Metal positions detected after market close (Friday 21:00 UTC). Crypto positions are not affected.";
-      }
-    }
-  }
-
   // ── RULE: Execution Frequency (3 minutes) ──
   if (!breachReason) {
     const sortedByOpen = [...trades].sort((a, b) => 
@@ -213,7 +194,7 @@ export async function auditDemoAccount(accountId: string) {
   }
 
   // ── RULE: No Martingale ──
-  if (!breachReason && universal.noFridayOvernightHolding) { // Use this property or add specific martingale config
+  if (!breachReason) {
     const symGroups: Record<string, TradeRecord[]> = {};
     trades.forEach(t => {
       const s = t.symbol || '';
