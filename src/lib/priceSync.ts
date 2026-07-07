@@ -25,6 +25,10 @@ let isSyncing = false;
 export function startGlobalPriceSync() {
   try {
     const rtdb = getAdminRtdb();
+    if (!rtdb) {
+      console.warn('[PriceSync] RTDB unavailable. Global sync disabled.');
+      return;
+    }
     const pricesRef = rtdb.ref('livePrices');
 
     console.log('[PriceSync] Initializing Global Memory Listener...');
@@ -73,16 +77,18 @@ export async function getAuthoritativePrice(symbol: string) {
   // 2. Check RTDB Direct (Shared high-frequency buffer between all instances)
   try {
     const rtdb = getAdminRtdb();
-    const snap = await rtdb.ref(`livePrices/${sym}`).get();
-    if (snap.exists()) {
-      const tick = snap.val();
-      const tickAge = now - (tick.updatedAt || 0);
-      if (tickAge < 5000) {
-        // Hydrate local memory for subsequent calls
-        const payload = { ...tick, updatedAt: tick.updatedAt };
-        if (isCrypto) setLatestCoinbaseTick(sym, payload);
-        else setLatestOandaTick(sym, payload);
-        return { ...tick, source: 'rtdb' };
+    if (rtdb) {
+      const snap = await rtdb.ref(`livePrices/${sym}`).get();
+      if (snap.exists()) {
+        const tick = snap.val();
+        const tickAge = now - (tick.updatedAt || 0);
+        if (tickAge < 5000) {
+          // Hydrate local memory for subsequent calls
+          const payload = { ...tick, updatedAt: tick.updatedAt };
+          if (isCrypto) setLatestCoinbaseTick(sym, payload);
+          else setLatestOandaTick(sym, payload);
+          return { ...tick, source: 'rtdb' };
+        }
       }
     }
   } catch (e) {
@@ -140,7 +146,9 @@ export async function getAuthoritativePrice(symbol: string) {
     broadcastToRtdb({ [sym]: payload });
     // Throttled Firestore update
     const db = getAdminDb();
-    db.collection('livePrices').doc(sym).set({ ...payload, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+    if (db) {
+      db.collection('livePrices').doc(sym).set({ ...payload, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+    }
     
     return { ...payload, source: 'forced-rest' };
   }
@@ -148,11 +156,13 @@ export async function getAuthoritativePrice(symbol: string) {
   // 4. Final Fallback: Firestore (Likely stale, but prevents null return)
   try {
     const db = getAdminDb();
-    const snap = await db.collection('livePrices').doc(sym).get();
-    if (snap.exists) {
-      const data = snap.data()!;
-      const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
-      return { ...data, updatedAt: ts, source: 'firestore' };
+    if (db) {
+      const snap = await db.collection('livePrices').doc(sym).get();
+      if (snap.exists) {
+        const data = snap.data()!;
+        const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
+        return { ...data, updatedAt: ts, source: 'firestore' };
+      }
     }
   } catch (e) {}
 
@@ -163,6 +173,7 @@ export async function getAuthoritativePrice(symbol: string) {
  * Institutional SL/TP Watcher
  */
 async function checkTpSlHits(db: any) {
+  if (!db) return;
   try {
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
     if (openTradesSnap.empty) return;
@@ -224,6 +235,10 @@ export async function syncPricesAndAudit() {
   isSyncing = true;
   try {
     const db = getAdminDb();
+    if (!db) {
+       console.warn('[PriceSync] DB unavailable for audit.');
+       return { error: 'Database unavailable' };
+    }
     await checkTpSlHits(db);
     const result = await auditActiveOpenPositions();
     return { success: true, ...result };

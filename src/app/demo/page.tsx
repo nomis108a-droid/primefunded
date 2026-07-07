@@ -47,9 +47,6 @@ const TIMEFRAMES = [
   { label: '1D', value: '1day', seconds: 86400 },
 ];
 
-/**
- * Institutional Component: Candle Countdown Timer
- */
 const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }) {
   const [timeLeft, setTimeLeft] = useState("");
 
@@ -92,9 +89,6 @@ const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }
   );
 });
 
-/**
- * Institutional Order Panel Content
- */
 interface OrderPanelProps {
   currentAccountId: string | null;
   setCurrentAccountId: (id: string) => void;
@@ -261,7 +255,6 @@ export default function DemoPage() {
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
   
-  // High-frequency bucketing refs (Institutional Grade)
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
   const currentHighRef = useRef<number>(0);
@@ -269,7 +262,6 @@ export default function DemoPage() {
 
   useEffect(() => { setHasMounted(true); }, []);
 
-  // Market Data
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
   
@@ -286,14 +278,10 @@ export default function DemoPage() {
   useEffect(() => {
     if (activePrice && selectedSymbol) {
       const sym = selectedSymbol.toUpperCase().trim();
-      setFusedPrices(prev => ({
-        ...prev,
-        [sym]: activePrice
-      }));
+      setFusedPrices(prev => ({ ...prev, [sym]: activePrice }));
     }
   }, [activePrice, selectedSymbol]);
 
-  // Accounts & Trades
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
   const activeAccounts = useMemo(() => accounts.filter(a => a.status === 'active' || a.status === 'passed'), [accounts]);
@@ -310,33 +298,22 @@ export default function DemoPage() {
   const calculateTradePnL = useCallback((trade: any) => {
     const symbolUpper = trade.symbol.toUpperCase().trim();
     const pData = fusedPrices[symbolUpper];
-    if (!pData) return { pnl: 0, pct: 0 };
+    if (!pData || !pData.price) return { pnl: 0, pct: 0 };
     const currentPrice = trade.type === 'buy' ? (pData.bid || pData.price) : (pData.ask || pData.price);
     const diff = trade.type === 'buy' ? currentPrice - trade.openPrice : trade.openPrice - currentPrice;
     const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
-  // Chart Init - Critical Fix: Added authLoading to dependencies to ensure ref is bound
   useEffect(() => {
-    if (!hasMounted) {
-      console.log("[Chart-Init] Skipping: Component not mounted");
-      return;
-    }
-    if (authLoading) {
-      console.log("[Chart-Init] Skipping: Auth still loading (waiting for UI render)");
-      return;
-    }
-    if (!chartContainerRef.current) {
-      console.log("[Chart-Init] Skipping: Container Ref null (UI might not have rendered ref yet)");
-      return;
+    if (!hasMounted || authLoading || !chartContainerRef.current) {
+       console.log('[Chart-Init] Skipping instantiation: hasMounted=', hasMounted, 'authLoading=', authLoading, 'ref=', !!chartContainerRef.current);
+       return;
     }
     
-    console.log(`[Chart-Init] Initializing Chart for ${selectedSymbol}`);
+    console.log('[Chart-Init] Creating chart instance for', selectedSymbol);
     setIsChartReady(false);
     priceLinesRef.current.clear();
-    
-    // Clear Ref state for new symbol
     lastCandleTimeRef.current = 0;
     lastOpenPriceRef.current = 0;
     currentHighRef.current = 0;
@@ -359,7 +336,6 @@ export default function DemoPage() {
 
     chartInstanceRef.current = chart;
     mainSeriesRef.current = series;
-    console.log(`[Chart-Init] Chart Ready for ${selectedSymbol}`);
     setIsChartReady(true);
 
     const handleResize = () => { if (chartInstanceRef.current) chartInstanceRef.current.applyOptions({ width: chartContainerRef.current!.clientWidth, height: chartContainerRef.current!.clientHeight }); };
@@ -367,29 +343,24 @@ export default function DemoPage() {
     return () => { window.removeEventListener('resize', handleResize); if (chartInstanceRef.current) chartInstanceRef.current.remove(); };
   }, [selectedSymbol, hasMounted, authLoading]);
 
-  // Stall Diagnostic Guard
+  // Watchdog timer for chart load
   useEffect(() => {
-    if (!isChartReady && isChartLoading && hasMounted && !authLoading) {
-      const timer = setTimeout(() => {
-        console.error(`[Chart-Stall] Chart failed to load for ${selectedSymbol} after 5s. Ready: ${isChartReady}, Container: ${!!chartContainerRef.current}`);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [isChartReady, isChartLoading, selectedSymbol, hasMounted, authLoading]);
+    if (!hasMounted || authLoading) return;
+    const timeout = setTimeout(() => {
+      if (!isChartReady) {
+        console.error('[Chart-Stall] Chart failed to load for', selectedSymbol, 'after 5s. Ready:', isChartReady, 'Container:', !!chartContainerRef.current);
+      }
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [selectedSymbol, isChartReady, hasMounted, authLoading]);
 
-  // History Load
   useEffect(() => {
-    if (!isChartReady || !mainSeriesRef.current) {
-      console.log(`[Chart-History] Waiting for ChartReady before fetching for ${selectedSymbol}`);
-      return;
-    }
+    if (!isChartReady || !mainSeriesRef.current) return;
     setIsChartLoading(true);
     
-    const fetchHistory = async () => {
-      console.log(`[Chart-History] Fetching history for ${selectedSymbol} (${selectedInterval})`);
-      try {
-        const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
-        const data = await res.json();
+    fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`)
+      .then(res => res.json())
+      .then(data => {
         if (data.candles && mainSeriesRef.current) {
           mainSeriesRef.current.setData(data.candles);
           if (data.candles.length > 0) {
@@ -400,51 +371,32 @@ export default function DemoPage() {
             currentLowRef.current = last.low;
           }
           chartInstanceRef.current?.timeScale().fitContent();
-          console.log(`[Chart-History] History loaded successfully for ${selectedSymbol}`);
         }
-      } catch(e) {
-        console.warn('[Chart-History] Loading fail-safe triggered. Using existing state.');
-      } finally { 
-        setIsChartLoading(false); 
-      }
-    };
-    fetchHistory();
+      })
+      .catch(() => {})
+      .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // Tick Stream Integration (Hardened Bucketing V5 - Strict OHLC Accumulation)
   useEffect(() => {
-    if (activePrice && mainSeriesRef.current && isChartReady) {
+    if (activePrice && activePrice.price && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
-        const map: Record<string, number> = {
-          '1min': 60, '5min': 300, '15min': 900, '30min': 1800,
-          '1h': 3600, '4h': 14400, '1day': 86400
-        };
+        const map: Record<string, number> = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 };
         return map[val] || 60;
       };
 
       const intervalSec = getIntervalSeconds(selectedInterval);
-      
-      // Use tick's own timestamp for authoritative bucketing if available
       const tickTime = activePrice.time || (activePrice.updatedAt ? Math.floor(new Date(activePrice.updatedAt).getTime() / 1000) : Math.floor(Date.now() / 1000));
+      
+      if (isNaN(tickTime)) return;
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
       
       if (bucketTime > lastCandleTimeRef.current) {
-        // NEW CANDLE BOUNDARY CROSSED
-        mainSeriesRef.current.update({
-          time: bucketTime as any,
-          open: activePrice.price,
-          high: activePrice.price,
-          low: activePrice.price,
-          close: activePrice.price
-        });
-        
+        mainSeriesRef.current.update({ time: bucketTime as any, open: activePrice.price, high: activePrice.price, low: activePrice.price, close: activePrice.price });
         lastCandleTimeRef.current = bucketTime;
         lastOpenPriceRef.current = activePrice.price;
         currentHighRef.current = activePrice.price;
         currentLowRef.current = activePrice.price;
       } else if (bucketTime === lastCandleTimeRef.current) {
-        // UPDATE CURRENT CANDLE OHLC
-        // Use explicit 0 checks to ensure we correctly accumulate the high/low range
         if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
         if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
         if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
@@ -452,18 +404,11 @@ export default function DemoPage() {
         currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
         currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
         
-        mainSeriesRef.current.update({
-          time: bucketTime as any,
-          open: lastOpenPriceRef.current,
-          high: currentHighRef.current,
-          low: currentLowRef.current,
-          close: activePrice.price
-        });
+        mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: activePrice.price });
       }
     }
   }, [activePrice, isChartReady, selectedInterval]);
 
-  // Trade Overlays (Lines + Markers)
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
     
@@ -490,22 +435,10 @@ export default function DemoPage() {
 
       if (!lines || lines.length !== expectedLineCount) {
         if (lines) lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
-        
-        const entry = mainSeriesRef.current!.createPriceLine({ 
-          price: trade.openPrice, color: '#11b3f5', lineStyle: LineStyle.Dashed, axisLabelVisible: true, title 
-        });
+        const entry = mainSeriesRef.current!.createPriceLine({ price: trade.openPrice, color: '#11b3f5', lineStyle: LineStyle.Dashed, axisLabelVisible: true, title });
         const newLines = [entry];
-        
-        if (hasSl) {
-          newLines.push(mainSeriesRef.current!.createPriceLine({ 
-            price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' 
-          }));
-        }
-        if (hasTp) {
-          newLines.push(mainSeriesRef.current!.createPriceLine({ 
-            price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' 
-          }));
-        }
+        if (hasSl) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' }));
+        if (hasTp) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' }));
         priceLinesRef.current.set(trade.id, newLines);
       } else {
         lines[0].applyOptions({ title });
@@ -515,54 +448,21 @@ export default function DemoPage() {
     const markers = currentSymbolTrades.map(t => {
       const tDate = getTradeDate(t.openedAt);
       if (!tDate) return null;
-      return {
-        time: Math.floor(tDate.getTime() / 1000) as any,
-        position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
-        color: t.type === 'buy' ? '#10b981' : '#ef4444',
-        shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
-        text: t.type.toUpperCase(),
-        size: 1
-      };
+      return { time: Math.floor(tDate.getTime() / 1000) as any, position: t.type === 'buy' ? 'belowBar' : 'aboveBar', color: t.type === 'buy' ? '#10b981' : '#ef4444', shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown', text: t.type.toUpperCase(), size: 1 };
     }).filter(Boolean);
 
     mainSeriesRef.current.setMarkers(markers as any);
-
   }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
     setActionLoading(true);
     const witness = type === 'buy' ? activePrice.ask : activePrice.bid;
-
-    user.getIdToken().then(token => {
-      return fetch('/api/terminal/trades', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ 
-          accountId: selectedAccount.id, 
-          symbol: selectedSymbol, 
-          type, 
-          lots: parseFloat(lotsInput), 
-          sl: sl ? parseFloat(sl) : null, 
-          tp: tp ? parseFloat(tp) : null,
-          witnessPrice: witness
-        })
-      });
-    })
-    .then(async res => {
-      const data = await res.json();
-      if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" });
-      else { 
-        toast({ title: "✓ Position Opened" }); 
-        setIsOrderSheetOpen(false); 
-      }
-    })
-    .catch(e => {
-      toast({ title: "Network Error", variant: "destructive" });
-    })
-    .finally(() => {
-      setActionLoading(false);
-    });
+    const token = await user.getIdToken();
+    fetch('/api/terminal/trades', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ accountId: selectedAccount.id, symbol: selectedSymbol, type, lots: parseFloat(lotsInput), sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null, witnessPrice: witness }) })
+    .then(async res => { const data = await res.json(); if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" }); else { toast({ title: "✓ Position Opened" }); setIsOrderSheetOpen(false); } })
+    .catch(() => { toast({ title: "Network Error", variant: "destructive" }); })
+    .finally(() => { setActionLoading(false); });
   }
 
   const closeTrade = async (tradeId: string) => {
@@ -570,20 +470,10 @@ export default function DemoPage() {
     setActionLoading(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
       if (res.ok) toast({ title: "✓ Position Closed" });
-      else {
-        const data = await res.json();
-        throw new Error(data.error || "Close failed");
-      }
-    } catch(e: any) { 
-      toast({ title: "Error", description: e.message, variant: "destructive" }); 
-    } finally { 
-      setActionLoading(false); 
-    }
+      else { const data = await res.json(); throw new Error(data.error || "Close failed"); }
+    } catch(e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setActionLoading(false); }
   };
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
@@ -598,18 +488,10 @@ export default function DemoPage() {
           </Link>
           <div className="flex items-center gap-1">
              <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
-               <SelectTrigger className="flex items-center gap-2 px-2 py-1 bg-white/5 rounded border border-white/5 h-8 text-[10px] font-black text-white tracking-widest outline-none ring-0">
-                  <SelectValue />
-               </SelectTrigger>
-               <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                 {SYMBOLS.map(sym => <SelectItem key={sym} value={sym} className="text-[10px] font-black">{sym}</SelectItem>)}
-               </SelectContent>
+               <SelectTrigger className="flex items-center gap-2 px-2 py-1 bg-white/5 rounded border border-white/5 h-8 text-[10px] font-black text-white tracking-widest outline-none ring-0"><SelectValue /></SelectTrigger>
+               <SelectContent className="bg-zinc-900 border-zinc-800 text-white">{SYMBOLS.map(sym => <SelectItem key={sym} value={sym} className="text-[10px] font-black">{sym}</SelectItem>)}</SelectContent>
              </Select>
-             <div className="flex items-center gap-0.5 ml-2">
-               {TIMEFRAMES.filter(tf => isMobile ? ['1m', '15m', '1H', '1D'].includes(tf.label) : true).map(tf => (
-                 <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button>
-               ))}
-             </div>
+             <div className="flex items-center gap-0.5 ml-2">{TIMEFRAMES.filter(tf => isMobile ? ['1m', '15m', '1H', '1D'].includes(tf.label) : true).map(tf => ( <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button> ))}</div>
              <CandleTimer interval={selectedInterval} />
           </div>
         </div>
@@ -636,121 +518,26 @@ export default function DemoPage() {
              <ToolButton active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} icon={<Pencil size={18} />} />
              <ToolButton active={activeTool === 'text'} onClick={() => setActiveTool('text')} icon={<Type size={18} />} />
              <ToolButton active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} icon={<LayoutGrid size={18} />} />
-             <div className="mt-auto space-y-1 pb-2">
-               <ToolButton active={false} onClick={() => setActiveTool('eraser')} icon={<Eraser size={16} />} />
-             </div>
+             <div className="mt-auto space-y-1 pb-2"><ToolButton active={false} onClick={() => setActiveTool('eraser')} icon={<Eraser size={16} />} /></div>
           </aside>
         )}
-
         <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
           <div className={cn("flex-1 relative overflow-hidden", isMobile && mobileTab !== 'chart' && "hidden")} ref={chartContainerRef}>
-            {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
-              <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} />
-            )}
-            {isChartLoading && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm">
-                <Loader2 className="animate-spin text-primary w-8 h-8" />
-                <p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p>
-              </div>
-            )}
+            {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
+            {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
           </div>
-          {!isMobile ? (
-            <PositionsPanel 
-              openTrades={openTrades} 
-              closedTrades={closedTrades} 
-              alerts={[]} 
-              livePrices={fusedPrices} 
-              closeTrade={closeTrade} 
-              deleteAlert={async () => {}} 
-              user={user} 
-              alertsLoading={false} 
-              panelOpen={bottomPanelOpen} 
-              setPanelOpen={setBottomPanelOpen} 
-            />
-          ) : (
-            <div className={cn("flex-1 overflow-y-auto bg-zinc-950", mobileTab === 'chart' && "hidden")}>
-               {mobileTab === 'positions' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="positions" />}
-               {mobileTab === 'history' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="history" />}
-            </div>
-          )}
+          {!isMobile ? ( <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} /> ) : ( <div className={cn("flex-1 overflow-y-auto bg-zinc-950", mobileTab === 'chart' && "hidden")}> {mobileTab === 'positions' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="positions" />} {mobileTab === 'history' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="history" />} </div> )}
         </div>
-
         {!isMobile && (
           <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
-            <div className="flex items-center gap-3 mb-8">
-               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10">
-                  <TrendingUp size={20} />
-               </div>
-               <div>
-                  <h2 className="text-sm font-headline font-bold text-white uppercase tracking-tight">Order Entry</h2>
-                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Institutional Node</p>
-               </div>
-            </div>
-            <OrderPanelContent 
-              currentAccountId={currentAccountId}
-              setCurrentAccountId={setCurrentAccountId}
-              selectedAccount={selectedAccount}
-              activeAccounts={activeAccounts}
-              activePrice={activePrice}
-              selectedSymbol={selectedSymbol}
-              lotsInput={lotsInput}
-              setLotsInput={setLotsInput}
-              sl={sl}
-              setSl={setSl}
-              tp={tp}
-              setTp={setTp}
-              actionLoading={actionLoading}
-              placeTrade={placeTrade}
-            />
+            <div className="flex items-center gap-3 mb-8"><div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10"><TrendingUp size={20} /></div><div><h2 className="text-sm font-headline font-bold text-white uppercase tracking-tight">Order Entry</h2><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Institutional Node</p></div></div>
+            <OrderPanelContent currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} selectedAccount={selectedAccount} activeAccounts={activeAccounts} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} sl={sl} setSl={setSl} tp={tp} setTp={setTp} actionLoading={actionLoading} placeTrade={placeTrade} />
           </aside>
         )}
       </div>
-
-      {isMobile && (
-        <nav className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around shrink-0 z-50">
-          <MobileNavButton active={mobileTab === 'chart'} onClick={() => setMobileTab('chart')} icon={<Activity size={20} />} label="Chart" />
-          <MobileNavButton active={false} onClick={() => setIsOrderSheetOpen(true)} icon={<LayoutGrid size={20} />} label="Trade" />
-          <MobileNavButton active={mobileTab === 'positions'} onClick={() => setMobileTab('positions')} icon={<History size={20} />} label="Active" />
-          <MobileNavButton active={mobileTab === 'account'} onClick={() => setMobileTab('account')} icon={<UserCircle size={20} />} label="Account" />
-        </nav>
-      )}
-
-      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
-        <SheetContent side="bottom" className="h-[85vh] bg-zinc-950 border-zinc-800 p-6">
-          <SheetHeader>
-            <SheetTitle className="text-white font-black font-headline italic uppercase flex items-center justify-between">
-              {selectedSymbol}
-              <Badge className="bg-primary text-black">LIVE EXECUTION</Badge>
-            </SheetTitle>
-          </SheetHeader>
-          <div className="mt-8 h-full">
-            <OrderPanelContent 
-              currentAccountId={currentAccountId}
-              setCurrentAccountId={setCurrentAccountId}
-              selectedAccount={selectedAccount}
-              activeAccounts={activeAccounts}
-              activePrice={activePrice}
-              selectedSymbol={selectedSymbol}
-              lotsInput={lotsInput}
-              setLotsInput={setLotsInput}
-              sl={sl}
-              setSl={setSl}
-              tp={tp}
-              setTp={setTp}
-              actionLoading={actionLoading}
-              placeTrade={placeTrade}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <ChartSettingsModal 
-        open={isSettingsOpen} 
-        onOpenChange={setIsSettingsOpen} 
-        settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} 
-        onSettingsChange={() => {}} 
-        onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} 
-      />
+      {isMobile && ( <nav className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around shrink-0 z-50"><MobileNavButton active={mobileTab === 'chart'} onClick={() => setMobileTab('chart')} icon={<Activity size={20} />} label="Chart" /><MobileNavButton active={false} onClick={() => setIsOrderSheetOpen(true)} icon={<LayoutGrid size={20} />} label="Trade" /><MobileNavButton active={mobileTab === 'positions'} onClick={() => setMobileTab('positions')} icon={<History size={20} />} label="Active" /><MobileNavButton active={mobileTab === 'account'} onClick={() => setMobileTab('account')} icon={<UserCircle size={20} />} label="Account" /></nav> )}
+      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}><SheetContent side="bottom" className="h-[85vh] bg-zinc-950 border-zinc-800 p-6"><SheetHeader><SheetTitle className="text-white font-black font-headline italic uppercase flex items-center justify-between">{selectedSymbol}<Badge className="bg-primary text-black">LIVE EXECUTION</Badge></SheetTitle></SheetHeader><div className="mt-8 h-full"><OrderPanelContent currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} selectedAccount={selectedAccount} activeAccounts={activeAccounts} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} sl={sl} setSl={setSl} tp={tp} setTp={setTp} actionLoading={actionLoading} placeTrade={placeTrade} /></div></SheetContent></Sheet>
+      <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} onSettingsChange={() => {}} onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} />
     </div>
   );
 }

@@ -16,12 +16,19 @@ export async function register() {
     const { syncPricesAndAudit, startGlobalPriceSync } = await import('@/lib/priceSync');
     const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
     const { startOandaStream, startOandaThrottledFirestoreWrite } = await import('@/lib/oandaStream');
-    const { isFirebaseAdminConfigured } = await import('@/lib/firebase-admin');
+    const { isFirebaseAdminConfigured, getAdminServices } = await import('@/lib/firebase-admin');
+
+    // Attempt to force initialization if not already configured
+    if (!isFirebaseAdminConfigured()) {
+       getAdminServices();
+    }
 
     if (!isFirebaseAdminConfigured()) {
-      console.warn('[Instrumentation] Firebase Admin is NOT fully configured. Background synchronization services will be suspended.');
+      console.warn('[Instrumentation] Firebase Admin unavailable. Background services will be suspended until config is detected.');
       return;
     }
+
+    console.log('[Instrumentation] Initializing background task registry...');
 
     // 1. Start Global Listener (All Instances)
     // This ensures every server node has a local memory buffer of the latest prices

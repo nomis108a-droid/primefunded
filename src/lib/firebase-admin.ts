@@ -9,16 +9,27 @@ import { getDatabase } from 'firebase-admin/database';
  * Supports explicit Service Account via Base64 or built-in Application Default Credentials.
  */
 
+let adminApp: App | null = null;
 let adminConfigured = false;
 
-function getAdminApp(): App {
+function getAdminApp(): App | null {
+  if (adminApp) return adminApp;
+
+  // Check if already initialized by another module
   const existingApp = getApps().find(a => a.name === 'pf-admin');
   if (existingApp) {
-    return existingApp;
+    adminApp = existingApp;
+    adminConfigured = true;
+    return adminApp;
   }
 
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID;
   const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+
+  if (!projectId) {
+    console.warn("[Firebase-Admin] WARNING: Project ID missing. Admin SDK limited.");
+    return null;
+  }
 
   const baseConfig = {
     projectId: projectId,
@@ -33,7 +44,6 @@ function getAdminApp(): App {
       const json = JSON.parse(decoded);
       
       if (json.private_key) {
-        // Sanitize the private key to ensure it's a valid PEM format
         json.private_key = json.private_key
           .replace(/\\n/g, '\n')
           .replace(/"/g, '')
@@ -41,50 +51,61 @@ function getAdminApp(): App {
       }
 
       console.log(`[Firebase-Admin] Initializing with explicit Service Account: ${json.client_email}`);
-      const app = initializeApp({
+      adminApp = initializeApp({
         credential: cert(json),
         ...baseConfig
       }, 'pf-admin');
       adminConfigured = true;
-      return app;
+      return adminApp;
     } catch (e: any) {
       console.warn("[Firebase-Admin] Base64 Parse Failed, falling back to ADC...");
     }
   }
 
-  // 2. Check for Application Default Credentials (ADC)
+  // 2. Check for Application Default Credentials (ADC) or Environment built-ins
   try {
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE || process.env.FIREBASE_CONFIG) {
       console.log(`[Firebase-Admin] Attempting ADC authentication for Project: ${projectId}`);
-      const app = initializeApp({
+      adminApp = initializeApp({
         credential: credential.applicationDefault(),
         ...baseConfig
       }, 'pf-admin');
       adminConfigured = true;
-      return app;
+      return adminApp;
     }
   } catch (err: any) {
     console.warn("[Firebase-Admin] ADC unavailable, trying final fallback...");
   }
 
   // 3. Final Fallback: Initialize with Project ID only (for Studio / Local previews)
-  // This allows background tasks to at least attempt connection.
-  console.log(`[Firebase-Admin] Fallback initialization for Project: ${projectId}`);
-  const app = initializeApp(baseConfig, 'pf-admin');
-  adminConfigured = true; 
-  return app;
+  try {
+    console.log(`[Firebase-Admin] Fallback initialization for Project: ${projectId}`);
+    adminApp = initializeApp(baseConfig, 'pf-admin');
+    adminConfigured = true; 
+    return adminApp;
+  } catch (e) {
+    console.error("[Firebase-Admin] FATAL: Initialization failed even with fallback.");
+    return null;
+  }
 }
 
 /**
  * Singleton service getters
  */
-export const getAdminDb = () => getFirestore(getAdminApp());
-export const getAdminAuth = () => getAuth(getAdminApp());
-export const getAdminRtdb = () => getDatabase(getAdminApp());
+export const getAdminDb = () => {
+  const app = getAdminApp();
+  return app ? getFirestore(app) : null;
+};
 
-export const adminDb = getAdminDb();
-export const adminAuth = getAdminAuth();
-export const adminRtdb = getAdminRtdb();
+export const getAdminAuth = () => {
+  const app = getAdminApp();
+  return app ? getAuth(app) : null;
+};
+
+export const getAdminRtdb = () => {
+  const app = getAdminApp();
+  return app ? getDatabase(app) : null;
+};
 
 /**
  * Export configuration status to allow other services to fail gracefully.
@@ -92,5 +113,7 @@ export const adminRtdb = getAdminRtdb();
 export const isFirebaseAdminConfigured = () => adminConfigured;
 
 export function getAdminServices() {
-  return { db: getAdminDb(), auth: getAdminAuth(), rtdb: getAdminRtdb() };
+  const app = getAdminApp();
+  if (!app) return null;
+  return { db: getFirestore(app), auth: getAuth(app), rtdb: getDatabase(app) };
 }
