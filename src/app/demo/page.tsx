@@ -286,10 +286,13 @@ export default function DemoPage() {
   }, [fusedPrices]);
 
   useEffect(() => {
-    if (!hasMounted || authLoading || !chartContainerRef.current) {
-      if (!isChartReady && hasMounted && !authLoading && !chartContainerRef.current) {
-        console.warn('[Chart-Init] Skipping: Container not found yet.');
-      }
+    if (!hasMounted || authLoading) {
+      console.log(`[Chart-Init] Skipping init: mounted=${hasMounted}, loading=${authLoading}`);
+      return;
+    }
+    
+    if (!chartContainerRef.current) {
+      console.log(`[Chart-Init] Skipping init: container ref is null`);
       return;
     }
     
@@ -307,11 +310,18 @@ export default function DemoPage() {
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
-      timeScale: { rightOffset: 20, barSpacing: 8, borderColor: '#27272a', timeVisible: true },
+      timeScale: { 
+        rightOffset: 20, 
+        barSpacing: 8, 
+        borderColor: '#27272a', 
+        timeVisible: true,
+        secondsVisible: false,
+      },
       priceScale: { borderColor: '#27272a', autoScale: true, mode: PriceScaleMode.Normal },
       crosshair: { mode: CrosshairMode.Normal },
       localization: {
         timeFormatter: (time: number) => {
+          // ENSURE labels are always strictly HH:mm
           const date = new Date(time * 1000);
           return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
         },
@@ -326,7 +336,7 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     mainSeriesRef.current = series;
     setIsChartReady(true);
-    console.log(`[Chart-Init] Chart ready for ${selectedSymbol}`);
+    console.log(`[Chart-Init] Chart READY state achieved for ${selectedSymbol}`);
 
     const handleResize = () => { 
       if (chartInstanceRef.current && chartContainerRef.current) {
@@ -363,6 +373,7 @@ export default function DemoPage() {
             lastOpenPriceRef.current = last.open;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
+            console.log(`[Chart-History] History loaded. Last candle time: ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -370,6 +381,18 @@ export default function DemoPage() {
       .catch((e) => console.error('[Chart-History] Fail:', e))
       .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
+
+  // STALL WATCHDOG
+  useEffect(() => {
+    if (hasMounted && !authLoading && !isChartReady) {
+      const timer = setTimeout(() => {
+        if (!isChartReady) {
+          console.error(`[Chart-Stall] Chart failed to load for ${selectedSymbol} after 5s. Ready: ${isChartReady}, Container: ${!!chartContainerRef.current}`);
+        }
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [hasMounted, authLoading, isChartReady, selectedSymbol]);
 
   useEffect(() => {
     if (activePrice && typeof activePrice.price === 'number' && mainSeriesRef.current && isChartReady) {
@@ -380,24 +403,27 @@ export default function DemoPage() {
 
       const intervalSec = getIntervalSeconds(selectedInterval);
       
-      // Precision normalization: convert all millisecond timestamps to Unix seconds
       const tickTimeRaw = activePrice.time || activePrice.updatedAt;
       let tickTime = 0;
       if (typeof tickTimeRaw === 'number') {
         tickTime = tickTimeRaw > 1000000000000 ? Math.floor(tickTimeRaw / 1000) : tickTimeRaw;
       } else if (tickTimeRaw instanceof Date) {
         tickTime = Math.floor(tickTimeRaw.getTime() / 1000);
-      } else if (typeof tickTimeRaw === 'string') {
-        tickTime = Math.floor(new Date(tickTimeRaw).getTime() / 1000);
       } else {
         tickTime = Math.floor(Date.now() / 1000);
       }
 
-      if (isNaN(tickTime) || tickTime <= 0) return;
+      // TIMESTAMP GUARDIAN: If tickTime is not a valid Unix epoch (less than 1 billion), correct it to current Unix time.
+      // This prevents "58483" raw numbers from appearing on the axis labels.
+      if (tickTime < 1000000000) {
+        tickTime = Math.floor(Date.now() / 1000);
+      }
+
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
       
       try {
         if (bucketTime > lastCandleTimeRef.current) {
+          console.log(`[Candle-Update] ${selectedSymbol} OPEN NEW BAR. Time: ${bucketTime}`);
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
             open: activePrice.price, 
@@ -410,7 +436,10 @@ export default function DemoPage() {
           currentHighRef.current = activePrice.price;
           currentLowRef.current = activePrice.price;
         } else if (bucketTime === lastCandleTimeRef.current) {
-          // Continuous candle building logic
+          // Cumulative High/Low Logic: VISIBLY BUILD BODY AND WICKS
+          const prevHigh = currentHighRef.current;
+          const prevLow = currentLowRef.current;
+          
           if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
           if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
@@ -418,6 +447,9 @@ export default function DemoPage() {
           currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
           currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
           
+          // DETAILED LOGGING: Track exact OHLC accumulation per tick
+          console.log(`[Candle-Update] ${selectedSymbol} TICK. OHLC: ${lastOpenPriceRef.current.toFixed(2)}/${currentHighRef.current.toFixed(2)}/${currentLowRef.current.toFixed(2)}/${activePrice.price.toFixed(2)} | Range: ${(currentHighRef.current - currentLowRef.current).toFixed(2)}`);
+
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
             open: lastOpenPriceRef.current, 
@@ -430,7 +462,7 @@ export default function DemoPage() {
         console.warn('[Chart-Update] Tick injection failed:', e);
       }
     }
-  }, [activePrice, isChartReady, selectedInterval]);
+  }, [activePrice, isChartReady, selectedInterval, selectedSymbol]);
 
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
