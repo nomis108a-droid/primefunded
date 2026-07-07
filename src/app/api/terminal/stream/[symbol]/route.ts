@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getLatestOandaTicks, setLatestOandaTick } from '@/lib/oandaStream';
 import { getLatestCoinbaseTicks, setLatestCoinbaseTick } from '@/lib/coinbaseStream';
-import { getAdminRtdb, getAdminDb } from '@/lib/firebase-admin';
+import { getAdminRtdb } from '@/lib/firebase-admin';
 import { broadcastToRtdb } from '@/lib/rtdbBroadcast';
-import { FieldValue } from 'firebase-admin/firestore';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * @fileOverview High-frequency SSE price stream handler (Hardened V2)
- * Optimized for stability and zero-latency delivery using a controlled loop.
+ * @fileOverview Generic high-frequency SSE price stream handler
+ * Optimized for Metals, Crypto, and Forex with a stable 150ms delivery loop.
  */
 
 export async function GET(
@@ -19,7 +18,11 @@ export async function GET(
   const { symbol: rawSymbol } = await params;
   const symbol = (rawSymbol || "").split(':')[0].toUpperCase().trim();
   const encoder = new TextEncoder();
+  
+  // Exhaustive asset class identification
   const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol);
+  const isMetal = ['XAUUSD', 'XAGUSD', 'XPTUSD'].includes(symbol);
+  const isForex = !isCrypto && !isMetal;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -27,12 +30,11 @@ export async function GET(
       let lastManualPoll = 0;
       let isClosed = false;
 
-      // Immediate "connected" signal to UI
+      // Connection confirmation
       try {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbol })}\n\n`));
       } catch (e) {}
 
-      // Heartbeat to prevent proxy timeouts (Vercel/Cloudflare)
       const heartbeat = setInterval(() => {
         if (isClosed) return;
         try {
@@ -42,7 +44,6 @@ export async function GET(
         }
       }, 10000);
 
-      // Recursive loop for stable 150ms intervals without stacking
       const pushTick = async () => {
         if (req.signal.aborted || isClosed) {
           isClosed = true;
@@ -51,10 +52,10 @@ export async function GET(
           return;
         }
 
-        // 1. Check global memory buffer
+        // 1. Fetch from high-frequency memory buffer
         let tick = getLatestOandaTicks()[symbol] || getLatestCoinbaseTicks()[symbol];
         
-        // 2. SELF-HEALING: If no tick in memory, poll manually (Throttled to 3s)
+        // 2. Self-Healing: Trigger manual poll if memory is empty
         if (!tick && (Date.now() - lastManualPoll > 3000)) {
           lastManualPoll = Date.now();
           try {
@@ -79,43 +80,43 @@ export async function GET(
                   }
                 }
               }
-            } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
-              const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
+            } else {
+              // Forex or Metal via OANDA
+              const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'XAGUSD': 'XAG_USD', 'XPTUSD': 'XPT_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
               const instr = oMap[symbol] || symbol;
-              const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
-                headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
-                signal: AbortSignal.timeout(2000),
-                cache: 'no-store'
-              });
-              if (res.ok) {
-                const d = await res.json();
-                const p = d.candles?.[0]?.mid;
-                if (p) {
-                  const o = parseFloat(p.o);
-                  const spread = symbol.includes('JPY') ? 0.015 : symbol.includes('XAU') ? 0.25 : 0.00015;
-                  tick = { 
-                    bid: +(o - spread/2).toFixed(5), 
-                    ask: +(o + spread/2).toFixed(5), 
-                    price: o,
-                    updatedAt: Date.now()
-                  };
+              if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
+                const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
+                  headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
+                  signal: AbortSignal.timeout(2000),
+                  cache: 'no-store'
+                });
+                if (res.ok) {
+                  const d = await res.json();
+                  const p = d.candles?.[0]?.mid;
+                  if (p) {
+                    const o = parseFloat(p.o);
+                    const spread = symbol.includes('JPY') ? 0.015 : (symbol.includes('XAU') ? 0.25 : 0.00015);
+                    tick = { 
+                      bid: +(o - spread/2).toFixed(5), 
+                      ask: +(o + spread/2).toFixed(5), 
+                      price: o,
+                      updatedAt: Date.now()
+                    };
+                  }
                 }
               }
             }
 
-            // Push manual poll to memory for other instances
             if (tick && tick.price) {
               if (isCrypto) setLatestCoinbaseTick(symbol, tick);
               else setLatestOandaTick(symbol, tick);
               broadcastToRtdb({ [symbol]: tick });
             }
-          } catch (e) {
-            console.error('[SSE-SelfHealing] Sync error:', e);
-          }
+          } catch (e) {}
         }
         
-        // 3. Push to client if price changed
-        if (tick && tick.price && Math.abs(tick.price - lastPrice) > 0.0000001) {
+        // 3. Emit if price changed
+        if (tick && tick.price && Math.abs(tick.price - lastPrice) > 0.00000001) {
           lastPrice = tick.price;
           try {
             const data = JSON.stringify({ 

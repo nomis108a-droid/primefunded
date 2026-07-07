@@ -49,7 +49,6 @@ const TIMEFRAMES = [
 
 /**
  * Institutional Component: Candle Countdown Timer
- * Synchronized with the active timeframe.
  */
 const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }) {
   const [timeLeft, setTimeLeft] = useState("");
@@ -57,13 +56,8 @@ const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }
   useEffect(() => {
     const getIntervalSeconds = (val: string) => {
       const map: Record<string, number> = {
-        '1min': 60,
-        '5min': 300,
-        '15min': 900,
-        '30min': 1800,
-        '1h': 3600,
-        '4h': 14400,
-        '1day': 86400
+        '1min': 60, '5min': 300, '15min': 900, '30min': 1800,
+        '1h': 3600, '4h': 14400, '1day': 86400
       };
       return map[val] || 60;
     };
@@ -174,7 +168,7 @@ const OrderPanelContent = memo(({
               <button onClick={() => setLotsInput(String(Math.max(0.01, (parseFloat(lotsInput) || 0) - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
             </div>
             <div className="absolute inset-y-0 right-0 flex items-center px-3">
-              <button onClick={() => setLotsInput(String((parseFloat(lotsInput) || 0 + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
+              <button onClick={() => setLotsInput(String(((parseFloat(lotsInput) || 0) + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
             </div>
           </div>
         </div>
@@ -267,9 +261,11 @@ export default function DemoPage() {
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
   
-  // High-frequency bucketing refs
+  // High-frequency bucketing refs (Institutional Grade)
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
+  const currentHighRef = useRef<number>(0);
+  const currentLowRef = useRef<number>(0);
 
   useEffect(() => { setHasMounted(true); }, []);
 
@@ -281,7 +277,6 @@ export default function DemoPage() {
     streamTick?.price ? streamTick : livePrices[selectedSymbol.toUpperCase()] || null
   , [streamTick, livePrices, selectedSymbol]);
 
-  // Persistent Price Accumulator
   const [fusedPrices, setFusedPrices] = useState<Record<string, any>>({});
 
   useEffect(() => {
@@ -327,7 +322,8 @@ export default function DemoPage() {
     if (!chartContainerRef.current) return;
     setIsChartReady(false);
     priceLinesRef.current.clear();
-    lastCandleTimeRef.current = 0; // Reset bucketing on symbol change
+    lastCandleTimeRef.current = 0;
+    lastOpenPriceRef.current = 0;
     
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter' },
@@ -365,8 +361,11 @@ export default function DemoPage() {
         if (data.candles && mainSeriesRef.current) {
           mainSeriesRef.current.setData(data.candles);
           if (data.candles.length > 0) {
-            lastCandleTimeRef.current = data.candles[data.candles.length - 1].time;
-            lastOpenPriceRef.current = data.candles[data.candles.length - 1].open;
+            const last = data.candles[data.candles.length - 1];
+            lastCandleTimeRef.current = last.time;
+            lastOpenPriceRef.current = last.open;
+            currentHighRef.current = last.high;
+            currentLowRef.current = last.low;
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -379,7 +378,7 @@ export default function DemoPage() {
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // Tick Stream Integration (Hardened Bucketing V3)
+  // Tick Stream Integration (Hardened Bucketing V4 - Generic & Accurate)
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -394,9 +393,8 @@ export default function DemoPage() {
       const now = Math.floor(Date.now() / 1000);
       const bucketTime = Math.floor(now / intervalSec) * intervalSec;
       
-      // Determine if this tick starts a NEW candle or updates the CURRENT one
       if (bucketTime > lastCandleTimeRef.current) {
-        // NEW CANDLE: The clock has crossed the timeframe threshold
+        // NEW CANDLE BOUNDARY CROSSED
         mainSeriesRef.current.update({
           time: bucketTime as any,
           open: activePrice.price,
@@ -406,21 +404,20 @@ export default function DemoPage() {
         });
         lastCandleTimeRef.current = bucketTime;
         lastOpenPriceRef.current = activePrice.price;
+        currentHighRef.current = activePrice.price;
+        currentLowRef.current = activePrice.price;
       } else {
-        // UPDATE CURRENT CANDLE: Same time bucket
-        // Note: Lightweight Charts will automatically update or add based on time.
-        // We use lastOpenPriceRef to ensure the opening price doesn't jitter.
+        // UPDATE CURRENT CANDLE OHLC
+        currentHighRef.current = Math.max(currentHighRef.current || activePrice.price, activePrice.price);
+        currentLowRef.current = Math.min(currentLowRef.current || activePrice.price, activePrice.price);
+        
         mainSeriesRef.current.update({
           time: bucketTime as any,
           open: lastOpenPriceRef.current || activePrice.price,
-          high: Math.max(activePrice.price, activePrice.price), // Chart logic handles global high
-          low: Math.min(activePrice.price, activePrice.price), // Chart logic handles global low
+          high: currentHighRef.current,
+          low: currentLowRef.current,
           close: activePrice.price
         });
-        
-        // If it was the first tick of a missing history gap, set the open price
-        if (!lastOpenPriceRef.current) lastOpenPriceRef.current = activePrice.price;
-        if (!lastCandleTimeRef.current) lastCandleTimeRef.current = bucketTime;
       }
     }
   }, [activePrice, isChartReady, selectedInterval]);
@@ -433,7 +430,6 @@ export default function DemoPage() {
     const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === sym);
     const activeIds = new Set(currentSymbolTrades.map(t => t.id));
     
-    // 1. Clear dead trade lines
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
         lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
@@ -441,7 +437,6 @@ export default function DemoPage() {
       }
     });
 
-    // 2. Reconcile active lines
     currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
       const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
@@ -480,7 +475,7 @@ export default function DemoPage() {
       const tDate = getTradeDate(t.openedAt);
       if (!tDate) return null;
       return {
-        time: tDate.getTime() / 1000,
+        time: Math.floor(tDate.getTime() / 1000) as any,
         position: t.type === 'buy' ? 'belowBar' : 'aboveBar',
         color: t.type === 'buy' ? '#10b981' : '#ef4444',
         shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown',
