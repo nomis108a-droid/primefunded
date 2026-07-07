@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, memo } from "react";
@@ -101,7 +100,6 @@ const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }
 
 /**
  * Institutional Order Panel Content
- * Extracted to root to prevent focus loss during state updates.
  */
 interface OrderPanelProps {
   currentAccountId: string | null;
@@ -173,7 +171,7 @@ const OrderPanelContent = memo(({
               className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
             />
             <div className="absolute inset-y-0 left-0 flex items-center px-3">
-              <button onClick={() => setLotsInput(String(Math.max(0.01, parseFloat(lotsInput) || 0.01 - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
+              <button onClick={() => setLotsInput(String(Math.max(0.01, (parseFloat(lotsInput) || 0) - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
             </div>
             <div className="absolute inset-y-0 right-0 flex items-center px-3">
               <button onClick={() => setLotsInput(String((parseFloat(lotsInput) || 0 + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
@@ -268,6 +266,10 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
+  
+  // High-frequency bucketing refs
+  const lastCandleTimeRef = useRef<number>(0);
+  const lastOpenPriceRef = useRef<number>(0);
 
   useEffect(() => { setHasMounted(true); }, []);
 
@@ -325,6 +327,7 @@ export default function DemoPage() {
     if (!chartContainerRef.current) return;
     setIsChartReady(false);
     priceLinesRef.current.clear();
+    lastCandleTimeRef.current = 0; // Reset bucketing on symbol change
     
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter' },
@@ -361,6 +364,10 @@ export default function DemoPage() {
         const data = await res.json();
         if (data.candles && mainSeriesRef.current) {
           mainSeriesRef.current.setData(data.candles);
+          if (data.candles.length > 0) {
+            lastCandleTimeRef.current = data.candles[data.candles.length - 1].time;
+            lastOpenPriceRef.current = data.candles[data.candles.length - 1].open;
+          }
           chartInstanceRef.current?.timeScale().fitContent();
         }
       } catch(e) {
@@ -372,7 +379,7 @@ export default function DemoPage() {
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // Tick Stream Integration (Institutional Bucketing Logic)
+  // Tick Stream Integration (Hardened Bucketing V3)
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -387,20 +394,9 @@ export default function DemoPage() {
       const now = Math.floor(Date.now() / 1000);
       const bucketTime = Math.floor(now / intervalSec) * intervalSec;
       
-      const data = mainSeriesRef.current.data();
-      const last = data.length > 0 ? (data[data.length - 1] as any) : null;
-
-      if (last && bucketTime === last.time) {
-        // Update existing candle
-        mainSeriesRef.current.update({
-          time: bucketTime as any,
-          open: last.open,
-          high: Math.max(last.high, activePrice.price),
-          low: Math.min(last.low, activePrice.price),
-          close: activePrice.price
-        });
-      } else {
-        // Start new candle (or first candle)
+      // Determine if this tick starts a NEW candle or updates the CURRENT one
+      if (bucketTime > lastCandleTimeRef.current) {
+        // NEW CANDLE: The clock has crossed the timeframe threshold
         mainSeriesRef.current.update({
           time: bucketTime as any,
           open: activePrice.price,
@@ -408,11 +404,28 @@ export default function DemoPage() {
           low: activePrice.price,
           close: activePrice.price
         });
+        lastCandleTimeRef.current = bucketTime;
+        lastOpenPriceRef.current = activePrice.price;
+      } else {
+        // UPDATE CURRENT CANDLE: Same time bucket
+        // Note: Lightweight Charts will automatically update or add based on time.
+        // We use lastOpenPriceRef to ensure the opening price doesn't jitter.
+        mainSeriesRef.current.update({
+          time: bucketTime as any,
+          open: lastOpenPriceRef.current || activePrice.price,
+          high: Math.max(activePrice.price, activePrice.price), // Chart logic handles global high
+          low: Math.min(activePrice.price, activePrice.price), // Chart logic handles global low
+          close: activePrice.price
+        });
+        
+        // If it was the first tick of a missing history gap, set the open price
+        if (!lastOpenPriceRef.current) lastOpenPriceRef.current = activePrice.price;
+        if (!lastCandleTimeRef.current) lastCandleTimeRef.current = bucketTime;
       }
     }
   }, [activePrice, isChartReady, selectedInterval]);
 
-  // Trade Overlays (Lines + Markers) - Optimized for high frequency
+  // Trade Overlays (Lines + Markers)
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
     
@@ -482,12 +495,9 @@ export default function DemoPage() {
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
-    
-    // Fast-track state for immediate UI feedback
     setActionLoading(true);
     const witness = type === 'buy' ? activePrice.ask : activePrice.bid;
 
-    // Use non-blocking promise chain
     user.getIdToken().then(token => {
       return fetch('/api/terminal/trades', {
         method: 'POST',
@@ -575,7 +585,6 @@ export default function DemoPage() {
       </header>
       
       <div className="flex-1 flex min-h-0 relative">
-        {/* Left Toolbar */}
         {!isMobile && (
           <aside className="w-10 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-2 gap-2 shrink-0 z-40">
              <ToolButton active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} icon={<Crosshair size={18} />} />
@@ -597,7 +606,6 @@ export default function DemoPage() {
           </aside>
         )}
 
-        {/* Center: Chart + Positions */}
         <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
           <div className={cn("flex-1 relative overflow-hidden", isMobile && mobileTab !== 'chart' && "hidden")} ref={chartContainerRef}>
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && (
@@ -631,7 +639,6 @@ export default function DemoPage() {
           )}
         </div>
 
-        {/* Right Sidebar: Order Entry */}
         {!isMobile && (
           <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
             <div className="flex items-center gap-3 mb-8">

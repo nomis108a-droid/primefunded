@@ -8,9 +8,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 export const dynamic = 'force-dynamic';
 
 /**
- * @fileOverview High-frequency SSE price stream handler.
- * Decoupled synchronization: Active symbol streams help populate shared buffers (RTDB/Firestore)
- * ensuring system functions even if background sync workers are idle.
+ * @fileOverview High-frequency SSE price stream handler (Hardened V2)
+ * Optimized for stability and zero-latency delivery using a controlled loop.
  */
 
 export async function GET(
@@ -26,33 +25,36 @@ export async function GET(
     async start(controller) {
       let lastPrice = 0;
       let lastManualPoll = 0;
+      let isClosed = false;
 
       // Immediate "connected" signal to UI
       try {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbol })}\n\n`));
       } catch (e) {}
 
-      // Heartbeat to prevent timeouts
+      // Heartbeat to prevent proxy timeouts (Vercel/Cloudflare)
       const heartbeat = setInterval(() => {
+        if (isClosed) return;
         try {
           controller.enqueue(encoder.encode(': heartbeat\n\n'));
         } catch (e) {
           clearInterval(heartbeat);
         }
-      }, 15000);
+      }, 10000);
 
-      const interval = setInterval(async () => {
-        if (req.signal.aborted) {
-          clearInterval(interval);
+      // Recursive loop for stable 150ms intervals without stacking
+      const pushTick = async () => {
+        if (req.signal.aborted || isClosed) {
+          isClosed = true;
           clearInterval(heartbeat);
-          controller.close();
+          try { controller.close(); } catch (e) {}
           return;
         }
 
-        // 1. Check global memory buffer (Leader/Follower sync)
+        // 1. Check global memory buffer
         let tick = getLatestOandaTicks()[symbol] || getLatestCoinbaseTicks()[symbol];
         
-        // 2. SELF-HEALING: If background sync is inactive, poll manually for this symbol
+        // 2. SELF-HEALING: If no tick in memory, poll manually (Throttled to 3s)
         if (!tick && (Date.now() - lastManualPoll > 3000)) {
           lastManualPoll = Date.now();
           try {
@@ -76,11 +78,6 @@ export async function GET(
                     };
                   }
                 }
-              } else if (symbol === 'BNBUSD') {
-                const bnbRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
-                const bnbData = await bnbRes.json();
-                const p = bnbData?.binancecoin?.usd;
-                if (p) tick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2), updatedAt: Date.now() };
               }
             } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
               const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
@@ -106,21 +103,19 @@ export async function GET(
               }
             }
 
-            // SELF-HEALING BRIDGE: Push manual poll results to global buffers
+            // Push manual poll to memory for other instances
             if (tick && tick.price) {
               if (isCrypto) setLatestCoinbaseTick(symbol, tick);
               else setLatestOandaTick(symbol, tick);
-              
               broadcastToRtdb({ [symbol]: tick });
-              const db = getAdminDb();
-              db.collection('livePrices').doc(symbol).set({ ...tick, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
             }
           } catch (e) {
             console.error('[SSE-SelfHealing] Sync error:', e);
           }
         }
         
-        if (tick && tick.price && tick.price !== lastPrice) {
+        // 3. Push to client if price changed
+        if (tick && tick.price && Math.abs(tick.price - lastPrice) > 0.0000001) {
           lastPrice = tick.price;
           try {
             const data = JSON.stringify({ 
@@ -131,23 +126,18 @@ export async function GET(
             });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           } catch (e) { 
-            clearInterval(interval);
-            clearInterval(heartbeat);
+            isClosed = true;
           }
         }
-      }, 150);
 
-      const lifetimeTimeout = setTimeout(() => {
-        clearInterval(interval);
-        clearInterval(heartbeat);
-        try { controller.close(); } catch (e) {}
-      }, 240000);
+        if (!isClosed) setTimeout(pushTick, 150);
+      };
+
+      pushTick();
 
       req.signal.onabort = () => {
-        clearInterval(interval);
+        isClosed = true;
         clearInterval(heartbeat);
-        clearTimeout(lifetimeTimeout);
-        try { controller.close(); } catch (e) {}
       };
     }
   });
