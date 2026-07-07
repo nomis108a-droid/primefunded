@@ -1,13 +1,16 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getLatestOandaTicks } from '@/lib/oandaStream';
-import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
-import { getAdminRtdb } from '@/lib/firebase-admin';
+import { NextRequest, NextResponse } from 'next/request';
+import { getLatestOandaTicks, setLatestOandaTick } from '@/lib/oandaStream';
+import { getLatestCoinbaseTicks, setLatestCoinbaseTick } from '@/lib/coinbaseStream';
+import { getAdminRtdb, getAdminDb } from '@/lib/firebase-admin';
+import { broadcastToRtdb } from '@/lib/rtdbBroadcast';
+import { FieldValue } from 'firebase-admin/firestore';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * @fileOverview High-frequency SSE price stream handler.
- * Decoupled synchronization: Active symbol streams help populate RTDB for other terminal modules.
+ * Decoupled synchronization: Active symbol streams help populate shared buffers (RTDB/Firestore)
+ * ensuring system functions even if background sync workers are idle.
  */
 
 export async function GET(
@@ -17,6 +20,7 @@ export async function GET(
   const { symbol: rawSymbol } = await params;
   const symbol = (rawSymbol || "").split(':')[0].toUpperCase().trim();
   const encoder = new TextEncoder();
+  const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol);
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -52,7 +56,6 @@ export async function GET(
         if (!tick && (Date.now() - lastManualPoll > 3000)) {
           lastManualPoll = Date.now();
           try {
-            const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol);
             if (isCrypto) {
               const kPair = symbol === 'BTCUSD' ? 'XBTUSD' : symbol === 'DOGEUSD' ? 'XDGUSD' : symbol;
               const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { 
@@ -65,14 +68,19 @@ export async function GET(
                   const resKey = Object.keys(d.result)[0];
                   if (resKey) {
                     const item = d.result[resKey];
-                    tick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
+                    tick = { 
+                      price: parseFloat(item.c[0]), 
+                      bid: parseFloat(item.b[0]), 
+                      ask: parseFloat(item.a[0]),
+                      updatedAt: Date.now()
+                    };
                   }
                 }
               } else if (symbol === 'BNBUSD') {
                 const bnbRes = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
                 const bnbData = await bnbRes.json();
                 const p = bnbData?.binancecoin?.usd;
-                if (p) tick = { price: p, bid: p * 0.9999, ask: p * 1.0001 };
+                if (p) tick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2), updatedAt: Date.now() };
               }
             } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
               const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
@@ -91,21 +99,24 @@ export async function GET(
                   tick = { 
                     bid: +(o - spread/2).toFixed(5), 
                     ask: +(o + spread/2).toFixed(5), 
-                    price: o 
+                    price: o,
+                    updatedAt: Date.now()
                   };
                 }
               }
             }
 
-            // High-frequency bridge: Update RTDB during manual poll to help positions panel
+            // SELF-HEALING BRIDGE: Push manual poll results to global buffers
             if (tick && tick.price) {
-              try {
-                const rtdb = getAdminRtdb();
-                rtdb.ref(`livePrices/${symbol}`).update({ ...tick, updatedAt: Date.now() });
-              } catch (e) {}
+              if (isCrypto) setLatestCoinbaseTick(symbol, tick);
+              else setLatestOandaTick(symbol, tick);
+              
+              broadcastToRtdb({ [symbol]: tick });
+              const db = getAdminDb();
+              db.collection('livePrices').doc(symbol).set({ ...tick, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
             }
           } catch (e) {
-            console.error('[SSE-Fallback] Sync error:', e);
+            console.error('[SSE-SelfHealing] Sync error:', e);
           }
         }
         
@@ -116,7 +127,7 @@ export async function GET(
               price: tick.price, 
               bid: tick.bid, 
               ask: tick.ask, 
-              time: Date.now() 
+              time: tick.updatedAt || Date.now() 
             });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           } catch (e) { 
@@ -126,7 +137,6 @@ export async function GET(
         }
       }, 150);
 
-      // Rotate connection to prevent leakage
       const lifetimeTimeout = setTimeout(() => {
         clearInterval(interval);
         clearInterval(heartbeat);

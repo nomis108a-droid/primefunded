@@ -62,7 +62,7 @@ export async function getAuthoritativePrice(symbol: string) {
   
   // 1. Check Local Memory Buffer (Ultra-fast, synced via GlobalPriceSync)
   const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
-  if (memTick && (now - (memTick.updatedAt || 0) < 10000)) {
+  if (memTick && (now - (memTick.updatedAt || 0) < 5000)) {
     return { ...memTick, source: 'memory' };
   }
 
@@ -73,7 +73,7 @@ export async function getAuthoritativePrice(symbol: string) {
     if (snap.exists()) {
       const tick = snap.val();
       const tickAge = now - (tick.updatedAt || 0);
-      if (tickAge < 10000) {
+      if (tickAge < 5000) {
         // Hydrate local memory for subsequent calls
         const payload = { ...tick, updatedAt: tick.updatedAt };
         if (isCrypto) setLatestCoinbaseTick(sym, payload);
@@ -134,6 +134,10 @@ export async function getAuthoritativePrice(symbol: string) {
     else setLatestOandaTick(sym, payload);
     // Bridge to RTDB for other instances
     broadcastToRtdb({ [sym]: payload });
+    // Throttled Firestore update
+    const db = getAdminDb();
+    db.collection('livePrices').doc(sym).set({ ...payload, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+    
     return { ...payload, source: 'forced-rest' };
   }
 
