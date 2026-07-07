@@ -237,6 +237,7 @@ export default function DemoPage() {
   
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
+  const lastClosePriceRef = useRef<number>(0); // Continuity Bridge
   const currentHighRef = useRef<number>(0);
   const currentLowRef = useRef<number>(0);
 
@@ -284,17 +285,12 @@ export default function DemoPage() {
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
-  /**
-   * Institutional Reconciliation Engine
-   * Fetches official OHLC once a bar closes to overwrite noisy live updates.
-   */
   const reconcileHistory = useCallback(async () => {
     if (!mainSeriesRef.current || !isChartReady) return;
     try {
       const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=10`);
       const data = await res.json();
       if (data.candles && data.candles.length > 0 && mainSeriesRef.current) {
-        console.log(`[Reconciliation] Applying official OHLC cleanup for ${selectedSymbol}`);
         data.candles.forEach((c: any) => mainSeriesRef.current?.update(c));
       }
     } catch (e) {
@@ -309,6 +305,7 @@ export default function DemoPage() {
     priceLinesRef.current.clear();
     lastCandleTimeRef.current = 0;
     lastOpenPriceRef.current = 0;
+    lastClosePriceRef.current = 0;
     currentHighRef.current = 0;
     currentLowRef.current = 0;
     
@@ -363,9 +360,10 @@ export default function DemoPage() {
             const last = data.candles[data.candles.length - 1];
             lastCandleTimeRef.current = last.time;
             lastOpenPriceRef.current = last.open;
+            lastClosePriceRef.current = last.close;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Tick-Engine] AUTHORITATIVE HISTORY LOADED | Sym: ${selectedSymbol} | Last Time: ${last.time}`);
+            console.log(`[Tick-Engine] HISTORY LOADED | Sym: ${selectedSymbol} | Continuity Point: ${last.close}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -374,7 +372,7 @@ export default function DemoPage() {
       .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // HIGH-FREQUENCY TICK PROCESSOR
+  // HIGH-FREQUENCY TICK PROCESSOR WITH CONTINUITY LOGIC
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -395,7 +393,6 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
       
-      // Timestamp Guardian: Ensure full Unix seconds
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
@@ -406,22 +403,42 @@ export default function DemoPage() {
 
       try {
         if (isNew) {
-          // TRIGGER RECONCILIATION: Fetch official data for the candle that just closed
           setTimeout(reconcileHistory, 2000);
           
-          console.log(`[Tick-Engine] NEW CANDLE | Sym: ${selectedSymbol} | Bucket: ${bucketTime} | Price: ${price}`);
-          mainSeriesRef.current.update({ time: bucketTime as any, open: price, high: price, low: price, close: price });
+          // CONTINUITY FIX: Open price is previous bar's Close
+          const openPrice = lastClosePriceRef.current || price;
+          const high = Math.max(openPrice, price);
+          const low = Math.min(openPrice, price);
+
+          console.log(`[Tick-Engine] NEW CANDLE | Sym: ${selectedSymbol} | Opening at Prev Close: ${openPrice}`);
+          
+          mainSeriesRef.current.update({ 
+            time: bucketTime as any, 
+            open: openPrice, 
+            high, 
+            low, 
+            close: price 
+          });
+
           lastCandleTimeRef.current = bucketTime;
-          lastOpenPriceRef.current = price;
-          currentHighRef.current = price;
-          currentLowRef.current = price;
+          lastOpenPriceRef.current = openPrice;
+          lastClosePriceRef.current = price;
+          currentHighRef.current = high;
+          currentLowRef.current = low;
         } 
         else if (isUpdate) {
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
           currentHighRef.current = Math.max(currentHighRef.current || price, price);
           currentLowRef.current = Math.min(currentLowRef.current || price, price);
+          lastClosePriceRef.current = price;
           
-          mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: price });
+          mainSeriesRef.current.update({ 
+            time: bucketTime as any, 
+            open: lastOpenPriceRef.current, 
+            high: currentHighRef.current, 
+            low: currentLowRef.current, 
+            close: price 
+          });
         }
       } catch (e) {
         console.error('[Tick-Engine] Processing fault:', e);
