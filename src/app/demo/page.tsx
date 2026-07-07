@@ -32,7 +32,7 @@ import { getTradeDate } from "@/lib/tradeUtils";
 
 /**
  * INSTITUTIONAL SYMBOL POOL
- * Clean: Strictly deduplicated.
+ * Clean: Strictly deduplicated to prevent key collisions.
  */
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
@@ -292,7 +292,6 @@ export default function DemoPage() {
 
   /**
    * CHART INITIALIZATION
-   * Optimized for reliable ready-state detection.
    */
   useEffect(() => {
     if (!hasMounted || authLoading) {
@@ -384,7 +383,7 @@ export default function DemoPage() {
             lastOpenPriceRef.current = last.open;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Chart-History] History loaded. Last candle time: ${last.time}`);
+            console.log(`[Chart-History] History loaded. Synchronized lastCandleTimeRef to: ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -395,10 +394,16 @@ export default function DemoPage() {
 
   /**
    * REAL-TIME TICK INJECTION & OHLC ACCUMULATION
-   * Institutional Range Monitor (V12 - Diagnostic Version)
+   * Institutional Range Monitor (V15 - Audit Version)
    */
   useEffect(() => {
-    if (activePrice && typeof activePrice.price === 'number' && mainSeriesRef.current && isChartReady) {
+    // 1. DIAGNOSTIC LOG: Entry point check
+    if (activePrice && mainSeriesRef.current) {
+      if (!isChartReady) {
+        console.warn(`[Tick-Engine] Rejecting tick: Chart NOT ready. Symbol: ${selectedSymbol}`);
+        return;
+      }
+
       const getIntervalSeconds = (val: string) => {
         const map: Record<string, number> = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 };
         return map[val] || 60;
@@ -407,7 +412,7 @@ export default function DemoPage() {
       const intervalSec = getIntervalSeconds(selectedInterval);
       const price = Number(activePrice.price);
       
-      // TIMESTAMP GUARDIAN: Normalizes raw index leaks (e.g. "58483") to full Unix seconds.
+      // Normalize timestamp
       const tickTimeRaw = activePrice.time || activePrice.updatedAt;
       let tickTime = 0;
       if (typeof tickTimeRaw === 'number') {
@@ -417,16 +422,17 @@ export default function DemoPage() {
       } else {
         tickTime = Math.floor(Date.now() / 1000);
       }
-
-      // Final normalization catch-all
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
       
+      // 2. DIAGNOSTIC LOG: Trace comparison logic
+      const isNew = bucketTime > lastCandleTimeRef.current;
+      const isUpdate = bucketTime === lastCandleTimeRef.current;
+
       try {
-        if (bucketTime > lastCandleTimeRef.current) {
-          // NEW CANDLE BOUNDARY CROSSED
-          console.log(`[Candle-Audit] NEW CANDLE @ ${bucketTime} | O:${price} H:${price} L:${price} C:${price}`);
+        if (isNew) {
+          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime}. (Previous: ${lastCandleTimeRef.current})`);
           
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
@@ -441,17 +447,17 @@ export default function DemoPage() {
           currentHighRef.current = price;
           currentLowRef.current = price;
         } 
-        else if (bucketTime === lastCandleTimeRef.current) {
-          // UPDATE EXISTING BAR (Range Accumulation)
+        else if (isUpdate) {
+          // Range accumulation
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
-          if (currentHighRef.current === 0) currentHighRef.current = price;
-          if (currentLowRef.current === 0) currentLowRef.current = price;
-
-          // Accumulate range strictly
-          currentHighRef.current = Math.max(currentHighRef.current, price);
-          currentLowRef.current = Math.min(currentLowRef.current, price);
           
-          console.log(`[Candle-Audit] UPDATED CANDLE @ ${bucketTime} | O:${lastOpenPriceRef.current} H:${currentHighRef.current} L:${currentLowRef.current} C:${price}`);
+          const oldHigh = currentHighRef.current;
+          const oldLow = currentLowRef.current;
+          
+          currentHighRef.current = Math.max(currentHighRef.current || price, price);
+          currentLowRef.current = Math.min(currentLowRef.current || price, price);
+          
+          console.log(`[Tick-Engine] UPDATED CANDLE: ${price} | Bucket: ${bucketTime} | OHLC: ${lastOpenPriceRef.current}/${currentHighRef.current}/${currentLowRef.current}/${price}`);
 
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
@@ -460,9 +466,11 @@ export default function DemoPage() {
             low: currentLowRef.current, 
             close: price 
           });
+        } else {
+          console.warn(`[Tick-Engine] DROPPED TICK: ${price} @ ${bucketTime} is older than last bucket ${lastCandleTimeRef.current}`);
         }
       } catch (e) {
-        console.error('[Chart-Update] OHLC injection crash:', e);
+        console.error('[Tick-Engine] Mutation crash:', e);
       }
     }
   }, [activePrice, isChartReady, selectedInterval, selectedSymbol]);
