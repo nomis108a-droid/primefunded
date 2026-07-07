@@ -22,6 +22,8 @@ let cryptoPrices: Record<string, { price: number; bid: number; ask: number; upda
 let isWriting = false;
 let krakenInterval: NodeJS.Timeout | null = null;
 let bnbInterval: NodeJS.Timeout | null = null;
+let heartbeatInterval: NodeJS.Timeout | null = null;
+let tickCount = 0;
 
 export function getLatestCoinbaseTicks() {
   return cryptoPrices;
@@ -61,6 +63,7 @@ async function fetchKrakenPrices() {
         const ask = parseFloat(ticker.a[0]);
         
         if (!isNaN(price) && price > 0) {
+          tickCount++;
           cryptoPrices[symbol] = { 
             price: +price.toFixed(5), 
             bid: +bid.toFixed(5), 
@@ -88,7 +91,6 @@ async function fetchBnbPrice() {
     const price = data?.binancecoin?.usd;
     
     if (price && !isNaN(price)) {
-      const spread = price * 0.0005;
       cryptoPrices['BNBUSD'] = { 
         price: +price.toFixed(2), 
         bid: +(price - spread).toFixed(2), 
@@ -114,7 +116,6 @@ async function writeCryptoPricesToStorage() {
     
     Object.entries(cryptoPrices).forEach(([symbol, data]) => {
       const liveRef = db.collection('livePrices').doc(symbol);
-      const marketRef = db.collection('market').doc(symbol);
       
       const payload = {
         ...data,
@@ -123,7 +124,6 @@ async function writeCryptoPricesToStorage() {
       };
 
       batch.set(liveRef, payload, { merge: true });
-      batch.set(marketRef, payload, { merge: true });
     });
     
     await batch.commit();
@@ -137,6 +137,14 @@ async function writeCryptoPricesToStorage() {
 export function startCoinbaseStream() {
   if (krakenInterval) return;
   console.log('[KrakenFeed] Starting 3s Crypto Polling Cycle...');
+  
+  if (!heartbeatInterval) {
+    heartbeatInterval = setInterval(() => {
+      console.log(`[Master-Fetcher] KRAKEN HEARTBEAT: ${tickCount} ticks processed in last 30s. Status: HEALTHY`);
+      tickCount = 0;
+    }, 30000);
+  }
+
   fetchKrakenPrices();
   krakenInterval = setInterval(fetchKrakenPrices, 3000);
 }

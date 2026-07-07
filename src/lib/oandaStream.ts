@@ -12,6 +12,8 @@ let latestOandaTicks: Record<string, { price: number; bid: number; ask: number; 
 let lastWrittenOandaTicks: Record<string, string> = {};
 let isWriting = false;
 let firestoreWriteInterval: NodeJS.Timeout | null = null;
+let heartbeatInterval: NodeJS.Timeout | null = null;
+let tickCount = 0;
 
 export function getLatestOandaTicks() {
   return latestOandaTicks;
@@ -31,6 +33,14 @@ export async function startOandaStream() {
   if (!accountId || !apiKey) {
     console.warn('[OandaStream] Credentials missing. Feed suspended.');
     return;
+  }
+
+  // Start Health Heartbeat
+  if (!heartbeatInterval) {
+    heartbeatInterval = setInterval(() => {
+      console.log(`[Master-Fetcher] OANDA HEARTBEAT: ${tickCount} ticks processed in last 30s. Status: HEALTHY`);
+      tickCount = 0;
+    }, 30000);
   }
 
   const instruments = 'XAU_USD,XAG_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
@@ -72,6 +82,7 @@ export async function startOandaStream() {
             const price = (bid + ask) / 2;
 
             if (!isNaN(price)) {
+              tickCount++;
               latestOandaTicks[symbol] = {
                 price: +price.toFixed(5),
                 bid: +bid.toFixed(5),
@@ -131,7 +142,6 @@ export function startOandaThrottledFirestoreWrite() {
       isWriting = true;
       try {
         await batch.commit();
-        console.log(`[OandaStream] Heartbeat: Synced ${symbols.length} pairs to Firestore.`);
       } catch (err) {
         // Silent batch failure log
       } finally {

@@ -8,8 +8,12 @@ import { broadcastToRtdb } from './rtdbBroadcast';
 
 /**
  * @fileOverview Institutional Risk Auditor & Execution Engine
- * Monitors nodes with active exposure and processes automated exit orders (TP/SL).
- * Enforces strict Bid/Ask exit logic for all internal trading nodes.
+ * 
+ * ARCHITECTURE OVERVIEW:
+ * 1. Master Fetcher (Leader): Acquires lock in Firestore and runs long-running fetchers in OandaStream/CoinbaseStream.
+ * 2. Shared State (RTDB): Master fetcher writes prices to Realtime Database (/livePrices).
+ * 3. Global Sync: Every instance (Leader or Standby) subscribes to RTDB via startGlobalPriceSync() to keep local memory buffers hot.
+ * 4. Self-Healing: If local memory is empty/stale, API routes (Trade/SSE) perform manual recovery REST polls and bridge data to RTDB.
  */
 
 let isSyncing = false;
