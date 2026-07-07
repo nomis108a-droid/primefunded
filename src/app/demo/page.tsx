@@ -335,8 +335,12 @@ export default function DemoPage() {
     console.log(`[Chart-Init] Initializing Chart for ${selectedSymbol}`);
     setIsChartReady(false);
     priceLinesRef.current.clear();
+    
+    // Clear Ref state for new symbol
     lastCandleTimeRef.current = 0;
     lastOpenPriceRef.current = 0;
+    currentHighRef.current = 0;
+    currentLowRef.current = 0;
     
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter' },
@@ -407,7 +411,7 @@ export default function DemoPage() {
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // Tick Stream Integration (Hardened Bucketing V4 - Generic & Accurate)
+  // Tick Stream Integration (Hardened Bucketing V5 - Strict OHLC Accumulation)
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -419,8 +423,10 @@ export default function DemoPage() {
       };
 
       const intervalSec = getIntervalSeconds(selectedInterval);
-      const now = Math.floor(Date.now() / 1000);
-      const bucketTime = Math.floor(now / intervalSec) * intervalSec;
+      
+      // Use tick's own timestamp for authoritative bucketing if available
+      const tickTime = activePrice.time || (activePrice.updatedAt ? Math.floor(new Date(activePrice.updatedAt).getTime() / 1000) : Math.floor(Date.now() / 1000));
+      const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
       
       if (bucketTime > lastCandleTimeRef.current) {
         // NEW CANDLE BOUNDARY CROSSED
@@ -431,18 +437,24 @@ export default function DemoPage() {
           low: activePrice.price,
           close: activePrice.price
         });
+        
         lastCandleTimeRef.current = bucketTime;
         lastOpenPriceRef.current = activePrice.price;
         currentHighRef.current = activePrice.price;
         currentLowRef.current = activePrice.price;
-      } else {
+      } else if (bucketTime === lastCandleTimeRef.current) {
         // UPDATE CURRENT CANDLE OHLC
-        currentHighRef.current = Math.max(currentHighRef.current || activePrice.price, activePrice.price);
-        currentLowRef.current = Math.min(currentLowRef.current || activePrice.price, activePrice.price);
+        // Use explicit 0 checks to ensure we correctly accumulate the high/low range
+        if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
+        if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
+        if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
+
+        currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
+        currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
         
         mainSeriesRef.current.update({
           time: bucketTime as any,
-          open: lastOpenPriceRef.current || activePrice.price,
+          open: lastOpenPriceRef.current,
           high: currentHighRef.current,
           low: currentLowRef.current,
           close: activePrice.price
