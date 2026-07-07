@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     optimizeCss: true,
+    instrumentationHook: true,
   },
   images: {
     minimumCacheTTL: 3600,
