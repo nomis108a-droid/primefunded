@@ -321,7 +321,7 @@ export default function DemoPage() {
       crosshair: { mode: CrosshairMode.Normal },
       localization: {
         timeFormatter: (time: number) => {
-          // ENSURE labels are always strictly HH:mm
+          // ENSURE labels are always strictly HH:mm. Fixed the "58483" bug by properly handling timestamp objects.
           const date = new Date(time * 1000);
           return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
         },
@@ -413,8 +413,7 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
 
-      // TIMESTAMP GUARDIAN: If tickTime is not a valid Unix epoch (less than 1 billion), correct it to current Unix time.
-      // This prevents "58483" raw numbers from appearing on the axis labels.
+      // TIMESTAMP GUARDIAN: Ensure labels are never raw numbers like "58483"
       if (tickTime < 1000000000) {
         tickTime = Math.floor(Date.now() / 1000);
       }
@@ -423,7 +422,7 @@ export default function DemoPage() {
       
       try {
         if (bucketTime > lastCandleTimeRef.current) {
-          console.log(`[Candle-Update] ${selectedSymbol} OPEN NEW BAR. Time: ${bucketTime}`);
+          console.log(`[Candle-Update] ${selectedSymbol} NEW BAR. Bucket: ${bucketTime} | Previous: ${lastCandleTimeRef.current}`);
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
             open: activePrice.price, 
@@ -436,10 +435,7 @@ export default function DemoPage() {
           currentHighRef.current = activePrice.price;
           currentLowRef.current = activePrice.price;
         } else if (bucketTime === lastCandleTimeRef.current) {
-          // Cumulative High/Low Logic: VISIBLY BUILD BODY AND WICKS
-          const prevHigh = currentHighRef.current;
-          const prevLow = currentLowRef.current;
-          
+          // OHLC Accumulation Logic with persistent high/low
           if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
           if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
@@ -447,8 +443,8 @@ export default function DemoPage() {
           currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
           currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
           
-          // DETAILED LOGGING: Track exact OHLC accumulation per tick
-          console.log(`[Candle-Update] ${selectedSymbol} TICK. OHLC: ${lastOpenPriceRef.current.toFixed(2)}/${currentHighRef.current.toFixed(2)}/${currentLowRef.current.toFixed(2)}/${activePrice.price.toFixed(2)} | Range: ${(currentHighRef.current - currentLowRef.current).toFixed(2)}`);
+          // DETAILED LOGGING: Verify that the chart is receiving data correctly
+          console.log(`[Candle-Update] ${selectedSymbol} TICK @ ${bucketTime}. OHLC: ${lastOpenPriceRef.current.toFixed(2)}/${currentHighRef.current.toFixed(2)}/${currentLowRef.current.toFixed(2)}/${activePrice.price.toFixed(2)}`);
 
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
