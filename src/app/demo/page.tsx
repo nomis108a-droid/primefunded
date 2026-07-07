@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, memo } from "react";
@@ -348,7 +347,7 @@ export default function DemoPage() {
             lastOpenPriceRef.current = last.open;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Tick-Engine] Initialized from history: Last Candle @ ${last.time}`);
+            console.log(`[Tick-Engine] HISTORY LOADED | Last Time: ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -357,6 +356,7 @@ export default function DemoPage() {
       .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
+  // HIGH-FREQUENCY TICK PROCESSOR
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -377,6 +377,7 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
       
+      // Timestamp Guardian: Ensure full Unix seconds
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
@@ -387,7 +388,7 @@ export default function DemoPage() {
 
       try {
         if (isNew) {
-          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime} (Prev: ${currentRefTime})`);
+          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime} (Src: ${activePrice.source || 'SSE'})`);
           mainSeriesRef.current.update({ time: bucketTime as any, open: price, high: price, low: price, close: price });
           lastCandleTimeRef.current = bucketTime;
           lastOpenPriceRef.current = price;
@@ -399,13 +400,12 @@ export default function DemoPage() {
           currentHighRef.current = Math.max(currentHighRef.current || price, price);
           currentLowRef.current = Math.min(currentLowRef.current || price, price);
           
-          console.log(`[Tick-Engine] UPDATED CANDLE: ${price} | OHLC: ${lastOpenPriceRef.current}/${currentHighRef.current}/${currentLowRef.current}/${price}`);
           mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: price });
-        } else {
-          console.warn(`[Tick-Engine] STALE TICK: ${price} @ ${bucketTime} is behind last bucket ${currentRefTime}`);
+          // Log frequency check (Throttled for console comfort)
+          if (Math.random() < 0.05) console.log(`[Tick-Engine] UPDATED CANDLE | Range: ${currentLowRef.current} - ${currentHighRef.current}`);
         }
       } catch (e) {
-        console.error('[Tick-Engine] Render crash:', e);
+        console.error('[Tick-Engine] Processing fault:', e);
       }
     }
   }, [activePrice, isChartReady, selectedInterval, selectedSymbol]);

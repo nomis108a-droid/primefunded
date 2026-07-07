@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
@@ -18,6 +17,7 @@ const DEFAULT_CONSTRAINTS: QueryConstraint[] = [];
 /**
  * useCollection Hook
  * Fetches a collection in real-time with optimized query stability and automated retry logic.
+ * Hardened to report detailed errors for index diagnosis.
  */
 export function useCollection<T = DocumentData>(
   path: string | null,
@@ -33,9 +33,10 @@ export function useCollection<T = DocumentData>(
   const q = useMemo(() => {
     if (!path || !db) return null;
 
-    const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "mt5_accounts", "mt5_trades", "referrals", "notifications", "certificates"];
-    
+    // Protection: Prevent expensive global collection scans for high-volume paths
+    const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "referrals", "notifications"];
     if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
+      console.warn(`[useCollection] Blocked global listen on sensitive path: ${path}`);
       return null;
     }
 
@@ -74,7 +75,8 @@ export function useCollection<T = DocumentData>(
           (serverError: any) => {
             if (!isMountedRef.current) return;
             
-            console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError.message);
+            // Log full error for index generation links (fixes 400 Bad Request)
+            console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError);
             
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
             

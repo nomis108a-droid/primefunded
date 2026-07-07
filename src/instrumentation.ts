@@ -12,62 +12,58 @@ export async function register() {
       const dns = await import('dns');
       dns.setDefaultResultOrder('ipv4first');
 
-      // Dynamic imports for leadership and streaming modules
       const { startLeaderHeartbeat } = await import('@/lib/leaderLock');
       const { syncPricesAndAudit, startGlobalPriceSync } = await import('@/lib/priceSync');
       const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
       const { startOandaStream, startOandaThrottledFirestoreWrite } = await import('@/lib/oandaStream');
       const { getAdminServices } = await import('@/lib/firebase-admin');
 
-      const services = getAdminServices();
-      if (!services) {
-        console.warn('[Instrumentation] Firebase Admin services currently unavailable. Background tasks will wait for next cycle.');
-      }
-
-      console.log('[Instrumentation] Initializing background task registry...');
-
-      // 1. Start Global Listener (All Instances)
-      startGlobalPriceSync();
-
       let leaderServicesStarted = false;
 
-      // 2. Delegate service management to the Leader Election engine
-      startLeaderHeartbeat(() => {
-        // CALLBACK: Executed when this instance becomes the Cluster Leader
-        if (leaderServicesStarted) {
-          console.log('[Instrumentation] Leadership regained. Services already active on this node.');
+      // Resilient Startup Loop: Retries every 5s until Firebase Admin is ready
+      const initInterval = setInterval(() => {
+        const services = getAdminServices();
+        if (!services) {
+          console.warn('[Instrumentation] Waiting for Firebase Admin credentials...');
           return;
         }
         
-        console.log('[Instrumentation] Leadership acquired. Initializing institutional fetchers...');
-        leaderServicesStarted = true;
+        console.log('[Instrumentation] Firebase Admin connected. Initializing background task registry...');
+        clearInterval(initInterval);
 
-        // 1. Start Liquidity Streams (Leader only)
-        if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
-          startOandaStream();
-          startOandaThrottledFirestoreWrite();
-        }
+        // 1. Start Global Listener (All Instances)
+        startGlobalPriceSync();
 
-        startCoinbaseStream();
-        startBnbPolling();
+        // 2. Delegate Master services to Leader Election
+        startLeaderHeartbeat(() => {
+          if (leaderServicesStarted) return;
+          
+          console.log('[Instrumentation] Leadership acquired. Initializing master fetchers...');
+          leaderServicesStarted = true;
 
-        // 2. Start Risk Engine Cycle (Leader only, 2s frequency)
-        const auditInterval = setInterval(() => {
-          syncPricesAndAudit().catch(e => {
-            if (e.message?.includes('unauthenticated') || e.code === 16) {
-              console.error('[BackgroundSync] Terminating audit loop due to authentication failure.');
-              clearInterval(auditInterval);
-            }
-          });
-        }, 2000);
+          if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
+            startOandaStream();
+            startOandaThrottledFirestoreWrite();
+          }
 
-        console.log('[BackgroundSync] Institutional liquidity and risk fetchers started on LEADER instance.');
-      }, () => {
-        // CALLBACK: Executed if leadership is lost
-        console.warn('[Instrumentation] Instance switched to STANDBY mode.');
-      });
+          startCoinbaseStream();
+          startBnbPolling();
+
+          const auditInterval = setInterval(() => {
+            syncPricesAndAudit().catch(e => {
+              if (e.message?.includes('unauthenticated') || e.code === 16) {
+                console.error('[BackgroundSync] Audit loop auth failure.');
+                clearInterval(auditInterval);
+              }
+            });
+          }, 2000);
+        }, () => {
+          console.warn('[Instrumentation] Node switching to STANDBY.');
+        });
+      }, 5000);
+
     } catch (err: any) {
-      console.error('[Instrumentation] Background task registry fault:', err.message);
+      console.error('[Instrumentation] Fatal Registry Fault:', err.message);
     }
   }
 }
