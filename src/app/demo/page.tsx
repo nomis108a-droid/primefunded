@@ -372,16 +372,45 @@ export default function DemoPage() {
     fetchHistory();
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // Tick Stream Integration
+  // Tick Stream Integration (Institutional Bucketing Logic)
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
+      const getIntervalSeconds = (val: string) => {
+        const map: Record<string, number> = {
+          '1min': 60, '5min': 300, '15min': 900, '30min': 1800,
+          '1h': 3600, '4h': 14400, '1day': 86400
+        };
+        return map[val] || 60;
+      };
+
+      const intervalSec = getIntervalSeconds(selectedInterval);
+      const now = Math.floor(Date.now() / 1000);
+      const bucketTime = Math.floor(now / intervalSec) * intervalSec;
+      
       const data = mainSeriesRef.current.data();
-      if (data.length > 0) {
-        const last = data[data.length - 1] as any;
-        mainSeriesRef.current.update({ ...last, close: activePrice.price, high: Math.max(last.high, activePrice.price), low: Math.min(last.low, activePrice.price) });
+      const last = data.length > 0 ? (data[data.length - 1] as any) : null;
+
+      if (last && bucketTime === last.time) {
+        // Update existing candle
+        mainSeriesRef.current.update({
+          time: bucketTime as any,
+          open: last.open,
+          high: Math.max(last.high, activePrice.price),
+          low: Math.min(last.low, activePrice.price),
+          close: activePrice.price
+        });
+      } else {
+        // Start new candle (or first candle)
+        mainSeriesRef.current.update({
+          time: bucketTime as any,
+          open: activePrice.price,
+          high: activePrice.price,
+          low: activePrice.price,
+          close: activePrice.price
+        });
       }
     }
-  }, [activePrice, isChartReady]);
+  }, [activePrice, isChartReady, selectedInterval]);
 
   // Trade Overlays (Lines + Markers) - Optimized for high frequency
   useEffect(() => {
