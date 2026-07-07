@@ -120,6 +120,15 @@ export function PositionsPanel({
     }
   };
 
+  // Filter out corrupted duplicate history from Jul 6
+  const filteredHistory = closedTrades.filter(t => {
+    const cDate = getTradeDate(t.closedAt);
+    if (!cDate) return true;
+    const isJuly6 = cDate.getMonth() === 6 && cDate.getDate() === 6 && cDate.getFullYear() === 2024;
+    const isStaleCorrupt = isJuly6 && (t.pnl === -83.63 || t.pnl === "-83.63");
+    return !isStaleCorrupt;
+  });
+
   return (
     <div className={cn(
       "border-t border-zinc-800 bg-zinc-950 flex flex-col shrink-0 relative transition-all duration-300 ease-in-out z-40",
@@ -266,7 +275,7 @@ export function PositionsPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
-                {closedTrades.map((t) => {
+                {filteredHistory.map((t) => {
                   const cDate = getTradeDate(t.closedAt);
                   const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
                   return (

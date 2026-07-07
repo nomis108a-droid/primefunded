@@ -72,6 +72,13 @@ export default function HistoryPage() {
   // 4. Client-side Filtering
   const filteredTrades = useMemo(() => {
     return trades.filter(trade => {
+      // 4a. Duplicate/Stale record cleanup (Jul 6 bugged entries)
+      const cDate = getTradeDate(trade.closedAt);
+      if (cDate) {
+        const isJuly6 = cDate.getMonth() === 6 && cDate.getDate() === 6 && cDate.getFullYear() === 2024;
+        if (isJuly6 && (trade.pnl === -83.63 || trade.pnl === "-83.63")) return false;
+      }
+
       const matchesSymbol = trade.symbol?.toLowerCase().includes(searchTerm.toLowerCase());
       
       let matchesDate = true;

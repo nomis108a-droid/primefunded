@@ -109,6 +109,7 @@ const OrderPanelContent = memo(({
   actionLoading, placeTrade 
 }: OrderPanelProps) => {
   const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
+  const isBlown = selectedAccount?.status === 'blown' || selectedAccount?.status === 'breach' || selectedAccount?.status === 'terminated';
 
   return (
     <div className="flex flex-col h-full space-y-6">
@@ -154,12 +155,25 @@ const OrderPanelContent = memo(({
               value={lotsInput} 
               onChange={e => setLotsInput(e.target.value)} 
               className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
+              disabled={isBlown}
             />
             <div className="absolute inset-y-0 left-0 flex items-center px-3">
-              <button onClick={() => setLotsInput(String(Math.max(0.01, (parseFloat(lotsInput) || 0) - 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Minus size={14} /></button>
+              <button 
+                onClick={() => setLotsInput(String(Math.max(0.01, (parseFloat(lotsInput) || 0) - 0.01).toFixed(2)))} 
+                className="text-zinc-500 hover:text-white"
+                disabled={isBlown}
+              >
+                <Minus size={14} />
+              </button>
             </div>
             <div className="absolute inset-y-0 right-0 flex items-center px-3">
-              <button onClick={() => setLotsInput(String(((parseFloat(lotsInput) || 0) + 0.01).toFixed(2)))} className="text-zinc-500 hover:text-white"><Plus size={14} /></button>
+              <button 
+                onClick={() => setLotsInput(String(((parseFloat(lotsInput) || 0) + 0.01).toFixed(2)))} 
+                className="text-zinc-500 hover:text-white"
+                disabled={isBlown}
+              >
+                <Plus size={14} />
+              </button>
             </div>
           </div>
         </div>
@@ -167,11 +181,11 @@ const OrderPanelContent = memo(({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label>
-            <Input type="text" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
+            <Input type="text" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" disabled={isBlown} />
           </div>
           <div className="space-y-1.5">
             <Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label>
-            <Input type="text" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" />
+            <Input type="text" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" disabled={isBlown} />
           </div>
         </div>
       </div>
@@ -179,13 +193,16 @@ const OrderPanelContent = memo(({
       <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
         <button 
           onClick={() => placeTrade('buy')} 
-          disabled={actionLoading || !activePrice}
-          className="h-20 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
+          disabled={actionLoading || !activePrice || isBlown}
+          className={cn(
+            "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
+            isBlown ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500"
+          )}
         >
-          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          {!isBlown && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
           {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
             <>
-              <span className="text-sm tracking-widest relative z-10">BUY</span>
+              <span className="text-sm tracking-widest relative z-10">{isBlown ? 'FAILED' : 'BUY'}</span>
               <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
             </>
           )}
@@ -193,13 +210,16 @@ const OrderPanelContent = memo(({
         </button>
         <button 
           onClick={() => placeTrade('sell')} 
-          disabled={actionLoading || !activePrice}
-          className="h-20 rounded-xl bg-red-600 hover:bg-red-500 font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative"
+          disabled={actionLoading || !activePrice || isBlown}
+          className={cn(
+            "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
+            isBlown ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"
+          )}
         >
-          <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+          {!isBlown && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
           {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
             <>
-              <span className="text-sm tracking-widest relative z-10">SELL</span>
+              <span className="text-sm tracking-widest relative z-10">{isBlown ? 'FAILED' : 'SELL'}</span>
               <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
             </>
           )}
@@ -266,11 +286,17 @@ export default function DemoPage() {
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
   const activeAccounts = useMemo(() => accounts.filter(a => a.status === 'active' || a.status === 'passed'), [accounts]);
-  const selectedAccount = useMemo(() => activeAccounts.find(a => a.id === currentAccountId) || activeAccounts[0] || null, [activeAccounts, currentAccountId]);
+  
+  // Use first account if currentAccountId is null or invalid
+  const selectedAccount = useMemo(() => 
+    accounts.find(a => a.id === currentAccountId) || accounts[0] || null
+  , [accounts, currentAccountId]);
 
   const tradeConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("openedAt", "desc")] : [], [user?.uid]);
   const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
-  const trades = useMemo(() => allUserTrades.filter(t => t.accountId === (currentAccountId || activeAccounts[0]?.id)), [allUserTrades, currentAccountId, activeAccounts]);
+  
+  const activeAccId = currentAccountId || accounts[0]?.id;
+  const trades = useMemo(() => allUserTrades.filter(t => t.accountId === activeAccId), [allUserTrades, activeAccId]);
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
 
   const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
@@ -291,7 +317,11 @@ export default function DemoPage() {
       const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=10`);
       const data = await res.json();
       if (data.candles && data.candles.length > 0 && mainSeriesRef.current) {
-        data.candles.forEach((c: any) => mainSeriesRef.current?.update(c));
+        data.candles.forEach((c: any) => {
+          // Normalize timestamp to seconds
+          const normalizedTime = typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time;
+          mainSeriesRef.current?.update({ ...c, time: normalizedTime as any });
+        });
       }
     } catch (e) {
       console.warn('[Reconciliation] Cleanup cycle skipped.');
@@ -314,7 +344,14 @@ export default function DemoPage() {
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
-      timeScale: { rightOffset: 20, barSpacing: 8, borderColor: '#27272a', timeVisible: true, secondsVisible: false },
+      timeScale: { 
+        rightOffset: 20, 
+        barSpacing: 8, 
+        borderColor: '#27272a', 
+        timeVisible: true, 
+        secondsVisible: false,
+        fixLeftEdge: true
+      },
       priceScale: { borderColor: '#27272a', autoScale: true, mode: PriceScaleMode.Normal },
       crosshair: { mode: CrosshairMode.Normal },
       localization: {
@@ -355,14 +392,21 @@ export default function DemoPage() {
       .then(res => res.json())
       .then(data => {
         if (data.candles && mainSeriesRef.current) {
-          mainSeriesRef.current.setData(data.candles);
-          if (data.candles.length > 0) {
-            const last = data.candles[data.candles.length - 1];
+          // Robust timestamp normalization for history
+          const normalizedCandles = data.candles.map((c: any) => ({
+            ...c,
+            time: (typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time) as any
+          }));
+
+          mainSeriesRef.current.setData(normalizedCandles);
+          if (normalizedCandles.length > 0) {
+            const last = normalizedCandles[normalizedCandles.length - 1];
             lastCandleTimeRef.current = last.time;
             lastOpenPriceRef.current = last.open;
             lastClosePriceRef.current = last.close;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
+            console.log(`[Chart-Engine] History loaded. Last Boundary: ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -391,6 +435,7 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
       
+      // Timestamp Guardian: Ensure we are in Unix seconds
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
@@ -401,8 +446,7 @@ export default function DemoPage() {
 
       try {
         if (isNew) {
-          setTimeout(reconcileHistory, 2000);
-          
+          // Boundary crossed: Spawn new bar inheriting previous close
           const openPrice = lastClosePriceRef.current || price;
           const high = Math.max(openPrice, price);
           const low = Math.min(openPrice, price);
@@ -420,19 +464,27 @@ export default function DemoPage() {
           lastClosePriceRef.current = price;
           currentHighRef.current = high;
           currentLowRef.current = low;
+          
+          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime}`);
+          // Reconcile official bar after slight delay
+          setTimeout(reconcileHistory, 2000);
         } 
         else if (isUpdate) {
+          // Within same bucket: Update wicks and close
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
           
-          currentHighRef.current = Math.max(currentHighRef.current || price, price);
-          currentLowRef.current = Math.min(currentLowRef.current || price, price);
+          const newHigh = Math.max(currentHighRef.current || price, price);
+          const newLow = Math.min(currentLowRef.current || price, price);
+          
+          currentHighRef.current = newHigh;
+          currentLowRef.current = newLow;
           lastClosePriceRef.current = price;
           
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
             open: lastOpenPriceRef.current, 
-            high: currentHighRef.current, 
-            low: currentLowRef.current, 
+            high: newHigh, 
+            low: newLow, 
             close: price 
           });
         }
@@ -449,6 +501,7 @@ export default function DemoPage() {
     const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === sym);
     const activeIds = new Set(currentSymbolTrades.map(t => t.id));
     
+    // Cleanup old lines
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
         lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
@@ -456,6 +509,7 @@ export default function DemoPage() {
       }
     });
 
+    // Draw active lines
     currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
       const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
@@ -468,10 +522,19 @@ export default function DemoPage() {
 
       if (!lines || lines.length !== expectedLineCount) {
         if (lines) lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
-        const entry = mainSeriesRef.current!.createPriceLine({ price: trade.openPrice, color: '#11b3f5', lineStyle: LineStyle.Dashed, axisLabelVisible: true, title });
+        
+        const entry = mainSeriesRef.current!.createPriceLine({ 
+          price: trade.openPrice, 
+          color: '#11b3f5', 
+          lineStyle: LineStyle.Dashed, 
+          axisLabelVisible: true, 
+          title 
+        });
+        
         const newLines = [entry];
         if (hasSl) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' }));
         if (hasTp) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' }));
+        
         priceLinesRef.current.set(trade.id, newLines);
       } else {
         lines[0].applyOptions({ title });
@@ -481,7 +544,14 @@ export default function DemoPage() {
     const markers = currentSymbolTrades.map(t => {
       const tDate = getTradeDate(t.openedAt);
       if (!tDate) return null;
-      return { time: Math.floor(tDate.getTime() / 1000) as any, position: t.type === 'buy' ? 'belowBar' : 'aboveBar', color: t.type === 'buy' ? '#10b981' : '#ef4444', shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown', text: t.type.toUpperCase(), size: 1 };
+      return { 
+        time: Math.floor(tDate.getTime() / 1000) as any, 
+        position: t.type === 'buy' ? 'belowBar' : 'aboveBar', 
+        color: t.type === 'buy' ? '#10b981' : '#ef4444', 
+        shape: t.type === 'buy' ? 'arrowUp' : 'arrowDown', 
+        text: t.type.toUpperCase(), 
+        size: 1 
+      };
     }).filter(Boolean);
 
     mainSeriesRef.current.setMarkers(markers as any);
@@ -489,11 +559,38 @@ export default function DemoPage() {
 
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
+    
+    const isBlown = selectedAccount.status === 'blown' || selectedAccount.status === 'breach' || selectedAccount.status === 'terminated';
+    if (isBlown) {
+      toast({ title: "Account Terminated", description: "This node is no longer eligible for execution.", variant: "destructive" });
+      return;
+    }
+
     setActionLoading(true);
     const witness = type === 'buy' ? activePrice.ask : activePrice.bid;
     const token = await user.getIdToken();
-    fetch('/api/terminal/trades', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ accountId: selectedAccount.id, symbol: selectedSymbol, type, lots: parseFloat(lotsInput), sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null, witnessPrice: witness }) })
-    .then(async res => { const data = await res.json(); if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" }); else { toast({ title: "✓ Position Opened" }); setIsOrderSheetOpen(false); } })
+    
+    fetch('/api/terminal/trades', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, 
+      body: JSON.stringify({ 
+        accountId: selectedAccount.id, 
+        symbol: selectedSymbol, 
+        type, 
+        lots: parseFloat(lotsInput), 
+        sl: sl ? parseFloat(sl) : null, 
+        tp: tp ? parseFloat(tp) : null, 
+        witnessPrice: witness 
+      }) 
+    })
+    .then(async res => { 
+      const data = await res.json(); 
+      if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" }); 
+      else { 
+        toast({ title: "✓ Position Opened" }); 
+        setIsOrderSheetOpen(false); 
+      } 
+    })
     .catch(() => { toast({ title: "Network Error", variant: "destructive" }); })
     .finally(() => { setActionLoading(false); });
   }
@@ -581,7 +678,7 @@ export default function DemoPage() {
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
             {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
           </div>
-          <PositionsPanel openTrades={openTrades} closedTrades={[]} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
+          <PositionsPanel openTrades={openTrades} closedTrades={trades.filter(t => t.status === 'closed')} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
         </div>
 
         <aside className="w-80 bg-zinc-950 p-6 hidden lg:flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
