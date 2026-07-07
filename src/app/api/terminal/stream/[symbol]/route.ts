@@ -31,7 +31,9 @@ export async function GET(
       // Connection confirmation
       try {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', symbol })}\n\n`));
-      } catch (e) {}
+      } catch (e) {
+        return;
+      }
 
       const heartbeat = setInterval(() => {
         if (isClosed) return;
@@ -53,21 +55,21 @@ export async function GET(
         // 1. Primary Source: High-frequency memory buffer (Populated by background workers)
         let tick = getLatestOandaTicks()[symbol] || getLatestCoinbaseTicks()[symbol];
         
-        // 2. Self-Healing: Trigger manual poll if memory is empty or stale (> 3s)
-        if (!tick || (Date.now() - (tick.updatedAt || 0) > 3000)) {
+        // 2. Self-Healing: Trigger manual poll if memory is empty or stale (> 5s)
+        if (!tick || (Date.now() - (tick.updatedAt || 0) > 5000)) {
           if (Date.now() - lastManualPoll > 3000) {
             lastManualPoll = Date.now();
             try {
               if (isCrypto) {
                 const kPair = symbol === 'BTCUSD' ? 'XBTUSD' : symbol === 'DOGEUSD' ? 'XDGUSD' : symbol;
                 const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { 
-                  signal: AbortSignal.timeout(2000),
+                  signal: AbortSignal.timeout(3000),
                   cache: 'no-store'
                 });
                 if (res.ok) {
                   const d = await res.json();
                   if (d.result) {
-                    const resKey = Object.keys(d.result)[0];
+                    const resKey = Object.keys(d.result).find(k => k !== 'error');
                     if (resKey) {
                       const item = d.result[resKey];
                       tick = { 
@@ -92,7 +94,7 @@ export async function GET(
                 if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
                   const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
                     headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
-                    signal: AbortSignal.timeout(2000),
+                    signal: AbortSignal.timeout(3000),
                     cache: 'no-store'
                   });
                   if (res.ok) {

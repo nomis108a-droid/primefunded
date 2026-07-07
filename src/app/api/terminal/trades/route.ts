@@ -22,7 +22,11 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
 
     const auth = getAdminAuth();
-    if (!auth) return NextResponse.json({ error: "Auth service offline" }, { status: 503 });
+    const db = getAdminDb();
+    
+    if (!auth || !db) {
+      return NextResponse.json({ error: "Terminal services temporarily unavailable" }, { status: 503 });
+    }
 
     let uid: string;
     try {
@@ -31,9 +35,6 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       return NextResponse.json({ error: "Session expired" }, { status: 401 });
     }
-
-    const db = getAdminDb();
-    if (!db) return NextResponse.json({ error: "Database service offline" }, { status: 503 });
 
     const body = await req.json().catch(() => ({}));
     const { accountId, symbol, type, lots: rawLots, sl, tp, witnessPrice } = body;

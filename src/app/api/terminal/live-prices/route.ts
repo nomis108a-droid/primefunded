@@ -52,7 +52,7 @@ export async function GET() {
               };
             }
           }
-        }).catch(e => console.warn('[LivePrices] OANDA sync failed'))
+        }).catch(e => console.warn('[LivePrices] OANDA sync cycle skipped'))
       );
     }
 
@@ -96,7 +96,7 @@ export async function GET() {
             });
           }
         }
-      }).catch(e => console.warn('[LivePrices] Kraken sync failed'))
+      }).catch(e => console.warn('[LivePrices] Kraken sync cycle skipped'))
     );
 
     // 3. BNB Fallback via CoinGecko

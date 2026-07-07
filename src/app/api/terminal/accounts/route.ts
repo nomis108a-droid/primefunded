@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp } from 'firebase-admin/firestore';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
+import { RULES_CONFIG } from '@/lib/rulesConfig';
 
 const PLANS: Record<string, { balance: number; label: string }> = {
   "5k": { balance: 5000, label: "$5,000" },
@@ -16,10 +16,14 @@ export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get("authorization") || "";
     const token = authHeader.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "No auth token" }, { status: 401 });
+    if (!token) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
 
     const auth = getAdminAuth();
-    if (!auth) return NextResponse.json({ error: "Authentication service unavailable" }, { status: 503 });
+    const db = getAdminDb();
+    
+    if (!auth || !db) {
+      return NextResponse.json({ error: "Terminal services temporarily unavailable" }, { status: 503 });
+    }
 
     let uid: string;
     let email: string | null = null;
@@ -28,12 +32,14 @@ export async function POST(req: NextRequest) {
       uid = decoded.uid;
       email = decoded.email || null;
     } catch (err) {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
-    const { plan, planType: requestedPlanType } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const { plan, planType: requestedPlanType } = body;
+    
     const p = PLANS[plan];
-    if (!p) return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
+    if (!p) return NextResponse.json({ error: "Invalid plan size selected" }, { status: 400 });
 
     const planType = requestedPlanType || "1-step-pro";
     const phase = planType.startsWith('instant') ? "funded" : "evaluation";
@@ -42,9 +48,6 @@ export async function POST(req: NextRequest) {
     if (!rules) {
       return NextResponse.json({ error: "Configuration Error: Plan rules not found" }, { status: 500 });
     }
-
-    const db = getAdminDb();
-    if (!db) return NextResponse.json({ error: "Database service unavailable" }, { status: 503 });
 
     // FIXED DOLLAR LIMITS - Calculated ONCE at creation
     const targetPct = rules.profitTarget || 10;
@@ -75,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, accountId: docRef.id });
   } catch (error: any) {
-    console.error('[Demo-Account-API] Fatal Error:', error);
+    console.error('[Demo-Account-API] Fatal Error:', error.message);
     return NextResponse.json({ error: "Internal Server Error", details: error.message }, { status: 500 });
   }
 }
