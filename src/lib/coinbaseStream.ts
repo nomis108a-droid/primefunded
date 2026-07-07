@@ -142,10 +142,11 @@ export function startCoinbaseStream() {
   console.log('[KrakenFeed] Starting 3s Crypto Polling Cycle...');
   
   if (!heartbeatInterval) {
+    console.log('[KrakenFeed] Initializing High-Frequency Health Heartbeat...');
     heartbeatInterval = setInterval(() => {
-      console.log(`[Master-Fetcher] KRAKEN STATUS: Healthy | Ticks Processed (30s): ${tickCount}`);
+      console.log(`[Master-Fetcher] KRAKEN STATUS: Healthy | Ticks Processed (3s): ${tickCount}`);
       tickCount = 0;
-    }, 30000);
+    }, 3000);
   }
 
   fetchKrakenPrices();

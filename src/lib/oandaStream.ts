@@ -35,13 +35,13 @@ export async function startOandaStream() {
     return;
   }
 
-  // Start Health Heartbeat (Institutional Monitoring)
+  // Start Health Heartbeat (Institutional Monitoring - 3s Interval)
   if (!heartbeatInterval) {
-    console.log('[OandaStream] Initializing Health Heartbeat...');
+    console.log('[OandaStream] Initializing High-Frequency Health Heartbeat...');
     heartbeatInterval = setInterval(() => {
-      console.log(`[Master-Fetcher] OANDA STATUS: Healthy | Ticks Processed (30s): ${tickCount}`);
+      console.log(`[Master-Fetcher] OANDA STATUS: Healthy | Ticks Processed (3s): ${tickCount}`);
       tickCount = 0;
-    }, 30000);
+    }, 3000);
   }
 
   const instruments = 'XAU_USD,XAG_USD,XPT_USD,EUR_USD,GBP_USD,USD_JPY,USD_CHF,AUD_USD,USD_CAD,NZD_USD';
