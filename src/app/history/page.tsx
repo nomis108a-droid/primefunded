@@ -100,11 +100,11 @@ export default function HistoryPage() {
 
   const exportToCSV = () => {
     if (!filteredTrades.length) return;
-    const headers = ['Symbol', 'Type', 'Lots', 'Entry', 'Exit', 'Duration', 'PnL', 'Date'];
+    const headers = ['Symbol', 'Type', 'Lots', 'Entry', 'Exit', 'Duration', 'Commission', 'PnL', 'Date'];
     const rows = filteredTrades.map(t => {
       const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
       return [
-        t.symbol, t.type, t.lots, t.openPrice, t.closePrice, formatDuration(durationSec), t.pnl, 
+        t.symbol, t.type, t.lots, t.openPrice, t.closePrice, formatDuration(durationSec), t.commission || 0, t.pnl, 
         t.closedAt ? format(getTradeDate(t.closedAt)!, 'yyyy-MM-dd HH:mm:ss') : 'N/A'
       ];
     });
@@ -191,13 +191,14 @@ export default function HistoryPage() {
                     <th className="py-4 px-4 text-right">Entry</th>
                     <th className="py-4 px-4 text-right">Exit</th>
                     <th className="py-4 px-4 text-center">Duration</th>
+                    <th className="py-4 px-2 text-right">Commission</th>
                     <th className="py-4 px-6 text-right">Final P&L</th>
                     <th className="py-4 px-4">Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
                   {tradesLoading ? (
-                    [...Array(5)].map((_, i) => <tr key={i} className="animate-pulse"><td colSpan={8} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
+                    [...Array(5)].map((_, i) => <tr key={i} className="animate-pulse"><td colSpan={9} className="py-6 px-6"><div className="h-4 bg-secondary/50 rounded w-full" /></td></tr>)
                   ) : paginatedTrades.length > 0 ? (
                     paginatedTrades.map((t: any) => {
                       const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt);
@@ -215,6 +216,9 @@ export default function HistoryPage() {
                               <Hourglass className="w-2.5 h-2.5" /> {formatDuration(durationSec)}
                             </Badge>
                           </td>
+                          <td className="py-4 px-2 text-right font-mono text-xs text-destructive/80">
+                            -${(t.commission || 0).toFixed(2)}
+                          </td>
                           <td className={cn("py-4 px-6 text-right font-bold tabular-nums", (t.pnl || 0) >= 0 ? 'text-emerald-500' : 'text-destructive')}>
                             {(t.pnl || 0) >= 0 ? '+' : ''}${(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
@@ -225,7 +229,7 @@ export default function HistoryPage() {
                       );
                     })
                   ) : (
-                    <tr><td colSpan={8} className="py-32 text-center text-muted-foreground italic">No historical records found for the selected criteria.</td></tr>
+                    <tr><td colSpan={9} className="py-32 text-center text-muted-foreground italic">No historical records found for the selected criteria.</td></tr>
                   )}
                 </tbody>
               </table>

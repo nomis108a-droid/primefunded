@@ -253,7 +253,17 @@ export function PositionsPanel({
           <TabsContent value="history" className="m-0 border-none outline-none overflow-x-auto custom-scrollbar">
              <table className="w-full text-[10px] text-left min-w-[700px] lg:min-w-0">
               <thead className="sticky top-0 bg-zinc-950 text-zinc-500 uppercase font-black tracking-widest border-b border-zinc-900">
-                <tr><th className="py-2 px-3">Symbol</th><th className="py-2 px-2">Type</th><th className="py-2 px-2">Lots</th><th className="py-2 px-2">Open</th><th className="py-2 px-2">Close</th><th className="py-2 px-2">Dur.</th><th className="py-2 px-2 text-right">PnL</th><th className="py-2 px-3 text-right">Time</th></tr>
+                <tr>
+                  <th className="py-2 px-3">Symbol</th>
+                  <th className="py-2 px-2">Type</th>
+                  <th className="py-2 px-2">Lots</th>
+                  <th className="py-2 px-2">Open</th>
+                  <th className="py-2 px-2">Close</th>
+                  <th className="py-2 px-2">Dur.</th>
+                  <th className="py-2 px-2">Commission</th>
+                  <th className="py-2 px-2 text-right">PnL</th>
+                  <th className="py-2 px-3 text-right">Time</th>
+                </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {closedTrades.map((t) => {
@@ -267,6 +277,7 @@ export function PositionsPanel({
                       <td className="py-1.5 px-2 font-mono text-zinc-500">{formatPrice(t.openPrice, t.symbol)}</td>
                       <td className="py-1.5 px-2 font-mono text-zinc-500">{formatPrice(t.closePrice, t.symbol)}</td>
                       <td className="py-1.5 px-2 font-mono text-zinc-500">{formatDuration(durationSec)}</td>
+                      <td className="py-1.5 px-2 font-mono text-destructive/80">-${(t.commission || 0).toFixed(2)}</td>
                       <td className={cn("py-1.5 px-2 text-right font-mono font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>{(t.pnl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       <td className="py-1.5 px-3 text-right text-zinc-600">{cDate ? format(cDate, 'MMM d, HH:mm') : '—'}</td>
                     </tr>
