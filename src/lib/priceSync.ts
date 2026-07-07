@@ -51,21 +51,42 @@ export function startGlobalPriceSync() {
 }
 
 /**
- * Institutional Utility: Fetches a fresh price with self-healing fallback.
- * Prioritizes Memory -> RTDB -> REST Poll.
+ * Institutional GOLDEN SOURCE Utility: Fetches a fresh price with multi-layered fallback.
+ * Priority: Local Memory -> Shared RTDB -> Forced REST Poll -> Firestore.
+ * Updates shared state automatically on forced recovery.
  */
 export async function getAuthoritativePrice(symbol: string) {
   const sym = symbol.toUpperCase().trim();
   const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(sym);
+  const now = Date.now();
   
-  // 1. Check Memory Buffer
+  // 1. Check Local Memory Buffer (Ultra-fast, synced via GlobalPriceSync)
   const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
-  if (memTick && (Date.now() - memTick.updatedAt! < 10000)) {
+  if (memTick && (now - (memTick.updatedAt || 0) < 10000)) {
     return { ...memTick, source: 'memory' };
   }
 
-  // 2. Manual Poll Fallback (Self-Healing)
-  console.log(`[Liquidity-Recovery] Symbol ${sym} stale or missing. Attempting manual restoration...`);
+  // 2. Check RTDB Direct (Shared high-frequency buffer between all instances)
+  try {
+    const rtdb = getAdminRtdb();
+    const snap = await rtdb.ref(`livePrices/${sym}`).get();
+    if (snap.exists()) {
+      const tick = snap.val();
+      const tickAge = now - (tick.updatedAt || 0);
+      if (tickAge < 10000) {
+        // Hydrate local memory for subsequent calls
+        const payload = { ...tick, updatedAt: tick.updatedAt };
+        if (isCrypto) setLatestCoinbaseTick(sym, payload);
+        else setLatestOandaTick(sym, payload);
+        return { ...tick, source: 'rtdb' };
+      }
+    }
+  } catch (e) {
+    console.warn(`[Price-Sync] RTDB check failed for ${sym}`);
+  }
+
+  // 3. Forced REST Recovery (Last resort for execution, matches Chart's poller)
+  console.log(`[Price-Sync] SELF-HEALING: Triggering forced poll for ${sym}...`);
   let freshTick: any = null;
 
   try {
@@ -102,28 +123,30 @@ export async function getAuthoritativePrice(symbol: string) {
         }
       }
     }
-  } catch (e) {
-    console.warn(`[Liquidity-Recovery] REST poll failed for ${sym}:`, e);
+  } catch (e: any) {
+    console.warn(`[Price-Sync] Forced REST poll failed for ${sym}:`, e.message);
   }
 
   if (freshTick) {
     const payload = { ...freshTick, updatedAt: Date.now() };
-    // Update local state
+    // Update memory
     if (isCrypto) setLatestCoinbaseTick(sym, payload);
     else setLatestOandaTick(sym, payload);
-    // Bridge to other instances
+    // Bridge to RTDB for other instances
     broadcastToRtdb({ [sym]: payload });
-    return { ...payload, source: 'rest-poll' };
+    return { ...payload, source: 'forced-rest' };
   }
 
-  // 3. Last Resort: Firestore (likely stale)
-  const db = getAdminDb();
-  const snap = await db.collection('livePrices').doc(sym).get();
-  if (snap.exists) {
-    const data = snap.data()!;
-    const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
-    return { ...data, updatedAt: ts, source: 'firestore' };
-  }
+  // 4. Final Fallback: Firestore (Likely stale, but prevents null return)
+  try {
+    const db = getAdminDb();
+    const snap = await db.collection('livePrices').doc(sym).get();
+    if (snap.exists) {
+      const data = snap.data()!;
+      const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
+      return { ...data, updatedAt: ts, source: 'firestore' };
+    }
+  } catch (e) {}
 
   return null;
 }
@@ -140,7 +163,6 @@ async function checkTpSlHits(db: any) {
       const trade = tradeDoc.data();
       const symbol = (trade.symbol || "").toUpperCase().trim();
       
-      // Use the authoritative helper to ensure fresh prices during audit
       const priceData = await getAuthoritativePrice(symbol);
       if (!priceData || (Date.now() - priceData.updatedAt > 15000)) continue;
 

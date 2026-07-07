@@ -2,9 +2,7 @@ import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
-import { getLatestOandaTicks, setLatestOandaTick } from './oandaStream';
-import { getLatestCoinbaseTicks, setLatestCoinbaseTick } from './coinbaseStream';
-import { broadcastToRtdb } from './rtdbBroadcast';
+import { getAuthoritativePrice } from './priceSync';
 
 /**
  * @fileOverview Institutional Demo Audit Engine (V5)
@@ -30,80 +28,6 @@ function getTradeDate(time: any) {
   if (!time) return null;
   if (time.toDate) return time.toDate();
   return new Date(time);
-}
-
-/**
- * Institutional Utility: Fetches a fresh price with self-healing fallback.
- * Shared between Trade API and Audit Engine.
- */
-export async function getAuthoritativePrice(symbol: string) {
-  const sym = symbol.toUpperCase().trim();
-  const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(sym);
-  
-  // 1. Check local Memory Buffer first (Fastest)
-  const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
-  if (memTick && (Date.now() - memTick.updatedAt! < 8000)) {
-    return { ...memTick, source: 'memory' };
-  }
-
-  // 2. Self-Healing REST Recovery
-  console.log(`[Price-Sync] Attempting REST recovery for ${sym}...`);
-  let freshTick: any = null;
-
-  try {
-    if (isCrypto) {
-      if (sym === 'BNBUSD') {
-        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
-        const data = await res.json();
-        const p = data?.binancecoin?.usd;
-        if (p) freshTick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2) };
-      } else {
-        const kPair = sym === 'BTCUSD' ? 'XBTUSD' : sym === 'DOGEUSD' ? 'XDGUSD' : sym;
-        const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { signal: AbortSignal.timeout(3000) });
-        const d = await res.json();
-        if (d.result) {
-          const resKey = Object.keys(d.result)[0];
-          const item = d.result[resKey];
-          freshTick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
-        }
-      }
-    } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
-      const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
-      const instr = oMap[sym] || sym;
-      const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
-        headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
-        signal: AbortSignal.timeout(3000)
-      });
-      if (res.ok) {
-        const d = await res.json();
-        const p = d.candles?.[0]?.mid;
-        if (p) {
-          const o = parseFloat(p.o);
-          const spread = sym.includes('JPY') ? 0.015 : sym.includes('XAU') ? 0.25 : 0.00015;
-          freshTick = { bid: +(o - spread/2).toFixed(5), ask: +(o + spread/2).toFixed(5), price: o };
-        }
-      }
-    }
-  } catch (e) {}
-
-  if (freshTick) {
-    const payload = { ...freshTick, updatedAt: Date.now() };
-    if (isCrypto) setLatestCoinbaseTick(sym, payload);
-    else setLatestOandaTick(sym, payload);
-    broadcastToRtdb({ [sym]: payload });
-    return { ...payload, source: 'rest' };
-  }
-
-  // 3. Last Resort: Firestore
-  const db = getAdminDb();
-  const doc = await db.collection('livePrices').doc(sym).get();
-  if (doc.exists) {
-    const d = doc.data()!;
-    const ts = d.updatedAt?.toMillis ? d.updatedAt.toMillis() : (d.updatedAt || 0);
-    return { ...d, updatedAt: ts, source: 'db' };
-  }
-
-  return null;
 }
 
 /**

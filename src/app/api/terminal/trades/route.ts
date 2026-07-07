@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import { auditDemoAccount, getAuthoritativePrice } from '@/lib/rulesEngine';
+import { auditDemoAccount } from '@/lib/rulesEngine';
+import { getAuthoritativePrice } from '@/lib/priceSync';
 
 /**
- * @fileOverview Institutional Order Execution API (V8 - Self-Healing Pricing)
- * Uses getAuthoritativePrice utility to ensure 100% fresh prices even if 
- * background sync workers are suspended.
+ * @fileOverview Institutional Order Execution API (V9 - Golden Source Feed)
+ * Uses high-frequency RTDB and self-healing REST fallbacks to ensure 
+ * 100% execution uptime even when background sync workers are offline.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
     }
     await activeLockRef.set({ timestamp: Date.now(), accountId });
 
-    // 2. FETCH AUTHORITATIVE PRICE (With Self-Healing Recovery)
+    // 2. FETCH AUTHORITATIVE PRICE (Golden Source Hierarchy: Memory -> RTDB -> REST -> DB)
     const feed = await getAuthoritativePrice(symUpper);
 
     if (!feed || !feed.bid || !feed.ask) {
@@ -54,13 +55,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Market liquidity offline for ${symUpper}.` }, { status: 503 });
     }
 
-    // 3. FRESHNESS GUARD (Hardened to 10s)
+    // 3. FRESHNESS GUARD (Strict 10s check on the best available source)
     const priceAgeSeconds = (Date.now() - feed.updatedAt) / 1000;
-    console.log(`[Order-Verify] Sym: ${symUpper} | Age: ${priceAgeSeconds.toFixed(1)}s | Src: ${feed.source}`);
+    console.log(`[Order-Audit] Sym: ${symUpper} | Age: ${priceAgeSeconds.toFixed(1)}s | Src: ${feed.source} | P: ${feed.price}`);
 
     if (priceAgeSeconds > 10) {
       await activeLockRef.delete();
-      return NextResponse.json({ error: `Market feed is stale (${priceAgeSeconds.toFixed(0)}s old). Please wait for recovery.` }, { status: 503 });
+      return NextResponse.json({ 
+        error: `Market feed is stale (${priceAgeSeconds.toFixed(0)}s old). Self-healing in progress, please try again in 5s.` 
+      }, { status: 503 });
     }
 
     // 4. BLACKLIST GUARD
@@ -71,7 +74,7 @@ export async function POST(req: NextRequest) {
 
     const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
-    // 5. WITNESS VALIDATION
+    // 5. WITNESS VALIDATION (Prevent extreme slippage)
     if (witnessPrice && Math.abs(executionPrice - witnessPrice) / witnessPrice > 0.02) {
       await activeLockRef.delete();
       return NextResponse.json({ error: "Price deviation too high. Re-try in a moment." }, { status: 409 });
