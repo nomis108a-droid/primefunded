@@ -30,6 +30,10 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { CONTRACT_SIZE } from "@/lib/rulesConfig";
 import { getTradeDate } from "@/lib/tradeUtils";
 
+/**
+ * INSTITUTIONAL SYMBOL POOL
+ * Clean: Strictly deduplicated.
+ */
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD", "BNBUSD", "DOGEUSD"
@@ -235,6 +239,7 @@ export default function DemoPage() {
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
   
+  // OHLC Accumulation Refs
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
   const currentHighRef = useRef<number>(0);
@@ -285,6 +290,10 @@ export default function DemoPage() {
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
+  /**
+   * CHART INITIALIZATION
+   * Optimized for reliable ready-state detection.
+   */
   useEffect(() => {
     if (!hasMounted || authLoading) {
       console.log(`[Chart-Init] Skipping init: mounted=${hasMounted}, loading=${authLoading}`);
@@ -321,7 +330,6 @@ export default function DemoPage() {
       crosshair: { mode: CrosshairMode.Normal },
       localization: {
         timeFormatter: (time: number) => {
-          // ENSURE labels are always strictly HH:mm. Fixed the "58483" bug by properly handling timestamp objects.
           const date = new Date(time * 1000);
           return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
         },
@@ -357,6 +365,9 @@ export default function DemoPage() {
     };
   }, [selectedSymbol, hasMounted, authLoading]);
 
+  /**
+   * HISTORICAL DATA LOAD
+   */
   useEffect(() => {
     if (!isChartReady || !mainSeriesRef.current) return;
     setIsChartLoading(true);
@@ -382,18 +393,10 @@ export default function DemoPage() {
       .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // STALL WATCHDOG
-  useEffect(() => {
-    if (hasMounted && !authLoading && !isChartReady) {
-      const timer = setTimeout(() => {
-        if (!isChartReady) {
-          console.error(`[Chart-Stall] Chart failed to load for ${selectedSymbol} after 5s. Ready: ${isChartReady}, Container: ${!!chartContainerRef.current}`);
-        }
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [hasMounted, authLoading, isChartReady, selectedSymbol]);
-
+  /**
+   * REAL-TIME TICK INJECTION & OHLC ACCUMULATION
+   * Institutional Range Monitor (V12 - Diagnostic Version)
+   */
   useEffect(() => {
     if (activePrice && typeof activePrice.price === 'number' && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -402,7 +405,9 @@ export default function DemoPage() {
       };
 
       const intervalSec = getIntervalSeconds(selectedInterval);
+      const price = Number(activePrice.price);
       
+      // TIMESTAMP GUARDIAN: Normalizes raw index leaks (e.g. "58483") to full Unix seconds.
       const tickTimeRaw = activePrice.time || activePrice.updatedAt;
       let tickTime = 0;
       if (typeof tickTimeRaw === 'number') {
@@ -413,53 +418,58 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
 
-      // TIMESTAMP GUARDIAN: Ensure labels are never raw numbers like "58483"
-      if (tickTime < 1000000000) {
-        tickTime = Math.floor(Date.now() / 1000);
-      }
+      // Final normalization catch-all
+      if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
       
       try {
         if (bucketTime > lastCandleTimeRef.current) {
-          console.log(`[Candle-Update] ${selectedSymbol} NEW BAR. Bucket: ${bucketTime} | Previous: ${lastCandleTimeRef.current}`);
+          // NEW CANDLE BOUNDARY CROSSED
+          console.log(`[Candle-Audit] NEW CANDLE @ ${bucketTime} | O:${price} H:${price} L:${price} C:${price}`);
+          
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
-            open: activePrice.price, 
-            high: activePrice.price, 
-            low: activePrice.price, 
-            close: activePrice.price 
+            open: price, 
+            high: price, 
+            low: price, 
+            close: price 
           });
-          lastCandleTimeRef.current = bucketTime;
-          lastOpenPriceRef.current = activePrice.price;
-          currentHighRef.current = activePrice.price;
-          currentLowRef.current = activePrice.price;
-        } else if (bucketTime === lastCandleTimeRef.current) {
-          // OHLC Accumulation Logic with persistent high/low
-          if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
-          if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
-          if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
 
-          currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
-          currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
+          lastCandleTimeRef.current = bucketTime;
+          lastOpenPriceRef.current = price;
+          currentHighRef.current = price;
+          currentLowRef.current = price;
+        } 
+        else if (bucketTime === lastCandleTimeRef.current) {
+          // UPDATE EXISTING BAR (Range Accumulation)
+          if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
+          if (currentHighRef.current === 0) currentHighRef.current = price;
+          if (currentLowRef.current === 0) currentLowRef.current = price;
+
+          // Accumulate range strictly
+          currentHighRef.current = Math.max(currentHighRef.current, price);
+          currentLowRef.current = Math.min(currentLowRef.current, price);
           
-          // DETAILED LOGGING: Verify that the chart is receiving data correctly
-          console.log(`[Candle-Update] ${selectedSymbol} TICK @ ${bucketTime}. OHLC: ${lastOpenPriceRef.current.toFixed(2)}/${currentHighRef.current.toFixed(2)}/${currentLowRef.current.toFixed(2)}/${activePrice.price.toFixed(2)}`);
+          console.log(`[Candle-Audit] UPDATED CANDLE @ ${bucketTime} | O:${lastOpenPriceRef.current} H:${currentHighRef.current} L:${currentLowRef.current} C:${price}`);
 
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
             open: lastOpenPriceRef.current, 
             high: currentHighRef.current, 
             low: currentLowRef.current, 
-            close: activePrice.price 
+            close: price 
           });
         }
       } catch (e) {
-        console.warn('[Chart-Update] Tick injection failed:', e);
+        console.error('[Chart-Update] OHLC injection crash:', e);
       }
     }
   }, [activePrice, isChartReady, selectedInterval, selectedSymbol]);
 
+  /**
+   * TRADE LINES & MARKERS
+   */
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
     
@@ -574,7 +584,7 @@ export default function DemoPage() {
              <div className="mt-auto space-y-1 pb-2"><ToolButton active={false} onClick={() => setActiveTool('eraser')} icon={<Eraser size={16} />} /></div>
           </aside>
         )}
-        <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
+        <div className="flex-1 relative min-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
           <div className="flex-1 relative overflow-hidden" ref={chartContainerRef}>
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
             {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
