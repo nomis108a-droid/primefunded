@@ -34,7 +34,7 @@ import { getTradeDate } from "@/lib/tradeUtils";
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
-  "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD", "BNBUSD", "DOGEUSD", "ADAUSD"
+  "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD", "BNBUSD", "DOGEUSD"
 ];
 
 const TIMEFRAMES = [
@@ -317,9 +317,9 @@ export default function DemoPage() {
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
-  // Chart Init - Critical Fix: Added hasMounted dependency to fire on initial mount
+  // Chart Init - Critical Fix: Added authLoading to dependencies to ensure ref is bound
   useEffect(() => {
-    if (!hasMounted || !chartContainerRef.current) return;
+    if (!hasMounted || !chartContainerRef.current || authLoading) return;
     
     setIsChartReady(false);
     priceLinesRef.current.clear();
@@ -348,17 +348,17 @@ export default function DemoPage() {
     const handleResize = () => { if (chartInstanceRef.current) chartInstanceRef.current.applyOptions({ width: chartContainerRef.current!.clientWidth, height: chartContainerRef.current!.clientHeight }); };
     window.addEventListener('resize', handleResize);
     return () => { window.removeEventListener('resize', handleResize); if (chartInstanceRef.current) chartInstanceRef.current.remove(); };
-  }, [selectedSymbol, hasMounted]);
+  }, [selectedSymbol, hasMounted, authLoading]);
 
   // Stall Diagnostic Guard
   useEffect(() => {
-    if (!isChartReady && isChartLoading && hasMounted) {
+    if (!isChartReady && isChartLoading && hasMounted && !authLoading) {
       const timer = setTimeout(() => {
         console.error(`[Chart-Stall] Chart failed to load for ${selectedSymbol} after 5s. Ready: ${isChartReady}, Container: ${!!chartContainerRef.current}`);
       }, 5000);
       return () => clearTimeout(timer);
     }
-  }, [isChartReady, isChartLoading, selectedSymbol, hasMounted]);
+  }, [isChartReady, isChartLoading, selectedSymbol, hasMounted, authLoading]);
 
   // History Load
   useEffect(() => {
