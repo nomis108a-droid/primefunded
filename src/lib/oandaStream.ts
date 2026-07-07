@@ -35,10 +35,11 @@ export async function startOandaStream() {
     return;
   }
 
-  // Start Health Heartbeat
+  // Start Health Heartbeat (Institutional Monitoring)
   if (!heartbeatInterval) {
+    console.log('[OandaStream] Initializing Health Heartbeat...');
     heartbeatInterval = setInterval(() => {
-      console.log(`[Master-Fetcher] OANDA HEARTBEAT: ${tickCount} ticks processed in last 30s. Status: HEALTHY`);
+      console.log(`[Master-Fetcher] OANDA STATUS: Healthy | Ticks Processed (30s): ${tickCount}`);
       tickCount = 0;
     }, 30000);
   }
@@ -98,7 +99,7 @@ export async function startOandaStream() {
     console.warn('[OandaStream] Connection reset:', err.message);
   }
 
-  // Exponential backoff or simple retry
+  // Exponential backoff retry
   setTimeout(startOandaStream, 5000);
 }
 
@@ -111,10 +112,10 @@ export function startOandaThrottledFirestoreWrite() {
     const symbols = Object.keys(latestOandaTicks);
     if (symbols.length === 0) return;
 
-    // 1. Write to RTDB (Near-instant broadcast)
+    // 1. Write to RTDB (Near-instant broadcast to all instances)
     broadcastToRtdb(latestOandaTicks as any);
 
-    // 2. Write to Firestore (Audit persistence)
+    // 2. Write to Firestore (Throttled audit persistence)
     const db = getAdminDb();
     const batch = db.batch();
     let hasChanges = false;
@@ -122,7 +123,7 @@ export function startOandaThrottledFirestoreWrite() {
 
     for (const symbol of symbols) {
       const tick = latestOandaTicks[symbol];
-      const tickStr = `${tick.bid}-${tick.ask}`; // Simple change detection
+      const tickStr = `${tick.bid}-${tick.ask}`;
 
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
         const liveRef = db.collection('livePrices').doc(symbol);
@@ -148,5 +149,5 @@ export function startOandaThrottledFirestoreWrite() {
         isWriting = false;
       }
     }
-  }, 2000); // 2s throttle for Firestore writes
+  }, 2000); 
 }

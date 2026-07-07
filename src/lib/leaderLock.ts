@@ -59,7 +59,6 @@ export async function acquireOrRenewLeadership(): Promise<boolean> {
     // 3. Another instance is healthy and leading
     return false;
   } catch (err: any) {
-    // Only log if it's not a standard unauthenticated error which we've already warned about
     if (!err.message.includes('unauthenticated') && err.code !== 16) {
       console.warn('[LeaderLock] Election interaction fault:', err.message);
     }
@@ -69,18 +68,17 @@ export async function acquireOrRenewLeadership(): Promise<boolean> {
 
 /**
  * Starts a background heartbeat that monitors and attempts to acquire leadership status.
- * Executes callbacks on state transitions.
  */
 export function startLeaderHeartbeat(onBecomeLeader: () => void, onLoseLeadership?: () => void) {
   const check = async () => {
     const isLeader = await acquireOrRenewLeadership();
 
     if (isLeader && !isCurrentLeader) {
-      console.log(`[LeaderLock] Transition: Instance ${MY_INSTANCE_ID} is now the active LEADER.`);
+      console.log(`[LeaderLock] Cluster Transition: Instance ${MY_INSTANCE_ID} is now the active MASTER.`);
       isCurrentLeader = true;
       onBecomeLeader();
     } else if (!isLeader && isCurrentLeader) {
-      console.warn(`[LeaderLock] Transition: Leadership lost to another instance.`);
+      console.warn(`[LeaderLock] Cluster Transition: Leadership lost to another instance.`);
       isCurrentLeader = false;
       if (onLoseLeadership) onLoseLeadership();
     }

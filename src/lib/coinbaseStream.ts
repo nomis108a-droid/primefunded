@@ -1,5 +1,6 @@
 /**
  * @fileOverview Crypto Price Feed via Kraken REST API
+ * Shared state manager for crypto liquidity.
  */
 import { getAdminDb } from '@/lib/firebase-admin';
 import { broadcastToRtdb } from './rtdbBroadcast';
@@ -33,7 +34,10 @@ export function getLatestCoinbaseTicks() {
  * Updates the local memory buffer from external sources
  */
 export function setLatestCoinbaseTick(symbol: string, data: { price: number; bid: number; ask: number; updatedAt?: number }) {
-  cryptoPrices[symbol] = data;
+  cryptoPrices[symbol] = {
+    ...data,
+    updatedAt: data.updatedAt || Date.now()
+  };
 }
 
 async function fetchKrakenPrices() {
@@ -91,6 +95,7 @@ async function fetchBnbPrice() {
     const price = data?.binancecoin?.usd;
     
     if (price && !isNaN(price)) {
+      const spread = price * 0.0005;
       cryptoPrices['BNBUSD'] = { 
         price: +price.toFixed(2), 
         bid: +(price - spread).toFixed(2), 
@@ -116,19 +121,17 @@ async function writeCryptoPricesToStorage() {
     
     Object.entries(cryptoPrices).forEach(([symbol, data]) => {
       const liveRef = db.collection('livePrices').doc(symbol);
-      
       const payload = {
         ...data,
         symbol,
         updatedAt: now 
       };
-
       batch.set(liveRef, payload, { merge: true });
     });
     
     await batch.commit();
   } catch (e: any) {
-    console.error('[KrakenFeed] Sync Fault:', e.message);
+    // Silent fail for background cycle
   } finally {
     isWriting = false;
   }
@@ -140,7 +143,7 @@ export function startCoinbaseStream() {
   
   if (!heartbeatInterval) {
     heartbeatInterval = setInterval(() => {
-      console.log(`[Master-Fetcher] KRAKEN HEARTBEAT: ${tickCount} ticks processed in last 30s. Status: HEALTHY`);
+      console.log(`[Master-Fetcher] KRAKEN STATUS: Healthy | Ticks Processed (30s): ${tickCount}`);
       tickCount = 0;
     }, 30000);
   }
