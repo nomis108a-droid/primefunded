@@ -18,7 +18,10 @@ export function getLatestOandaTicks() {
 }
 
 export function setLatestOandaTick(symbol: string, data: { price: number; bid: number; ask: number; updatedAt?: number }) {
-  latestOandaTicks[symbol] = data;
+  latestOandaTicks[symbol] = {
+    ...data,
+    updatedAt: data.updatedAt || Date.now()
+  };
 }
 
 export async function startOandaStream() {
@@ -43,6 +46,8 @@ export async function startOandaStream() {
 
     if (!response.ok) throw new Error(`OANDA HTTP ${response.status}`);
     if (!response.body) throw new Error('OANDA Body Empty');
+
+    console.log('[OandaStream] Persistent connection established.');
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -79,10 +84,11 @@ export async function startOandaStream() {
       }
     }
   } catch (err: any) {
-    console.warn('[OandaStream] Connection reset, reconnecting...');
+    console.warn('[OandaStream] Connection reset:', err.message);
   }
 
-  setTimeout(startOandaStream, 3000);
+  // Exponential backoff or simple retry
+  setTimeout(startOandaStream, 5000);
 }
 
 export function startOandaThrottledFirestoreWrite() {
@@ -101,25 +107,21 @@ export function startOandaThrottledFirestoreWrite() {
     const db = getAdminDb();
     const batch = db.batch();
     let hasChanges = false;
+    const now = FieldValue.serverTimestamp();
 
     for (const symbol of symbols) {
       const tick = latestOandaTicks[symbol];
-      const tickStr = JSON.stringify(tick);
+      const tickStr = `${tick.bid}-${tick.ask}`; // Simple change detection
 
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
-        // Update both paths for unified sync
         const liveRef = db.collection('livePrices').doc(symbol);
-        const marketRef = db.collection('market').doc(symbol);
-        
         const payload = {
           ...tick,
           symbol,
-          updatedAt: FieldValue.serverTimestamp()
+          updatedAt: now
         };
 
         batch.set(liveRef, payload, { merge: true });
-        batch.set(marketRef, payload, { merge: true });
-
         lastWrittenOandaTicks[symbol] = tickStr;
         hasChanges = true;
       }
@@ -129,11 +131,12 @@ export function startOandaThrottledFirestoreWrite() {
       isWriting = true;
       try {
         await batch.commit();
+        console.log(`[OandaStream] Heartbeat: Synced ${symbols.length} pairs to Firestore.`);
       } catch (err) {
         // Silent batch failure log
       } finally {
         isWriting = false;
       }
     }
-  }, 150);
+  }, 2000); // 2s throttle for Firestore writes
 }

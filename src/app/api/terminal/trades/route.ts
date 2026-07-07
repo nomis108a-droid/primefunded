@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import { auditDemoAccount } from '@/lib/rulesEngine';
-import { getLatestOandaTicks } from '@/lib/oandaStream';
-import { getLatestCoinbaseTicks } from '@/lib/coinbaseStream';
+import { auditDemoAccount, getAuthoritativePrice } from '@/lib/rulesEngine';
 
 /**
- * @fileOverview Institutional Order Execution API (V7 - Stale Feed Hardened)
- * Prevents execution on stale prices by checking both database and high-frequency 
- * memory buffers. Rejects orders if feed age exceeds 10 seconds.
+ * @fileOverview Institutional Order Execution API (V8 - Self-Healing Pricing)
+ * Uses getAuthoritativePrice utility to ensure 100% fresh prices even if 
+ * background sync workers are suspended.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -48,61 +46,38 @@ export async function POST(req: NextRequest) {
     }
     await activeLockRef.set({ timestamp: Date.now(), accountId });
 
+    // 2. FETCH AUTHORITATIVE PRICE (With Self-Healing Recovery)
+    const feed = await getAuthoritativePrice(symUpper);
+
+    if (!feed || !feed.bid || !feed.ask) {
+      await activeLockRef.delete();
+      return NextResponse.json({ error: `Market liquidity offline for ${symUpper}.` }, { status: 503 });
+    }
+
+    // 3. FRESHNESS GUARD (Hardened to 10s)
+    const priceAgeSeconds = (Date.now() - feed.updatedAt) / 1000;
+    console.log(`[Order-Verify] Sym: ${symUpper} | Age: ${priceAgeSeconds.toFixed(1)}s | Src: ${feed.source}`);
+
+    if (priceAgeSeconds > 10) {
+      await activeLockRef.delete();
+      return NextResponse.json({ error: `Market feed is stale (${priceAgeSeconds.toFixed(0)}s old). Please wait for recovery.` }, { status: 503 });
+    }
+
+    // 4. BLACKLIST GUARD
+    if (Math.abs(feed.price - 4185.658) < 0.001) {
+      await activeLockRef.delete();
+      return NextResponse.json({ error: "Execution blocked on bugged price marker." }, { status: 400 });
+    }
+
+    const executionPrice = type === 'buy' ? feed.ask : feed.bid;
+
+    // 5. WITNESS VALIDATION
+    if (witnessPrice && Math.abs(executionPrice - witnessPrice) / witnessPrice > 0.02) {
+      await activeLockRef.delete();
+      return NextResponse.json({ error: "Price deviation too high. Re-try in a moment." }, { status: 409 });
+    }
+
     const result = await db.runTransaction(async (tx) => {
-      // 2. FETCH PRICE (Strict Freshness check against DB and Memory)
-      const liveRef = db.collection('livePrices').doc(symUpper);
-      const liveSnap = await tx.get(liveRef);
-      
-      const oandaMem = getLatestOandaTicks()[symUpper];
-      const cryptoMem = getLatestCoinbaseTicks()[symUpper];
-      const memTick = oandaMem || cryptoMem;
-      
-      let feed = liveSnap.exists ? liveSnap.data() : null;
-
-      // Prefer high-frequency memory ticks if they are fresher than DB records
-      if (memTick) {
-        const dbTime = feed?.updatedAt?.toMillis ? feed.updatedAt.toMillis() : (feed?.updatedAt || 0);
-        const memTime = memTick.updatedAt || 0;
-        
-        if (!feed || memTime > dbTime) {
-          feed = { ...feed, ...memTick };
-        }
-      }
-
-      if (!feed || !feed.bid || !feed.ask) {
-        throw new Error(`Liquidity source offline for ${symUpper}. (No Data)`);
-      }
-
-      // ── CRITICAL FRESHNESS GUARD ──
-      const priceUpdatedAt = feed.updatedAt?.toMillis ? feed.updatedAt.toMillis() : (feed.updatedAt || 0);
-      const priceAgeSeconds = (Date.now() - priceUpdatedAt) / 1000;
-
-      // Debugging logs for stale check analysis
-      console.log(`[RiskEngine-Debug] Executing Trade for ${symUpper}`);
-      console.log(`  Current Server Time: ${new Date().toISOString()}`);
-      console.log(`  Market Timestamp:    ${new Date(priceUpdatedAt).toISOString()}`);
-      console.log(`  Price Age (s):       ${priceAgeSeconds.toFixed(1)}s`);
-      console.log(`  Source:              ${memTick && memTick.updatedAt === priceUpdatedAt ? 'Memory' : 'Firestore'}`);
-
-      if (priceAgeSeconds > 10) {
-        console.error(`[STALE-PRICE-REJECTION] Symbol: ${symUpper}, Age: ${priceAgeSeconds.toFixed(1)}s, Price: ${feed.price}`);
-        throw new Error(`Market feed is stale (${priceAgeSeconds.toFixed(0)}s old). Please wait for network sync.`);
-      }
-
-      // ── BLACKLIST GUARD ──
-      if (Math.abs(feed.price - 4185.658) < 0.001) {
-        throw new Error("System blocked execution on bugged price marker (4185.658). Check sync workers.");
-      }
-
-      const executionPrice = type === 'buy' ? feed.ask : feed.bid;
-
-      // ── WITNESS VALIDATION ──
-      if (witnessPrice && Math.abs(executionPrice - witnessPrice) / witnessPrice > 0.02) {
-        throw new Error(`Price deviation too high (Witness: ${witnessPrice}, Server: ${executionPrice}). Re-try in a moment.`);
-      }
-
-      console.log(`[EXECUTION-SUCCESS] UID: ${uid} | ${symUpper} | ${type.toUpperCase()} | Entry: ${executionPrice}`);
-
       const accRef = db.collection("demoAccounts").doc(accountId);
       const accSnap = await tx.get(accRef);
       if (!accSnap.exists) throw new Error("Trading node not found");

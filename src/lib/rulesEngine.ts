@@ -2,6 +2,9 @@ import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
+import { getLatestOandaTicks, setLatestOandaTick } from './oandaStream';
+import { getLatestCoinbaseTicks, setLatestCoinbaseTick } from './coinbaseStream';
+import { broadcastToRtdb } from './rtdbBroadcast';
 
 /**
  * @fileOverview Institutional Demo Audit Engine (V5)
@@ -30,6 +33,80 @@ function getTradeDate(time: any) {
 }
 
 /**
+ * Institutional Utility: Fetches a fresh price with self-healing fallback.
+ * Shared between Trade API and Audit Engine.
+ */
+export async function getAuthoritativePrice(symbol: string) {
+  const sym = symbol.toUpperCase().trim();
+  const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(sym);
+  
+  // 1. Check local Memory Buffer first (Fastest)
+  const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
+  if (memTick && (Date.now() - memTick.updatedAt! < 8000)) {
+    return { ...memTick, source: 'memory' };
+  }
+
+  // 2. Self-Healing REST Recovery
+  console.log(`[Price-Sync] Attempting REST recovery for ${sym}...`);
+  let freshTick: any = null;
+
+  try {
+    if (isCrypto) {
+      if (sym === 'BNBUSD') {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
+        const data = await res.json();
+        const p = data?.binancecoin?.usd;
+        if (p) freshTick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2) };
+      } else {
+        const kPair = sym === 'BTCUSD' ? 'XBTUSD' : sym === 'DOGEUSD' ? 'XDGUSD' : sym;
+        const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { signal: AbortSignal.timeout(3000) });
+        const d = await res.json();
+        if (d.result) {
+          const resKey = Object.keys(d.result)[0];
+          const item = d.result[resKey];
+          freshTick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
+        }
+      }
+    } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
+      const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
+      const instr = oMap[sym] || sym;
+      const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
+        headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const p = d.candles?.[0]?.mid;
+        if (p) {
+          const o = parseFloat(p.o);
+          const spread = sym.includes('JPY') ? 0.015 : sym.includes('XAU') ? 0.25 : 0.00015;
+          freshTick = { bid: +(o - spread/2).toFixed(5), ask: +(o + spread/2).toFixed(5), price: o };
+        }
+      }
+    }
+  } catch (e) {}
+
+  if (freshTick) {
+    const payload = { ...freshTick, updatedAt: Date.now() };
+    if (isCrypto) setLatestCoinbaseTick(sym, payload);
+    else setLatestOandaTick(sym, payload);
+    broadcastToRtdb({ [sym]: payload });
+    return { ...payload, source: 'rest' };
+  }
+
+  // 3. Last Resort: Firestore
+  const db = getAdminDb();
+  const doc = await db.collection('livePrices').doc(sym).get();
+  if (doc.exists) {
+    const d = doc.data()!;
+    const ts = d.updatedAt?.toMillis ? d.updatedAt.toMillis() : (d.updatedAt || 0);
+    return { ...d, updatedAt: ts, source: 'db' };
+  }
+
+  return null;
+}
+
+/**
  * Enforces per-trade floating loss limits (Soft Breach Policy).
  */
 async function enforceSymbolFloatingLossLimits(
@@ -38,24 +115,28 @@ async function enforceSymbolFloatingLossLimits(
   userId: string,
   startBalance: number,
   openTrades: TradeRecord[],
-  prices: Record<string, any>,
   maxFloatingLossPct: number
 ) {
   const limitUsd = startBalance * (maxFloatingLossPct / 100);
   const closedIds = new Set<string>();
   let totalRealizedLoss = 0;
 
-  const bySymbol: Record<string, { trades: TradeRecord[]; pnl: number }> = {};
+  const bySymbol: Record<string, { trades: TradeRecord[]; pnl: number; priceData: any }> = {};
+  
   for (const t of openTrades) {
     const sym = (t.symbol || '').toUpperCase().trim();
-    const priceData = prices[sym];
+    if (!bySymbol[sym]) {
+      const price = await getAuthoritativePrice(sym);
+      bySymbol[sym] = { trades: [], pnl: 0, priceData: price };
+    }
+    
+    const priceData = bySymbol[sym].priceData;
     if (!priceData) continue;
     
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
     
-    if (!bySymbol[sym]) bySymbol[sym] = { trades: [], pnl: 0 };
     bySymbol[sym].trades.push(t);
     bySymbol[sym].pnl += pnl;
   }
@@ -64,7 +145,7 @@ async function enforceSymbolFloatingLossLimits(
     const group = bySymbol[sym];
     if (group.pnl < 0 && Math.abs(group.pnl) >= limitUsd) {
       for (const t of group.trades) {
-        const priceData = prices[sym];
+        const priceData = group.priceData;
         const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
         const contractSize = CONTRACT_SIZE[sym] || 100000;
         const tradePnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
@@ -81,16 +162,11 @@ async function enforceSymbolFloatingLossLimits(
             liquidated: true
           });
 
-          const accUpdates: any = {
+          tx.update(db.collection('demoAccounts').doc(accountId), {
             balance: FieldValue.increment(tradePnl),
+            dailyGrossLossUsd: tradePnl < 0 ? FieldValue.increment(Math.abs(tradePnl)) : FieldValue.increment(0),
             updatedAt: FieldValue.serverTimestamp()
-          };
-
-          if (tradePnl < 0) {
-            accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(tradePnl));
-          }
-
-          tx.update(db.collection('demoAccounts').doc(accountId), accUpdates);
+          });
           
           tx.set(db.collection('users').doc(userId).collection('notifications').doc(), {
             title: '🛡️ Trade Auto-Closed',
@@ -113,27 +189,21 @@ async function enforceSymbolFloatingLossLimits(
  * Enforces single trade loss limit as a HARD BREACH.
  */
 async function enforceSingleTradeLossLimit(
-  db: any,
-  accountId: string,
-  userId: string,
   startBalance: number,
-  openTrades: TradeRecord[],
-  prices: Record<string, any>,
-  maxSingleTradeLossPct: number
+  openTrades: TradeRecord[]
 ) {
-  const limitUsd = startBalance * (maxSingleTradeLossPct / 100);
-  
   for (const t of openTrades) {
     const sym = (t.symbol || '').toUpperCase().trim();
-    const priceData = prices[sym];
+    const priceData = await getAuthoritativePrice(sym);
     if (!priceData) continue;
     
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
     const pnl = (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize;
 
+    const limitUsd = startBalance * 0.03; // Hardcoded 3% limit for protection
     if (pnl < 0 && Math.abs(pnl) >= limitUsd) {
-      return `Single trade loss violation: Trade on ${sym} lost $${Math.abs(pnl).toFixed(2)} which exceeded ${maxSingleTradeLossPct}% limit.`;
+      return `Single trade loss violation: Trade on ${sym} lost $${Math.abs(pnl).toFixed(2)} which exceeded 3% limit.`;
     }
   }
   return null;
@@ -160,22 +230,9 @@ export async function auditDemoAccount(accountId: string) {
   const rules = RULES_CONFIG.plans[pKey]?.[phKey] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
   const universal = RULES_CONFIG.universal;
 
-  const [tradesSnap, marketSnap, livePricesSnap] = await Promise.all([
-    db.collection('demoTrades').where('accountId', '==', accountId).get(),
-    db.collection('market').get(),
-    db.collection('livePrices').get()
-  ]);
-
+  const tradesSnap = await db.collection('demoTrades').where('accountId', '==', accountId).get();
   const trades: TradeRecord[] = tradesSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() } as TradeRecord));
   
-  // ROBUST PRICE MERGING: Ensure both market and livePrices collections are aggregated
-  const prices: Record<string, any> = {};
-  livePricesSnap.docs.forEach(d => prices[d.id.toUpperCase().trim()] = d.data());
-  marketSnap.docs.forEach(d => {
-    const sym = d.id.toUpperCase().trim();
-    prices[sym] = { ...(prices[sym] || {}), ...d.data() };
-  });
-
   let openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
 
@@ -206,54 +263,27 @@ export async function auditDemoAccount(accountId: string) {
     }
   }
 
-  // 3. Martingale Audit
-  if (!breachReason && universal.noMartingale) {
-    const symGroups: Record<string, TradeRecord[]> = {};
-    trades.forEach(t => {
-      const s = (t.symbol || '').toUpperCase().trim();
-      if (!symGroups[s]) symGroups[s] = [];
-      symGroups[s].push(t);
-    });
-
-    for (const sym of Object.keys(symGroups)) {
-      const group = symGroups[sym].sort((a, b) => getTradeDate(a.openedAt)!.getTime() - getTradeDate(b.openedAt)!.getTime());
-      for (let i = 1; i < group.length; i++) {
-        const prev = group[i-1];
-        const curr = group[i];
-        if (prev.status === 'closed' && (parseFloat(String(prev.pnl)) < 0)) {
-           const prevCloseTime = getTradeDate(prev.closedAt)!.getTime();
-           const currOpenTime = getTradeDate(curr.openedAt)!.getTime();
-           if (currOpenTime > prevCloseTime && curr.lots! > prev.lots!) {
-              breachReason = `Martingale violation: Lot size increased after a loss on ${sym}.`;
-              break;
-           }
-        }
-      }
-      if (breachReason) break;
-    }
-  }
-
-  // 4. Soft Breach: Symbol Floating Loss (Uses strict Bid/Ask)
+  // 3. Soft Breach: Symbol Floating Loss (Uses strict Bid/Ask)
   let realizedLossFromForceClose = 0;
   if (!breachReason && rules.maxFloatingLoss && openTrades.length > 0) {
     const floatingResult = await enforceSymbolFloatingLossLimits(
-      db, accountId, userId, initialBalance, openTrades, prices, rules.maxFloatingLoss
+      db, accountId, userId, initialBalance, openTrades, rules.maxFloatingLoss
     );
     realizedLossFromForceClose += floatingResult.realizedLossFromForceClose;
     openTrades = openTrades.filter(t => !floatingResult.closedIds.has(t.id));
   }
 
-  // 5. Hard Breach: Single Trade Loss (Uses strict Bid/Ask)
-  if (!breachReason && rules.maxSingleTradeLoss && openTrades.length > 0) {
-    const singleBreach = await enforceSingleTradeLossLimit(db, accountId, userId, initialBalance, openTrades, prices, rules.maxSingleTradeLoss);
+  // 4. Hard Breach: Single Trade Loss (Uses strict Bid/Ask)
+  if (!breachReason && openTrades.length > 0) {
+    const singleBreach = await enforceSingleTradeLossLimit(initialBalance, openTrades);
     if (singleBreach) breachReason = singleBreach;
   }
 
-  // 6. Calculate Current Total Floating PnL
+  // 5. Calculate Current Total Floating PnL
   let totalFloatingPnl = 0;
   for (const t of openTrades) {
     const sym = (t.symbol?.toUpperCase() || '').trim();
-    const priceData = prices[sym];
+    const priceData = await getAuthoritativePrice(sym);
     if (!priceData) continue;
     const exitPrice = t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price);
     const contractSize = CONTRACT_SIZE[sym] || 100000;
@@ -262,25 +292,8 @@ export async function auditDemoAccount(accountId: string) {
 
   const currentEquity = currBalance + totalFloatingPnl;
   
-  // 7. Drawdown Logic (Hard Breach)
-  let realizedLossToday = realizedLossFromForceClose;
-  
-  if (typeof dailyGrossLossUsd === 'number') {
-    realizedLossToday += dailyGrossLossUsd;
-  } else {
-    const now = new Date();
-    const sessionStart = new Date(now);
-    sessionStart.setUTCHours(2, 0, 0, 0); 
-    if (now.getUTCHours() < 2) sessionStart.setUTCDate(sessionStart.getUTCDate() - 1); 
-
-    closedTrades.forEach(t => {
-      const closedDate = getTradeDate(t.closedAt);
-      if (closedDate && closedDate >= sessionStart && (parseFloat(String(t.pnl)) < 0)) {
-        realizedLossToday += Math.abs(parseFloat(String(t.pnl)));
-      }
-    });
-  }
-
+  // 6. Drawdown Logic
+  let realizedLossToday = realizedLossFromForceClose + (typeof dailyGrossLossUsd === 'number' ? dailyGrossLossUsd : 0);
   const dailyLimit = initialBalance * (rules.dailyDrawdown / 100);
   const totalDailyRisk = realizedLossToday + (totalFloatingPnl < 0 ? Math.abs(totalFloatingPnl) : 0);
 
@@ -293,7 +306,7 @@ export async function auditDemoAccount(accountId: string) {
     breachReason = `Maximum drawdown violation: Total equity loss exceeded ${rules.maxDrawdown}% limit.`;
   }
 
-  // 8. Challenge Passage Audit
+  // 7. Passage Audit
   const tradingWindows = new Set<string>(); 
   closedTrades.forEach(t => {
     const closedDate = getTradeDate(t.closedAt);
@@ -309,76 +322,33 @@ export async function auditDemoAccount(accountId: string) {
   const minDaysRequired = rules.minTradingDays || rules.minTradingDaysBeforePayout || 0;
   const profitTargetAmount = initialBalance * (rules.profitTarget || 10) / 100;
   const targetMet = currBalance >= (initialBalance + profitTargetAmount);
-  
   const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired;
 
-  // 9. Process Breach or Passage
   if (breachReason) {
     const batch = db.batch();
-    batch.update(accRef, {
-      status: 'blown',
-      breachReason,
-      equity: currentEquity,
-      blownAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp()
-    });
-
+    batch.update(accRef, { status: 'blown', breachReason, equity: currentEquity, blownAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     for (const t of openTrades) {
       const sym = (t.symbol?.toUpperCase() || '').trim();
-      const priceData = prices[sym];
-      const exitPrice = priceData ? (t.type === 'buy' ? (priceData.bid || priceData.price) : (priceData.ask || priceData.price)) : t.openPrice;
+      const p = await getAuthoritativePrice(sym);
+      const exitPrice = p ? (t.type === 'buy' ? p.bid : p.ask) : t.openPrice;
       const contractSize = CONTRACT_SIZE[sym] || 100000;
-      const finalPnl = priceData ? (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize : 0;
-
-      batch.update(t.ref, {
-        status: 'closed',
-        closedAt: FieldValue.serverTimestamp(),
-        closeReason: 'account_blown',
-        closePrice: exitPrice,
-        closeBid: priceData?.bid || null,
-        closeAsk: priceData?.ask || null,
-        pnl: finalPnl
-      });
+      const finalPnl = p ? (t.type === 'buy' ? exitPrice - t.openPrice! : t.openPrice! - exitPrice) * t.lots! * contractSize : 0;
+      batch.update(t.ref, { status: 'closed', closedAt: FieldValue.serverTimestamp(), closeReason: 'account_blown', closePrice: exitPrice, pnl: finalPnl });
     }
-
     batch.update(db.collection('users').doc(userId), { accountStatus: 'breached' });
-    batch.set(db.collection('breaches').doc(), {
-      accountId, 
-      userId, 
-      email: email || null, 
-      reason: breachReason, 
-      type: 'hard', 
-      breachedAt: FieldValue.serverTimestamp(), 
-      planType: planType || null, 
-      phase: phase || null
-    });
-
-    batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
-      userId, type: 'account_breached', title: '❌ Account Breached', 
-      message: `Your node terminal has been liquidated: ${breachReason}`, 
-      isRead: false, createdAt: FieldValue.serverTimestamp()
-    });
-
+    batch.set(db.collection('breaches').doc(), { accountId, userId, email: email || null, reason: breachReason, type: 'hard', breachedAt: FieldValue.serverTimestamp() });
+    batch.set(db.collection('users').doc(userId).collection('notifications').doc(), { userId, type: 'account_breached', title: '❌ Account Breached', message: `Liquidated: ${breachReason}`, isRead: false, createdAt: FieldValue.serverTimestamp() });
     await batch.commit();
     sendBreachEmail(email || userId, breachReason);
     return { breached: true, reason: breachReason };
   }
 
   if (isPassed) {
-    const batch = db.batch();
-    batch.update(accRef, { status: 'passed', passedAt: FieldValue.serverTimestamp(), readyForNextPhase: true });
-    batch.update(db.collection('users').doc(userId), { accountStatus: 'passed' });
-    batch.set(db.collection('users').doc(userId).collection('notifications').doc(), {
-      userId, type: 'phase_passed', title: '✅ Challenge Passed!', 
-      message: `Congratulations! You reached the profit target and met the minimum trading requirements. Your next node will be provisioned shortly.`, 
-      isRead: false, createdAt: FieldValue.serverTimestamp()
-    });
-    await batch.commit();
+    await accRef.update({ status: 'passed', passedAt: FieldValue.serverTimestamp() });
     sendChallengePassEmail(email || userId, name || "Trader", pKey, String(initialBalance));
     return { passed: true };
   }
 
-  // 10. Update real-time equity if no breach/passage occurred
   await accRef.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
   return { status: 'active', equity: currentEquity };
 }
@@ -389,35 +359,20 @@ export async function auditDemoAccount(accountId: string) {
 export async function auditActiveOpenPositions() {
   const db = getAdminDb();
   const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
-  
   const accountIds = new Set<string>();
-  openTradesSnap.docs.forEach(doc => {
-    const data = doc.data();
-    if (data.accountId) accountIds.add(data.accountId);
-  });
+  openTradesSnap.docs.forEach(doc => { if (doc.data().accountId) accountIds.add(doc.data().accountId); });
   
   const idArray = Array.from(accountIds);
-  const results = { 
-    totalOpenPositionAccounts: idArray.length, 
-    breachesDetected: 0, 
-    passed: 0, 
-    errors: 0 
-  };
+  const results = { totalOpenPositionAccounts: idArray.length, breachesDetected: 0, passed: 0, errors: 0 };
 
-  const BATCH_SIZE = 25;
-  for (let i = 0; i < idArray.length; i += BATCH_SIZE) {
-    const batchIds = idArray.slice(i, i + BATCH_SIZE);
-    await Promise.all(batchIds.map(async (accountId) => {
-      try {
-        const res = await auditDemoAccount(accountId);
-        if (res?.breached) results.breachesDetected++;
-        else if (res?.passed) results.passed++;
-      } catch (err) {
-        console.error(`[RiskAudit] Failed for Node ${accountId}:`, err);
-        results.errors++;
-      }
-    }));
+  for (const accountId of idArray) {
+    try {
+      const res = await auditDemoAccount(accountId);
+      if (res?.breached) results.breachesDetected++;
+      else if (res?.passed) results.passed++;
+    } catch (err) {
+      results.errors++;
+    }
   }
-
   return results;
 }

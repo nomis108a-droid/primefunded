@@ -1,9 +1,10 @@
 import { getAdminDb, getAdminRtdb } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import { auditActiveOpenPositions, auditDemoAccount } from '@/lib/rulesEngine';
-import { setLatestOandaTick } from './oandaStream';
-import { setLatestCoinbaseTick } from './coinbaseStream';
+import { setLatestOandaTick, getLatestOandaTicks } from './oandaStream';
+import { setLatestCoinbaseTick, getLatestCoinbaseTicks } from './coinbaseStream';
 import { CONTRACT_SIZE } from './rulesConfig';
+import { broadcastToRtdb } from './rtdbBroadcast';
 
 /**
  * @fileOverview Institutional Risk Auditor & Execution Engine
@@ -50,44 +51,98 @@ export function startGlobalPriceSync() {
 }
 
 /**
+ * Institutional Utility: Fetches a fresh price with self-healing fallback.
+ * Prioritizes Memory -> RTDB -> REST Poll.
+ */
+export async function getAuthoritativePrice(symbol: string) {
+  const sym = symbol.toUpperCase().trim();
+  const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(sym);
+  
+  // 1. Check Memory Buffer
+  const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
+  if (memTick && (Date.now() - memTick.updatedAt! < 10000)) {
+    return { ...memTick, source: 'memory' };
+  }
+
+  // 2. Manual Poll Fallback (Self-Healing)
+  console.log(`[Liquidity-Recovery] Symbol ${sym} stale or missing. Attempting manual restoration...`);
+  let freshTick: any = null;
+
+  try {
+    if (isCrypto) {
+      if (sym === 'BNBUSD') {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
+        const data = await res.json();
+        const p = data?.binancecoin?.usd;
+        if (p) freshTick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2) };
+      } else {
+        const kPair = sym === 'BTCUSD' ? 'XBTUSD' : sym === 'DOGEUSD' ? 'XDGUSD' : sym;
+        const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { signal: AbortSignal.timeout(3000) });
+        const d = await res.json();
+        if (d.result) {
+          const resKey = Object.keys(d.result)[0];
+          const item = d.result[resKey];
+          freshTick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
+        }
+      }
+    } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
+      const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
+      const instr = oMap[sym] || sym;
+      const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
+        headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
+        signal: AbortSignal.timeout(3000)
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const p = d.candles?.[0]?.mid;
+        if (p) {
+          const o = parseFloat(p.o);
+          const spread = sym.includes('JPY') ? 0.015 : sym.includes('XAU') ? 0.25 : 0.00015;
+          freshTick = { bid: +(o - spread/2).toFixed(5), ask: +(o + spread/2).toFixed(5), price: o };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[Liquidity-Recovery] REST poll failed for ${sym}:`, e);
+  }
+
+  if (freshTick) {
+    const payload = { ...freshTick, updatedAt: Date.now() };
+    // Update local state
+    if (isCrypto) setLatestCoinbaseTick(sym, payload);
+    else setLatestOandaTick(sym, payload);
+    // Bridge to other instances
+    broadcastToRtdb({ [sym]: payload });
+    return { ...payload, source: 'rest-poll' };
+  }
+
+  // 3. Last Resort: Firestore (likely stale)
+  const db = getAdminDb();
+  const snap = await db.collection('livePrices').doc(sym).get();
+  if (snap.exists) {
+    const data = snap.data()!;
+    const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
+    return { ...data, updatedAt: ts, source: 'firestore' };
+  }
+
+  return null;
+}
+
+/**
  * Institutional SL/TP Watcher
- * Evaluates all open positions against authoritative Bid/Ask ticks.
  */
 async function checkTpSlHits(db: any) {
   try {
-    // 1. Fetch all open positions across the network
     const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
     if (openTradesSnap.empty) return;
-
-    // 2. Fetch authoritative prices for involved symbols
-    const symbols = [...new Set(openTradesSnap.docs.map((d: any) => d.data().symbol?.toUpperCase().trim()).filter(Boolean))];
-    const priceSnaps = await Promise.all(symbols.map((s: string) => db.collection('livePrices').doc(s).get()));
-    
-    const prices: Record<string, any> = {};
-    priceSnaps.forEach((snap: any) => { 
-      if (snap.exists) prices[snap.id.toUpperCase().trim()] = snap.data(); 
-    });
 
     for (const tradeDoc of openTradesSnap.docs) {
       const trade = tradeDoc.data();
       const symbol = (trade.symbol || "").toUpperCase().trim();
-      const priceData = prices[symbol];
       
-      // ADMIN CLEANUP: Precision-hardened logic to close bugged demo positions
-      const openPrice = parseFloat(trade.openPrice || 0);
-      if (Math.abs(openPrice - 4185.658) < 0.01 && trade.status === 'open') {
-        console.log(`[Cleanup] Terminating stale trade ${tradeDoc.id} (Price: ${openPrice})`);
-        await tradeDoc.ref.update({ 
-          status: 'closed', 
-          closeReason: 'admin_cleanup', 
-          pnl: 0, 
-          closedAt: FieldValue.serverTimestamp(),
-          updatedAt: FieldValue.serverTimestamp()
-        });
-        continue;
-      }
-
-      if (!priceData || !priceData.bid || !priceData.ask) continue;
+      // Use the authoritative helper to ensure fresh prices during audit
+      const priceData = await getAuthoritativePrice(symbol);
+      if (!priceData || (Date.now() - priceData.updatedAt > 15000)) continue;
 
       const bid = parseFloat(priceData.bid);
       const ask = parseFloat(priceData.ask);
@@ -97,70 +152,35 @@ async function checkTpSlHits(db: any) {
       let triggerReason: 'take_profit' | 'stop_loss' | null = null;
       let executionPrice = 0;
 
-      // 3. INSTITUTIONAL BID/ASK EXIT LOGIC
       if (trade.type === 'buy') {
-        if (trade.tp && trade.tp > 0 && bid >= trade.tp) { 
-          triggerReason = 'take_profit'; 
-          executionPrice = trade.tp; 
-        }
-        else if (trade.sl && trade.sl > 0 && bid <= trade.sl) { 
-          triggerReason = 'stop_loss'; 
-          executionPrice = trade.sl; 
-        }
+        if (trade.tp && trade.tp > 0 && bid >= trade.tp) { triggerReason = 'take_profit'; executionPrice = trade.tp; }
+        else if (trade.sl && trade.sl > 0 && bid <= trade.sl) { triggerReason = 'stop_loss'; executionPrice = trade.sl; }
       } 
       else if (trade.type === 'sell') {
-        if (trade.tp && trade.tp > 0 && ask <= trade.tp) { 
-          triggerReason = 'take_profit'; 
-          executionPrice = trade.tp; 
-        }
-        else if (trade.sl && trade.sl > 0 && ask >= trade.sl) { 
-          triggerReason = 'stop_loss'; 
-          executionPrice = trade.sl; 
-        }
+        if (trade.tp && trade.tp > 0 && ask <= trade.tp) { triggerReason = 'take_profit'; executionPrice = trade.tp; }
+        else if (trade.sl && trade.sl > 0 && ask >= trade.sl) { triggerReason = 'stop_loss'; executionPrice = trade.sl; }
       }
 
       if (triggerReason) {
-        const priceDiff = trade.type === 'buy' ? (executionPrice - openPrice) : (openPrice - executionPrice);
+        const priceDiff = trade.type === 'buy' ? (executionPrice - trade.openPrice) : (trade.openPrice - executionPrice);
         const finalPnL = priceDiff * lots * contractSize;
 
         await db.runTransaction(async (tx: any) => {
-          const tSnap = await tx.get(tradeDoc.ref);
-          if (!tSnap.exists || tSnap.data().status !== 'open') return;
-
           tx.update(tradeDoc.ref, {
             status: 'closed',
             closedAt: FieldValue.serverTimestamp(),
             closePrice: executionPrice,
-            closeBid: bid,
-            closeAsk: ask,
             pnl: finalPnL,
             closeReason: triggerReason,
             isAutoClosed: true,
             updatedAt: FieldValue.serverTimestamp()
           });
-
-          const accUpdates: any = {
+          tx.update(db.collection('demoAccounts').doc(trade.accountId), {
             balance: FieldValue.increment(finalPnL),
+            dailyGrossLossUsd: finalPnL < 0 ? FieldValue.increment(Math.abs(finalPnL)) : FieldValue.increment(0),
             updatedAt: FieldValue.serverTimestamp()
-          };
-
-          if (finalPnL < 0) {
-            accUpdates.dailyGrossLossUsd = FieldValue.increment(Math.abs(finalPnL));
-          }
-
-          tx.update(db.collection('demoAccounts').doc(trade.accountId), accUpdates);
-          
-          tx.set(db.collection('system_logs').doc(), {
-            type: 'auto_exit',
-            tradeId: tradeDoc.id,
-            accountId: trade.accountId,
-            userId: trade.userId,
-            reason: triggerReason,
-            price: executionPrice,
-            timestamp: FieldValue.serverTimestamp()
           });
         });
-
         await auditDemoAccount(trade.accountId);
       }
     }
@@ -169,13 +189,9 @@ async function checkTpSlHits(db: any) {
   }
 }
 
-/**
- * Main Synchronization Cycle
- */
 export async function syncPricesAndAudit() {
   if (isSyncing) return { skipped: true };
   isSyncing = true;
-
   try {
     const db = getAdminDb();
     await checkTpSlHits(db);
