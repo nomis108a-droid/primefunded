@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
@@ -29,11 +30,9 @@ export function useCollection<T = DocumentData>(
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
 
-  // Memoize the query object to prevent unnecessary re-subscriptions
   const q = useMemo(() => {
     if (!path || !db) return null;
 
-    // Security collections that MUST have a filter
     const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "mt5_accounts", "mt5_trades", "referrals", "notifications", "certificates"];
     
     if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
@@ -75,7 +74,8 @@ export function useCollection<T = DocumentData>(
           (serverError: any) => {
             if (!isMountedRef.current) return;
             
-            // Check for critical assertion errors (b815 / ca9)
+            console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError.message);
+            
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
             
             if (serverError.code === 'permission-denied') {
@@ -91,19 +91,14 @@ export function useCollection<T = DocumentData>(
             
             setLoading(false);
 
-            // Retry logic (3s or 5s for assertions) to handle transient failures
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-            
-            // If it's a critical ca9 error, perform a full clean stop before retrying
-            if (isAssertionError) {
-              unsubscribe();
-            }
+            if (isAssertionError) unsubscribe();
 
+            // Exponential backoff for transport errors
+            const backoff = isAssertionError ? 10000 : 5000;
             retryTimerRef.current = setTimeout(() => {
-              if (isMountedRef.current) {
-                subscribe();
-              }
-            }, isAssertionError ? 5000 : 3000);
+              if (isMountedRef.current) subscribe();
+            }, backoff);
           }
         );
       } catch (err) {
@@ -112,18 +107,13 @@ export function useCollection<T = DocumentData>(
       }
     };
 
-    // Delay initial subscription slightly to avoid race conditions during initialization
-    const initialDelay = setTimeout(subscribe, 50);
+    const initialDelay = setTimeout(subscribe, 100);
 
     return () => {
       isMountedRef.current = false;
       clearTimeout(initialDelay);
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-      }
+      if (typeof unsubscribe === 'function') unsubscribe();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [q, path]);
 

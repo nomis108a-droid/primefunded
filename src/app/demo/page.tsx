@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, memo } from "react";
@@ -30,10 +31,6 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { CONTRACT_SIZE } from "@/lib/rulesConfig";
 import { getTradeDate } from "@/lib/tradeUtils";
 
-/**
- * INSTITUTIONAL SYMBOL POOL
- * Clean: Strictly deduplicated to prevent key collisions.
- */
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD", "BNBUSD", "DOGEUSD"
@@ -239,7 +236,6 @@ export default function DemoPage() {
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
   
-  // OHLC Accumulation Refs
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
   const currentHighRef = useRef<number>(0);
@@ -276,7 +272,6 @@ export default function DemoPage() {
   const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
   const trades = useMemo(() => allUserTrades.filter(t => t.accountId === (currentAccountId || activeAccounts[0]?.id)), [allUserTrades, currentAccountId, activeAccounts]);
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
-  const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
   const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
 
@@ -290,19 +285,8 @@ export default function DemoPage() {
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
-  /**
-   * CHART INITIALIZATION
-   */
   useEffect(() => {
-    if (!hasMounted || authLoading) {
-      console.log(`[Chart-Init] Skipping init: mounted=${hasMounted}, loading=${authLoading}`);
-      return;
-    }
-    
-    if (!chartContainerRef.current) {
-      console.log(`[Chart-Init] Skipping init: container ref is null`);
-      return;
-    }
+    if (!hasMounted || authLoading || !chartContainerRef.current) return;
     
     setIsChartReady(false);
     priceLinesRef.current.clear();
@@ -311,20 +295,12 @@ export default function DemoPage() {
     currentHighRef.current = 0;
     currentLowRef.current = 0;
     
-    console.log(`[Chart-Init] Creating chart instance for ${selectedSymbol}`);
-
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
       width: chartContainerRef.current.clientWidth,
       height: chartContainerRef.current.clientHeight,
-      timeScale: { 
-        rightOffset: 20, 
-        barSpacing: 8, 
-        borderColor: '#27272a', 
-        timeVisible: true,
-        secondsVisible: false,
-      },
+      timeScale: { rightOffset: 20, barSpacing: 8, borderColor: '#27272a', timeVisible: true, secondsVisible: false },
       priceScale: { borderColor: '#27272a', autoScale: true, mode: PriceScaleMode.Normal },
       crosshair: { mode: CrosshairMode.Normal },
       localization: {
@@ -343,35 +319,24 @@ export default function DemoPage() {
     chartInstanceRef.current = chart;
     mainSeriesRef.current = series;
     setIsChartReady(true);
-    console.log(`[Chart-Init] Chart READY state achieved for ${selectedSymbol}`);
 
     const handleResize = () => { 
       if (chartInstanceRef.current && chartContainerRef.current) {
-        chartInstanceRef.current.applyOptions({ 
-          width: chartContainerRef.current.clientWidth, 
-          height: chartContainerRef.current.clientHeight 
-        }); 
+        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); 
       }
     };
     
     window.addEventListener('resize', handleResize);
     return () => { 
       window.removeEventListener('resize', handleResize); 
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.remove(); 
-        chartInstanceRef.current = null;
-      }
+      if (chartInstanceRef.current) { chartInstanceRef.current.remove(); chartInstanceRef.current = null; }
     };
   }, [selectedSymbol, hasMounted, authLoading]);
 
-  /**
-   * HISTORICAL DATA LOAD
-   */
   useEffect(() => {
     if (!isChartReady || !mainSeriesRef.current) return;
     setIsChartLoading(true);
     
-    console.log(`[Chart-History] Fetching history for ${selectedSymbol} @ ${selectedInterval}`);
     fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`)
       .then(res => res.json())
       .then(data => {
@@ -383,7 +348,7 @@ export default function DemoPage() {
             lastOpenPriceRef.current = last.open;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Chart-History] History loaded. Synchronized lastCandleTimeRef to: ${last.time}`);
+            console.log(`[Tick-Engine] Initialized from history: Last Candle @ ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -392,18 +357,8 @@ export default function DemoPage() {
       .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  /**
-   * REAL-TIME TICK INJECTION & OHLC ACCUMULATION
-   * Institutional Range Monitor (V15 - Audit Version)
-   */
   useEffect(() => {
-    // 1. DIAGNOSTIC LOG: Entry point check
-    if (activePrice && mainSeriesRef.current) {
-      if (!isChartReady) {
-        console.warn(`[Tick-Engine] Rejecting tick: Chart NOT ready. Symbol: ${selectedSymbol}`);
-        return;
-      }
-
+    if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
         const map: Record<string, number> = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 };
         return map[val] || 60;
@@ -412,7 +367,6 @@ export default function DemoPage() {
       const intervalSec = getIntervalSeconds(selectedInterval);
       const price = Number(activePrice.price);
       
-      // Normalize timestamp
       const tickTimeRaw = activePrice.time || activePrice.updatedAt;
       let tickTime = 0;
       if (typeof tickTimeRaw === 'number') {
@@ -422,62 +376,40 @@ export default function DemoPage() {
       } else {
         tickTime = Math.floor(Date.now() / 1000);
       }
+      
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
+      const currentRefTime = lastCandleTimeRef.current;
       
-      // 2. DIAGNOSTIC LOG: Trace comparison logic
-      const isNew = bucketTime > lastCandleTimeRef.current;
-      const isUpdate = bucketTime === lastCandleTimeRef.current;
+      const isNew = bucketTime > currentRefTime;
+      const isUpdate = bucketTime === currentRefTime;
 
       try {
         if (isNew) {
-          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime}. (Previous: ${lastCandleTimeRef.current})`);
-          
-          mainSeriesRef.current.update({ 
-            time: bucketTime as any, 
-            open: price, 
-            high: price, 
-            low: price, 
-            close: price 
-          });
-
+          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime} (Prev: ${currentRefTime})`);
+          mainSeriesRef.current.update({ time: bucketTime as any, open: price, high: price, low: price, close: price });
           lastCandleTimeRef.current = bucketTime;
           lastOpenPriceRef.current = price;
           currentHighRef.current = price;
           currentLowRef.current = price;
         } 
         else if (isUpdate) {
-          // Range accumulation
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
-          
-          const oldHigh = currentHighRef.current;
-          const oldLow = currentLowRef.current;
-          
           currentHighRef.current = Math.max(currentHighRef.current || price, price);
           currentLowRef.current = Math.min(currentLowRef.current || price, price);
           
-          console.log(`[Tick-Engine] UPDATED CANDLE: ${price} | Bucket: ${bucketTime} | OHLC: ${lastOpenPriceRef.current}/${currentHighRef.current}/${currentLowRef.current}/${price}`);
-
-          mainSeriesRef.current.update({ 
-            time: bucketTime as any, 
-            open: lastOpenPriceRef.current, 
-            high: currentHighRef.current, 
-            low: currentLowRef.current, 
-            close: price 
-          });
+          console.log(`[Tick-Engine] UPDATED CANDLE: ${price} | OHLC: ${lastOpenPriceRef.current}/${currentHighRef.current}/${currentLowRef.current}/${price}`);
+          mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: price });
         } else {
-          console.warn(`[Tick-Engine] DROPPED TICK: ${price} @ ${bucketTime} is older than last bucket ${lastCandleTimeRef.current}`);
+          console.warn(`[Tick-Engine] STALE TICK: ${price} @ ${bucketTime} is behind last bucket ${currentRefTime}`);
         }
       } catch (e) {
-        console.error('[Tick-Engine] Mutation crash:', e);
+        console.error('[Tick-Engine] Render crash:', e);
       }
     }
   }, [activePrice, isChartReady, selectedInterval, selectedSymbol]);
 
-  /**
-   * TRADE LINES & MARKERS
-   */
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
     
@@ -597,7 +529,7 @@ export default function DemoPage() {
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
             {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
           </div>
-          <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
+          <PositionsPanel openTrades={openTrades} closedTrades={[]} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
         </div>
         {!isMobile && (
           <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
