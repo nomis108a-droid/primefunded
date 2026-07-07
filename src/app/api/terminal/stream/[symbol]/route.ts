@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/request';
+import { NextRequest, NextResponse } from 'next/server';
 import { getLatestOandaTicks, setLatestOandaTick } from '@/lib/oandaStream';
 import { getLatestCoinbaseTicks, setLatestCoinbaseTick } from '@/lib/coinbaseStream';
 import { getAdminRtdb, getAdminDb } from '@/lib/firebase-admin';
