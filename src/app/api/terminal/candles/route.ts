@@ -6,7 +6,8 @@ const CRYPTO_MAP: Record<string, string> = {
   "SOLUSD": "SOLUSD",
   "XRPUSD": "XRPUSD",
   "DOGEUSD": "XDGUSD",
-  "ADAUSD": "ADAUSD"
+  "ADAUSD": "ADAUSD",
+  "BNBUSD": "BNBUSD"
 };
 
 const OANDA_MAP: Record<string, string> = {
@@ -21,7 +22,7 @@ const OANDA_GRANULARITY: Record<string, string> = {
 };
 
 /**
- * Institutional Cache Layer
+ * Institutional Cache Layer for Stability
  */
 const realCandleCache = new Map<string, { candles: any[], timestamp: number }>();
 
@@ -56,13 +57,13 @@ export async function GET(req: NextRequest) {
   const interval = (searchParams.get("interval") || "1min").toLowerCase();
   const limit = Math.min(parseInt(searchParams.get("limit") || "300"), 1000);
 
-  const cacheKey = `${symbol}-${interval}`;
+  const cacheKey = `${symbol}-${interval}-${limit}`;
   let candles: any[] = [];
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
-    // 1. OANDA: Forex + Metals
+    // 1. OANDA: Forex + Metals (Authoritative Institutional OHLC)
     if (OANDA_MAP[symbol]) {
       const oandaKey = process.env.OANDA_API_KEY;
       const oandaAcc = process.env.OANDA_ACCOUNT_ID;
@@ -88,8 +89,7 @@ export async function GET(req: NextRequest) {
               low: parseFloat(c.mid.l),
               close: parseFloat(c.mid.c),
             }));
-          } else {
-            console.error(`[Candles] OANDA Error: ${res.status}`);
+            console.log(`[API-Candles] Fetched ${candles.length} official OHLC bars from OANDA for ${symbol}`);
           }
         } catch (e) {
           console.warn(`[Candles] OANDA fetch failed for ${symbol}`);
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Kraken: Crypto
+    // 2. Kraken: Crypto (Institutional Exchange OHLC)
     else if (CRYPTO_MAP[symbol]) {
       try {
         const pair = CRYPTO_MAP[symbol];
@@ -128,6 +128,7 @@ export async function GET(req: NextRequest) {
             }
             candles = processed.sort((a, b) => a.time - b.time);
             if (candles.length > limit) candles = candles.slice(-limit);
+            console.log(`[API-Candles] Fetched ${candles.length} official OHLC bars from Kraken for ${symbol}`);
           }
         }
       } catch (e) {
@@ -135,7 +136,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Sanity Filter
+    // Filter malformed data
     candles = candles.filter(c => !isNaN(c.open) && c.open > 0 && !isNaN(c.close) && c.close > 0);
 
     if (candles.length > 0) {
@@ -143,6 +144,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ candles, isFallback: false });
     }
 
+    // Final Memory Fallback
     const cached = realCandleCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < 120000) {
       return NextResponse.json({ candles: cached.candles, isFallback: false });

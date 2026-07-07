@@ -284,6 +284,24 @@ export default function DemoPage() {
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
+  /**
+   * Institutional Reconciliation Engine
+   * Fetches official OHLC once a bar closes to overwrite noisy live updates.
+   */
+  const reconcileHistory = useCallback(async () => {
+    if (!mainSeriesRef.current || !isChartReady) return;
+    try {
+      const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=10`);
+      const data = await res.json();
+      if (data.candles && data.candles.length > 0 && mainSeriesRef.current) {
+        console.log(`[Reconciliation] Applying official OHLC cleanup for ${selectedSymbol}`);
+        data.candles.forEach((c: any) => mainSeriesRef.current?.update(c));
+      }
+    } catch (e) {
+      console.warn('[Reconciliation] Cleanup cycle skipped.');
+    }
+  }, [selectedSymbol, selectedInterval, isChartReady]);
+
   useEffect(() => {
     if (!hasMounted || authLoading || !chartContainerRef.current) return;
     
@@ -347,7 +365,7 @@ export default function DemoPage() {
             lastOpenPriceRef.current = last.open;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Tick-Engine] HISTORY LOADED | Last Time: ${last.time}`);
+            console.log(`[Tick-Engine] AUTHORITATIVE HISTORY LOADED | Sym: ${selectedSymbol} | Last Time: ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -377,7 +395,7 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
       
-      // Timestamp Guardian: Ensure full Unix seconds (Resolves 58483 axis bug)
+      // Timestamp Guardian: Ensure full Unix seconds
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
@@ -388,7 +406,10 @@ export default function DemoPage() {
 
       try {
         if (isNew) {
-          console.log(`[Tick-Engine] NEW CANDLE | Sym: ${selectedSymbol} | Bucket: ${bucketTime} | Price: ${price} (Src: ${activePrice.source || 'SSE'})`);
+          // TRIGGER RECONCILIATION: Fetch official data for the candle that just closed
+          setTimeout(reconcileHistory, 2000);
+          
+          console.log(`[Tick-Engine] NEW CANDLE | Sym: ${selectedSymbol} | Bucket: ${bucketTime} | Price: ${price}`);
           mainSeriesRef.current.update({ time: bucketTime as any, open: price, high: price, low: price, close: price });
           lastCandleTimeRef.current = bucketTime;
           lastOpenPriceRef.current = price;
@@ -400,14 +421,13 @@ export default function DemoPage() {
           currentHighRef.current = Math.max(currentHighRef.current || price, price);
           currentLowRef.current = Math.min(currentLowRef.current || price, price);
           
-          console.log(`[Tick-Engine] UPDATED CANDLE | Sym: ${selectedSymbol} | Bucket: ${bucketTime} | Price: ${price} | Range: ${currentLowRef.current.toFixed(3)}-${currentHighRef.current.toFixed(3)}`);
           mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: price });
         }
       } catch (e) {
         console.error('[Tick-Engine] Processing fault:', e);
       }
     }
-  }, [activePrice, isChartReady, selectedInterval, selectedSymbol]);
+  }, [activePrice, isChartReady, selectedInterval, selectedSymbol, reconcileHistory]);
 
   useEffect(() => {
     if (!mainSeriesRef.current || !isChartReady) return;
@@ -537,7 +557,6 @@ export default function DemoPage() {
           </aside>
         )}
       </div>
-      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}><SheetContent side="bottom" className="h-[85vh] bg-zinc-950 border-zinc-800 p-6"><SheetHeader><SheetTitle className="text-white font-black font-headline italic uppercase flex items-center justify-between">{selectedSymbol}<Badge className="bg-primary text-black">LIVE EXECUTION</Badge></SheetTitle></SheetHeader><div className="mt-8 h-full"><OrderPanelContent currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} selectedAccount={selectedAccount} activeAccounts={activeAccounts} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} sl={sl} setSl={setSl} tp={tp} setTp={setTp} actionLoading={actionLoading} placeTrade={placeTrade} /></div></SheetContent></Sheet>
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} onSettingsChange={() => {}} onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} />
     </div>
   );
