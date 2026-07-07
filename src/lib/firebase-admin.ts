@@ -52,7 +52,7 @@ function getAdminApp(): App {
     }
   }
 
-  // 2. Fallback: Use Application Default Credentials (ADC)
+  // 2. Check for Application Default Credentials (ADC)
   try {
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.K_SERVICE || process.env.FIREBASE_CONFIG) {
       console.log(`[Firebase-Admin] Attempting ADC authentication for Project: ${projectId}`);
@@ -63,13 +63,16 @@ function getAdminApp(): App {
       adminConfigured = true;
       return app;
     }
-    throw new Error("No credential environment variables found.");
   } catch (err: any) {
-    console.warn("[Firebase-Admin] Authentication configuration missing or ADC unavailable.");
-    
-    // Final fallback to no-auth initialization for local development/studio previews
-    return initializeApp(baseConfig, 'pf-admin');
+    console.warn("[Firebase-Admin] ADC unavailable, trying final fallback...");
   }
+
+  // 3. Final Fallback: Initialize with Project ID only (for Studio / Local previews)
+  // This allows background tasks to at least attempt connection.
+  console.log(`[Firebase-Admin] Fallback initialization for Project: ${projectId}`);
+  const app = initializeApp(baseConfig, 'pf-admin');
+  adminConfigured = true; 
+  return app;
 }
 
 /**
