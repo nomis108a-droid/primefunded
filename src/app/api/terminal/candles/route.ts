@@ -26,6 +26,7 @@ const OANDA_GRANULARITY: Record<string, string> = {
 const realCandleCache = new Map<string, { candles: any[], timestamp: number }>();
 
 function generateSyntheticCandles(symbol: string, count: number) {
+  console.warn(`[Candles] API fallback triggered for ${symbol}. Data may be inconsistent.`);
   const candles = [];
   const secs = 60;
   let lastPrice = symbol.includes("BTC") ? 96000
@@ -87,6 +88,8 @@ export async function GET(req: NextRequest) {
               low: parseFloat(c.mid.l),
               close: parseFloat(c.mid.c),
             }));
+          } else {
+            console.error(`[Candles] OANDA Error: ${res.status}`);
           }
         } catch (e) {
           console.warn(`[Candles] OANDA fetch failed for ${symbol}`);

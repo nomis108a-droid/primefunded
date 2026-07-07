@@ -377,7 +377,7 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
       
-      // Timestamp Guardian: Ensure full Unix seconds
+      // Timestamp Guardian: Ensure full Unix seconds (Resolves 58483 axis bug)
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
@@ -388,7 +388,7 @@ export default function DemoPage() {
 
       try {
         if (isNew) {
-          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime} (Src: ${activePrice.source || 'SSE'})`);
+          console.log(`[Tick-Engine] NEW CANDLE | Sym: ${selectedSymbol} | Bucket: ${bucketTime} | Price: ${price} (Src: ${activePrice.source || 'SSE'})`);
           mainSeriesRef.current.update({ time: bucketTime as any, open: price, high: price, low: price, close: price });
           lastCandleTimeRef.current = bucketTime;
           lastOpenPriceRef.current = price;
@@ -400,9 +400,8 @@ export default function DemoPage() {
           currentHighRef.current = Math.max(currentHighRef.current || price, price);
           currentLowRef.current = Math.min(currentLowRef.current || price, price);
           
+          console.log(`[Tick-Engine] UPDATED CANDLE | Sym: ${selectedSymbol} | Bucket: ${bucketTime} | Price: ${price} | Range: ${currentLowRef.current.toFixed(3)}-${currentHighRef.current.toFixed(3)}`);
           mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: price });
-          // Log frequency check (Throttled for console comfort)
-          if (Math.random() < 0.05) console.log(`[Tick-Engine] UPDATED CANDLE | Range: ${currentLowRef.current} - ${currentHighRef.current}`);
         }
       } catch (e) {
         console.error('[Tick-Engine] Processing fault:', e);

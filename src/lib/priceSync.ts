@@ -96,7 +96,8 @@ export async function getAuthoritativePrice(symbol: string) {
   }
 
   // 3. Forced REST Recovery (Last resort for execution, matches Chart's poller)
-  console.log(`[Price-Sync] SELF-HEALING: Triggering forced poll for ${sym}...`);
+  // FIX: Using Pricing endpoint instead of Candles to avoid 1-minute boundaries
+  console.log(`[Price-Sync] SELF-HEALING: Triggering high-frequency REST poll for ${sym}...`);
   let freshTick: any = null;
 
   try {
@@ -119,17 +120,19 @@ export async function getAuthoritativePrice(symbol: string) {
     } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
       const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
       const instr = oMap[sym] || sym;
-      const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
+      // Authoritative pricing check for recovery
+      const res = await fetch(`https://api-fxpractice.oanda.com/v3/accounts/${process.env.OANDA_ACCOUNT_ID}/pricing?instruments=${instr}`, { 
         headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(3000),
+        cache: 'no-store'
       });
       if (res.ok) {
         const d = await res.json();
-        const p = d.candles?.[0]?.mid;
+        const p = d.prices?.[0];
         if (p) {
-          const o = parseFloat(p.o);
-          const spread = sym.includes('JPY') ? 0.015 : sym.includes('XAU') ? 0.25 : 0.00015;
-          freshTick = { bid: +(o - spread/2).toFixed(5), ask: +(o + spread/2).toFixed(5), price: o };
+          const bid = parseFloat(p.bids[0].price);
+          const ask = parseFloat(p.asks[0].price);
+          freshTick = { bid, ask, price: (bid + ask) / 2 };
         }
       }
     }
