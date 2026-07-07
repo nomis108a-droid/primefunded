@@ -8,13 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { 
   Loader2, Activity, Settings, 
   Crosshair, Circle, Slash, ArrowRight,
   Square, Type, Eraser, SeparatorVertical,
   MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus,
-  TrendingUp, TrendingDown, ShieldCheck, Timer
+  TrendingUp, TrendingDown, ShieldCheck, Timer, Menu
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -78,7 +78,7 @@ const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }
   }, [interval]);
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10 ml-4">
+    <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10 ml-4 hidden sm:flex">
       <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
         New Candle: <span className="text-white tabular-nums">{timeLeft}</span>
       </span>
@@ -237,7 +237,7 @@ export default function DemoPage() {
   
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
-  const lastClosePriceRef = useRef<number>(0); // Continuity Bridge
+  const lastClosePriceRef = useRef<number>(0); 
   const currentHighRef = useRef<number>(0);
   const currentLowRef = useRef<number>(0);
 
@@ -363,7 +363,6 @@ export default function DemoPage() {
             lastClosePriceRef.current = last.close;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Tick-Engine] HISTORY LOADED | Sym: ${selectedSymbol} | Continuity Point: ${last.close}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -372,7 +371,6 @@ export default function DemoPage() {
       .finally(() => { setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
-  // HIGH-FREQUENCY TICK PROCESSOR WITH CONTINUITY LOGIC
   useEffect(() => {
     if (activePrice && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
@@ -405,13 +403,10 @@ export default function DemoPage() {
         if (isNew) {
           setTimeout(reconcileHistory, 2000);
           
-          // CONTINUITY FIX: Open price is previous bar's Close
           const openPrice = lastClosePriceRef.current || price;
           const high = Math.max(openPrice, price);
           const low = Math.min(openPrice, price);
 
-          console.log(`[Tick-Engine] NEW CANDLE | Sym: ${selectedSymbol} | Opening at Prev Close: ${openPrice}`);
-          
           mainSeriesRef.current.update({ 
             time: bucketTime as any, 
             open: openPrice, 
@@ -428,6 +423,7 @@ export default function DemoPage() {
         } 
         else if (isUpdate) {
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
+          
           currentHighRef.current = Math.max(currentHighRef.current || price, price);
           currentLowRef.current = Math.min(currentLowRef.current || price, price);
           lastClosePriceRef.current = price;
@@ -530,49 +526,68 @@ export default function DemoPage() {
                  {SYMBOLS.map(sym => <SelectItem key={sym} value={sym} className="text-[10px] font-black">{sym}</SelectItem>)}
                </SelectContent>
              </Select>
-             <div className="flex items-center gap-0.5 ml-2">{TIMEFRAMES.filter(tf => isMobile ? ['1m', '15m', '1H', '1D'].includes(tf.label) : true).map(tf => ( <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button> ))}</div>
+             <div className="flex items-center gap-0.5 ml-2 overflow-x-auto no-scrollbar max-w-[120px] sm:max-w-none">
+              {TIMEFRAMES.filter(tf => isMobile ? ['1m', '15m', '1H', '1D'].includes(tf.label) : true).map(tf => ( 
+                <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all shrink-0", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button> 
+              ))}
+             </div>
              <CandleTimer interval={selectedInterval} />
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4">
-           {activePrice && <div className="flex items-center gap-2"><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">BID</span><span className="font-mono text-[9px] text-white tabular-nums">{activePrice.bid?.toFixed(getPrecision(selectedSymbol))}</span></div><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">ASK</span><span className="font-mono text-[9px] text-white tabular-nums">{activePrice.ask?.toFixed(getPrecision(selectedSymbol))}</span></div></div>}
-           {isMobile && <Button size="sm" className="bg-primary text-black font-black text-[9px] h-7 px-3 rounded" onClick={() => setIsOrderSheetOpen(true)}>TRADE</Button>}
+           {activePrice && <div className="flex items-center gap-2 hidden sm:flex"><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">BID</span><span className="font-mono text-[9px] text-white tabular-nums">{activePrice.bid?.toFixed(getPrecision(selectedSymbol))}</span></div><div className="flex flex-col items-end"><span className="text-[8px] text-zinc-500 font-bold">ASK</span><span className="font-mono text-[9px] text-white tabular-nums">{activePrice.ask?.toFixed(getPrecision(selectedSymbol))}</span></div></div>}
+           
+           <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
+             <SheetTrigger asChild>
+               <Button size="sm" className="bg-primary text-black font-black text-[9px] h-7 px-3 rounded sm:hidden">TRADE</Button>
+             </SheetTrigger>
+             <SheetContent side="bottom" className="h-[80vh] bg-zinc-950 border-zinc-800 p-6 pt-10">
+               <SheetHeader className="mb-6"><SheetTitle className="text-white uppercase font-black tracking-widest text-sm">Order Entry</SheetTitle></SheetHeader>
+               <OrderPanelContent 
+                  currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} 
+                  selectedAccount={selectedAccount} activeAccounts={activeAccounts} 
+                  activePrice={activePrice} selectedSymbol={selectedSymbol} 
+                  lotsInput={lotsInput} setLotsInput={setLotsInput} 
+                  sl={sl} setSl={setSl} tp={tp} setTp={setTp} 
+                  actionLoading={actionLoading} placeTrade={placeTrade} 
+                />
+             </SheetContent>
+           </Sheet>
+
            <button onClick={() => setIsSettingsOpen(true)} className="p-1.5 hover:bg-white/5 rounded"><Settings className="w-4 h-4 text-zinc-500" /></button>
         </div>
       </header>
       
-      <div className="flex-1 flex min-h-0 relative">
-        {!isMobile && (
-          <aside className="w-10 border-r border-zinc-800 bg-zinc-950 flex flex-col items-center py-2 gap-2 shrink-0 z-40">
-             <ToolButton active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} icon={<Crosshair size={18} />} />
-             <ToolButton active={activeTool === 'dot'} onClick={() => setActiveTool('dot')} icon={<MousePointer2 size={18} />} />
-             <div className="w-6 h-[1px] bg-zinc-800 my-1" />
-             <ToolButton active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} icon={<Slash size={18} className="rotate-45" />} />
-             <ToolButton active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} icon={<ArrowRight size={18} className="-rotate-45" />} />
-             <ToolButton active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} icon={<Minus size={18} />} />
-             <ToolButton active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} icon={<SeparatorVertical size={18} />} />
-             <div className="w-6 h-[1px] bg-zinc-800 my-1" />
-             <ToolButton active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} icon={<Square size={18} />} />
-             <ToolButton active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} icon={<Circle size={18} />} />
-             <ToolButton active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} icon={<Pencil size={18} />} />
-             <ToolButton active={activeTool === 'text'} onClick={() => setActiveTool('text')} icon={<Type size={18} />} />
-             <ToolButton active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} icon={<LayoutGrid size={18} />} />
-             <div className="mt-auto space-y-1 pb-2"><ToolButton active={false} onClick={() => setActiveTool('eraser')} icon={<Eraser size={16} />} /></div>
-          </aside>
-        )}
-        <div className="flex-1 relative min-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
+      <div className="flex-1 flex flex-col lg:flex-row min-h-0 relative">
+        <aside className="w-10 border-r border-zinc-800 bg-zinc-950 hidden lg:flex flex-col items-center py-2 gap-2 shrink-0 z-40">
+           <ToolButton active={activeTool === 'crosshair'} onClick={() => setActiveTool('crosshair')} icon={<Crosshair size={18} />} />
+           <ToolButton active={activeTool === 'dot'} onClick={() => setActiveTool('dot')} icon={<MousePointer2 size={18} />} />
+           <div className="w-6 h-[1px] bg-zinc-800 my-1" />
+           <ToolButton active={activeTool === 'trend'} onClick={() => setActiveTool('trend')} icon={<Slash size={18} className="rotate-45" />} />
+           <ToolButton active={activeTool === 'ray'} onClick={() => setActiveTool('ray')} icon={<ArrowRight size={18} className="-rotate-45" />} />
+           <ToolButton active={activeTool === 'hline'} onClick={() => setActiveTool('hline')} icon={<Minus size={18} />} />
+           <ToolButton active={activeTool === 'vline'} onClick={() => setActiveTool('vline')} icon={<SeparatorVertical size={18} />} />
+           <div className="w-6 h-[1px] bg-zinc-800 my-1" />
+           <ToolButton active={activeTool === 'rect'} onClick={() => setActiveTool('rect')} icon={<Square size={18} />} />
+           <ToolButton active={activeTool === 'circle'} onClick={() => setActiveTool('circle')} icon={<Circle size={18} />} />
+           <ToolButton active={activeTool === 'brush'} onClick={() => setActiveTool('brush')} icon={<Pencil size={18} />} />
+           <ToolButton active={activeTool === 'text'} onClick={() => setActiveTool('text')} icon={<Type size={18} />} />
+           <ToolButton active={activeTool === 'fib'} onClick={() => setActiveTool('fib')} icon={<LayoutGrid size={18} />} />
+           <div className="mt-auto space-y-1 pb-2"><ToolButton active={false} onClick={() => setActiveTool('eraser')} icon={<Eraser size={16} />} /></div>
+        </aside>
+        
+        <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
           <div className="flex-1 relative overflow-hidden" ref={chartContainerRef}>
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
             {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
           </div>
           <PositionsPanel openTrades={openTrades} closedTrades={[]} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
         </div>
-        {!isMobile && (
-          <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
-            <div className="flex items-center gap-3 mb-8"><div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10"><TrendingUp size={20} /></div><div><h2 className="text-sm font-headline font-bold text-white uppercase tracking-tight">Order Entry</h2><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Institutional Node</p></div></div>
-            <OrderPanelContent currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} selectedAccount={selectedAccount} activeAccounts={activeAccounts} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} sl={sl} setSl={setSl} tp={tp} setTp={setTp} actionLoading={actionLoading} placeTrade={placeTrade} />
-          </aside>
-        )}
+
+        <aside className="w-80 bg-zinc-950 p-6 hidden lg:flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
+          <div className="flex items-center gap-3 mb-8"><div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/10"><TrendingUp size={20} /></div><div><h2 className="text-sm font-headline font-bold text-white uppercase tracking-tight">Order Entry</h2><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">Institutional Node</p></div></div>
+          <OrderPanelContent currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} selectedAccount={selectedAccount} activeAccounts={activeAccounts} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} sl={sl} setSl={setSl} tp={tp} setTp={setTp} actionLoading={actionLoading} placeTrade={placeTrade} />
+        </aside>
       </div>
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} onSettingsChange={() => {}} onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} />
     </div>

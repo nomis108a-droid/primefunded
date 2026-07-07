@@ -72,7 +72,6 @@ export function PositionsPanel({
       return;
     }
 
-    // Validation
     const symbolUpper = trade.symbol.toUpperCase().trim();
     const pData = livePrices[symbolUpper];
     const currentPrice = trade.type === 'buy' ? pData?.bid : pData?.ask;
@@ -146,13 +145,14 @@ export function PositionsPanel({
 
       <div className={cn("flex-1 overflow-y-auto custom-scrollbar transition-opacity duration-300", panelOpen ? "opacity-100" : "opacity-0 pointer-events-none")}>
         <Tabs value={activeTab} className="w-full h-full">
-          <TabsContent value="positions" className="m-0 border-none outline-none">
-            <table className="w-full text-[10px] text-left">
+          <TabsContent value="positions" className="m-0 border-none outline-none overflow-x-auto custom-scrollbar">
+            <table className="w-full text-[10px] text-left min-w-[700px] lg:min-w-0">
               <thead className="sticky top-0 bg-zinc-950 text-zinc-500 uppercase font-black tracking-widest border-b border-zinc-900">
                 <tr>
                   <th className="py-2 px-3">Symbol</th>
                   <th className="py-2 px-2">Type</th>
                   <th className="py-2 px-2">Lots</th>
+                  <th className="py-2 px-2">Commission</th>
                   <th className="py-2 px-2">Entry</th>
                   <th className="py-2 px-2">S/L</th>
                   <th className="py-2 px-2">T/P</th>
@@ -163,7 +163,7 @@ export function PositionsPanel({
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {openTrades.length === 0 ? (
-                  <tr><td colSpan={9} className="py-12 text-center italic text-zinc-600 font-bold uppercase tracking-widest text-[9px]">No open positions in terminal.</td></tr>
+                  <tr><td colSpan={10} className="py-12 text-center italic text-zinc-600 font-bold uppercase tracking-widest text-[9px]">No open positions in terminal.</td></tr>
                 ) : openTrades.map((t) => {
                   const symbolUpper = t.symbol.toUpperCase().trim();
                   const pData = livePrices[symbolUpper];
@@ -186,6 +186,7 @@ export function PositionsPanel({
                         </span>
                       </td>
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{t.lots.toFixed(2)}</td>
+                      <td className="py-1.5 px-2 font-mono text-destructive/80">-${(t.commission || 0).toFixed(2)}</td>
                       <td className="py-1.5 px-2 font-mono text-zinc-400">{formatPrice(t.openPrice, t.symbol)}</td>
                       
                       <td className="py-1.5 px-2 font-mono">
@@ -249,8 +250,8 @@ export function PositionsPanel({
               </tbody>
             </table>
           </TabsContent>
-          <TabsContent value="history" className="m-0 border-none outline-none">
-             <table className="w-full text-[10px] text-left">
+          <TabsContent value="history" className="m-0 border-none outline-none overflow-x-auto custom-scrollbar">
+             <table className="w-full text-[10px] text-left min-w-[700px] lg:min-w-0">
               <thead className="sticky top-0 bg-zinc-950 text-zinc-500 uppercase font-black tracking-widest border-b border-zinc-900">
                 <tr><th className="py-2 px-3">Symbol</th><th className="py-2 px-2">Type</th><th className="py-2 px-2">Lots</th><th className="py-2 px-2">Open</th><th className="py-2 px-2">Close</th><th className="py-2 px-2">Dur.</th><th className="py-2 px-2 text-right">PnL</th><th className="py-2 px-3 text-right">Time</th></tr>
               </thead>
