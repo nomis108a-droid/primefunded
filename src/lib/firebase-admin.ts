@@ -94,17 +94,32 @@ function getAdminApp(): App | null {
  */
 export const getAdminDb = () => {
   const app = getAdminApp();
-  return app ? getFirestore(app) : null;
+  if (!app) return null;
+  try {
+    return getFirestore(app);
+  } catch (e) {
+    return null;
+  }
 };
 
 export const getAdminAuth = () => {
   const app = getAdminApp();
-  return app ? getAuth(app) : null;
+  if (!app) return null;
+  try {
+    return getAuth(app);
+  } catch (e) {
+    return null;
+  }
 };
 
 export const getAdminRtdb = () => {
   const app = getAdminApp();
-  return app ? getDatabase(app) : null;
+  if (!app) return null;
+  try {
+    return getDatabase(app);
+  } catch (e) {
+    return null;
+  }
 };
 
 /**
@@ -122,6 +137,7 @@ export function getAdminServices() {
       rtdb: getDatabase(app) 
     };
   } catch (e) {
+    console.warn("[Firebase-Admin] Failed to retrieve services from app instance.");
     return null;
   }
 }

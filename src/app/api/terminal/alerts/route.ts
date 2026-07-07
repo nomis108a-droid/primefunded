@@ -13,15 +13,20 @@ export async function GET(req: NextRequest) {
     const token = authHeader.replace("Bearer ", "");
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
+
     let uid: string;
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+
     const alertsSnap = await db.collection("alerts")
       .where("userId", "==", uid)
       .orderBy("createdAt", "desc")
@@ -46,9 +51,12 @@ export async function POST(req: NextRequest) {
     const token = authHeader.replace("Bearer ", "");
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
+
     let uid: string;
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
@@ -61,10 +69,12 @@ export async function POST(req: NextRequest) {
     }
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+
     const alertRef = await db.collection("alerts").add({
       userId: uid,
       symbol,
-      condition, // "above" | "below"
+      condition, 
       targetPrice: parseFloat(String(targetPrice)),
       status: "active",
       createdAt: Timestamp.now()
@@ -82,9 +92,12 @@ export async function DELETE(req: NextRequest) {
     const token = authHeader.replace("Bearer ", "");
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Auth service unavailable" }, { status: 503 });
+
     let uid: string;
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
@@ -96,6 +109,8 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "Missing alert ID" }, { status: 400 });
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+
     const alertRef = db.collection("alerts").doc(id);
     const alertSnap = await alertRef.get();
 

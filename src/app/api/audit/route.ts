@@ -4,22 +4,22 @@ import { runDemoAudit } from '@/lib/rulesEngine';
 /**
  * @fileOverview Global Audit API Route
  * Triggers rule verification for all active internal trading nodes.
+ * Hardened with error checking to prevent 500 crashes.
  */
 
 export async function POST() {
   try {
     const results = await runDemoAudit();
+    if (!results || (results as any).error) {
+      return NextResponse.json({ success: false, error: (results as any)?.error || "Audit failed to execute" }, { status: 503 });
+    }
     return NextResponse.json({ success: true, ...results });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('[Audit-API] Fatal Error:', error.message);
+    return NextResponse.json({ success: false, error: error.message || "Internal server fault" }, { status: 500 });
   }
 }
 
 export async function GET() {
-  try {
-    const results = await runDemoAudit();
-    return NextResponse.json({ success: true, ...results });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
+  return POST();
 }

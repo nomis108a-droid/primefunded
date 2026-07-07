@@ -80,7 +80,14 @@ export async function GET(
                   }
                 }
               } else {
-                const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'XAGUSD': 'XAG_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
+                const oMap: Record<string, string> = { 
+                  'XAUUSD': 'XAU_USD', 
+                  'XAGUSD': 'XAG_USD', 
+                  'XPTUSD': 'XPT_USD',
+                  'EURUSD': 'EUR_USD', 
+                  'GBPUSD': 'GBP_USD', 
+                  'USDJPY': 'USD_JPY' 
+                };
                 const instr = oMap[symbol] || symbol;
                 if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
                   const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
@@ -115,7 +122,14 @@ export async function GET(
               }
             } catch (e: any) {
               failureCount++;
-              console.warn(`[SSE-Stream] Manual recovery poll failed for ${symbol}:`, e.message);
+              console.error(`[SSE-Stream] Manual recovery poll failed for ${symbol}:`, e.message);
+            }
+
+            // Signal error to client if persistent failures occur
+            if (failureCount >= 3) {
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: 'Market liquidity sync timeout' })}\n\n`));
+              } catch (e) {}
             }
           }
         }

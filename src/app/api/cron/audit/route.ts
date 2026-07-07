@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 /**
  * @fileOverview Automated Risk Engine Cron
  * Verifies rule compliance for all active internal accounts.
+ * Hardened with error checking to prevent 500 crashes.
  */
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -15,8 +16,12 @@ export async function GET(request: Request) {
 
   try {
     const results = await runDemoAudit();
+    if (!results || (results as any).error) {
+      return NextResponse.json({ success: false, error: (results as any)?.error || "Service Unavailable" }, { status: 503 });
+    }
     return NextResponse.json({ success: true, ...results });
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error('[CronAudit-API] Fatal Error:', error.message);
+    return NextResponse.json({ success: false, error: error.message || "Internal server fault" }, { status: 500 });
   }
 }

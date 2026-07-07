@@ -18,10 +18,13 @@ export async function POST(req: NextRequest) {
     const token = authHeader.replace("Bearer ", "");
     if (!token) return NextResponse.json({ error: "No auth token" }, { status: 401 });
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Authentication service unavailable" }, { status: 503 });
+
     let uid: string;
     let email: string | null = null;
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
       email = decoded.email || null;
     } catch (err) {
@@ -40,13 +43,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Configuration Error: Plan rules not found" }, { status: 500 });
     }
 
+    const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database service unavailable" }, { status: 503 });
+
     // FIXED DOLLAR LIMITS - Calculated ONCE at creation
     const targetPct = rules.profitTarget || 10;
     const profitTarget = p.balance * (targetPct / 100);
     const dailyLossLimitUsd = p.balance * (rules.dailyDrawdown / 100);
     const maxLossLimitUsd = p.balance * (rules.maxDrawdown / 100);
 
-    const db = getAdminDb();
     const docRef = await db.collection("demoAccounts").add({
       userId: uid,
       email,
@@ -58,9 +63,9 @@ export async function POST(req: NextRequest) {
       equity: p.balance,
       startBalance: p.balance,
       profitTarget,
-      dailyLossLimitUsd, // Fixed threshold
-      dailyGrossLossUsd: 0, // Real-time counter
-      maxLoss: maxLossLimitUsd, // Fixed threshold
+      dailyLossLimitUsd, 
+      dailyGrossLossUsd: 0, 
+      maxLoss: maxLossLimitUsd, 
       status: "active",
       breachReason: null,
       createdAt: Timestamp.now(),

@@ -16,10 +16,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Authentication service unavailable" }, { status: 503 });
+
     // 1. Verify User Identity
     let decoded;
     try {
-      decoded = await getAdminAuth().verifyIdToken(token);
+      decoded = await auth.verifyIdToken(token);
     } catch (err) {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
@@ -30,6 +33,7 @@ export async function GET(req: NextRequest) {
     }
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database service unavailable" }, { status: 503 });
     
     // 3. Fetch Data
     const snap = await db.collection("demoAccounts")

@@ -13,8 +13,6 @@ import {
   Loader2, Activity, Settings, 
   Crosshair, Circle, Slash, ArrowRight,
   Square, Type, Eraser, SeparatorVertical,
-  Clock as ClockIcon, 
-  UserCircle,
   MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus,
   TrendingUp, TrendingDown, ShieldCheck, Timer
 } from "lucide-react";
@@ -213,7 +211,7 @@ const OrderPanelContent = memo(({
 });
 
 export default function DemoPage() {
-  const { user, userData, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
@@ -287,6 +285,18 @@ export default function DemoPage() {
     return { pnl: diff * trade.lots * contractSize, pct: (diff / trade.openPrice) * 100 };
   }, [fusedPrices]);
 
+  // Chart Stall Watchdog
+  useEffect(() => {
+    if (!isChartReady && !authLoading && hasMounted) {
+      const timer = setTimeout(() => {
+        if (!isChartReady) {
+          console.error(`[Chart-Stall] Chart failed to load for ${selectedSymbol} after 5s. Ready: ${isChartReady}, Container: ${!!chartContainerRef.current}, AuthLoading: ${authLoading}`);
+        }
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [isChartReady, authLoading, hasMounted, selectedSymbol]);
+
   useEffect(() => {
     if (!hasMounted || authLoading || !chartContainerRef.current) return;
     
@@ -297,6 +307,8 @@ export default function DemoPage() {
     currentHighRef.current = 0;
     currentLowRef.current = 0;
     
+    console.log(`[Chart-Init] Instantiating chart for ${selectedSymbol}`);
+
     const chart = createChart(chartContainerRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11, fontFamily: 'Inter' },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
