@@ -319,8 +319,20 @@ export default function DemoPage() {
 
   // Chart Init - Critical Fix: Added authLoading to dependencies to ensure ref is bound
   useEffect(() => {
-    if (!hasMounted || !chartContainerRef.current || authLoading) return;
+    if (!hasMounted) {
+      console.log("[Chart-Init] Skipping: Component not mounted");
+      return;
+    }
+    if (authLoading) {
+      console.log("[Chart-Init] Skipping: Auth still loading (waiting for UI render)");
+      return;
+    }
+    if (!chartContainerRef.current) {
+      console.log("[Chart-Init] Skipping: Container Ref null (UI might not have rendered ref yet)");
+      return;
+    }
     
+    console.log(`[Chart-Init] Initializing Chart for ${selectedSymbol}`);
     setIsChartReady(false);
     priceLinesRef.current.clear();
     lastCandleTimeRef.current = 0;
@@ -343,6 +355,7 @@ export default function DemoPage() {
 
     chartInstanceRef.current = chart;
     mainSeriesRef.current = series;
+    console.log(`[Chart-Init] Chart Ready for ${selectedSymbol}`);
     setIsChartReady(true);
 
     const handleResize = () => { if (chartInstanceRef.current) chartInstanceRef.current.applyOptions({ width: chartContainerRef.current!.clientWidth, height: chartContainerRef.current!.clientHeight }); };
@@ -362,10 +375,14 @@ export default function DemoPage() {
 
   // History Load
   useEffect(() => {
-    if (!isChartReady || !mainSeriesRef.current) return;
+    if (!isChartReady || !mainSeriesRef.current) {
+      console.log(`[Chart-History] Waiting for ChartReady before fetching for ${selectedSymbol}`);
+      return;
+    }
     setIsChartLoading(true);
     
     const fetchHistory = async () => {
+      console.log(`[Chart-History] Fetching history for ${selectedSymbol} (${selectedInterval})`);
       try {
         const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`);
         const data = await res.json();
@@ -379,9 +396,10 @@ export default function DemoPage() {
             currentLowRef.current = last.low;
           }
           chartInstanceRef.current?.timeScale().fitContent();
+          console.log(`[Chart-History] History loaded successfully for ${selectedSymbol}`);
         }
       } catch(e) {
-        console.warn('[Chart] Loading fail-safe triggered. Using existing state.');
+        console.warn('[Chart-History] Loading fail-safe triggered. Using existing state.');
       } finally { 
         setIsChartLoading(false); 
       }
