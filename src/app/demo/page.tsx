@@ -81,7 +81,6 @@ const CandleTimer = memo(function CandleTimer({ interval }: { interval: string }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-full border border-white/10 ml-4">
-      <Timer className="w-3 h-3 text-primary animate-pulse" />
       <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
         New Candle: <span className="text-white tabular-nums">{timeLeft}</span>
       </span>
@@ -209,22 +208,6 @@ const OrderPanelContent = memo(({
           <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
         </button>
       </div>
-
-      <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3">
-        <div className="flex items-center gap-2 text-primary font-black text-[9px] uppercase tracking-widest">
-           <ShieldCheck size={12} /> Compliance Status
-        </div>
-        <div className="space-y-1">
-          <div className="flex justify-between text-[10px]">
-             <span className="text-zinc-500">Plan Type</span>
-             <span className="text-white font-bold uppercase">{selectedAccount?.planType || '1-Step Pro'}</span>
-          </div>
-          <div className="flex justify-between text-[10px]">
-             <span className="text-zinc-500">Day Target</span>
-             <span className="text-emerald-500 font-bold">${(selectedAccount?.profitTarget || 0).toLocaleString()}</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 });
@@ -248,7 +231,6 @@ export default function DemoPage() {
   const [activeTool, setActiveTool] = useState('crosshair');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'chart' | 'positions' | 'history' | 'account'>('chart');
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
@@ -306,12 +288,8 @@ export default function DemoPage() {
   }, [fusedPrices]);
 
   useEffect(() => {
-    if (!hasMounted || authLoading || !chartContainerRef.current) {
-       console.log('[Chart-Init] Skipping instantiation: hasMounted=', hasMounted, 'authLoading=', authLoading, 'ref=', !!chartContainerRef.current);
-       return;
-    }
+    if (!hasMounted || authLoading || !chartContainerRef.current) return;
     
-    console.log('[Chart-Init] Creating chart instance for', selectedSymbol);
     setIsChartReady(false);
     priceLinesRef.current.clear();
     lastCandleTimeRef.current = 0;
@@ -343,17 +321,6 @@ export default function DemoPage() {
     return () => { window.removeEventListener('resize', handleResize); if (chartInstanceRef.current) chartInstanceRef.current.remove(); };
   }, [selectedSymbol, hasMounted, authLoading]);
 
-  // Watchdog timer for chart load
-  useEffect(() => {
-    if (!hasMounted || authLoading) return;
-    const timeout = setTimeout(() => {
-      if (!isChartReady) {
-        console.error('[Chart-Stall] Chart failed to load for', selectedSymbol, 'after 5s. Ready:', isChartReady, 'Container:', !!chartContainerRef.current);
-      }
-    }, 5000);
-    return () => clearTimeout(timeout);
-  }, [selectedSymbol, isChartReady, hasMounted, authLoading]);
-
   useEffect(() => {
     if (!isChartReady || !mainSeriesRef.current) return;
     setIsChartLoading(true);
@@ -378,7 +345,7 @@ export default function DemoPage() {
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
   useEffect(() => {
-    if (activePrice && activePrice.price && mainSeriesRef.current && isChartReady) {
+    if (activePrice && typeof activePrice.price === 'number' && mainSeriesRef.current && isChartReady) {
       const getIntervalSeconds = (val: string) => {
         const map: Record<string, number> = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 };
         return map[val] || 60;
@@ -390,21 +357,37 @@ export default function DemoPage() {
       if (isNaN(tickTime)) return;
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
       
-      if (bucketTime > lastCandleTimeRef.current) {
-        mainSeriesRef.current.update({ time: bucketTime as any, open: activePrice.price, high: activePrice.price, low: activePrice.price, close: activePrice.price });
-        lastCandleTimeRef.current = bucketTime;
-        lastOpenPriceRef.current = activePrice.price;
-        currentHighRef.current = activePrice.price;
-        currentLowRef.current = activePrice.price;
-      } else if (bucketTime === lastCandleTimeRef.current) {
-        if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
-        if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
-        if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
+      try {
+        if (bucketTime > lastCandleTimeRef.current) {
+          mainSeriesRef.current.update({ 
+            time: bucketTime as any, 
+            open: activePrice.price, 
+            high: activePrice.price, 
+            low: activePrice.price, 
+            close: activePrice.price 
+          });
+          lastCandleTimeRef.current = bucketTime;
+          lastOpenPriceRef.current = activePrice.price;
+          currentHighRef.current = activePrice.price;
+          currentLowRef.current = activePrice.price;
+        } else if (bucketTime === lastCandleTimeRef.current) {
+          if (currentHighRef.current === 0) currentHighRef.current = activePrice.price;
+          if (currentLowRef.current === 0) currentLowRef.current = activePrice.price;
+          if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = activePrice.price;
 
-        currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
-        currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
-        
-        mainSeriesRef.current.update({ time: bucketTime as any, open: lastOpenPriceRef.current, high: currentHighRef.current, low: currentLowRef.current, close: activePrice.price });
+          currentHighRef.current = Math.max(currentHighRef.current, activePrice.price);
+          currentLowRef.current = Math.min(currentLowRef.current, activePrice.price);
+          
+          mainSeriesRef.current.update({ 
+            time: bucketTime as any, 
+            open: lastOpenPriceRef.current, 
+            high: currentHighRef.current, 
+            low: currentLowRef.current, 
+            close: activePrice.price 
+          });
+        }
+      } catch (e) {
+        console.warn('[Chart-Update] Tick insertion failed:', e);
       }
     }
   }, [activePrice, isChartReady, selectedInterval]);
@@ -489,7 +472,9 @@ export default function DemoPage() {
           <div className="flex items-center gap-1">
              <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
                <SelectTrigger className="flex items-center gap-2 px-2 py-1 bg-white/5 rounded border border-white/5 h-8 text-[10px] font-black text-white tracking-widest outline-none ring-0"><SelectValue /></SelectTrigger>
-               <SelectContent className="bg-zinc-900 border-zinc-800 text-white">{SYMBOLS.map(sym => <SelectItem key={sym} value={sym} className="text-[10px] font-black">{sym}</SelectItem>)}</SelectContent>
+               <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                 {SYMBOLS.map(sym => <SelectItem key={sym} value={sym} className="text-[10px] font-black">{sym}</SelectItem>)}
+               </SelectContent>
              </Select>
              <div className="flex items-center gap-0.5 ml-2">{TIMEFRAMES.filter(tf => isMobile ? ['1m', '15m', '1H', '1D'].includes(tf.label) : true).map(tf => ( <button key={tf.value} onClick={() => setSelectedInterval(tf.value)} className={cn("px-2 py-1 rounded text-[10px] font-black uppercase transition-all", selectedInterval === tf.value ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{tf.label}</button> ))}</div>
              <CandleTimer interval={selectedInterval} />
@@ -522,11 +507,11 @@ export default function DemoPage() {
           </aside>
         )}
         <div className="flex-1 relative min-h-0 bg-[#09090b] flex flex-col border-r border-zinc-800">
-          <div className={cn("flex-1 relative overflow-hidden", isMobile && mobileTab !== 'chart' && "hidden")} ref={chartContainerRef}>
+          <div className="flex-1 relative overflow-hidden" ref={chartContainerRef}>
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
             {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
           </div>
-          {!isMobile ? ( <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} /> ) : ( <div className={cn("flex-1 overflow-y-auto bg-zinc-950", mobileTab === 'chart' && "hidden")}> {mobileTab === 'positions' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="positions" />} {mobileTab === 'history' && <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={true} setPanelOpen={() => {}} defaultTab="history" />} </div> )}
+          <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
         </div>
         {!isMobile && (
           <aside className="w-80 bg-zinc-950 p-6 flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
@@ -535,7 +520,6 @@ export default function DemoPage() {
           </aside>
         )}
       </div>
-      {isMobile && ( <nav className="h-16 border-t border-zinc-800 bg-zinc-950 flex items-center justify-around shrink-0 z-50"><MobileNavButton active={mobileTab === 'chart'} onClick={() => setMobileTab('chart')} icon={<Activity size={20} />} label="Chart" /><MobileNavButton active={false} onClick={() => setIsOrderSheetOpen(true)} icon={<LayoutGrid size={20} />} label="Trade" /><MobileNavButton active={mobileTab === 'positions'} onClick={() => setMobileTab('positions')} icon={<History size={20} />} label="Active" /><MobileNavButton active={mobileTab === 'account'} onClick={() => setMobileTab('account')} icon={<UserCircle size={20} />} label="Account" /></nav> )}
       <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}><SheetContent side="bottom" className="h-[85vh] bg-zinc-950 border-zinc-800 p-6"><SheetHeader><SheetTitle className="text-white font-black font-headline italic uppercase flex items-center justify-between">{selectedSymbol}<Badge className="bg-primary text-black">LIVE EXECUTION</Badge></SheetTitle></SheetHeader><div className="mt-8 h-full"><OrderPanelContent currentAccountId={currentAccountId} setCurrentAccountId={setCurrentAccountId} selectedAccount={selectedAccount} activeAccounts={activeAccounts} activePrice={activePrice} selectedSymbol={selectedSymbol} lotsInput={lotsInput} setLotsInput={setLotsInput} sl={sl} setSl={setSl} tp={tp} setTp={setTp} actionLoading={actionLoading} placeTrade={placeTrade} /></div></SheetContent></Sheet>
       <ChartSettingsModal open={isSettingsOpen} onOpenChange={setIsSettingsOpen} settings={{ canvas: { background: { color: '#09090b', type: 'solid' }, grid: { type: 'both', vert: { color: '#18181b' }, horz: { color: '#18181b' } }, candles: { upColor: '#10b981', downColor: '#ef4444' }, watermark: { visible: true, text: 'PRIME FUNDED' }, sessionBreaks: { enabled: true } }, scales: { type: 'regular', labels: { currentPrice: true, ohlc: true, tradeLines: true } } }} onSettingsChange={() => {}} onResetScale={() => { chartInstanceRef.current?.timeScale().fitContent(); }} />
     </div>
@@ -543,4 +527,3 @@ export default function DemoPage() {
 }
 
 function ToolButton({ active, onClick, icon }: any) { return <button onClick={onClick} className={cn("w-8 h-8 rounded flex items-center justify-center transition-all cursor-pointer", active ? "bg-primary text-black" : "text-zinc-500 hover:text-white hover:bg-white/5")}>{icon}</button>; }
-function MobileNavButton({ active, onClick, icon, label }: any) { return <button onClick={onClick} className={cn("flex flex-col items-center justify-center gap-1 transition-all", active ? "text-primary" : "text-zinc-500")}>{icon}<span className="text-[8px] font-bold uppercase">{label}</span></button>; }

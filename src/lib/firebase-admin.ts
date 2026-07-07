@@ -115,5 +115,13 @@ export const isFirebaseAdminConfigured = () => adminConfigured;
 export function getAdminServices() {
   const app = getAdminApp();
   if (!app) return null;
-  return { db: getFirestore(app), auth: getAuth(app), rtdb: getDatabase(app) };
+  try {
+    return { 
+      db: getFirestore(app), 
+      auth: getAuth(app), 
+      rtdb: getDatabase(app) 
+    };
+  } catch (e) {
+    return null;
+  }
 }

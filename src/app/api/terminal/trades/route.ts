@@ -21,15 +21,20 @@ export async function POST(req: NextRequest) {
     const token = authHeader.replace("Bearer ", "");
     if (!token) return NextResponse.json({ error: "Authentication required" }, { status: 401 });
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Auth service offline" }, { status: 503 });
+
     let uid: string;
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch (err) {
       return NextResponse.json({ error: "Session expired" }, { status: 401 });
     }
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database service offline" }, { status: 503 });
+
     const body = await req.json().catch(() => ({}));
     const { accountId, symbol, type, lots: rawLots, sl, tp, witnessPrice } = body;
 
@@ -58,8 +63,7 @@ export async function POST(req: NextRequest) {
 
     // 3. FRESHNESS GUARD (Strict 10s check on the best available source)
     const priceAgeSeconds = (Date.now() - feed.updatedAt) / 1000;
-    console.log(`[Order-Audit] Sym: ${symUpper} | Age: ${priceAgeSeconds.toFixed(1)}s | Src: ${feed.source} | Bid/Ask: ${feed.bid}/${feed.ask}`);
-
+    
     if (priceAgeSeconds > 10) {
       await activeLockRef.delete();
       return NextResponse.json({ 
@@ -67,15 +71,9 @@ export async function POST(req: NextRequest) {
       }, { status: 503 });
     }
 
-    // 4. BLACKLIST GUARD (Literal bugged value from previous session)
-    if (Math.abs(feed.price - 4185.658) < 0.001) {
-      await activeLockRef.delete();
-      return NextResponse.json({ error: "Execution blocked on bugged price marker (4185.658)." }, { status: 400 });
-    }
-
     const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
-    // 5. WITNESS VALIDATION (Prevent extreme slippage)
+    // 4. WITNESS VALIDATION (Prevent extreme slippage)
     if (witnessPrice && Math.abs(executionPrice - witnessPrice) / witnessPrice > 0.05) {
       await activeLockRef.delete();
       return NextResponse.json({ error: "Price deviation too high. Please retry." }, { status: 409 });
@@ -130,7 +128,6 @@ export async function POST(req: NextRequest) {
     });
 
     await activeLockRef.delete();
-    // Audit in background to avoid blocking response
     auditDemoAccount(accountId).catch(() => {});
 
     return NextResponse.json({ ok: true, ...result });

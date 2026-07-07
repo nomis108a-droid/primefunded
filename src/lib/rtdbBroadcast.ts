@@ -1,15 +1,17 @@
-
 import { getAdminRtdb } from './firebase-admin';
 
 /**
  * @fileOverview Shared Realtime Database Broadcast Utility
  * Provides a high-speed mechanism for pushing price updates to the RTDB path.
  * Broadcasts to both livePrices and unified market paths.
+ * Hardened with null-guards to prevent server-side crashes.
  */
 
 export async function broadcastToRtdb(ticks: Record<string, { price: number; bid: number; ask: number }>) {
   try {
     const rtdb = getAdminRtdb();
+    if (!rtdb) return;
+
     const updates: Record<string, any> = {};
     const now = Date.now();
 
@@ -28,5 +30,6 @@ export async function broadcastToRtdb(ticks: Record<string, { price: number; bid
     }
   } catch (err) {
     // Silent fail for background tasks to prevent process termination
+    console.warn('[RTDB-Broadcast] Sync cycle skipped:', (err as Error).message);
   }
 }

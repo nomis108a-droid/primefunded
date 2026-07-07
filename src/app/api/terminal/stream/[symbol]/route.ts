@@ -20,12 +20,7 @@ export async function GET(
   const encoder = new TextEncoder();
   
   const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symbol);
-  const isMetal = ['XAUUSD', 'AGUSD', 'XPTUSD'].includes(symbol);
   
-  if (!process.env.OANDA_API_KEY && !isCrypto) {
-    console.warn(`[SSE-Stream] WARNING: OANDA_API_KEY is missing. Forex/Metal prices for ${symbol} will fail manual polling.`);
-  }
-
   const stream = new ReadableStream({
     async start(controller) {
       let lastPrice = 0;
@@ -83,11 +78,9 @@ export async function GET(
                       };
                     }
                   }
-                } else {
-                  throw new Error(`Kraken API HTTP ${res.status}`);
                 }
               } else {
-                const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
+                const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'XAGUSD': 'XAG_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
                 const instr = oMap[symbol] || symbol;
                 if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
                   const res = await fetch(`https://api-fxpractice.oanda.com/v3/instruments/${instr}/candles?price=M&granularity=M1&count=1`, { 
@@ -108,8 +101,6 @@ export async function GET(
                         updatedAt: Date.now()
                       };
                     }
-                  } else {
-                    throw new Error(`OANDA API HTTP ${res.status}`);
                   }
                 }
               }
@@ -124,13 +115,7 @@ export async function GET(
               }
             } catch (e: any) {
               failureCount++;
-              console.error(`[SSE-Stream] Manual recovery poll failed for ${symbol}:`, e.message);
-              
-              if (failureCount >= 3) {
-                try {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: `Liquidity feed offline for ${symbol}` })}\n\n`));
-                } catch (ce) {}
-              }
+              console.warn(`[SSE-Stream] Manual recovery poll failed for ${symbol}:`, e.message);
             }
           }
         }

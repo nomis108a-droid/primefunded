@@ -20,9 +20,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     
     if (!token) return NextResponse.json({ error: "Authentication token is required" }, { status: 401 });
 
+    const auth = getAdminAuth();
+    if (!auth) return NextResponse.json({ error: "Authentication service unavailable" }, { status: 503 });
+
     let uid: string;
     try {
-      const decoded = await getAdminAuth().verifyIdToken(token);
+      const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch (err: any) {
       console.error('[Close-Trade-Auth] JWT Verification Failed:', err.message);
@@ -30,6 +33,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Terminal database unavailable" }, { status: 503 });
+
     const tradeRef = db.collection("demoTrades").doc(id);
     const tradeSnap = await tradeRef.get();
     
@@ -100,14 +105,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
     console.error('[Close-Trade-API] Fatal Error:', error);
-    
-    // Check for specific Firestore/gRPC errors that might indicate auth issues
-    if (error.message?.includes('refresh access token') || error.message?.includes('Getting metadata from plugin failed')) {
-      return NextResponse.json({ 
-        error: "Terminal Authentication Fault: The server could not reach the risk engine. Our team has been notified. Please refresh and try again." 
-      }, { status: 500 });
-    }
-
     return NextResponse.json({ error: error.message || "Internal Terminal Error" }, { status: 500 });
   }
 }

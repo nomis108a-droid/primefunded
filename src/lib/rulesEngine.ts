@@ -138,6 +138,7 @@ async function enforceSingleTradeLossLimit(
  */
 export async function auditDemoAccount(accountId: string) {
   const db = getAdminDb();
+  if (!db) return null;
   const accRef = db.collection('demoAccounts').doc(accountId);
   const accSnap = await accRef.get();
   
@@ -278,10 +279,37 @@ export async function auditDemoAccount(accountId: string) {
 }
 
 /**
+ * Master entry point for global system audits.
+ * Checks all active accounts for compliance.
+ */
+export async function runDemoAudit() {
+  const db = getAdminDb();
+  if (!db) return { success: false, error: "Database unavailable" };
+
+  const activeSnap = await db.collection('demoAccounts')
+    .where('status', '==', 'active')
+    .get();
+
+  const results = { totalChecked: activeSnap.size, breachesDetected: 0, passed: 0, errors: 0 };
+
+  for (const doc of activeSnap.docs) {
+    try {
+      const res = await auditDemoAccount(doc.id);
+      if (res?.breached) results.breachesDetected++;
+      else if (res?.passed) results.passed++;
+    } catch (err) {
+      results.errors++;
+    }
+  }
+  return results;
+}
+
+/**
  * Targeted audit for accounts with active exposure.
  */
 export async function auditActiveOpenPositions() {
   const db = getAdminDb();
+  if (!db) return { totalOpenPositionAccounts: 0, breachesDetected: 0, passed: 0, errors: 0 };
   const openTradesSnap = await db.collection('demoTrades').where('status', '==', 'open').get();
   const accountIds = new Set<string>();
   openTradesSnap.docs.forEach(doc => { if (doc.data().accountId) accountIds.add(doc.data().accountId); });
