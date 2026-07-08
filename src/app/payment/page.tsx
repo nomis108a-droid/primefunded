@@ -37,26 +37,27 @@ import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 const NETWORKS = {
   USDT: [
     { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network', defaultFee: 1.50, logo: 'https://cryptologos.cc/logos/tron-trx-logo.svg' },
     { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Ethereum', defaultFee: 12.00, logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg' },
-    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base', defaultFee: 0.50, logo: 'https://avatars.githubusercontent.com/u/108554348?s=200&v=4' },
+    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base', defaultFee: 0.50, logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png' },
     { id: 'BEP20', label: 'BNB Chain', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on BNB Smart Chain', defaultFee: 0.80, logo: 'https://cryptologos.cc/logos/bnb-bnb-logo.svg' }
   ],
   USDC: [
     { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Ethereum', defaultFee: 12.00, logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg' },
     { id: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Polygon', defaultFee: 0.50, logo: 'https://cryptologos.cc/logos/polygon-matic-logo.svg' },
-    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base', defaultFee: 0.50, logo: 'https://avatars.githubusercontent.com/u/108554348?s=200&v=4' },
+    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base', defaultFee: 0.50, logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/base/info/logo.png' },
     { id: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Arbitrum One', defaultFee: 0.50, logo: 'https://cryptologos.cc/logos/arbitrum-arb-logo.svg' },
     { id: 'Avalanche', label: 'Avalanche', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Avalanche C-Chain', defaultFee: 0.80, logo: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg' },
-    { id: 'XRPL', label: 'XRP Ledger', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on XRP Ledger', defaultFee: 0.10, logo: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg' }
+    { id: 'XRPL', label: 'XRP Ledger', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on XRP Ledger', defaultFee: 0.10, logo: 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/xrp/info/logo.png' }
   ]
 };
 
-export default function PaymentPage() {
+const PAYMENT_WINDOW_SECONDS = 1200; // 20 Minutes
+
+function PaymentContent() {
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -71,15 +72,15 @@ export default function PaymentPage() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [networkFees, setNetworkFees] = useState<Record<string, number>>({});
   const [configuredWallets, setConfiguredWallets] = useState<Record<string, string>>({});
-  const [billing, setBilling] = useState({ firstName: '', lastName: '', phone: '', address: '', city: '', state: '', zip: '', country: 'United States' });
   const [selectedCoin, setSelectedCoin] = useState<'USDT' | 'USDC' | null>(null);
   const [selectedNetwork, setSelectedNetwork] = useState<any | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [orderStatus, setOrderStatus] = useState<'waiting' | 'detected' | 'completed' | 'expired'>('waiting');
-  const [timeLeft, setTimeLeft] = useState(1200); 
+  const [timeLeft, setTimeLeft] = useState(PAYMENT_WINDOW_SECONDS); 
   const [confirmations, setConfirmations] = useState(0);
   const [loading, setLoading] = useState(false);
 
+  // Sync Global Settings
   useEffect(() => {
     if (!db || authLoading || !user) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
@@ -130,33 +131,89 @@ export default function PaymentPage() {
     } finally { setLoading(false); }
   };
 
+  // 1. Accuracy Guard: Countdown Sync
+  useEffect(() => {
+    if (!orderId || orderStatus !== 'waiting') return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [orderId, orderStatus]);
+
+  // 2. State & Expiry Sync with Firestore
   useEffect(() => {
     if (!orderId || !user) return;
+    
     const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
       const data = snap.data();
       if (!data) return;
-      const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
+
+      const createdAt = data.createdAt?.toDate?.() || (data.createdAt ? new Date(data.createdAt) : null);
       if (createdAt) {
         const diff = Math.floor((Date.now() - createdAt.getTime()) / 1000);
-        const remaining = Math.max(0, 1200 - diff);
-        setTimeLeft(remaining);
+        const remaining = Math.max(0, PAYMENT_WINDOW_SECONDS - diff);
+        
+        // Ensure local timer is synced with server ground-truth
+        if (Math.abs(timeLeft - remaining) > 5) {
+          setTimeLeft(remaining);
+        }
+
         if (remaining <= 0 && data.status === 'waiting') {
-           updateDoc(doc(db, 'orders', orderId), { status: 'expired' });
+           // Auto-Expire Record
+           updateDoc(doc(db, 'orders', orderId), { 
+             status: 'expired',
+             expiredAt: serverTimestamp() 
+           });
+           
+           // Notify User in Background
+           addDoc(collection(db, 'users', user.uid, 'notifications'), {
+             title: "⏳ Payment Window Expired",
+             message: `Your payment window for the ${size} challenge has ended. Please generate a fresh request.`,
+             type: 'order_failed',
+             isRead: false,
+             createdAt: serverTimestamp()
+           });
+
            setOrderStatus('expired');
         }
       }
+
       if (data.status === "completed") setOrderStatus("completed");
-      else if (data.status === "detected") { setOrderStatus("detected"); setConfirmations(data.confirmations || 0); }
+      else if (data.status === "detected") { 
+        setOrderStatus("detected"); 
+        setConfirmations(data.confirmations || 0); 
+      }
       else if (data.status === "expired") setOrderStatus("expired");
     });
+
     return () => unsub();
-  }, [orderId, user]);
+  }, [orderId, user, timeLeft, size]);
+
+  const handleTryAgain = () => {
+    setOrderId(null);
+    setOrderStatus('waiting');
+    setTimeLeft(PAYMENT_WINDOW_SECONDS);
+    setSelectedCoin(null);
+    setSelectedNetwork(null);
+    setStep(4); // Back to asset selection
+  };
 
   if (orderStatus === 'completed') {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8">
-        <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6"><CheckCircle2 className="w-12 h-12 text-emerald-500" /></div>
+        <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+          <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+        </div>
         <h2 className="text-4xl font-headline font-bold text-white mb-4">Payment Verified</h2>
+        <p className="text-muted-foreground mb-8">Institutional node provisioned. Welcome to the terminal.</p>
         <Button className="h-14 px-10 font-black cyan-box-glow" onClick={() => router.push('/dashboard')}>Enter Terminal</Button>
       </div>
     );
@@ -165,9 +222,12 @@ export default function PaymentPage() {
   if (orderStatus === 'expired') {
     return (
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8">
-        <AlertTriangle className="w-16 h-16 text-destructive mb-6" />
-        <h2 className="text-3xl font-headline font-bold text-white mb-4">Window Expired</h2>
-        <Button variant="outline" className="font-bold px-8 h-12" onClick={() => { setStep(4); setOrderId(null); setOrderStatus('waiting'); }}>Try Again</Button>
+        <XCircle className="w-16 h-16 text-destructive mb-6" />
+        <h2 className="text-3xl font-headline font-bold text-white mb-4">Payment Window Expired</h2>
+        <p className="text-muted-foreground max-w-sm mx-auto mb-8">Your order could not be verified in time. No funds were detected at the address before timeout.</p>
+        <Button className="font-bold px-10 h-12 rounded-xl" onClick={handleTryAgain}>
+          <RefreshCw className="w-4 h-4 mr-2" /> Try Again
+        </Button>
       </div>
     );
   }
@@ -185,7 +245,7 @@ export default function PaymentPage() {
                   <CardContent className="space-y-6">
                     <div className="flex items-start gap-3">
                       <Checkbox id="terms" checked={termsAccepted} onCheckedChange={(v) => setTermsAccepted(!!v)} />
-                      <Label htmlFor="terms" className="text-sm text-zinc-300">I accept the Terms & Conditions</Label>
+                      <Label htmlFor="terms" className="text-sm text-zinc-300">I accept the Terms & Conditions and understand all challenge risk protocols.</Label>
                     </div>
                   </CardContent>
                   <CardFooter><Button disabled={!termsAccepted} onClick={() => setStep(4)} className="w-full h-12 font-black text-lg cyan-box-glow">Continue to Payment</Button></CardFooter>
@@ -195,15 +255,20 @@ export default function PaymentPage() {
 
             {step === 4 && (
               <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-8">
-                <div className="text-center"><h2 className="text-3xl font-headline font-bold text-white mb-2">Choose Asset</h2></div>
+                <div className="text-center">
+                  <Badge variant="outline" className="mb-4 border-primary/30 text-primary">STEP 2/3</Badge>
+                  <h2 className="text-3xl font-headline font-bold text-white mb-2">Choose Asset</h2>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                    <button onClick={() => { setSelectedCoin('USDT'); setStep(5); }} className="p-8 rounded-3xl border-2 bg-card/40 border-zinc-800 hover:border-primary/50 text-center space-y-4 group transition-all">
                      <img src="https://cryptologos.cc/logos/tether-usdt-logo.svg" className="w-12 h-12 mx-auto" alt="USDT" />
                      <p className="font-headline font-bold text-xl text-white">Pay with USDT</p>
+                     <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">{NETWORKS.USDT.length} NETWORKS AVAILABLE</p>
                    </button>
                    <button onClick={() => { setSelectedCoin('USDC'); setStep(5); }} className="p-8 rounded-3xl border-2 bg-card/40 border-zinc-800 hover:border-primary/50 text-center space-y-4 group transition-all">
                      <img src="https://cryptologos.cc/logos/usd-coin-usdc-logo.svg" className="w-12 h-12 mx-auto" alt="USDC" />
                      <p className="font-headline font-bold text-xl text-white">Pay with USDC</p>
+                     <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">{NETWORKS.USDC.length} NETWORKS AVAILABLE</p>
                    </button>
                 </div>
               </motion.div>
@@ -236,7 +301,7 @@ export default function PaymentPage() {
                         <div className="bg-white p-3 rounded-2xl shrink-0"><QRCodeSVG value={`${currentWalletAddress}?amount=${(totalAmountUsd * 1.002).toFixed(4)}`} size={180} /></div>
                         <div className="space-y-6 flex-1 w-full">
                            <div className="space-y-2">
-                              <Label className="text-[10px] font-black uppercase text-zinc-500">DEPOSIT ADDRESS</Label>
+                              <Label className="text-[10px] font-black uppercase text-zinc-500">{selectedNetwork.id} DEPOSIT ADDRESS</Label>
                               <div className="flex gap-2"><Input readOnly value={currentWalletAddress} className="bg-zinc-900 font-mono text-[10px]" /><Button variant="secondary" size="icon" onClick={() => { navigator.clipboard.writeText(currentWalletAddress); toast({ title: "Copied" }); }}><Copy size={16} /></Button></div>
                            </div>
                            <div className="space-y-2">
@@ -244,7 +309,7 @@ export default function PaymentPage() {
                                 {orderStatus === 'detected' ? <><Loader2 className="w-3 h-3 animate-spin" /> Verifying confirmations...</> : <><Clock className="w-3 h-3 text-primary" /> Awaiting Transaction...</>}
                               </p>
                               <div className="flex justify-between text-[10px] uppercase font-black text-zinc-500"><span>Valid for</span><span>{Math.floor(timeLeft/60)}:{(timeLeft%60).toString().padStart(2,'0')}</span></div>
-                              <Progress value={(timeLeft / 1200) * 100} className="h-1 bg-zinc-900" />
+                              <Progress value={(timeLeft / PAYMENT_WINDOW_SECONDS) * 100} className="h-1 bg-zinc-900" />
                            </div>
                         </div>
                       </div>
@@ -262,5 +327,35 @@ export default function PaymentPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+function RefreshCw(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M3 21v-5h5" />
+    </svg>
+  );
+}
+
+export default function PaymentPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>}>
+      <PaymentContent />
+    </Suspense>
   );
 }
