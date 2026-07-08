@@ -315,7 +315,7 @@ export default function AdminPage() {
 
   if (isAuthenticated && !isAuthorized && !authLoading && !isLoading) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <ShieldAlert className="w-16 h-16 text-destructive mb-6 animate-pulse" />
         <h2 className="text-3xl font-headline font-bold text-white mb-2 uppercase tracking-tight">Firebase Authorization Failed</h2>
         <p className="text-muted-foreground max-sm mx-auto mb-8">Your account ({user?.email}) is not registered in the institutional master list. Administrative access denied by security rules.</p>
