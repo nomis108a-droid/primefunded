@@ -21,7 +21,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getDocs, getAggregateFromServer, sum } from 'firebase/firestore';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getDocs, getAggregateFromServer, sum, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { EXPLORERS, isValidTxHash } from '@/lib/onChainVerification';
@@ -72,7 +72,8 @@ export default function AdminPage() {
     networkFees: {
       TRON: 1.50, Ethereum: 12.00, Solana: 0.10, Base: 0.50, BEP20: 0.80, Polygon: 0.50, Arbitrum: 0.50, Avalanche: 0.80
     },
-    maintenanceMode: false
+    maintenanceMode: false,
+    walletAddresses: {}
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -306,6 +307,32 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
+  const handleViewUserByAccount = async (userId: string) => {
+    if (!userId) return;
+    setIsLoading(true);
+    try {
+      // 1. Try to find in local tabData first
+      let userObj = tabData.users?.find((u: any) => u.id === userId);
+      
+      // 2. If not found, fetch from Firestore directly
+      if (!userObj) {
+        const snap = await getDoc(doc(db, 'users', userId));
+        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
+      }
+
+      if (userObj) {
+        setSelectedUser(userObj);
+        setIsUserManagementOpen(true);
+      } else {
+        toast({ variant: "destructive", title: "Trader Not Found", description: "This node has an orphaned userId." });
+      }
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Error", description: err.message });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
     return o.id.toLowerCase().includes(term) || o.email?.toLowerCase().includes(term) || o.txHash?.toLowerCase().includes(term);
@@ -315,6 +342,8 @@ export default function AdminPage() {
     const term = searchTerm.toLowerCase();
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
+
+  const nodeCount = useMemo(() => tabData.demoAccounts?.length || stats.totalNodesCount, [tabData.demoAccounts, stats.totalNodesCount]);
 
   if (!isAuthenticated && !showAdminModal) return null;
 
@@ -409,8 +438,8 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="trading-nodes" className="space-y-6">
-             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({stats.totalNodesCount})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase || 'evaluation'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'active' || acc.status === 'passed') ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({nodeCount})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase || 'evaluation'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'active' || acc.status === 'passed') ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button variant="outline" size="icon" className="h-7 w-7 rounded-lg border-white/10 hover:bg-primary hover:text-black transition-all" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3.5 h-3.5" /></Button><Button variant="outline" size="icon" className="h-7 w-7 rounded-lg border-white/10 hover:bg-secondary transition-all" onClick={() => resetDemoAccountAction(acc.id)}><RotateCcw className="w-3.5 h-3.5" /></Button></div></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="phase-passers" className="space-y-6">
@@ -488,7 +517,7 @@ export default function AdminPage() {
                 <Card className="bg-card/30 border-border/50">
                    <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><Network className="w-4 h-4 text-primary" /> Network Fee Table (USD)</CardTitle><CardDescription>Adjust transaction fees per network to cover Firm costs.</CardDescription></CardHeader>
                    <CardContent className="space-y-4">
-                      {Object.keys(globalSettings.networkFees).map(net => (
+                      {Object.keys(globalSettings.networkFees || {}).map(net => (
                         <div key={net} className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-border">
                            <Label className="font-bold text-xs uppercase text-zinc-400">{net}</Label>
                            <div className="relative w-24">
@@ -570,8 +599,8 @@ export default function AdminPage() {
              </Card>
              <Card className="bg-secondary/30 p-4 text-center">
                 <p className="text-[8px] font-black uppercase text-zinc-500 mb-1">Total P&L</p>
-                <p className={cn("text-lg font-bold", (selectedUser?.equity - selectedUser?.balance) >= 0 ? "text-emerald-500" : "text-destructive")}>
-                  ${(selectedUser?.equity - selectedUser?.balance || 0).toLocaleString()}
+                <p className={cn("text-lg font-bold", ((selectedUser?.equity || 0) - (selectedUser?.balance || 0)) >= 0 ? "text-emerald-500" : "text-destructive")}>
+                  ${((selectedUser?.equity || 0) - (selectedUser?.balance || 0)).toLocaleString()}
                 </p>
              </Card>
              <Card className="bg-secondary/30 p-4 text-center">
