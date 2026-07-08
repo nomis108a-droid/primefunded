@@ -17,7 +17,7 @@ const DEFAULT_CONSTRAINTS: QueryConstraint[] = [];
 /**
  * useCollection Hook
  * Fetches a collection in real-time with optimized query stability and automated retry logic.
- * Hardened to report detailed errors for index diagnosis.
+ * Hardened to handle quota exhaustion and permission errors gracefully.
  */
 export function useCollection<T = DocumentData>(
   path: string | null,
@@ -29,6 +29,7 @@ export function useCollection<T = DocumentData>(
   const [error, setError] = useState<Error | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
+  const quotaExhaustedRef = useRef(false);
 
   const q = useMemo(() => {
     if (!path || !db) return null;
@@ -60,7 +61,7 @@ export function useCollection<T = DocumentData>(
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMountedRef.current || !q) return;
+      if (!isMountedRef.current || !q || quotaExhaustedRef.current) return;
 
       try {
         unsubscribe = onSnapshot(
@@ -75,9 +76,16 @@ export function useCollection<T = DocumentData>(
           (serverError: any) => {
             if (!isMountedRef.current) return;
             
-            // Log full error for index generation links (fixes 400 Bad Request)
             console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError.message || serverError);
             
+            // QUOTA PROTECTION: Stop retrying if quota is exceeded to prevent listener storms
+            if (serverError.code === 'resource-exhausted') {
+              quotaExhaustedRef.current = true;
+              setError(serverError);
+              setLoading(false);
+              return;
+            }
+
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
             
             if (serverError.code === 'permission-denied') {

@@ -14,6 +14,7 @@ import { FirestorePermissionError, type SecurityRuleContext } from '../errors';
 /**
  * useDoc Hook
  * Real-time document listener with automated retry logic and absolute cleanup.
+ * Hardened to handle quota exhaustion gracefully.
  */
 export function useDoc<T = DocumentData>(path: string | null) {
   const db = useFirestore();
@@ -22,6 +23,7 @@ export function useDoc<T = DocumentData>(path: string | null) {
   const [error, setError] = useState<Error | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
+  const quotaExhaustedRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -35,7 +37,7 @@ export function useDoc<T = DocumentData>(path: string | null) {
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || quotaExhaustedRef.current) return;
 
       try {
         const docRef = doc(db, path) as DocumentReference<T>;
@@ -51,6 +53,16 @@ export function useDoc<T = DocumentData>(path: string | null) {
           (serverError: any) => {
             if (!isMountedRef.current) return;
             
+            console.error(`[Firestore-Doc-Listener] Path: ${path} | Error:`, serverError.message || serverError);
+
+            // QUOTA PROTECTION
+            if (serverError.code === 'resource-exhausted') {
+              quotaExhaustedRef.current = true;
+              setError(serverError);
+              setLoading(false);
+              return;
+            }
+
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
 
             if (serverError.code === 'permission-denied') {

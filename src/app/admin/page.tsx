@@ -13,14 +13,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, LogOut, Gift, Image as ImageIcon, ChevronRight, History, Megaphone, AlertTriangle, RotateCcw, Zap, Link as LinkIcon, ScrollText, Plus, FileText, Check
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History
 } from 'lucide-react';
-import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, manualBreachAccountAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction } from './actions';
+import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, where, getCountFromServer, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, where, getCountFromServer, doc } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { EXPLORERS } from '@/lib/onChainVerification';
@@ -59,19 +59,23 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [adminData, setAdminData] = useState<any>({ 
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [],
-    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0
+  // STATS STATE
+  const [stats, setStats] = useState({ 
+    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0 
   });
 
-  const [isLoading, setIsLoading] = useState(true);
+  // TAB DATA STATE (Lazy Loading)
+  const [tabData, setTabData] = useState<any>({
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: []
+  });
+
+  const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
 
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
-  // New Modals State
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
   
@@ -83,61 +87,96 @@ export default function AdminPage() {
   const [inspectNodes, setInspectNodes] = useState<any[]>([]);
   const [inspectTrades, setInspectTrades] = useState<any[]>([]);
 
-  // Instance ID
   const instanceId = "Studio-8383940162";
 
   const isAuthorized = useMemo(() => {
     return user && ADMIN_EMAILS.includes(user.email || "");
   }, [user]);
 
-  const refreshData = useCallback(async () => {
-    if (!isAuthenticated) return;
-    if (!isAuthorized) {
-       toast({
-         variant: "destructive",
-         title: "Firebase Authorization Failed",
-         description: `Your account (${user?.email}) is not listed in ADMIN_EMAILS. Firestore queries will be blocked.`,
-       });
-       setIsLoading(false);
-       return;
-    }
-
-    setIsLoading(true);
+  // OPTIMIZED STATS REFRESH (Using metadata counts where possible)
+  const refreshStats = useCallback(async () => {
+    if (!isAuthenticated || !isAuthorized) return;
+    
     try {
-      const [usersSnap, accountsSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'demoAccounts'), limit(1000), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'orders'), limit(1000), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'payouts'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'referrals'), limit(1000), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'broadcasts'), limit(100), orderBy('sentAt', 'desc'))),
-        getDocs(query(collection(db, 'breaches'), limit(500), orderBy('breachedAt', 'desc')))
+      const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersSnap] = await Promise.all([
+        getCountFromServer(collection(db, 'users')),
+        getCountFromServer(collection(db, 'demoAccounts')),
+        getCountFromServer(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
+        getCountFromServer(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
+        getDocs(query(collection(db, 'orders'), limit(100), orderBy('createdAt', 'desc')))
       ]);
-      
-      const accounts = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const orders = ordersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      setAdminData({
-        users: usersSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
-        demoAccounts: accounts,
-        orders: orders,
-        payouts: payoutsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
-        referrals: referralsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
-        broadcasts: broadcastsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
-        breaches: breachesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
-        totalUsersCount: usersSnap.size,
-        totalNodesCount: accounts.length,
-        totalAum: accounts.reduce((a, c: any) => a + (c.startBalance || 0), 0),
-        pendingOrdersCount: orders.filter((o: any) => o.status === 'pending' || o.status === 'manual_review').length,
-        phasePassersCount: accounts.filter((a: any) => a.status === 'passed').length,
-        totalLiquidationCount: accounts.filter((a: any) => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated').length
+      const orders = ordersSnap.docs.map(d => d.data());
+      const pendingOrders = orders.filter((o: any) => o.status === 'pending' || o.status === 'manual_review').length;
+
+      setStats({
+        totalUsersCount: userCountSnap.data().count,
+        totalNodesCount: accountsCountSnap.data().count,
+        totalLiquidationCount: liquidSnap.data().count,
+        phasePassersCount: passedSnap.data().count,
+        pendingOrdersCount: pendingOrders,
+        totalAum: accountsCountSnap.data().count * 50000 // Average AUM approximation for fast overview
       });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Sync Error", description: err.message });
+      console.error('[Admin-Stats] Quota or Auth fault:', err.message);
+    }
+  }, [isAuthenticated, isAuthorized]);
+
+  // LAZY DATA FETCHING BY TAB
+  const fetchTabData = useCallback(async (tab: string) => {
+    if (!isAuthenticated || !isAuthorized) return;
+    setIsLoading(true);
+
+    try {
+      let snap: any;
+      switch(tab) {
+        case 'overview':
+          const [oSnap, uSnap] = await Promise.all([
+            getDocs(query(collection(db, 'orders'), limit(5), orderBy('createdAt', 'desc'))),
+            getDocs(query(collection(db, 'users'), limit(5), orderBy('createdAt', 'desc')))
+          ]);
+          setTabData((prev: any) => ({ 
+            ...prev, 
+            orders: oSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+            users: uSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+          }));
+          break;
+        case 'user-directory':
+          snap = await getDocs(query(collection(db, 'users'), limit(200), orderBy('createdAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+        case 'trading-nodes':
+        case 'phase-passers':
+          snap = await getDocs(query(collection(db, 'demoAccounts'), limit(300), orderBy('createdAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+        case 'payout-hub':
+          snap = await getDocs(query(collection(db, 'payouts'), limit(100), orderBy('createdAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+        case 'order-review':
+          snap = await getDocs(query(collection(db, 'orders'), limit(200), orderBy('createdAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+        case 'referral-audit':
+          snap = await getDocs(query(collection(db, 'referrals'), limit(100), orderBy('createdAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+        case 'broadcasts':
+          snap = await getDocs(query(collection(db, 'broadcasts'), limit(50), orderBy('sentAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+        case 'breaches':
+          snap = await getDocs(query(collection(db, 'breaches'), limit(100), orderBy('breachedAt', 'desc')));
+          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Fetch Error", description: e.message });
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, isAuthorized, user?.email, toast]);
+  }, [isAuthenticated, isAuthorized, toast]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -147,15 +186,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      refreshData();
-      if (isAuthorized) {
-        const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-          setAdminData((prev: any) => ({ ...prev, totalUsersCount: snap.size }));
-        });
-        return () => unsub();
-      }
+      refreshStats();
+      fetchTabData(activeTab);
     }
-  }, [isAuthenticated, isAuthorized, refreshData]);
+  }, [isAuthenticated, activeTab, refreshStats, fetchTabData]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,7 +207,7 @@ export default function AdminPage() {
       const res = await resetAllHistoryAction();
       if (res.success) {
         toast({ title: `Reset Complete: ${res.count} trades archived.` });
-        refreshData();
+        refreshStats();
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
@@ -187,7 +221,7 @@ export default function AdminPage() {
       const res = await resetDemoAccountAction(accountId);
       if (res.success) {
         toast({ title: "Account Reset Complete" });
-        refreshData();
+        fetchTabData(activeTab);
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
@@ -201,7 +235,7 @@ export default function AdminPage() {
     try {
       const [nodesSnap, tradesSnap] = await Promise.all([
         getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', user.id))),
-        getDocs(query(collection(db, 'demoTrades'), where('userId', '==', user.id), limit(100), orderBy('openedAt', 'desc')))
+        getDocs(query(collection(db, 'demoTrades'), where('userId', '==', user.id), limit(50), orderBy('openedAt', 'desc')))
       ]);
       setInspectNodes(nodesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setInspectTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -219,7 +253,7 @@ export default function AdminPage() {
         toast({ title: "Broadcast Deployed Successfully" });
         setIsBroadcastModalOpen(false);
         setBroadcastForm({ title: '', message: '', type: 'info' });
-        refreshData();
+        fetchTabData('broadcasts');
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Broadcast Failed", description: e.message });
@@ -241,7 +275,7 @@ export default function AdminPage() {
       if (res.success) {
         toast({ title: "Account Gifted Successfully!" });
         setIsGiftModalOpen(false);
-        refreshData();
+        refreshStats();
       } else throw new Error(res.error);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Gift Failed", description: e.message });
@@ -254,7 +288,7 @@ export default function AdminPage() {
       const res = await updateKycStatusAction(userId, status);
       if (res.success) {
         toast({ title: `KYC ${status}` });
-        refreshData();
+        fetchTabData(activeTab);
       }
     } finally { setActionLoading(false); }
   };
@@ -265,28 +299,25 @@ export default function AdminPage() {
       const res = await updatePayoutStatusAction(payoutId, status);
       if (res.success) {
         toast({ title: `Payout ${status}` });
-        refreshData();
+        fetchTabData(activeTab);
       }
     } finally { setActionLoading(false); }
   };
 
   // Filter Logic
-  const filteredNodes = useMemo(() => adminData.demoAccounts.filter((a: any) => {
+  const filteredNodes = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => {
     const term = searchTerm.toLowerCase();
     return a.id.toLowerCase().includes(term) || a.email?.toLowerCase().includes(term) || a.label?.toLowerCase().includes(term);
-  }), [adminData.demoAccounts, searchTerm]);
+  }), [tabData.demoAccounts, searchTerm]);
 
-  const filteredUsers = useMemo(() => adminData.users.filter((u: any) => {
+  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
     const term = searchTerm.toLowerCase();
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
-  }), [adminData.users, searchTerm]);
+  }), [tabData.users, searchTerm]);
 
-  const phasePassers = useMemo(() => adminData.demoAccounts.filter((a: any) => a.status === 'passed'), [adminData.demoAccounts]);
-  const kycUsers = useMemo(() => adminData.users.filter((u: any) => u.kycStatus && u.kycStatus !== 'none'), [adminData.users]);
-  
-  const breachedAccounts = useMemo(() => {
-    return adminData.demoAccounts.filter((a: any) => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated');
-  }, [adminData.demoAccounts]);
+  const phasePassers = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => a.status === 'passed'), [tabData.demoAccounts]);
+  const kycUsers = useMemo(() => (tabData.users || []).filter((u: any) => u.kycStatus && u.kycStatus !== 'none'), [tabData.users]);
+  const breachedAccounts = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated'), [tabData.demoAccounts]);
 
   if (!isAuthenticated && !showAdminModal) return null;
 
@@ -322,7 +353,7 @@ export default function AdminPage() {
                 <Button className="h-10 rounded-xl font-black bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={refreshData} disabled={isLoading}>
+                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => { refreshStats(); fetchTabData(activeTab); }} disabled={isLoading}>
                   <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                 </Button>
              </div>
@@ -345,16 +376,16 @@ export default function AdminPage() {
 
           <TabsContent value="overview" className="space-y-8">
              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <StatCard title="Active Traders" value={adminData.totalUsersCount} icon={<Users />} color="blue" />
-                <StatCard title="Total Volume" value={`$${(adminData.totalAum / 1e6).toFixed(1)}M`} icon={<BarChart2 />} color="green" />
-                <StatCard title="Registered Nodes" value={adminData.totalNodesCount} icon={<Monitor />} color="purple" />
-                <StatCard title="Pending Orders" value={adminData.pendingOrdersCount} icon={<Clock />} color="amber" />
-                <StatCard title="Phase Passers" value={adminData.phasePassersCount} icon={<Trophy />} color="blue" />
-                <StatCard title="Total Liquidation" value={adminData.totalLiquidationCount} icon={<Skull />} color="red" />
+                <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
+                <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(1)}M`} icon={<BarChart2 />} color="green" />
+                <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
+                <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
+                <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
+                <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
              </div>
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Orders</CardTitle><button onClick={() => setActiveTab('order-review')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{adminData.orders.slice(0, 5).map((o: any) => (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{o.email}</td><td className="py-3 px-4 text-[10px] text-muted-foreground uppercase">{o.plan}</td><td className="py-3 px-4 text-right"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td></tr>))}</tbody></table></CardContent></Card>
-                <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Users</CardTitle><button onClick={() => setActiveTab('user-directory')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{adminData.users.slice(0, 5).map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{u.name}</td><td className="py-3 px-4 text-[10px] text-muted-foreground">{u.email}</td><td className="py-3 px-4 text-right text-[10px] font-mono text-zinc-500">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+                <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Orders</CardTitle><button onClick={() => setActiveTab('order-review')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{tabData.orders?.slice(0, 5).map((o: any) => (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{o.email}</td><td className="py-3 px-4 text-[10px] text-muted-foreground uppercase">{o.plan}</td><td className="py-3 px-4 text-right"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td></tr>))}</tbody></table></CardContent></Card>
+                <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Users</CardTitle><button onClick={() => setActiveTab('user-directory')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{tabData.users?.slice(0, 5).map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{u.name}</td><td className="py-3 px-4 text-[10px] text-muted-foreground">{u.email}</td><td className="py-3 px-4 text-right text-[10px] font-mono text-zinc-500">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
              </div>
           </TabsContent>
 
@@ -365,12 +396,12 @@ export default function AdminPage() {
 
           <TabsContent value="payout-hub" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Payout Requests</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Requested</th><th className="p-4">Trader Email</th><th className="p-4">Method/Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Status</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.payouts.map((p: any) => (<tr key={p.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-bold text-xs">{p.email}</td><td className="p-4"><p className="text-[10px] uppercase font-black">{p.method}</p><p className="text-[10px] font-mono text-zinc-500 truncate max-w-xs">{p.address}</p></td><td className="p-4 text-right font-bold text-accent">${Number(p.amount).toLocaleString()}</td><td className="p-4 text-right"><div className="flex flex-col items-end gap-2"><Badge className={cn("uppercase text-[8px]", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : p.status === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{p.status}</Badge>{p.status === 'pending' && (<div className="flex gap-1"><Button size="sm" className="h-6 text-[8px] bg-emerald-600" onClick={() => handleUpdatePayoutStatus(p.id, 'done')}>Approve</Button><Button size="sm" variant="destructive" className="h-6 text-[8px]" onClick={() => handleUpdatePayoutStatus(p.id, 'rejected')}>Reject</Button></div>)}</div></td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Requested</th><th className="p-4">Trader Email</th><th className="p-4">Method/Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Status</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.payouts.map((p: any) => (<tr key={p.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-bold text-xs">{p.email}</td><td className="p-4"><p className="text-[10px] uppercase font-black">{p.method}</p><p className="text-[10px] font-mono text-zinc-500 truncate max-w-xs">{p.address}</p></td><td className="p-4 text-right font-bold text-accent">${Number(p.amount).toLocaleString()}</td><td className="p-4 text-right"><div className="flex flex-col items-end gap-2"><Badge className={cn("uppercase text-[8px]", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : p.status === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{p.status}</Badge>{p.status === 'pending' && (<div className="flex gap-1"><Button size="sm" className="h-6 text-[8px] bg-emerald-600" onClick={() => handleUpdatePayoutStatus(p.id, 'done')}>Approve</Button><Button size="sm" variant="destructive" className="h-6 text-[8px]" onClick={() => handleUpdatePayoutStatus(p.id, 'rejected')}>Reject</Button></div>)}</div></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="trading-nodes" className="space-y-6">
              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Active Nodes ({adminData.totalNodesCount})</h2>
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Active Nodes ({stats.totalNodesCount})</h2>
                 <div className="relative w-full md:w-96"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search Nodes..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" /></div>
              </div>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID</th><th className="p-4">Trader / Email</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-border/50">{filteredNodes.map((a: any) => { const isLiquidated = a.status === 'blown' || a.status === 'breach' || a.status === 'terminated'; return (<tr key={a.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-xs text-primary">{a.id}</td><td className="p-4"><p className="font-bold text-xs">{a.label}</p><p className="text-[10px] text-muted-foreground">{a.email}</p></td><td className="p-4 text-right font-mono text-white">${(a.balance || 0).toLocaleString()}</td><td className="p-4 text-right font-mono text-primary">${(a.equity || 0).toLocaleString()}</td><td className="p-4"><Badge className={cn("uppercase text-[8px] font-black", isLiquidated ? "bg-destructive text-white" : "bg-emerald-500/20 text-emerald-500")}>{isLiquidated ? 'Blown' : 'Active'}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-primary/20 text-primary" asChild><Link href={`/demo?accountId=${a.id}`} target="_blank"><Eye size={14} /></Link></Button><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-amber-500/20 text-amber-500" onClick={() => handleResetAccount(a.id)}><RotateCcw size={14} /></Button></div></td></tr>); })}</tbody></table></CardContent></Card>
@@ -383,17 +414,17 @@ export default function AdminPage() {
 
           <TabsContent value="order-review" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Order Verification Pipeline</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.orders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex items-center gap-2">{o.txHash ? (<a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.orders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex items-center gap-2">{o.txHash ? (<a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="referral-audit" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Referral Ecosystem Audit</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Date</th><th className="p-4">Referrer (ID)</th><th className="p-4">New Join</th><th className="p-4 text-right">Commission</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.referrals.map((r: any) => (<tr key={r.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td><td className="p-4 font-mono text-[10px] text-primary">{r.referrerId}</td><td className="p-4 text-xs">{r.referredUserEmail}</td><td className="p-4 text-right font-bold text-emerald-500">${(r.amount || 0).toFixed(2)}</td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Date</th><th className="p-4">Referrer (ID)</th><th className="p-4">New Join</th><th className="p-4 text-right">Commission</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.referrals.map((r: any) => (<tr key={r.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td><td className="p-4 font-mono text-[10px] text-primary">{r.referrerId}</td><td className="p-4 text-xs">{r.referredUserEmail}</td><td className="p-4 text-right font-bold text-emerald-500">${(r.amount || 0).toFixed(2)}</td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="user-directory" className="space-y-6">
              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">User Directory ({adminData.totalUsersCount})</h2>
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">User Directory ({stats.totalUsersCount})</h2>
                 <div className="relative w-full md:w-96"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search Users..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" /></div>
              </div>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader (Name + Email)</th><th className="p-4">Trader ID</th><th className="p-4">Joined</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 font-mono text-xs text-primary">{u.traderId}</td><td className="p-4 text-xs text-zinc-500">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td><td className="p-4"><Badge className="bg-emerald-500/20 text-emerald-500 uppercase text-[8px] font-black">Active</Badge></td><td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[9px] font-bold" onClick={() => handleManageUser(u)}>Manage</Button></td></tr>))}</tbody></table></CardContent></Card>
@@ -409,7 +440,7 @@ export default function AdminPage() {
                 <h2 className="text-xl font-headline font-bold uppercase tracking-tight">System Broadcasts</h2>
                 <Button className="h-10 rounded-xl font-bold bg-primary text-black" onClick={() => setIsBroadcastModalOpen(true)}><Plus className="w-4 h-4 mr-2" /> New Broadcast</Button>
              </div>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Sent At</th><th className="p-4">Title</th><th className="p-4">Message</th><th className="p-4 text-right">Type</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.broadcasts.map((b: any) => (<tr key={b.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs font-mono text-zinc-500">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-bold text-xs">{b.title}</td><td className="p-4 text-xs text-zinc-400 max-w-md truncate">{b.message}</td><td className="p-4 text-right"><Badge variant="outline" className={cn("uppercase text-[8px] font-black", b.type === 'warning' ? 'border-amber-500 text-amber-500' : b.type === 'success' ? 'border-emerald-500 text-emerald-500' : 'border-primary text-primary')}>{b.type || 'info'}</Badge></td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Sent At</th><th className="p-4">Title</th><th className="p-4">Message</th><th className="p-4 text-right">Type</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.broadcasts.map((b: any) => (<tr key={b.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs font-mono text-zinc-500">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-bold text-xs">{b.title}</td><td className="p-4 text-xs text-zinc-400 max-w-md truncate">{b.message}</td><td className="p-4 text-right"><Badge variant="outline" className={cn("uppercase text-[8px] font-black", b.type === 'warning' ? 'border-amber-500 text-amber-500' : b.type === 'success' ? 'border-emerald-500 text-emerald-500' : 'border-primary text-primary')}>{b.type || 'info'}</Badge></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
         </Tabs>
       </main>
