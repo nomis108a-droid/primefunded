@@ -65,7 +65,7 @@ export default function AdminPage() {
   });
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: []
   });
 
   const [globalSettings, setGlobalSettings] = useState({
@@ -133,23 +133,23 @@ export default function AdminPage() {
 
     switch(activeTab) {
       case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(200)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(1000)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         });
         break;
       case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(500)), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         });
         break;
       case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         });
         break;
       case 'order-review':
@@ -408,7 +408,12 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({stats.totalNodesCount})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.plan} · {acc.planType || '1-step'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : acc.status === 'passed' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase || 'N/A'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'active' || acc.status === 'passed') ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="phase-passers" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Phase Passers ({stats.phasePassersCount})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Passed At</th><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Final Balance</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.passers?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><p className="font-mono text-[10px] text-emerald-500">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td><td className="p-4 text-[10px] uppercase font-bold">{acc.planType} · {acc.phase}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="referral-audit" className="space-y-6">

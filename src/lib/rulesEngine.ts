@@ -1,3 +1,4 @@
+
 import { RULES_CONFIG, getPlanKey, CONTRACT_SIZE } from '@/lib/rulesConfig';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -5,9 +6,10 @@ import { sendBreachEmail, sendChallengePassEmail } from '@/lib/email';
 import { getAuthoritativePrice } from './priceSync';
 
 /**
- * @fileOverview Institutional Demo Audit Engine (V5)
+ * @fileOverview Institutional Demo Audit Engine (V6)
  * Hardened Risk Protocols for real-time challenge enforcement.
  * Enforces Drawdown and Breach logic across all active nodes.
+ * Now supports AUTOMATIC Phase Passage and Account Upgrades.
  */
 
 type TradeRecord = {
@@ -135,6 +137,7 @@ async function enforceSingleTradeLossLimit(
 
 /**
  * Audits a single demo account for drawdown and challenge passage.
+ * Automatically upgrades accounts to the next phase upon success.
  */
 export async function auditDemoAccount(accountId: string) {
   const db = getAdminDb();
@@ -247,6 +250,7 @@ export async function auditDemoAccount(accountId: string) {
   const minDaysRequired = rules.minTradingDays || rules.minTradingDaysBeforePayout || 0;
   const profitTargetAmount = initialBalance * (rules.profitTarget || 10) / 100;
   const targetMet = currBalance >= (initialBalance + profitTargetAmount);
+  
   const isPassed = !breachReason && targetMet && distinctTradingDays >= minDaysRequired;
 
   if (breachReason) {
@@ -269,9 +273,43 @@ export async function auditDemoAccount(accountId: string) {
   }
 
   if (isPassed) {
-    await accRef.update({ status: 'passed', passedAt: FieldValue.serverTimestamp() });
-    sendChallengePassEmail(email || userId, name || "Trader", pKey, String(initialBalance));
-    return { passed: true };
+    const nextPhaseMap: Record<string, Record<string, string>> = {
+      '2-step-classic': { 'phase1': 'phase2', 'phase2': 'funded' },
+      '3-step-classic': { 'phase1': 'phase2', 'phase2': 'phase3', 'phase3': 'funded' },
+      '1-step-pro': { 'evaluation': 'funded' }
+    };
+
+    const nextPhase = nextPhaseMap[pKey]?.[phKey];
+
+    if (nextPhase) {
+      // AUTOMATIC UPGRADE LOGIC
+      const updates: any = {
+        phase: nextPhase,
+        balance: initialBalance, // Reset balance for next evaluation phase
+        equity: initialBalance,
+        dailyGrossLossUsd: 0,
+        passedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      await accRef.update(updates);
+
+      // Notify User
+      await db.collection('users').doc(userId).collection('notifications').add({
+        title: '🎊 Challenge Upgraded!',
+        message: `Congratulations! You passed ${phKey.toUpperCase()}. You have been automatically upgraded to ${nextPhase.toUpperCase()}.`,
+        type: 'challenge_passed',
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp()
+      });
+
+      sendChallengePassEmail(email || userId, name || "Trader", pKey, String(initialBalance));
+      return { passed: true, upgradedTo: nextPhase };
+    } else {
+      // Already funded? Just mark as passed achievement
+      await accRef.update({ status: 'passed', passedAt: FieldValue.serverTimestamp() });
+      return { passed: true };
+    }
   }
 
   await accRef.update({ equity: currentEquity, updatedAt: FieldValue.serverTimestamp() });
