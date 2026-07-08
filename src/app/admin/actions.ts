@@ -1,4 +1,3 @@
-
 'use server';
 
 import { cookies } from 'next/headers';
@@ -93,6 +92,8 @@ export async function resetAllHistoryAction() {
     accountsSnap.docs.forEach(doc => {
       batch.update(doc.ref, { 
         dailyGrossLossUsd: 0,
+        balance: doc.data().startBalance || 100000,
+        equity: doc.data().startBalance || 100000,
         updatedAt: FieldValue.serverTimestamp()
       });
     });
@@ -110,10 +111,6 @@ export async function approveManualOrderAction(id: string) {
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
     const order = orderSnap.data()!;
-
-    if (!isValidTxHash(order.txHash, order.network || "Polygon")) {
-      throw new Error("Cannot approve: Malformed transaction hash.");
-    }
 
     const userSnap = await db.collection('users').doc(order.userId).get();
     const traderId = userSnap.data()?.traderId;
@@ -205,6 +202,57 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
     });
     await batch.commit();
 
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
+}
+
+export async function updateKycStatusAction(userId: string, status: string, reason?: string) {
+  try {
+    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+    const db = getAdminDb();
+    const updates: any = { 
+      kycStatus: status, 
+      kycVerified: status === 'verified', 
+      updatedAt: FieldValue.serverTimestamp() 
+    };
+    if (reason) updates.kycRejectionReason = reason;
+    await db.collection('users').doc(userId).update(updates);
+    
+    // Notify user
+    await db.collection('users').doc(userId).collection('notifications').add({
+      title: status === 'verified' ? '✅ KYC Verified' : '❌ KYC Rejected',
+      message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
+      type: 'kyc_update',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
+}
+
+export async function updatePayoutStatusAction(payoutId: string, status: string) {
+  try {
+    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+    const db = getAdminDb();
+    const payoutRef = db.collection('payouts').doc(payoutId);
+    const payoutSnap = await payoutRef.get();
+    if (!payoutSnap.exists) throw new Error("Payout record not found");
+    const payout = payoutSnap.data()!;
+
+    await payoutRef.update({ 
+      status, 
+      updatedAt: FieldValue.serverTimestamp() 
+    });
+    
+    await db.collection('users').doc(payout.userId).collection('notifications').add({
+      title: status === 'done' ? '💸 Payout Processed' : '❌ Payout Rejected',
+      message: status === 'done' ? `Your withdrawal of $${payout.amount} has been sent.` : `Your payout request was rejected.`,
+      type: 'payout_update',
+      isRead: false,
+      createdAt: FieldValue.serverTimestamp()
+    });
+    
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }

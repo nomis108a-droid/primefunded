@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -14,9 +13,9 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, LogOut, Gift, Image as ImageIcon, ChevronRight, History, Megaphone, AlertTriangle, RotateCcw, Zap, Link as LinkIcon, ScrollText, Plus
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, LogOut, Gift, Image as ImageIcon, ChevronRight, History, Megaphone, AlertTriangle, RotateCcw, Zap, Link as LinkIcon, ScrollText, Plus, FileText, Check
 } from 'lucide-react';
-import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, manualBreachAccountAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction } from './actions';
+import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, manualBreachAccountAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import Image from 'next/image';
@@ -24,7 +23,7 @@ import { db } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where, getCountFromServer, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
-import { isValidTxHash, EXPLORERS } from '@/lib/onChainVerification';
+import { EXPLORERS } from '@/lib/onChainVerification';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 
@@ -61,7 +60,7 @@ export default function AdminPage() {
   const [searchTerm, setSearchTerm] = useState('');
   
   const [adminData, setAdminData] = useState<any>({ 
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [],
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [],
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0
   });
 
@@ -105,13 +104,14 @@ export default function AdminPage() {
 
     setIsLoading(true);
     try {
-      const [usersSnap, accountsSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap] = await Promise.all([
+      const [usersSnap, accountsSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
         getDocs(query(collection(db, 'users'), limit(500), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'demoAccounts'), limit(1000), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'orders'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'payouts'), limit(200), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'referrals'), limit(500), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'orders'), limit(1000), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'payouts'), limit(500), orderBy('createdAt', 'desc'))),
+        getDocs(query(collection(db, 'referrals'), limit(1000), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'broadcasts'), limit(100), orderBy('sentAt', 'desc'))),
+        getDocs(query(collection(db, 'breaches'), limit(500), orderBy('breachedAt', 'desc')))
       ]);
       
       const accounts = accountsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -124,6 +124,7 @@ export default function AdminPage() {
         payouts: payoutsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
         referrals: referralsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
         broadcasts: broadcastsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
+        breaches: breachesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() })),
         totalUsersCount: usersSnap.size,
         totalNodesCount: accounts.length,
         totalAum: accounts.reduce((a, c: any) => a + (c.startBalance || 0), 0),
@@ -247,6 +248,28 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
+  const handleUpdateKycStatus = async (userId: string, status: string) => {
+    setActionLoading(true);
+    try {
+      const res = await updateKycStatusAction(userId, status);
+      if (res.success) {
+        toast({ title: `KYC ${status}` });
+        refreshData();
+      }
+    } finally { setActionLoading(false); }
+  };
+
+  const handleUpdatePayoutStatus = async (payoutId: string, status: string) => {
+    setActionLoading(true);
+    try {
+      const res = await updatePayoutStatusAction(payoutId, status);
+      if (res.success) {
+        toast({ title: `Payout ${status}` });
+        refreshData();
+      }
+    } finally { setActionLoading(false); }
+  };
+
   // Filter Logic
   const filteredNodes = useMemo(() => adminData.demoAccounts.filter((a: any) => {
     const term = searchTerm.toLowerCase();
@@ -257,6 +280,13 @@ export default function AdminPage() {
     const term = searchTerm.toLowerCase();
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [adminData.users, searchTerm]);
+
+  const phasePassers = useMemo(() => adminData.demoAccounts.filter((a: any) => a.status === 'passed'), [adminData.demoAccounts]);
+  const kycUsers = useMemo(() => adminData.users.filter((u: any) => u.kycStatus && u.kycStatus !== 'none'), [adminData.users]);
+  
+  const breachedAccounts = useMemo(() => {
+    return adminData.demoAccounts.filter((a: any) => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated');
+  }, [adminData.demoAccounts]);
 
   if (!isAuthenticated && !showAdminModal) return null;
 
@@ -328,12 +358,37 @@ export default function AdminPage() {
              </div>
           </TabsContent>
 
+          <TabsContent value="phase-passers" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Phase Passers ({phasePassers.length})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader Email</th><th className="p-4">Account ID</th><th className="p-4">Plan/Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Passed At</th></tr></thead><tbody className="divide-y divide-border/50">{phasePassers.length > 0 ? phasePassers.map((a: any) => (<tr key={a.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs font-bold">{a.email}</td><td className="p-4 font-mono text-xs text-primary">{a.id}</td><td className="p-4 uppercase text-[10px]">{a.planType} - {a.phase}</td><td className="p-4 text-right font-mono text-emerald-500">${(a.balance || 0).toLocaleString()}</td><td className="p-4 text-right text-xs text-zinc-500">{a.passedAt?.toDate ? format(a.passedAt.toDate(), 'MMM d, yyyy') : '—'}</td></tr>)) : (<tr><td colSpan={5} className="p-20 text-center text-muted-foreground italic">No phase passers detected.</td></tr>)}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="payout-hub" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Payout Requests</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Requested</th><th className="p-4">Trader Email</th><th className="p-4">Method/Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Status</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.payouts.map((p: any) => (<tr key={p.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-bold text-xs">{p.email}</td><td className="p-4"><p className="text-[10px] uppercase font-black">{p.method}</p><p className="text-[10px] font-mono text-zinc-500 truncate max-w-xs">{p.address}</p></td><td className="p-4 text-right font-bold text-accent">${Number(p.amount).toLocaleString()}</td><td className="p-4 text-right"><div className="flex flex-col items-end gap-2"><Badge className={cn("uppercase text-[8px]", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : p.status === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{p.status}</Badge>{p.status === 'pending' && (<div className="flex gap-1"><Button size="sm" className="h-6 text-[8px] bg-emerald-600" onClick={() => handleUpdatePayoutStatus(p.id, 'done')}>Approve</Button><Button size="sm" variant="destructive" className="h-6 text-[8px]" onClick={() => handleUpdatePayoutStatus(p.id, 'rejected')}>Reject</Button></div>)}</div></td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
           <TabsContent value="trading-nodes" className="space-y-6">
              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Active Nodes ({adminData.totalNodesCount})</h2>
                 <div className="relative w-full md:w-96"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search Nodes..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" /></div>
              </div>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID</th><th className="p-4">Trader / Email</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-border/50">{filteredNodes.map((a: any) => (<tr key={a.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-xs text-primary">{a.id}</td><td className="p-4"><p className="font-bold text-xs">{a.label}</p><p className="text-[10px] text-muted-foreground">{a.email}</p></td><td className="p-4 text-right font-mono text-white">${(a.balance || 0).toLocaleString()}</td><td className="p-4 text-right font-mono text-primary">${(a.equity || 0).toLocaleString()}</td><td className="p-4"><Badge className={cn("uppercase text-[8px] font-black", (a.status === 'blown' || a.status === 'breach' || a.status === 'terminated') ? "bg-destructive text-white" : "bg-emerald-500/20 text-emerald-500")}>{(a.status === 'blown' || a.status === 'breach' || a.status === 'terminated') ? 'Blown' : 'Active'}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-primary/20 text-primary" asChild><Link href={`/demo?accountId=${a.id}`} target="_blank"><Eye size={14} /></Link></Button><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-amber-500/20 text-amber-500" onClick={() => handleResetAccount(a.id)}><RotateCcw size={14} /></Button></div></td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID</th><th className="p-4">Trader / Email</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-border/50">{filteredNodes.map((a: any) => { const isLiquidated = a.status === 'blown' || a.status === 'breach' || a.status === 'terminated'; return (<tr key={a.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-xs text-primary">{a.id}</td><td className="p-4"><p className="font-bold text-xs">{a.label}</p><p className="text-[10px] text-muted-foreground">{a.email}</p></td><td className="p-4 text-right font-mono text-white">${(a.balance || 0).toLocaleString()}</td><td className="p-4 text-right font-mono text-primary">${(a.equity || 0).toLocaleString()}</td><td className="p-4"><Badge className={cn("uppercase text-[8px] font-black", isLiquidated ? "bg-destructive text-white" : "bg-emerald-500/20 text-emerald-500")}>{isLiquidated ? 'Blown' : 'Active'}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-primary/20 text-primary" asChild><Link href={`/demo?accountId=${a.id}`} target="_blank"><Eye size={14} /></Link></Button><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-amber-500/20 text-amber-500" onClick={() => handleResetAccount(a.id)}><RotateCcw size={14} /></Button></div></td></tr>); })}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="breaches" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Breach Protocol Log</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Date</th><th className="p-4">Trader Email</th><th className="p-4">Account ID</th><th className="p-4">Plan/Phase</th><th className="p-4">Reason</th></tr></thead><tbody className="divide-y divide-border/50">{breachedAccounts.map((a: any) => (<tr key={a.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{a.blownAt?.toDate ? format(a.blownAt.toDate(), 'MMM d, HH:mm') : (a.updatedAt?.toDate ? format(a.updatedAt.toDate(), 'MMM d, HH:mm') : '—')}</td><td className="p-4 font-bold text-xs">{a.email}</td><td className="p-4 font-mono text-[10px] text-primary">{a.id}</td><td className="p-4 uppercase text-[10px]">{a.planType} - {a.phase}</td><td className="p-4 text-destructive text-xs font-medium leading-relaxed max-w-sm">{a.breachReason || 'Risk parameters exceeded.'}</td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="order-review" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Order Verification Pipeline</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.orders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex items-center gap-2">{o.txHash ? (<a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="referral-audit" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Referral Ecosystem Audit</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Date</th><th className="p-4">Referrer (ID)</th><th className="p-4">New Join</th><th className="p-4 text-right">Commission</th></tr></thead><tbody className="divide-y divide-border/50">{adminData.referrals.map((r: any) => (<tr key={r.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td><td className="p-4 font-mono text-[10px] text-primary">{r.referrerId}</td><td className="p-4 text-xs">{r.referredUserEmail}</td><td className="p-4 text-right font-bold text-emerald-500">${(r.amount || 0).toFixed(2)}</td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="user-directory" className="space-y-6">
@@ -342,6 +397,11 @@ export default function AdminPage() {
                 <div className="relative w-full md:w-96"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search Users..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" /></div>
              </div>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader (Name + Email)</th><th className="p-4">Trader ID</th><th className="p-4">Joined</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 font-mono text-xs text-primary">{u.traderId}</td><td className="p-4 text-xs text-zinc-500">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td><td className="p-4"><Badge className="bg-emerald-500/20 text-emerald-500 uppercase text-[8px] font-black">Active</Badge></td><td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[9px] font-bold" onClick={() => handleManageUser(u)}>Manage</Button></td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="kyc-hub" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Identity Review Queue</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">Submitted At</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{kycUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><Badge className={cn("uppercase text-[8px]", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{u.kycStatus}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{u.idProofUrl && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }}>View Docs</Button>)}{u.kycStatus === 'pending' && (<><Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleUpdateKycStatus(u.id, 'verified')}>Approve</Button><Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => handleUpdateKycStatus(u.id, 'rejected')}>Reject</Button></>)}</div></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="broadcasts" className="space-y-6">
@@ -370,8 +430,9 @@ export default function AdminPage() {
             <Tabs defaultValue="overview" className="space-y-6">
               <TabsList className="bg-secondary/50 w-full justify-start gap-4 h-11 px-2 border border-white/5 rounded-xl">
                  <TabsTrigger value="overview" className="font-bold text-xs">Profile Overview</TabsTrigger>
-                 <TabsTrigger value="nodes" className="font-bold text-xs">Trading Nodes ({inspectNodes.length})</TabsTrigger>
-                 <TabsTrigger value="history" className="font-bold text-xs">Trade Ledger</TabsTrigger>
+                 <TabsTrigger value="trading-nodes" className="font-bold text-xs">Trading Nodes ({inspectNodes.length})</TabsTrigger>
+                 <TabsTrigger value="trade-ledger" className="font-bold text-xs">Trade Ledger</TabsTrigger>
+                 <TabsTrigger value="breach-logs" className="font-bold text-xs">Breach Logs</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
@@ -385,8 +446,8 @@ export default function AdminPage() {
                        <p className="text-xl font-bold font-mono text-primary">${(inspectUser?.referralEarnings || 0).toLocaleString()}</p>
                     </Card>
                     <Card className="bg-secondary/20 p-4 border-white/5">
-                       <p className="text-[8px] font-black uppercase text-zinc-500 mb-1">Session P&L</p>
-                       <p className="text-xl font-bold font-mono text-emerald-500">+$2,450.00</p>
+                       <p className="text-[8px] font-black uppercase text-zinc-500 mb-1">Historical P&L</p>
+                       <p className={cn("text-xl font-bold font-mono", (inspectUser?.allTimePnl >= 0) ? "text-emerald-500" : "text-destructive")}>${(inspectUser?.allTimePnl || 0).toLocaleString()}</p>
                     </Card>
                  </div>
                  <section className="space-y-4">
@@ -400,7 +461,7 @@ export default function AdminPage() {
                  </section>
               </TabsContent>
 
-              <TabsContent value="nodes">
+              <TabsContent value="trading-nodes">
                  <table className="w-full text-xs text-left">
                     <thead className="text-zinc-500 uppercase text-[9px] font-black">
                        <tr className="border-b border-white/5"><th className="py-2">Label</th><th className="py-2">Balance</th><th className="py-2">Status</th></tr>
@@ -413,7 +474,7 @@ export default function AdminPage() {
                  </table>
               </TabsContent>
 
-              <TabsContent value="history">
+              <TabsContent value="trade-ledger">
                  <table className="w-full text-xs text-left">
                     <thead className="text-zinc-500 uppercase text-[9px] font-black">
                        <tr className="border-b border-white/5"><th className="py-2">Symbol</th><th className="py-2">Type</th><th className="py-2 text-right">PnL</th></tr>
@@ -424,6 +485,24 @@ export default function AdminPage() {
                        ))}
                     </tbody>
                  </table>
+              </TabsContent>
+
+              <TabsContent value="breach-logs">
+                <div className="space-y-4">
+                  {inspectNodes.filter(n => n.status === 'blown' || n.status === 'breach').map(n => (
+                    <div key={n.id} className="p-4 rounded-xl bg-destructive/5 border border-destructive/20">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-black text-destructive uppercase tracking-widest">LIQUIDATION DETECTED</span>
+                        <span className="text-[10px] font-mono text-zinc-500">{n.blownAt?.toDate ? format(n.blownAt.toDate(), 'MMM d, yyyy') : '—'}</span>
+                      </div>
+                      <p className="text-xs text-white font-bold mb-1">{n.label}</p>
+                      <p className="text-[11px] text-zinc-400 italic">"{n.breachReason || 'Risk limit breach'}"</p>
+                    </div>
+                  ))}
+                  {inspectNodes.filter(n => n.status === 'blown' || n.status === 'breach').length === 0 && (
+                    <p className="text-center py-10 text-xs text-zinc-500">No breach events recorded for this user.</p>
+                  )}
+                </div>
               </TabsContent>
             </Tabs>
           </div>
@@ -495,6 +574,19 @@ export default function AdminPage() {
              <Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button>
              <Button className="font-black bg-primary text-black px-8 h-11 rounded-xl" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "PROVISION ACCOUNT"}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Image Preview (KYC/Order Proof) */}
+      <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
+        <DialogContent className="max-w-4xl p-0 bg-black border-none">
+          <DialogHeader className="sr-only"><DialogTitle>Document Preview</DialogTitle></DialogHeader>
+          <div className="relative aspect-video w-full">
+            {previewImage && (
+              <Image src={previewImage} alt="Document Proof" fill className="object-contain" />
+            )}
+          </div>
+          <div className="absolute top-4 right-4"><Button variant="secondary" size="icon" onClick={() => setIsImageModalOpen(false)}><XCircle /></Button></div>
         </DialogContent>
       </Dialog>
 
