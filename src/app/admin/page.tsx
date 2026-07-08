@@ -12,19 +12,17 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save, Network, ArrowUpRight, Wallet, User, ExternalLink, BarChart3
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction, updateGlobalSettingsAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getDocs, getAggregateFromServer, sum, getDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
-import { EXPLORERS, isValidTxHash } from '@/lib/onChainVerification';
+import { EXPLORERS } from '@/lib/onChainVerification';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 
@@ -35,7 +33,6 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
     amber: 'text-amber-500 bg-amber-500/10 border-amber-500/20',
     red: 'text-destructive bg-destructive/10 border-destructive/20',
     purple: 'text-purple-500 bg-purple-500/10 border-purple-500/20',
-    zinc: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20'
   };
   return (
     <Card className="border-border/50 bg-card/30 hover:border-primary/20 transition-all duration-300 group">
@@ -79,12 +76,6 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
-
-  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-
-  const [isKycModalOpen, setIsKycModalOpen] = useState(false);
-  const [kycInquiryUser, setKycInquiryUser] = useState<any>(null);
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
@@ -143,66 +134,71 @@ export default function AdminPage() {
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
 
-    let unsub: () => void;
+    setIsLoading(true);
+    let unsub: () => void = () => {};
 
     switch(activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(1000)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'trading-nodes':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(500)), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'breaches':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'phase-passers':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
           setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'order-review':
         unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'payout-hub':
         unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'referral-audit':
         unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'kyc-hub':
         unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       case 'broadcasts':
         unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(20)), (snap) => {
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
         });
         break;
       default:
-        const unsubOrders = onSnapshot(query(collection(db, 'orders'), limit(10), orderBy('submittedAt', 'desc')), (s) => {
-          setTabData((prev: any) => ({ ...prev, orders: s.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        });
-        const unsubUsers = onSnapshot(query(collection(db, 'users'), limit(10), orderBy('createdAt', 'desc')), (s) => {
-          setTabData((prev: any) => ({ ...prev, users: s.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        });
-        unsub = () => { unsubOrders(); unsubUsers(); };
+        refreshStats();
+        setIsLoading(false);
     }
 
-    return () => { if (unsub) unsub(); };
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab]);
+    return () => unsub();
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -216,12 +212,6 @@ export default function AdminPage() {
     });
     return () => unsubSettings();
   }, [isAuthorized, authLoading]);
-
-  useEffect(() => {
-    if (isAuthenticated && isAuthorized && !authLoading) {
-      refreshStats();
-    }
-  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,69 +247,9 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  const handleCleanupDuplicates = async () => {
-    setActionLoading(true);
-    try {
-      const res = await cleanupDuplicateOrdersAction();
-      if (res.success) {
-        toast({ title: "Cleanup Successful", description: `${res.count} duplicate orders purged.` });
-      } else throw new Error(res.error);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Cleanup Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  };
-
-  const handleDeployBroadcast = async () => {
-    if (!broadcastForm.title || !broadcastForm.message) return;
-    setActionLoading(true);
-    try {
-      const res = await sendGlobalBroadcastAction(broadcastForm);
-      if (res.success) {
-        toast({ title: "Broadcast Deployed Successfully" });
-        setIsBroadcastModalOpen(false);
-        setBroadcastForm({ title: '', message: '', type: 'info' });
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Broadcast Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  };
-
-  const handleGiftAccount = async () => {
-    if (!giftForm.traderId && !giftForm.email) return;
-    setActionLoading(true);
-    try {
-      const res = await giftAccountAction(
-        giftForm.traderId, 
-        giftForm.email, 
-        `Gifted Challenge — $${giftForm.size / 1000}k`, 
-        giftForm.size, 
-        giftForm.plan, 
-        'evaluation'
-      );
-      if (res.success) {
-        toast({ title: "Account Gifted Successfully!" });
-        setIsGiftModalOpen(false);
-        refreshStats();
-      } else throw new Error(res.error);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Gift Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  };
-
-  const handleUpdateKycStatus = async (userId: string, status: string) => {
-    setActionLoading(true);
-    try {
-      const res = await updateKycStatusAction(userId, status);
-      if (res.success) {
-        toast({ title: `KYC ${status}` });
-        setIsKycModalOpen(false);
-      }
-    } finally { setActionLoading(false); }
-  };
-
   const handleViewUserByAccount = async (userId: string) => {
     if (!userId) return;
-    setIsLoading(true);
+    setActionLoading(true);
     try {
       let userObj = tabData.users?.find((u: any) => u.id === userId);
       if (!userObj) {
@@ -332,78 +262,31 @@ export default function AdminPage() {
         setNodeFilterId(null);
         setIsUserManagementOpen(true);
       } else {
-        toast({ variant: "destructive", title: "Trader Not Found", description: "Node has an orphaned userId." });
+        toast({ variant: "destructive", title: "Trader Not Found" });
       }
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Error", description: err.message });
     } finally {
-      setIsLoading(false);
+      setActionLoading(false);
     }
   };
 
-  // Real-time listener for inspected trader's trades
   useEffect(() => {
-    if (!selectedUser?.id || !isUserManagementOpen) {
-      setUserTrades([]);
-      return;
-    }
-    const qT = query(
-      collection(db, 'demoTrades'),
-      where('userId', '==', selectedUser.id),
-      orderBy('openedAt', 'desc'),
-      limit(200)
-    );
-    const unsubT = onSnapshot(qT, (snap) => {
-      setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    if (!selectedUser?.id || !isUserManagementOpen) return;
+    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'), limit(200));
+    const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => unsubT();
   }, [selectedUser?.id, isUserManagementOpen]);
-
-  const userNodes = useMemo(() => 
-    (tabData.demoAccounts || []).filter((acc: any) => acc.userId === selectedUser?.id)
-  , [tabData.demoAccounts, selectedUser?.id]);
-
-  const userTotalBalance = useMemo(() => 
-    userNodes.reduce((acc, n) => acc + (n.balance || 0), 0)
-  , [userNodes]);
-
-  const userTotalPnl = useMemo(() => 
-    userTrades.reduce((acc, t) => acc + (t.pnl || 0), 0)
-  , [userTrades]);
-
-  const filteredUserTrades = useMemo(() => {
-    if (!nodeFilterId) return userTrades;
-    return userTrades.filter(t => t.accountId === nodeFilterId);
-  }, [userTrades, nodeFilterId]);
-
-  const userBreaches = useMemo(() => 
-    userNodes.filter(n => ['blown', 'breach', 'terminated'].includes(n.status))
-  , [userNodes]);
-
-  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
-    const term = searchTerm.toLowerCase();
-    return o.id.toLowerCase().includes(term) || o.email?.toLowerCase().includes(term) || o.txHash?.toLowerCase().includes(term);
-  }), [tabData.orders, searchTerm]);
 
   const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
     const term = searchTerm.toLowerCase();
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
 
-  const nodeCount = useMemo(() => tabData.demoAccounts?.length || stats.totalNodesCount, [tabData.demoAccounts, stats.totalNodesCount]);
+  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
+    const term = searchTerm.toLowerCase();
+    return o.email?.toLowerCase().includes(term) || o.id.toLowerCase().includes(term);
+  }), [tabData.orders, searchTerm]);
 
   if (!isAuthenticated && !showAdminModal) return null;
-
-  if (isAuthenticated && !isAuthorized && !authLoading && !isLoading) {
-    return (
-      <div className="min-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <ShieldAlert className="w-16 h-16 text-destructive mb-6 animate-pulse" />
-        <h2 className="text-3xl font-headline font-bold text-white mb-2 uppercase tracking-tight">Access Denied</h2>
-        <p className="text-muted-foreground max-sm mx-auto mb-8">Identity ({user?.email}) is not on the institutional master list.</p>
-        <Button className="font-black px-10 h-12 rounded-xl" onClick={() => window.location.href = '/'}>Return to Terminal</Button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -411,10 +294,9 @@ export default function AdminPage() {
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
         <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10 pb-6 border-b border-white/5">
           <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-headline font-bold uppercase tracking-tighter">Administrative Terminal</h1>
-              {user && <Badge variant="secondary" className="bg-primary/20 text-primary border-primary/30 h-6">{user.email}</Badge>}
-            </div>
+            <h1 className="text-3xl font-headline font-bold uppercase tracking-tighter flex items-center gap-3">
+              <ShieldAlert className="text-primary w-8 h-8" /> Administrative Terminal
+            </h1>
             <p className="text-muted-foreground text-sm font-medium">Institutional Node Control & Compliance Hub.</p>
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -426,16 +308,13 @@ export default function AdminPage() {
                 </div>
              </div>
              <div className="flex gap-2">
-                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10 hover:bg-white/5" onClick={handleResetHistory} disabled={actionLoading}>
-                  <RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset
+                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10" onClick={handleResetHistory} disabled={actionLoading}>
+                  <RotateCcw className="w-4 h-4 mr-2" /> Rule Reset
                 </Button>
-                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10 hover:bg-white/5" asChild>
-                  <Link href="/admin/price-tracker"><Zap className="w-4 h-4 mr-2" /> Price Synchronizer</Link>
-                </Button>
-                <Button className="h-10 rounded-xl font-black bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
+                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => { refreshStats(); }} disabled={isLoading}>
+                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
                   <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                 </Button>
              </div>
@@ -443,18 +322,16 @@ export default function AdminPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
-          <div className="relative">
-            <ScrollArea className="w-full">
-              <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-                {['Overview', 'Phase Passers', 'Payout Hub', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts', 'Global Settings'].map((tab) => (
-                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">
-                    {tab}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
-          </div>
+          <ScrollArea className="w-full">
+            <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts', 'Global Settings'].map((tab) => (
+                <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">
+                  {tab}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
 
           <TabsContent value="overview" className="space-y-8">
              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -465,79 +342,85 @@ export default function AdminPage() {
                 <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
                 <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
              </div>
+             
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Orders</CardTitle><button onClick={() => setActiveTab('order-review')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{tabData.orders?.slice(0, 5).map((o: any) => (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{o.email}</td><td className="py-3 px-4 text-[10px] text-muted-foreground uppercase">{o.plan}</td><td className="py-3 px-4 text-right"><Badge className={cn("text-[8px] font-black uppercase", (o.status === 'completed' || o.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td></tr>))}</tbody></table></CardContent></Card>
-                <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Users</CardTitle><button onClick={() => setActiveTab('user-directory')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{tabData.users?.slice(0, 5).map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{u.name}</td><td className="py-3 px-4 text-[10px] text-muted-foreground">{u.email}</td><td className="py-3 px-4 text-right text-[10px] font-mono text-zinc-500">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+                <AdminSummaryTable 
+                  title="Recent Orders" 
+                  data={tabData.orders} 
+                  columns={['email', 'plan', 'status']} 
+                  onViewAll={() => setActiveTab('order-review')} 
+                />
+                <AdminSummaryTable 
+                  title="Recent Users" 
+                  data={tabData.users} 
+                  columns={['name', 'email', 'createdAt']} 
+                  onViewAll={() => setActiveTab('user-directory')} 
+                />
              </div>
-          </TabsContent>
-
-          <TabsContent value="user-directory" className="space-y-6">
-             <div className="flex justify-between items-center">
-                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">User Directory ({stats.totalUsersCount})</h2>
-                <div className="relative w-96">
-                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                   <Input placeholder="Search Users, Emails, IDs..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" />
-                </div>
-             </div>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">ID</th><th className="p-4">Joined</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs text-white">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 font-mono text-[10px]">{u.traderId || u.uid?.slice(0, 8)}</td><td className="p-4 text-xs">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", u.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{u.status || 'active'}</Badge></td><td className="p-4 text-right"><Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase" onClick={() => handleViewUserByAccount(u.id)}><Settings2 className="w-3 h-3 mr-2" /> Manage</Button></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="trading-nodes" className="space-y-6">
-             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({nodeCount})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase || 'evaluation'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'active' || acc.status === 'passed') ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button variant="outline" size="icon" className="h-7 w-7 rounded-lg border-white/10 hover:bg-primary hover:text-black transition-all" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3.5 h-3.5" /></Button><Button variant="outline" size="icon" className="h-7 w-7 rounded-lg border-white/10 hover:bg-secondary transition-all" onClick={() => resetDemoAccountAction(acc.id)}><RotateCcw className="w-3.5 h-3.5" /></Button></div></td></tr>))}</tbody></table></CardContent></Card>
+             <TabHeader title="Challenge Node Registry" count={tabData.demoAccounts?.length} onSearch={setSearchTerm} />
+             <DataTable 
+                loading={isLoading} 
+                data={tabData.demoAccounts} 
+                columns={['Account ID', 'Plan / Phase', 'Balance', 'Equity', 'Status', 'Actions']}
+                renderRow={(acc) => (
+                  <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td>
+                    <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
+                    <td className="p-4 font-mono text-white text-right">${(acc.balance || 0).toLocaleString()}</td>
+                    <td className="p-4 font-mono text-white text-right">${(acc.equity || 0).toLocaleString()}</td>
+                    <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td>
+                    <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
+                  </tr>
+                )}
+             />
           </TabsContent>
 
-          <TabsContent value="phase-passers" className="space-y-6">
-             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Phase Passers ({stats.phasePassersCount})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Passed At</th><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Final Balance</th><th className="p-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.passers?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><p className="font-mono text-[10px] text-emerald-500">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td><td className="p-4 text-[10px] uppercase font-bold">{acc.planType} · {acc.phase}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right"><Button variant="ghost" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-4 h-4" /></Button></td></tr>))}</tbody></table></CardContent></Card>
-          </TabsContent>
-
-          <TabsContent value="payout-hub" className="space-y-6">
-             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Withdrawal Requests ({tabData.payouts?.length || 0})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Submitted</th><th className="p-4">Trader</th><th className="p-4">Method / Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.payouts?.map((p: any) => (
-               <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                 <td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                 <td className="p-4 text-xs font-bold">{p.email}</td>
-                 <td className="p-4">
-                   <p className="text-[9px] font-bold text-zinc-400">{p.method}</p>
-                   <p className="text-[8px] font-mono truncate max-w-[150px]">{p.address}</p>
-                 </td>
-                 <td className="p-4 text-right font-mono font-bold text-white">${parseFloat(p.amount || 0).toLocaleString()}</td>
-                 <td className="p-4 text-right">
-                   {p.status === 'pending' && (
-                     <div className="flex justify-end gap-2">
-                       <Button size="sm" className="h-7 text-[8px] bg-emerald-500 text-black font-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Approve</Button>
-                       <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive" onClick={() => updatePayoutStatusAction(p.id, 'rejected')}>Reject</Button>
-                     </div>
-                   )}
-                   <Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge>
-                 </td>
-               </tr>
-             ))}</tbody></table></CardContent></Card>
+          <TabsContent value="breaches" className="space-y-6">
+             <TabHeader title="Liquidated Nodes (Hard Breaches)" count={tabData.breaches?.length} />
+             <DataTable 
+                loading={isLoading} 
+                data={tabData.breaches} 
+                columns={['Date', 'Account ID', 'Reason', 'Final Balance', 'Actions']}
+                renderRow={(acc) => (
+                  <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 text-xs text-muted-foreground">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                    <td className="p-4"><p className="font-mono text-[10px] text-destructive">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td>
+                    <td className="p-4 text-[10px] text-zinc-400 max-w-xs truncate">{acc.breachReason || 'Risk parameter violation.'}</td>
+                    <td className="p-4 font-mono text-white text-right">${(acc.balance || 0).toLocaleString()}</td>
+                    <td className="p-4 text-right"><Button variant="ghost" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-4 h-4" /></Button></td>
+                  </tr>
+                )}
+             />
           </TabsContent>
 
           <TabsContent value="order-review" className="space-y-6">
-             <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Order Pipeline</h2>
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                   <Button variant="outline" className="h-10 rounded-xl font-bold border-destructive/20 text-destructive hover:bg-destructive/5" onClick={handleCleanupDuplicates} disabled={actionLoading}>
-                      <Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates
-                   </Button>
-                   <div className="relative w-full md:w-96">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input placeholder="Search Orders..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" />
-                   </div>
-                </div>
+             <div className="flex justify-between items-center">
+                <TabHeader title="Payment Verification Pipeline" count={filteredOrders.length} onSearch={setSearchTerm} />
+                <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
              </div>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredOrders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex flex-col gap-1">{o.txHash ? (<div className="flex items-center gap-2"><a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a></div>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'waiting' ? "bg-blue-500/20 text-blue-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{(o.status === 'completed' || o.status === 'approved') ? (
-                       <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>
-                         Approved ✓
-                       </Button>
-                     ) : (
-                       <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>
-                         Approve
-                       </Button>
-                     )}</div></td></tr>); })}</tbody></table></CardContent></Card>
+             <DataTable 
+                loading={isLoading} 
+                data={filteredOrders} 
+                columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'Status', 'Actions']}
+                renderRow={(o) => (
+                  <tr key={o.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-mono text-[10px]">{o.id}</td>
+                    <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
+                    <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
+                    <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
+                    <td className="p-4 text-right">
+                      {(o.status === 'completed' || o.status === 'approved') ? (
+                        <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>Approved ✓</Button>
+                      ) : (
+                        <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>
+                      )}
+                    </td>
+                  </tr>
+                )}
+             />
           </TabsContent>
 
           <TabsContent value="global-settings" className="space-y-6">
@@ -549,7 +432,7 @@ export default function AdminPage() {
              </div>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <Card className="bg-card/30 border-border/50">
-                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><Network className="w-4 h-4 text-primary" /> Network Fee Table (USD)</CardTitle><CardDescription>Adjust Firm costs.</CardDescription></CardHeader>
+                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><Network className="w-4 h-4 text-primary" /> Liquidity Service Fees (USD)</CardTitle></CardHeader>
                    <CardContent className="space-y-4">
                       {Object.keys(globalSettings.networkFees || {}).map(net => (
                         <div key={net} className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-border">
@@ -560,10 +443,10 @@ export default function AdminPage() {
                    </CardContent>
                 </Card>
                 <Card className="bg-card/30 border-border/50">
-                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-primary" /> Global Flags</CardTitle></CardHeader>
+                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-primary" /> Global Master Switch</CardTitle></CardHeader>
                    <CardContent className="space-y-6">
                       <div className="flex items-center justify-between p-4 rounded-xl bg-destructive/5 border border-destructive/20">
-                         <div><p className="font-bold text-white text-sm">Maintenance Mode</p><p className="text-[10px] text-zinc-500">Enable redirect.</p></div>
+                         <div><p className="font-bold text-white text-sm">Global Maintenance Mode</p><p className="text-[10px] text-zinc-500">Redirects all traders to the maintenance splash screen.</p></div>
                          <Button variant={globalSettings.maintenanceMode ? "destructive" : "outline"} className="font-black h-9 text-[10px]" onClick={() => setGlobalSettings({...globalSettings, maintenanceMode: !globalSettings.maintenanceMode})}>{globalSettings.maintenanceMode ? "ENABLED" : "DISABLED"}</Button>
                       </div>
                    </CardContent>
@@ -573,218 +456,187 @@ export default function AdminPage() {
         </Tabs>
       </main>
 
-      {/* Institutional Inspection Terminal */}
+      {/* Unified Inspection Terminal */}
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 border-b border-white/5 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                  <User size={24} />
-                </div>
+                <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary"><User size={24} /></div>
                 <div>
-                  <DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">
-                    Inspection Terminal: {selectedUser?.name}
-                  </DialogTitle>
-                  <p className="text-xs text-muted-foreground font-medium">Trader GUID: {selectedUser?.id}</p>
+                  <DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">{selectedUser?.name}</DialogTitle>
+                  <p className="text-xs text-muted-foreground">Trader GUID: {selectedUser?.id}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-black px-3 py-1">
-                   {selectedUser?.tier || 'Bronze'}
-                 </Badge>
-                 <Badge variant="outline" className={cn(
-                   "text-[10px] uppercase font-black px-3 py-1",
-                   selectedUser?.kycVerified ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20"
-                 )}>
-                   KYC: {selectedUser?.kycStatus || 'None'}
-                 </Badge>
+                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-black">{selectedUser?.tier || 'Bronze'}</Badge>
+                 <Badge variant="outline" className={cn("text-[10px] uppercase font-black", selectedUser?.kycVerified ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20")}>KYC: {selectedUser?.kycStatus || 'None'}</Badge>
               </div>
             </div>
           </DialogHeader>
 
-          <div className="flex-1 overflow-hidden flex flex-col">
-             <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col">
-                <div className="px-6 border-b border-white/5 bg-zinc-900/30">
-                  <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8">
-                    <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Profile Overview</TabsTrigger>
-                    <TabsTrigger value="nodes" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trading Nodes</TabsTrigger>
-                    <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trade Status / History</TabsTrigger>
-                    <TabsTrigger value="breaches" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Breach Logs</TabsTrigger>
-                  </TabsList>
-                </div>
+          <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
+            <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
+              <TabsList className="bg-transparent h-12 justify-start p-0 gap-8">
+                {['Overview', 'Trading Nodes', 'Trade Status / History', 'Breach Logs'].map(tab => (
+                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(/ /g, '-').split('/')[0].trim()} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
 
-                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                   <TabsContent value="overview" className="m-0 space-y-8">
-                      {/* Stats Summary */}
-                      <div className="grid grid-cols-3 gap-4">
-                         <InspectionStatCard title="Total Balance" value={`$${userTotalBalance.toLocaleString()}`} icon={<Wallet size={16} />} />
-                         <InspectionStatCard title="Referral Payouts" value={`$${(selectedUser?.referralEarnings || 0).toLocaleString()}`} icon={<LinkIcon size={16} />} />
-                         <InspectionStatCard title="Historical P&L" value={`$${userTotalPnl.toLocaleString()}`} icon={<BarChart3 size={16} />} color={userTotalPnl >= 0 ? 'text-emerald-500' : 'text-destructive'} />
-                      </div>
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+               <TabsContent value="overview" className="m-0 space-y-6">
+                  <div className="grid grid-cols-3 gap-4">
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Registered Email</p><p className="text-sm font-bold text-white">{selectedUser?.email}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Joined</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : '—'}</p></div>
+                  </div>
+               </TabsContent>
 
-                      {/* Metadata Grid */}
-                      <div className="grid grid-cols-2 gap-8 pt-4 border-t border-white/5">
-                         <div className="space-y-4">
-                            <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-2">Metadata Diagnostic</h4>
-                            <DiagnosticItem label="Authentication UID" value={selectedUser?.authUid || selectedUser?.id} />
-                            <DiagnosticItem label="Trader ID" value={selectedUser?.traderId} />
-                            <DiagnosticItem label="Registered Email" value={selectedUser?.email} />
-                            <DiagnosticItem label="Phone Number" value={selectedUser?.phone || 'Not Provided'} />
-                         </div>
-                         <div className="space-y-4">
-                            <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-2">Location & Tier</h4>
-                            <DiagnosticItem label="Primary Country" value={selectedUser?.country} />
-                            <DiagnosticItem label="Growth Tier" value={selectedUser?.tier} />
-                            <DiagnosticItem label="Joined Date" value={selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : 'N/A'} />
-                            <DiagnosticItem label="KYC Status" value={selectedUser?.kycStatus || 'None'} isBadge />
-                         </div>
-                      </div>
-                   </TabsContent>
+               <TabsContent value="trading-nodes" className="m-0 space-y-4">
+                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).length === 0 ? (
+                    <div className="p-20 text-center text-muted-foreground italic text-xs">No active nodes provisioned.</div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                       {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => (
+                         <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade'); }}>
+                            <CardHeader className="p-4 flex flex-row items-center justify-between">
+                               <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
+                               <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
+                            </CardHeader>
+                         </Card>
+                       ))}
+                    </div>
+                  )}
+               </TabsContent>
 
-                   <TabsContent value="nodes" className="m-0 space-y-4">
-                      {userNodes.length === 0 ? (
-                        <div className="p-20 text-center text-muted-foreground italic text-xs">No trading nodes provisioned for this trader.</div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                           {userNodes.map(acc => (
-                             <Card 
-                              key={acc.id} 
-                              className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group"
-                              onClick={() => {
-                                setInspectionTab('history');
-                                setNodeFilterId(acc.id);
-                              }}
-                             >
-                               <CardHeader className="p-4 flex flex-row items-center justify-between">
-                                  <div>
-                                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.planType || acc.plan}</p>
-                                     <CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle>
-                                  </div>
-                                  <Badge variant="outline" className={cn("text-[8px] uppercase font-black", (acc.status === 'active' || acc.status === 'passed') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-destructive/20 text-destructive')}>
-                                    {acc.status}
-                                  </Badge>
-                               </CardHeader>
-                               <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
-                                  <div>
-                                     <p className="text-[8px] uppercase text-zinc-600 font-bold">Balance</p>
-                                     <p className="text-xs font-mono font-bold text-white">${(acc.balance || 0).toLocaleString()}</p>
-                                  </div>
-                                  <div className="text-right">
-                                     <p className="text-[8px] uppercase text-zinc-600 font-bold">Equity</p>
-                                     <p className="text-xs font-mono font-bold text-white">${(acc.equity || 0).toLocaleString()}</p>
-                                  </div>
-                               </CardContent>
-                             </Card>
-                           ))}
-                        </div>
-                      )}
-                   </TabsContent>
-
-                   <TabsContent value="history" className="m-0 space-y-4">
-                      <div className="flex justify-between items-center bg-zinc-900/50 p-3 rounded-lg border border-white/5">
-                         <div className="flex items-center gap-3">
-                            <p className="text-[10px] font-black uppercase text-zinc-500">History Source:</p>
-                            <Badge variant="outline" className="text-[9px] font-mono border-zinc-700">
-                              {nodeFilterId ? `Node Filter: ${nodeFilterId}` : 'Unified Ledger (All Nodes)'}
-                            </Badge>
-                         </div>
-                         {nodeFilterId && (
-                           <Button variant="ghost" size="sm" className="h-6 text-[9px] font-black uppercase text-primary" onClick={() => setNodeFilterId(null)}>
-                              Clear Filter
-                           </Button>
-                         )}
-                      </div>
-                      <div className="overflow-x-auto">
-                         <table className="w-full text-xs text-left">
-                           <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
-                              <tr>
-                                 <th className="py-2 px-1">Symbol</th>
-                                 <th className="py-2 px-1">Type</th>
-                                 <th className="py-2 px-1">Lots</th>
-                                 <th className="py-2 px-1 text-right">PnL</th>
-                                 <th className="py-2 px-1 text-right">Date</th>
-                              </tr>
-                           </thead>
-                           <tbody className="divide-y divide-white/5">
-                              {filteredUserTrades.length === 0 ? (
-                                 <tr><td colSpan={5} className="py-10 text-center italic text-zinc-600">No execution records found.</td></tr>
-                              ) : filteredUserTrades.map(t => (
-                                <tr key={t.id} className="hover:bg-white/5">
-                                   <td className="py-2 px-1 font-bold text-white">{t.symbol}</td>
-                                   <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
-                                   <td className="py-2 px-1 font-mono">{t.lots}</td>
-                                   <td className={cn("py-2 px-1 text-right font-mono font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>
-                                     {(t.pnl || 0).toLocaleString()}
-                                   </td>
-                                   <td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                                </tr>
-                              ))}
-                           </tbody>
-                         </table>
-                      </div>
-                   </TabsContent>
-
-                   <TabsContent value="breaches" className="m-0 space-y-4">
-                      {userBreaches.length === 0 ? (
-                        <div className="p-20 text-center text-muted-foreground italic text-xs">Zero liquidation records in history.</div>
-                      ) : userBreaches.map(acc => (
-                        <Card key={acc.id} className="bg-destructive/5 border-destructive/20 p-4 space-y-3">
-                           <div className="flex justify-between items-start">
-                              <h4 className="text-sm font-bold text-white">{acc.label}</h4>
-                              <Badge variant="destructive" className="text-[8px] font-black uppercase">{acc.status}</Badge>
-                           </div>
-                           <p className="text-xs text-destructive/90 leading-relaxed italic bg-destructive/5 p-3 rounded-lg border border-destructive/10">
-                              {acc.breachReason || 'Risk parameters exceeded.'}
-                           </p>
-                           <div className="text-[9px] text-muted-foreground uppercase font-bold">
-                              Liquidated: {acc.blownAt?.toDate ? format(acc.blownAt.toDate(), 'PPP p') : 'Unknown'}
-                           </div>
-                        </Card>
-                      ))}
-                   </TabsContent>
-                </div>
-             </Tabs>
-          </div>
-
-          <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/50 shrink-0">
-            <Button variant="outline" className="font-bold rounded-xl h-12 flex-1 border-white/10" onClick={() => setIsUserManagementOpen(false)}>Close Inspection</Button>
-          </DialogFooter>
+               <TabsContent value="trade" className="m-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
+                        <tr><th className="py-2 px-1">Symbol</th><th className="py-2 px-1">Type</th><th className="py-2 px-1">Lots</th><th className="py-2 px-1 text-right">PnL</th><th className="py-2 px-1 text-right">Date</th></tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => (
+                          <tr key={t.id} className="hover:bg-white/5"><td className="py-2 px-1 font-bold">{t.symbol}</td><td className="py-2 px-1 uppercase font-medium">{t.type}</td><td className="py-2 px-1 font-mono">{t.lots}</td><td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td><td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'HH:mm') : '—'}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+               </TabsContent>
+            </div>
+            <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/50"><Button variant="outline" className="font-bold rounded-xl h-12 flex-1" onClick={() => setIsUserManagementOpen(false)}>Close Inspection</Button></DialogFooter>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
-          <DialogHeader><DialogTitle>Provision Account</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                  {[5, 10, 25, 50, 100, 200].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
+                </SelectContent>
+              </Select></div>
+              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="1-Step Pro" /></SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                  <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
+                  <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
+                  <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                </SelectContent>
+              </Select></div>
+            </div>
           </div>
-          <DialogFooter><Button className="w-full bg-primary text-black font-black" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "PROVISION ACCOUNT"}</Button></DialogFooter>
+          <DialogFooter><Button className="w-full bg-primary text-black font-black" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "GRANT ACCOUNT"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function DiagnosticItem({ label, value, isBadge = false }: { label: string, value: any, isBadge?: boolean }) {
+function TabHeader({ title, count, onSearch }: { title: string, count?: number, onSearch?: (v: string) => void }) {
   return (
-    <div>
-      <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest mb-1">{label}</p>
-      {isBadge ? (
-        <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] uppercase font-bold">{value || 'evaluation'}</Badge>
-      ) : (
-        <p className="text-xs font-mono font-bold text-white break-all">{value || '—'}</p>
+    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+      <h2 className="text-xl font-headline font-bold uppercase tracking-tight">{title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count})</span>}</h2>
+      {onSearch && (
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search records..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" />
+        </div>
       )}
     </div>
   );
 }
 
-const InspectionStatCard = ({ title, value, icon, color = 'text-white' }: { title: string, value: string, icon: any, color?: string }) => (
-  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
-    <div className="flex items-center justify-between">
-      <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{title}</p>
-      <div className="text-zinc-600">{icon}</div>
-    </div>
-    <p className={cn("text-lg font-headline font-bold", color)}>{value}</p>
-  </div>
-);
+function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
+  if (loading) {
+    return (
+      <Card className="bg-card/40 border-border/50">
+        <CardContent className="p-0 space-y-4 py-8">
+          {[1, 2, 3].map(i => <div key={i} className="h-12 mx-4 bg-white/5 animate-pulse rounded-lg" />)}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
+        <Info className="w-12 h-12 mb-4" />
+        <p className="text-sm font-black uppercase tracking-widest">No matching records found in institutional database.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="bg-card/40 border-border/50 overflow-hidden shadow-2xl">
+      <CardContent className="p-0 overflow-x-auto custom-scrollbar">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest border-b border-white/5">
+            <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {data.map(item => renderRow(item))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdminSummaryTable({ title, data, columns, onViewAll }: { title: string, data: any[], columns: string[], onViewAll: () => void }) {
+  return (
+    <Card className="bg-card/30 border-border/50">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+        <CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">{title}</CardTitle>
+        <button onClick={onViewAll} className="text-[10px] font-black uppercase text-primary hover:text-white transition-colors">View All</button>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm text-left">
+          <tbody className="divide-y divide-border/50">
+            {!data || data.length === 0 ? (
+              <tr><td colSpan={3} className="py-10 text-center text-[10px] text-zinc-600 font-bold uppercase">No data found.</td></tr>
+            ) : data.slice(0, 5).map((item, i) => (
+              <tr key={i} className="hover:bg-white/5 transition-colors">
+                <td className="py-3 px-4 font-bold text-xs truncate max-w-[120px]">{item[columns[0]]}</td>
+                <td className="py-3 px-4 text-[10px] text-muted-foreground uppercase truncate max-w-[100px]">{item[columns[1]]}</td>
+                <td className="py-3 px-4 text-right">
+                   {columns[2] === 'status' ? (
+                     <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
+                   ) : (
+                     <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
+                   )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
