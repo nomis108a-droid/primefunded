@@ -14,7 +14,7 @@ import {
   Crosshair, Circle, Slash, ArrowRight,
   Square, Type, Eraser, SeparatorVertical,
   MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus,
-  TrendingUp, TrendingDown, ShieldCheck, Timer, Menu, Lock
+  TrendingUp, TrendingDown, ShieldCheck, Timer, Menu, Lock, Skull, AlertCircle, RefreshCw
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ import { useTickStream } from "@/hooks/useTickStream";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CONTRACT_SIZE } from "@/lib/rulesConfig";
 import { getTradeDate } from "@/lib/tradeUtils";
+import { format } from "date-fns";
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
@@ -112,6 +113,12 @@ const OrderPanelContent = memo(({
   const isBlown = selectedAccount?.status === 'blown' || selectedAccount?.status === 'breach' || selectedAccount?.status === 'terminated';
   const isReadOnly = !selectedAccount || (selectedAccount.status !== 'active' && selectedAccount.status !== 'passed');
 
+  const breachDate = useMemo(() => {
+    if (!selectedAccount?.blownAt) return null;
+    const d = getTradeDate(selectedAccount.blownAt);
+    return d ? format(d, 'MMM d, HH:mm') : null;
+  }, [selectedAccount]);
+
   return (
     <div className="flex flex-col h-full space-y-6">
       <div className="space-y-4">
@@ -122,11 +129,15 @@ const OrderPanelContent = memo(({
               <SelectValue placeholder="Select Account" />
             </SelectTrigger>
             <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-              {activeAccounts.map(acc => (
-                <SelectItem key={acc.id} value={acc.id} className="text-xs font-bold">
-                  {acc.label} (${(acc.balance || 0).toLocaleString()})
-                </SelectItem>
-              ))}
+              {activeAccounts.length > 0 ? (
+                activeAccounts.map(acc => (
+                  <SelectItem key={acc.id} value={acc.id} className="text-xs font-bold">
+                    {acc.label} (${(acc.balance || 0).toLocaleString()})
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="none" disabled className="text-xs italic">No active nodes</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -149,12 +160,46 @@ const OrderPanelContent = memo(({
         </div>
 
         {isReadOnly ? (
-          <div className="p-6 rounded-xl bg-destructive/10 border border-destructive/20 text-center space-y-3">
-             <Lock className="w-8 h-8 text-destructive mx-auto opacity-40" />
-             <p className="text-xs font-black uppercase text-destructive tracking-widest">Execution Locked</p>
-             <p className="text-[10px] text-muted-foreground leading-relaxed">
-               This node is currently read-only. Orders are restricted for terminated or inactive evaluation nodes.
-             </p>
+          <div className="space-y-6">
+            <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/20 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-destructive/20 flex items-center justify-center mx-auto">
+                <Skull className="w-6 h-6 text-destructive" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-black uppercase text-destructive tracking-widest">Account Terminated</p>
+                {breachDate && <p className="text-[9px] text-muted-foreground uppercase font-bold">Breached on {breachDate}</p>}
+              </div>
+              <p className="text-[11px] text-zinc-300 leading-relaxed font-medium bg-black/20 p-3 rounded-xl border border-destructive/10 italic">
+                "{selectedAccount?.breachReason || 'Risk parameters exceeded.'}"
+              </p>
+              
+              <Button asChild className="w-full h-12 font-black cyan-box-glow bg-primary text-black hover:bg-primary/90 rounded-xl">
+                <Link href="/challenges">
+                  <RefreshCw className="w-4 h-4 mr-2" /> Start New Challenge
+                </Link>
+              </Button>
+            </div>
+
+            {activeAccounts.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-[10px] font-black uppercase text-zinc-500 text-center tracking-[0.2em]">Switch to an Active Node</p>
+                <div className="grid gap-2">
+                  {activeAccounts.slice(0, 3).map(acc => (
+                    <button 
+                      key={acc.id}
+                      onClick={() => setCurrentAccountId(acc.id)}
+                      className="w-full p-3 rounded-xl bg-secondary/50 border border-white/5 hover:border-primary/30 text-left transition-all group flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="text-[10px] font-bold text-white group-hover:text-primary transition-colors">{acc.label}</p>
+                        <p className="text-[9px] text-muted-foreground font-mono">${(acc.balance || 0).toLocaleString()}</p>
+                      </div>
+                      <ArrowRight className="w-3 h-3 text-zinc-600 group-hover:translate-x-1 transition-all" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -203,42 +248,44 @@ const OrderPanelContent = memo(({
         )}
       </div>
 
-      <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
-        <button 
-          onClick={() => placeTrade('buy')} 
-          disabled={actionLoading || !activePrice || isReadOnly}
-          className={cn(
-            "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
-            isReadOnly ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500"
-          )}
-        >
-          {!isReadOnly && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
-          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-            <>
-              <span className="text-sm tracking-widest relative z-10">{isReadOnly ? 'LOCKED' : 'BUY'}</span>
-              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
-            </>
-          )}
-          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 -rotate-45 opacity-20" />
-        </button>
-        <button 
-          onClick={() => placeTrade('sell')} 
-          disabled={actionLoading || !activePrice || isReadOnly}
-          className={cn(
-            "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
-            isReadOnly ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"
-          )}
-        >
-          {!isReadOnly && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
-          {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
-            <>
-              <span className="text-sm tracking-widest relative z-10">{isReadOnly ? 'LOCKED' : 'SELL'}</span>
-              <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
-            </>
-          )}
-          <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
-        </button>
-      </div>
+      {!isReadOnly && (
+        <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+          <button 
+            onClick={() => placeTrade('buy')} 
+            disabled={actionLoading || !activePrice || isReadOnly}
+            className={cn(
+              "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
+              isReadOnly ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500"
+            )}
+          >
+            {!isReadOnly && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
+            {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+              <>
+                <span className="text-sm tracking-widest relative z-10">{isReadOnly ? 'LOCKED' : 'BUY'}</span>
+                <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+              </>
+            )}
+            <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 -rotate-45 opacity-20" />
+          </button>
+          <button 
+            onClick={() => placeTrade('sell')} 
+            disabled={actionLoading || !activePrice || isReadOnly}
+            className={cn(
+              "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
+              isReadOnly ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"
+            )}
+          >
+            {!isReadOnly && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
+            {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
+              <>
+                <span className="text-sm tracking-widest relative z-10">{isReadOnly ? 'LOCKED' : 'SELL'}</span>
+                <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
+              </>
+            )}
+            <ArrowRight className="absolute bottom-2 right-2 w-4 h-4 rotate-45 opacity-20" />
+          </button>
+        </div>
+      )}
     </div>
   );
 });
@@ -299,7 +346,6 @@ export default function DemoPage() {
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
   
-  // Terminal should prioritize showing active nodes for selection
   const activeAccounts = useMemo(() => 
     accounts.filter(a => a.status === 'active' || a.status === 'passed')
   , [accounts]);
