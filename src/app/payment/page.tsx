@@ -269,10 +269,29 @@ function PaymentContent() {
                 <Card className="bg-card/40 border-primary/20 shadow-2xl relative overflow-hidden">
                    <div className="absolute top-0 left-0 w-full h-1 bg-primary shadow-[0_0_15px_rgba(17,179,245,0.5)]" />
                    <CardContent className="p-10 space-y-10">
-                      <div className="text-center space-y-2">
-                         <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.3em]">SEND EXACTLY</p>
-                         <h3 className="text-5xl font-headline font-bold text-white tabular-nums">{(totalAmountUsd * 1.002).toFixed(4)} <span className="text-primary">{selectedCoin}</span></h3>
+                      <div className="text-center space-y-4">
+                         <div className="space-y-1">
+                            <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.3em]">SEND EXACTLY</p>
+                            <h3 className="text-5xl font-headline font-bold text-white tabular-nums">{(totalAmountUsd * 1.002).toFixed(4)} <span className="text-primary">{selectedCoin}</span></h3>
+                         </div>
+                         
+                         <div className="inline-flex flex-col items-center gap-1.5 py-3 px-6 rounded-2xl bg-white/5 border border-white/5 min-w-[260px]">
+                            <div className="flex justify-between w-full text-[10px] font-bold text-zinc-400">
+                               <span>Challenge Fee</span>
+                               <span className="text-zinc-300">${challengeAmount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between w-full text-[10px] font-bold text-zinc-400">
+                               <span>Network & Service Fee</span>
+                               <span className="text-zinc-300">${(totalAmountUsd * 1.002 - challengeAmount).toFixed(2)}</span>
+                            </div>
+                            <div className="w-full h-px bg-white/10 my-0.5" />
+                            <div className="flex justify-between w-full text-[10px] font-black text-white uppercase tracking-wider">
+                               <span>Total Amount</span>
+                               <span className="text-primary">{(totalAmountUsd * 1.002).toFixed(4)} {selectedCoin}</span>
+                            </div>
+                         </div>
                       </div>
+
                       <div className="flex flex-col md:flex-row gap-10 items-center justify-center">
                         <div className="bg-white p-3 rounded-2xl shrink-0"><QRCodeSVG value={`${currentWalletAddress}?amount=${(totalAmountUsd * 1.002).toFixed(4)}`} size={180} /></div>
                         <div className="space-y-6 flex-1 w-full">
