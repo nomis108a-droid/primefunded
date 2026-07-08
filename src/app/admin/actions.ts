@@ -254,7 +254,7 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
-      createdAt: FieldValue.serverTimestamp()
+      createdAt: serverTimestamp()
     });
     
     return { success: true };
@@ -280,7 +280,7 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
       message: status === 'done' ? `Your withdrawal of $${payout.amount} has been sent.` : `Your payout request was rejected.`,
       type: 'payout_update',
       isRead: false,
-      createdAt: FieldValue.serverTimestamp()
+      createdAt: serverTimestamp()
     });
     
     return { success: true };
