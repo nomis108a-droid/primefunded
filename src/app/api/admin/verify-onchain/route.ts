@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { getChainTransactions, validateTransaction, SUPPORTED_CHAINS } from "@/lib/onChainVerification";
@@ -16,6 +15,8 @@ export async function POST(req: NextRequest) {
     if (!orderId) return NextResponse.json({ error: "Order ID required" }, { status: 400 });
 
     const db = getAdminDb();
+    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+
     const orderRef = db.collection("orders").doc(orderId);
     const orderSnap = await orderRef.get();
 
@@ -27,47 +28,35 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Identify Target Network and Address
-    const network = order.network || "ERC20";
-    const walletAddress = "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; // receiving wallet
-    const expectedNative = order.amountNative; // calculated at order creation
+    const network = order.network || "Polygon";
+    let walletAddress = "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; // default EVM
 
-    // 2. Fetch Transactions from Etherscan V2
+    if (network === "TRON") walletAddress = "TMitDXKKnsHKgBVENHdorV4axBou6KC5JM";
+    if (network === "XRPL") walletAddress = "rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6";
+
+    const expectedNative = order.amountNative; 
+
+    // 2. Fetch Transactions from Chain APIs
     const txs = await getChainTransactions(network, walletAddress);
 
     // 3. Find Match
-    const matchingTx = txs.find((tx: any) => validateTransaction(tx, walletAddress, expectedNative));
+    const matchingTx = txs.find((tx: any) => 
+      validateTransaction(tx, walletAddress, expectedNative, 0.02, order.destinationTag)
+    );
 
     if (matchingTx) {
       const chainConfig = SUPPORTED_CHAINS[network];
+      
+      // For non-EVM or high-speed chains, validations might be different
+      if (network === "XRPL") {
+        // XRP is final as soon as it's in a validated ledger
+        return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, 1);
+      }
+
       const confirmations = parseInt(matchingTx.confirmations || "0");
 
       if (confirmations >= chainConfig.confirmations) {
-        // AUTOMATIC APPROVAL AND ACCOUNT PROVISIONING
-        const userSnap = await db.collection("users").doc(order.userId).get();
-        const traderId = userSnap.data()?.traderId;
-
-        if (traderId) {
-          const res = await giftAccountAction(
-            traderId,
-            order.email,
-            `Verified Node — ${order.accountSize}`,
-            parseInt(order.accountSize.replace(/[^0-9]/g, "")) || 100000,
-            order.plan,
-            "evaluation"
-          );
-
-          if (res.success) {
-            await orderRef.update({
-              status: "completed",
-              txHash: matchingTx.hash,
-              confirmations: confirmations,
-              verifiedAt: FieldValue.serverTimestamp(),
-              verificationMethod: "automatic"
-            });
-
-            return NextResponse.json({ status: "completed", message: "Account provisioned automatically" });
-          }
-        }
+        return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, confirmations);
       } else {
         // TRANSACTION DETECTED BUT PENDING CONFIRMATIONS
         await orderRef.update({
@@ -85,4 +74,34 @@ export async function POST(req: NextRequest) {
     console.error("[VerifyAPI] Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+async function finalizeProvisioning(db: any, orderRef: any, order: any, txHash: string, confirmations: number) {
+  // AUTOMATIC APPROVAL AND ACCOUNT PROVISIONING
+  const userSnap = await db.collection("users").doc(order.userId).get();
+  const traderId = userSnap.data()?.traderId;
+
+  if (traderId) {
+    const res = await giftAccountAction(
+      traderId,
+      order.email,
+      `Verified Node — ${order.accountSize}`,
+      parseInt(order.accountSize.replace(/[^0-9]/g, "")) || 100000,
+      order.plan,
+      "evaluation"
+    );
+
+    if (res.success) {
+      await orderRef.update({
+        status: "completed",
+        txHash: txHash,
+        confirmations: confirmations,
+        verifiedAt: FieldValue.serverTimestamp(),
+        verificationMethod: "automatic"
+      });
+
+      return NextResponse.json({ status: "completed", message: "Account provisioned automatically" });
+    }
+  }
+  return NextResponse.json({ status: "error", message: "Provisioning failed" });
 }

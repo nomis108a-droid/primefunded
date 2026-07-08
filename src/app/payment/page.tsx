@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
@@ -21,10 +20,12 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { uploadImageAsBase64 } from '@/lib/imageUpload';
 
 const cryptoWallets = [
-  { network: 'ERC20', label: 'Ethereum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'ETH/USDT' },
-  { network: 'TRC20', label: 'Tron', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', token: 'USDT' },
-  { network: 'BEP20', label: 'BSC', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'BNB/USDT' },
-  { network: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'MATIC' }
+  { network: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'USDT/MATIC' },
+  { network: 'BEP20', label: 'BSC', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'USDT/BNB' },
+  { network: 'TRON', label: 'Tron', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', token: 'USDT-TRC20/TRX' },
+  { network: 'XRPL', label: 'XRP Ledger', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', token: 'XRP' },
+  { network: 'ERC20', label: 'Ethereum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'USDT/ETH' },
+  { network: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'USDT/ETH' }
 ];
 
 function PaymentContent() {
@@ -38,6 +39,7 @@ function PaymentContent() {
   const price = searchParams.get('price') || '$499';
   
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [destinationTag, setDestinationTag] = useState<number | null>(null);
   const [orderStatus, setOrderStatus] = useState<'idle' | 'waiting' | 'detected' | 'completed'>('idle');
   const [confirmations, setConfirmations] = useState(0);
   const [timeLeft, setTimeLeft] = useState(1200); // 20 minutes
@@ -53,6 +55,7 @@ function PaymentContent() {
     if (!user || orderId) return;
     setLoading(true);
     try {
+      const tag = selectedNetwork === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
         email: user.email,
@@ -60,12 +63,14 @@ function PaymentContent() {
         accountSize: size,
         amountPaid: parseFloat(price.replace('$', '')),
         network: selectedNetwork,
+        destinationTag: tag,
         status: "waiting",
         createdAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 1200 * 1000).toISOString(),
-        amountNative: 0.1 // This would be fetched from a price API in production
+        amountNative: 1.0 // This would be fetched from a price API (e.g. USDT equivalent)
       });
       setOrderId(res.id);
+      setDestinationTag(tag);
       setOrderStatus('waiting');
     } catch (e) {
       toast({ variant: "destructive", title: "Order Creation Failed" });
@@ -74,7 +79,7 @@ function PaymentContent() {
     }
   }, [user, plan, size, price, selectedNetwork, orderId]);
 
-  useEffect(() => { if (user) createOrder(); }, [user]);
+  useEffect(() => { if (user) createOrder(); }, [user, createOrder]);
 
   // 2. Real-time Status Monitoring & Timer
   useEffect(() => {
@@ -98,15 +103,16 @@ function PaymentContent() {
     // Auto-poll verification API
     const poller = setInterval(async () => {
       if (orderStatus !== 'completed') {
-        await fetch('/api/admin/verify-onchain', {
+        fetch('/api/admin/verify-onchain', {
           method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ orderId })
-        });
+        }).catch(() => {});
       }
     }, 20000);
 
     return () => { clearInterval(timer); unsub(); clearInterval(poller); };
-  }, [orderId, orderStatus]);
+  }, [orderId, orderStatus, toast]);
 
   const handleManualVerify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +146,7 @@ function PaymentContent() {
             <CheckCircle2 className="w-10 h-10 text-emerald-500" />
           </div>
           <h2 className="text-4xl font-headline font-bold text-white">Payment Confirmed</h2>
-          <p className="text-muted-foreground max-w-sm mx-auto">Your institutional challenge node is now active. Check your email for login credentials.</p>
+          <p className="text-muted-foreground max-sm mx-auto">Your institutional challenge node is now active. Check your email for login credentials.</p>
           <Button className="h-12 px-8 font-black cyan-box-glow" onClick={() => router.push('/dashboard')}>Enter Dashboard <ArrowRight className="ml-2 w-4 h-4" /></Button>
         </motion.div>
       </div>
@@ -151,13 +157,13 @@ function PaymentContent() {
     <div className="max-w-6xl mx-auto pb-20">
       <header className="mb-10 flex flex-col md:flex-row justify-between items-center gap-6">
         <div className="text-center md:text-left">
-          <Badge variant="outline" className="mb-2 border-primary/30 text-primary">SECURE BLOCKCHAIN GATEWAY</Badge>
+          <Badge variant="outline" className="mb-2 border-primary/30 text-primary uppercase tracking-widest text-[10px] font-black">Secure Blockchain Gateway</Badge>
           <h1 className="text-4xl font-headline font-bold text-white">Challenge Provisioning</h1>
         </div>
         <div className="bg-secondary/50 border border-border px-6 py-3 rounded-2xl flex items-center gap-4">
            <Timer className="w-5 h-5 text-primary animate-pulse" />
            <div>
-              <p className="text-[10px] font-black uppercase text-zinc-500">Awaiting Transaction</p>
+              <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Awaiting Transaction</p>
               <p className="text-xl font-mono font-bold text-white">{formatTime(timeLeft)}</p>
            </div>
         </div>
@@ -167,11 +173,11 @@ function PaymentContent() {
         <Card className="lg:col-span-2 border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
           <CardHeader className="border-b border-white/5 pb-6">
             <div className="flex justify-between items-center">
-               <CardTitle>Transfer Details</CardTitle>
+               <CardTitle className="text-white font-headline font-bold">Transfer Details</CardTitle>
                <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
-                 <SelectTrigger className="w-48 bg-zinc-900 border-zinc-800 h-9 text-xs"><SelectValue /></SelectTrigger>
+                 <SelectTrigger className="w-48 bg-zinc-900 border-zinc-800 h-10 text-xs font-bold"><SelectValue /></SelectTrigger>
                  <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                   {cryptoWallets.map(w => <SelectItem key={w.network} value={w.network}>{w.label}</SelectItem>)}
+                   {cryptoWallets.map(w => <SelectItem key={w.network} value={w.network} className="font-bold">{w.label}</SelectItem>)}
                  </SelectContent>
                </Select>
             </div>
@@ -186,20 +192,35 @@ function PaymentContent() {
               </div>
               <div className="space-y-6 flex-1 w-full">
                 <div className="space-y-2">
-                   <Label className="text-[10px] font-black uppercase text-zinc-500">Receiving Wallet ({currentWallet.label})</Label>
+                   <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Receiving Wallet ({currentWallet.label})</Label>
                    <div className="flex gap-2">
-                     <Input readOnly value={currentWallet.address} className="bg-zinc-900/50 font-mono text-[10px] h-11" />
-                     <Button variant="secondary" size="icon" className="h-11 w-11" onClick={() => { navigator.clipboard.writeText(currentWallet.address); toast({ title: "Address Copied" }); }}><Copy size={16} /></Button>
+                     <Input readOnly value={currentWallet.address} className="bg-zinc-900/50 font-mono text-[10px] h-11 border-zinc-800" />
+                     <Button variant="secondary" size="icon" className="h-11 w-11 shrink-0" onClick={() => { navigator.clipboard.writeText(currentWallet.address); toast({ title: "Address Copied" }); }}><Copy size={16} /></Button>
                    </div>
                 </div>
+
+                {selectedNetwork === 'XRPL' && (
+                  <div className="space-y-2 p-4 bg-primary/10 border border-primary/30 rounded-xl">
+                    <div className="flex justify-between items-center">
+                      <Label className="text-[10px] font-black uppercase text-primary tracking-widest">Required Destination Tag</Label>
+                      <Badge className="bg-primary text-black font-black text-[10px]">CRITICAL</Badge>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input readOnly value={destinationTag || 'Generating...'} className="bg-background/50 font-mono text-lg h-12 border-primary/30 text-center font-bold text-white tracking-widest" />
+                      <Button variant="outline" size="icon" className="h-12 w-12 border-primary/30" onClick={() => { navigator.clipboard.writeText(String(destinationTag)); toast({ title: "Tag Copied" }); }}><Copy size={16} /></Button>
+                    </div>
+                    <p className="text-[9px] text-primary/80 font-bold uppercase tracking-tighter">You MUST include this tag when sending or your payment will be lost.</p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                    <div className="p-4 bg-zinc-900/30 border border-border rounded-xl">
-                      <p className="text-[9px] font-black text-zinc-500 uppercase">Exact Amount</p>
+                      <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Exact Amount</p>
                       <p className="text-2xl font-headline font-bold text-primary">{price}</p>
                    </div>
                    <div className="p-4 bg-zinc-900/30 border border-border rounded-xl">
-                      <p className="text-[9px] font-black text-zinc-500 uppercase">Asset Required</p>
-                      <p className="text-2xl font-headline font-bold text-white">USDT/USDC</p>
+                      <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-1">Asset Required</p>
+                      <p className="text-xl font-headline font-bold text-white truncate">{currentWallet.token}</p>
                    </div>
                 </div>
                 {orderStatus === 'detected' && (
@@ -207,7 +228,7 @@ function PaymentContent() {
                      <Loader2 className="w-5 h-5 text-primary animate-spin" />
                      <div>
                         <p className="text-sm font-bold text-white">Transaction Detected!</p>
-                        <p className="text-xs text-primary">Confirmations: {confirmations} / Required</p>
+                        <p className="text-xs text-primary font-bold">Confirmations: {confirmations} / Required</p>
                      </div>
                   </div>
                 )}
@@ -217,7 +238,7 @@ function PaymentContent() {
           <CardFooter className="bg-secondary/10 p-6 border-t border-white/5">
              <div className="flex items-start gap-3">
                 <AlertTriangle className="text-amber-500 w-5 h-5 shrink-0 mt-0.5" />
-                <p className="text-xs text-zinc-500 leading-relaxed">
+                <p className="text-[11px] text-zinc-400 leading-relaxed font-medium">
                   Only send <span className="text-white font-bold">{currentWallet.token}</span> on the <span className="text-white font-bold">{currentWallet.label}</span> network. Funds sent to other addresses or via unsupported networks are non-recoverable. Transaction is automatically monitored.
                 </p>
              </div>
@@ -226,18 +247,18 @@ function PaymentContent() {
 
         <div className="space-y-6">
            <Card className="border-border/50 bg-card/40">
-             <CardHeader><CardTitle className="text-lg">Order Summary</CardTitle></CardHeader>
+             <CardHeader className="pb-4"><CardTitle className="text-base font-headline font-bold text-white">Order Summary</CardTitle></CardHeader>
              <CardContent className="space-y-4">
-                <div className="flex justify-between text-sm">
-                   <span className="text-zinc-500">Challenge</span>
+                <div className="flex justify-between text-xs">
+                   <span className="text-zinc-500 uppercase font-black tracking-widest">Challenge</span>
                    <span className="text-white font-bold">{size} {getDisplayName(plan)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                   <span className="text-zinc-500">Network</span>
+                <div className="flex justify-between text-xs">
+                   <span className="text-zinc-500 uppercase font-black tracking-widest">Gateway</span>
                    <span className="text-white font-bold">{currentWallet.label}</span>
                 </div>
                 <div className="pt-4 border-t border-white/5 flex justify-between items-end">
-                   <span className="text-lg font-headline font-bold">Total Due</span>
+                   <span className="text-lg font-headline font-bold text-white">Total Due</span>
                    <span className="text-2xl font-headline font-bold text-primary">{price}</span>
                 </div>
              </CardContent>
@@ -256,20 +277,23 @@ function PaymentContent() {
              {manualMode && (
                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
                  <Card className="border-primary/20 bg-primary/5">
-                   <CardHeader><CardTitle className="text-sm">Manual Verification</CardTitle></CardHeader>
+                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white">Manual Verification</CardTitle></CardHeader>
                    <CardContent className="space-y-4">
                       <div className="space-y-2">
-                         <Label className="text-[10px]">Transaction Hash (TXID)</Label>
-                         <Input value={txHash} onChange={e => setTxHash(e.target.value)} placeholder="0x..." className="bg-zinc-900 border-zinc-700 h-9" />
+                         <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Transaction Hash (TXID)</Label>
+                         <Input value={txHash} onChange={e => setTxHash(e.target.value)} placeholder="0x..." className="bg-zinc-900 border-zinc-700 h-10 font-mono text-xs" />
                       </div>
                       <div className="space-y-2">
-                         <Label className="text-[10px]">Upload Screenshot</Label>
-                         <div className="relative h-10 border border-dashed border-zinc-700 rounded-lg flex items-center justify-center bg-zinc-900/50">
+                         <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Upload Screenshot</Label>
+                         <div className="relative h-12 border border-dashed border-zinc-700 rounded-lg flex items-center justify-center bg-zinc-900/50 hover:bg-zinc-900 transition-colors group">
                             <input type="file" onChange={e => setProofFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
-                            <span className="text-[9px] font-bold text-zinc-500">{proofFile ? proofFile.name : 'Choose File'}</span>
+                            <div className="flex items-center gap-2">
+                               <Upload className="w-3 h-3 text-zinc-500 group-hover:text-primary" />
+                               <span className="text-[10px] font-bold text-zinc-500 truncate max-w-[150px]">{proofFile ? proofFile.name : 'Choose File'}</span>
+                            </div>
                          </div>
                       </div>
-                      <Button onClick={handleManualVerify} disabled={loading || !txHash} className="w-full h-10 bg-primary text-black font-black">
+                      <Button onClick={handleManualVerify} disabled={loading || !txHash} className="w-full h-11 bg-primary text-black font-black uppercase tracking-widest text-xs">
                          {loading ? <Loader2 className="animate-spin w-4 h-4" /> : "SUBMIT FOR REVIEW"}
                       </Button>
                    </CardContent>
@@ -284,16 +308,16 @@ function PaymentContent() {
 }
 
 function getDisplayName(id: string) {
-  const map: any = { '1-step': '1-Step Pro', '2-step': '2-Step Classic', '3-step': '3-Step Classic' };
-  return map[id] || 'Instant Funding';
+  const map: any = { '1-step': '1-Step Pro', '2-step': '2-Step Classic', '3-step': '3-Step Classic', 'instant': 'Instant Funding', 'instant-pro': 'Instant Pro' };
+  return map[id] || 'Challenge Node';
 }
 
 export default function PaymentPage() {
   return (
     <div className="flex min-h-screen bg-background">
       <Navigation />
-      <main className="flex-1 p-8">
-        <Suspense fallback={<div className="flex items-center justify-center h-full"><Loader2 className="animate-spin" /></div>}>
+      <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
+        <Suspense fallback={<div className="flex items-center justify-center h-full"><Loader2 className="animate-spin text-primary w-8 h-8" /></div>}>
           <PaymentContent />
         </Suspense>
       </main>
