@@ -76,7 +76,7 @@ export function useCollection<T = DocumentData>(
             if (!isMountedRef.current) return;
             
             // Log full error for index generation links (fixes 400 Bad Request)
-            console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError);
+            console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError.message || serverError);
             
             const isAssertionError = serverError.message?.includes('INTERNAL ASSERTION FAILED');
             
