@@ -1,7 +1,7 @@
 
 "use client";
 
-import { Suspense, useState, useEffect } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -11,45 +11,20 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { Copy, CheckCircle2, AlertTriangle, QrCode, Mail, Hash, Loader2, Globe, Upload, FileImage, DollarSign } from 'lucide-react';
+import { Copy, CheckCircle2, AlertTriangle, QrCode, Mail, Hash, Loader2, Globe, Upload, FileImage, DollarSign, Timer, ArrowRight, ExternalLink } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { uploadImageAsBase64 } from '@/lib/imageUpload';
-import { z } from 'zod';
-
-const PaymentSchema = z.object({
-  email: z.string().email("Invalid email format"),
-  txHash: z.string().min(10, "Transaction hash is too short").max(100, "Transaction hash is too long"),
-  network: z.string().min(1, "Please select a network"),
-  amountPaid: z.string().min(1, "Amount paid is required"),
-});
 
 const cryptoWallets = [
-  {
-    network: 'Ethereum (ERC20)',
-    token: 'USDC/USDT',
-    address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4'
-  },
-  {
-    network: 'Tron (TRC20)',
-    token: 'USDT',
-    address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM'
-  },
-  {
-    network: 'BNB Smart Chain (BEP20)',
-    token: 'USDT',
-    address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4'
-  },
-  {
-    network: 'Polygon',
-    token: 'USDT',
-    address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4',
-    isPolygon: true
-  }
+  { network: 'ERC20', label: 'Ethereum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'ETH/USDT' },
+  { network: 'TRC20', label: 'Tron', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', token: 'USDT' },
+  { network: 'BEP20', label: 'BSC', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'BNB/USDT' },
+  { network: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', token: 'MATIC' }
 ];
 
 function PaymentContent() {
@@ -62,276 +37,255 @@ function PaymentContent() {
   const size = searchParams.get('size') || '$100k';
   const price = searchParams.get('price') || '$499';
   
-  const [txHash, setTxHash] = useState('');
-  const [email, setEmail] = useState(user?.email || '');
-  const [amountPaid, setAmountPaid] = useState(price.replace('$', ''));
-  const [selectedNetwork, setSelectedNetwork] = useState('');
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [orderStatus, setOrderStatus] = useState<'idle' | 'waiting' | 'detected' | 'completed'>('idle');
+  const [confirmations, setConfirmations] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(1200); // 20 minutes
+  const [selectedNetwork, setSelectedNetwork] = useState('Polygon');
   const [loading, setLoading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
 
-  useEffect(() => {
-    if (user?.email) setEmail(user.email);
-  }, [user]);
+  const [txHash, setTxHash] = useState('');
+  const [proofFile, setProofFile] = useState<File | null>(null);
 
-  const getDisplayName = (id: string) => {
-    if (id === '1-step') return '1-Step Pro';
-    if (id === '2-step') return '2-Step Classic';
-    if (id === '3-step') return '3-Step Classic';
-    return 'Instant Funding';
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        toast({ variant: "destructive", title: "File too large", description: "Proof image must be under 2MB." });
-        return;
-      }
-      setProofFile(file);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) {
-      toast({ variant: "destructive", title: "Authentication Required", description: "Please log in to purchase a challenge." });
-      return;
-    }
-
-    const validation = PaymentSchema.safeParse({ email, txHash, network: selectedNetwork, amountPaid });
-    if (!validation.success) {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: validation.error.errors[0].message,
-      });
-      return;
-    }
-    
+  // 1. Initial Order Creation
+  const createOrder = useCallback(async () => {
+    if (!user || orderId) return;
     setLoading(true);
-    const sanitizedEmail = sanitizeInput(email);
-    const sanitizedHash = sanitizeInput(txHash);
-
     try {
-      let paymentProofBase64 = null;
-      if (proofFile) {
-        paymentProofBase64 = await uploadImageAsBase64(proofFile);
-      }
-
-      const orderData = {
+      const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
-        userName: userData?.name || 'Unknown Trader',
-        email: sanitizedEmail,
-        plan: getDisplayName(plan),
+        email: user.email,
+        plan: plan,
         accountSize: size,
-        price,
-        txHash: sanitizedHash,
-        amountPaid: parseFloat(amountPaid),
+        amountPaid: parseFloat(price.replace('$', '')),
         network: selectedNetwork,
-        paymentScreenshot: paymentProofBase64,
-        status: 'pending',
-        submittedAt: serverTimestamp(),
-        date: new Date().toISOString()
-      };
-
-      const ordersRef = collection(db, 'orders');
-      await addDoc(ordersRef, orderData);
-
-      await updateDoc(doc(db, "users", user.uid), {
-        accountStatus: "pending_activation",
-        updatedAt: serverTimestamp()
+        status: "waiting",
+        createdAt: serverTimestamp(),
+        expiresAt: new Date(Date.now() + 1200 * 1000).toISOString(),
+        amountNative: 0.1 // This would be fetched from a price API in production
       });
+      setOrderId(res.id);
+      setOrderStatus('waiting');
+    } catch (e) {
+      toast({ variant: "destructive", title: "Order Creation Failed" });
+    } finally {
+      setLoading(false);
+    }
+  }, [user, plan, size, price, selectedNetwork, orderId]);
 
-      setSubmitted(true);
-      toast({
-        title: "Proof Submitted!",
-        description: "Your verification request has been queued for review.",
+  useEffect(() => { if (user) createOrder(); }, [user]);
+
+  // 2. Real-time Status Monitoring & Timer
+  useEffect(() => {
+    if (!orderId) return;
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+
+    const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
+      const data = snap.data();
+      if (data?.status === "completed") {
+        setOrderStatus("completed");
+        toast({ title: "Payment Verified!", description: "Your account is ready." });
+      } else if (data?.status === "detected") {
+        setOrderStatus("detected");
+        setConfirmations(data.confirmations || 0);
+      }
+    });
+
+    // Auto-poll verification API
+    const poller = setInterval(async () => {
+      if (orderStatus !== 'completed') {
+        await fetch('/api/admin/verify-onchain', {
+          method: 'POST',
+          body: JSON.stringify({ orderId })
+        });
+      }
+    }, 20000);
+
+    return () => { clearInterval(timer); unsub(); clearInterval(poller); };
+  }, [orderId, orderStatus]);
+
+  const handleManualVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderId || !txHash) return;
+    setLoading(true);
+    try {
+      const base64 = proofFile ? await uploadImageAsBase64(proofFile) : null;
+      await updateDoc(doc(db, "orders", orderId), {
+        status: "manual_review",
+        txHash: sanitizeInput(txHash),
+        paymentScreenshot: base64,
+        submittedAt: serverTimestamp()
       });
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Submission Error", description: err.message });
-      console.error(err);
+      toast({ title: "Review Requested", description: "Admin will verify within 30 minutes." });
+      setManualMode(false);
+    } catch (e) {
+      toast({ variant: "destructive", title: "Request Failed" });
     } finally {
       setLoading(false);
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title: "Address Copied", description: "Wallet address copied." });
-  };
+  const currentWallet = cryptoWallets.find(w => w.network === selectedNetwork) || cryptoWallets[0];
+  const formatTime = (s: number) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2, '0')}`;
 
-  if (submitted) {
+  if (orderStatus === 'completed') {
     return (
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="flex flex-col items-center justify-center p-12 text-center max-w-2xl mx-auto"
-      >
-        <div className="w-24 h-24 rounded-full bg-accent/20 flex items-center justify-center mb-8 cyan-box-glow">
-          <CheckCircle2 className="text-accent w-12 h-12" />
-        </div>
-        <h2 className="text-4xl font-headline font-bold mb-4 text-white">Verification Pending</h2>
-        <p className="text-muted-foreground text-lg mb-10 leading-relaxed">
-          Your payment proof has been submitted. Our compliance team verifies transactions within 1-4 hours during business sessions. 
-          MT5 credentials will be delivered to your dashboard and email once approved.
-        </p>
-        <div className="flex gap-4">
-          <Button size="lg" className="h-14 px-8 rounded-xl font-bold cursor-pointer" onClick={() => router.push('/dashboard')}>
-            Go to Dashboard
-          </Button>
-          <Button variant="outline" size="lg" className="h-14 px-8 rounded-xl font-bold cursor-pointer" onClick={() => router.push('/accounts')}>
-            View Accounts
-          </Button>
-        </div>
-      </motion.div>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-8">
+        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="space-y-6">
+          <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto shadow-[0_0_40px_rgba(16,185,129,0.2)]">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+          </div>
+          <h2 className="text-4xl font-headline font-bold text-white">Payment Confirmed</h2>
+          <p className="text-muted-foreground max-w-sm mx-auto">Your institutional challenge node is now active. Check your email for login credentials.</p>
+          <Button className="h-12 px-8 font-black cyan-box-glow" onClick={() => router.push('/dashboard')}>Enter Dashboard <ArrowRight className="ml-2 w-4 h-4" /></Button>
+        </motion.div>
+      </div>
     );
   }
 
   return (
-    <div className="max-w-5xl mx-auto pb-20">
-      <header className="mb-12 text-center">
-        <Badge variant="outline" className="mb-4 border-primary/30 text-primary px-4 py-1">SECURE PAYMENT PORTAL</Badge>
-        <h1 className="text-4xl font-headline font-bold mb-2 text-white">Finalize Challenge</h1>
-        <p className="text-muted-foreground">Purchasing <span className="text-white font-bold">{size} {getDisplayName(plan)}</span> for <span className="text-primary font-bold">{price}</span>.</p>
+    <div className="max-w-6xl mx-auto pb-20">
+      <header className="mb-10 flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="text-center md:text-left">
+          <Badge variant="outline" className="mb-2 border-primary/30 text-primary">SECURE BLOCKCHAIN GATEWAY</Badge>
+          <h1 className="text-4xl font-headline font-bold text-white">Challenge Provisioning</h1>
+        </div>
+        <div className="bg-secondary/50 border border-border px-6 py-3 rounded-2xl flex items-center gap-4">
+           <Timer className="w-5 h-5 text-primary animate-pulse" />
+           <div>
+              <p className="text-[10px] font-black uppercase text-zinc-500">Awaiting Transaction</p>
+              <p className="text-xl font-mono font-bold text-white">{formatTime(timeLeft)}</p>
+           </div>
+        </div>
       </header>
 
       <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-6">
-          <div className="grid md:grid-cols-2 gap-6">
-            {cryptoWallets.map((wallet) => (
-              <Card key={wallet.network} className="bg-secondary/20 border-border/50 hover:border-primary/30 transition-all">
-                <CardHeader className="pb-4">
-                  <div className="flex justify-between items-center">
-                    <CardTitle className="text-sm font-bold text-white">{wallet.network}</CardTitle>
-                    <Badge className={cn(
-                      "text-[10px] font-bold border",
-                      wallet.isPolygon 
-                        ? "bg-purple-500/10 text-purple-400 border-purple-500/20" 
-                        : "bg-primary/10 text-primary border-primary/20"
-                    )}>
-                      {wallet.token}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="bg-white p-2 rounded-xl flex justify-center w-fit mx-auto shadow-xl">
-                    <QRCodeSVG value={wallet.address} size={120} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[9px] uppercase tracking-widest font-black text-muted-foreground">Wallet Address</Label>
-                    <div className="flex gap-2">
-                      <Input 
-                        readOnly 
-                        value={wallet.address} 
-                        className="bg-background/50 font-mono text-[8px] h-9 border-border text-white px-2 focus-visible:ring-0" 
-                      />
-                      <Button variant="secondary" size="icon" className="h-9 w-9 flex-shrink-0 cursor-pointer" onClick={() => copyToClipboard(wallet.address)}>
-                        <Copy className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          
-          <div className="p-6 rounded-2xl bg-destructive/10 border border-destructive/20 flex items-start gap-4">
-            <AlertTriangle className="text-destructive w-6 h-6 flex-shrink-0 mt-1" />
-            <div>
-              <h4 className="text-destructive font-bold text-sm mb-1 uppercase tracking-tight">Important Note</h4>
-              <p className="text-destructive/80 text-xs leading-relaxed font-medium">
-                Ensure you send the correct asset on the correct network. USDT/USDC sent on the wrong network cannot be recovered. Always double-check your TX hash before submitting.
-              </p>
+        <Card className="lg:col-span-2 border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
+          <CardHeader className="border-b border-white/5 pb-6">
+            <div className="flex justify-between items-center">
+               <CardTitle>Transfer Details</CardTitle>
+               <Select value={selectedNetwork} onValueChange={setSelectedNetwork}>
+                 <SelectTrigger className="w-48 bg-zinc-900 border-zinc-800 h-9 text-xs"><SelectValue /></SelectTrigger>
+                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                   {cryptoWallets.map(w => <SelectItem key={w.network} value={w.network}>{w.label}</SelectItem>)}
+                 </SelectContent>
+               </Select>
             </div>
-          </div>
-        </div>
+          </CardHeader>
+          <CardContent className="p-8">
+            <div className="flex flex-col md:flex-row gap-10 items-center">
+              <div className="bg-white p-3 rounded-2xl shadow-2xl shrink-0 group relative">
+                <QRCodeSVG value={currentWallet.address} size={200} />
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl backdrop-blur-sm">
+                   <p className="text-white text-[10px] font-black uppercase tracking-widest">Scan to Pay</p>
+                </div>
+              </div>
+              <div className="space-y-6 flex-1 w-full">
+                <div className="space-y-2">
+                   <Label className="text-[10px] font-black uppercase text-zinc-500">Receiving Wallet ({currentWallet.label})</Label>
+                   <div className="flex gap-2">
+                     <Input readOnly value={currentWallet.address} className="bg-zinc-900/50 font-mono text-[10px] h-11" />
+                     <Button variant="secondary" size="icon" className="h-11 w-11" onClick={() => { navigator.clipboard.writeText(currentWallet.address); toast({ title: "Address Copied" }); }}><Copy size={16} /></Button>
+                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                   <div className="p-4 bg-zinc-900/30 border border-border rounded-xl">
+                      <p className="text-[9px] font-black text-zinc-500 uppercase">Exact Amount</p>
+                      <p className="text-2xl font-headline font-bold text-primary">{price}</p>
+                   </div>
+                   <div className="p-4 bg-zinc-900/30 border border-border rounded-xl">
+                      <p className="text-[9px] font-black text-zinc-500 uppercase">Asset Required</p>
+                      <p className="text-2xl font-headline font-bold text-white">USDT/USDC</p>
+                   </div>
+                </div>
+                {orderStatus === 'detected' && (
+                  <div className="p-4 rounded-xl bg-primary/10 border border-primary/30 flex items-center gap-4">
+                     <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                     <div>
+                        <p className="text-sm font-bold text-white">Transaction Detected!</p>
+                        <p className="text-xs text-primary">Confirmations: {confirmations} / Required</p>
+                     </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter className="bg-secondary/10 p-6 border-t border-white/5">
+             <div className="flex items-start gap-3">
+                <AlertTriangle className="text-amber-500 w-5 h-5 shrink-0 mt-0.5" />
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  Only send <span className="text-white font-bold">{currentWallet.token}</span> on the <span className="text-white font-bold">{currentWallet.label}</span> network. Funds sent to other addresses or via unsupported networks are non-recoverable. Transaction is automatically monitored.
+                </p>
+             </div>
+          </CardFooter>
+        </Card>
 
         <div className="space-y-6">
-          <Card className="bg-card border-primary/20 shadow-2xl sticky top-24">
-            <CardHeader>
-              <CardTitle className="text-xl font-headline font-bold text-white">Verification Form</CardTitle>
-              <CardDescription className="text-xs">Submit proof of transaction</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div className="space-y-2">
-                  <Label className="text-xs flex items-center gap-2 text-white font-bold">
-                    <Globe className="w-3.5 h-3.5 text-primary" /> Network Used
-                  </Label>
-                  <Select value={selectedNetwork} onValueChange={setSelectedNetwork} required>
-                    <SelectTrigger className="bg-secondary/30 h-11 rounded-xl text-white text-xs">
-                      <SelectValue placeholder="Select network" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ERC20">Ethereum (ERC20)</SelectItem>
-                      <SelectItem value="TRC20">Tron (TRC20)</SelectItem>
-                      <SelectItem value="BEP20">BNB Smart Chain (BEP20)</SelectItem>
-                      <SelectItem value="Polygon">Polygon (MATIC)</SelectItem>
-                    </SelectContent>
-                  </Select>
+           <Card className="border-border/50 bg-card/40">
+             <CardHeader><CardTitle className="text-lg">Order Summary</CardTitle></CardHeader>
+             <CardContent className="space-y-4">
+                <div className="flex justify-between text-sm">
+                   <span className="text-zinc-500">Challenge</span>
+                   <span className="text-white font-bold">{size} {getDisplayName(plan)}</span>
                 </div>
+                <div className="flex justify-between text-sm">
+                   <span className="text-zinc-500">Network</span>
+                   <span className="text-white font-bold">{currentWallet.label}</span>
+                </div>
+                <div className="pt-4 border-t border-white/5 flex justify-between items-end">
+                   <span className="text-lg font-headline font-bold">Total Due</span>
+                   <span className="text-2xl font-headline font-bold text-primary">{price}</span>
+                </div>
+             </CardContent>
+           </Card>
 
-                <div className="space-y-2">
-                  <Label htmlFor="amountPaid" className="text-xs flex items-center gap-2 text-white font-bold">
-                    <DollarSign className="w-3.5 h-3.5 text-primary" /> Amount Paid ($)
-                  </Label>
-                  <Input 
-                    id="amountPaid" 
-                    type="number" 
-                    value={amountPaid}
-                    onChange={(e) => setAmountPaid(e.target.value)}
-                    required
-                    className="bg-secondary/30 h-11 rounded-xl text-white text-xs"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="txHash" className="text-xs flex items-center gap-2 text-white font-bold">
-                    <Hash className="w-3.5 h-3.5 text-primary" /> Transaction Hash (TXID)
-                  </Label>
-                  <Input 
-                    id="txHash" 
-                    placeholder="Enter full hash..." 
-                    value={txHash}
-                    onChange={(e) => setTxHash(e.target.value)}
-                    required
-                    className="bg-secondary/30 h-11 rounded-xl font-mono text-[10px] text-white"
-                  />
-                </div>
+           <div className="text-center">
+              <button 
+                onClick={() => setManualMode(!manualMode)}
+                className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-primary transition-colors underline underline-offset-4"
+              >
+                Payment not showing? Verify manually
+              </button>
+           </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs flex items-center gap-2 text-white font-bold">
-                    <FileImage className="w-3.5 h-3.5 text-primary" /> Payment Screenshot *
-                  </Label>
-                  <div className="relative h-11 border-2 border-dashed border-border rounded-xl flex items-center justify-center bg-secondary/20 hover:bg-secondary/40 transition-colors cursor-pointer group">
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      className="absolute inset-0 opacity-0 cursor-pointer" 
-                      onChange={handleFileChange}
-                    />
-                    <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground group-hover:text-primary">
-                      {proofFile ? <><CheckCircle2 className="w-3.5 h-3.5" /> {proofFile.name}</> : <><Upload className="w-3 h-3" /> Upload Proof</>}
-                    </div>
-                  </div>
-                </div>
-
-                <Button 
-                  type="submit" 
-                  className="w-full h-12 font-bold text-base rounded-xl cyan-box-glow cursor-pointer mt-4" 
-                  disabled={loading || !txHash || !selectedNetwork || !proofFile}
-                >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                  {loading ? 'Submitting...' : 'Submit Payment Proof'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+           <AnimatePresence>
+             {manualMode && (
+               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
+                 <Card className="border-primary/20 bg-primary/5">
+                   <CardHeader><CardTitle className="text-sm">Manual Verification</CardTitle></CardHeader>
+                   <CardContent className="space-y-4">
+                      <div className="space-y-2">
+                         <Label className="text-[10px]">Transaction Hash (TXID)</Label>
+                         <Input value={txHash} onChange={e => setTxHash(e.target.value)} placeholder="0x..." className="bg-zinc-900 border-zinc-700 h-9" />
+                      </div>
+                      <div className="space-y-2">
+                         <Label className="text-[10px]">Upload Screenshot</Label>
+                         <div className="relative h-10 border border-dashed border-zinc-700 rounded-lg flex items-center justify-center bg-zinc-900/50">
+                            <input type="file" onChange={e => setProofFile(e.target.files?.[0] || null)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                            <span className="text-[9px] font-bold text-zinc-500">{proofFile ? proofFile.name : 'Choose File'}</span>
+                         </div>
+                      </div>
+                      <Button onClick={handleManualVerify} disabled={loading || !txHash} className="w-full h-10 bg-primary text-black font-black">
+                         {loading ? <Loader2 className="animate-spin w-4 h-4" /> : "SUBMIT FOR REVIEW"}
+                      </Button>
+                   </CardContent>
+                 </Card>
+               </motion.div>
+             )}
+           </AnimatePresence>
         </div>
       </div>
     </div>
   );
+}
+
+function getDisplayName(id: string) {
+  const map: any = { '1-step': '1-Step Pro', '2-step': '2-Step Classic', '3-step': '3-Step Classic' };
+  return map[id] || 'Instant Funding';
 }
 
 export default function PaymentPage() {
