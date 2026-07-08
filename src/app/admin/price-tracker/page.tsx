@@ -58,7 +58,7 @@ export default function AdminPriceTracker() {
     setIsSyncing(true);
     
     const pricesRef = ref(rtdb, 'livePrices');
-    const unsub = onValue(pricesRef, (snapshot) => {
+    const unsub = onSnapshot(pricesRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
@@ -81,7 +81,7 @@ export default function AdminPriceTracker() {
       });
       setPrices(prev => ({ ...prev, ...newPrices }));
       setIsSyncing(false);
-    }, (err) => {
+    }, (err: any) => {
       toast({ variant: "destructive", title: "RTDB Heartbeat Failure", description: err.message });
     });
 

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -40,10 +39,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
-/**
- * Institutional Network Configuration
- * Standardized with official brand assets.
- */
 const NETWORKS = {
   USDT: [
     { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network', defaultFee: 1.50, logo: 'https://cryptologos.cc/logos/tron-trx-logo.svg' },
@@ -65,27 +60,17 @@ const COUNTRIES = [
   "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
   "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi",
   "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic",
-  "Denmark", "Djibouti", "Dominica", "Dominican Republic",
-  "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia",
-  "Fiji", "Finland", "France",
-  "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
-  "Haiti", "Honduras", "Hungary",
-  "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy",
-  "Jamaica", "Japan", "Jordan",
-  "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan",
-  "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
+  "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia",
+  "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
+  "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan",
+  "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
   "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar",
-  "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway",
-  "Oman",
-  "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal",
-  "Qatar",
-  "Romania", "Russia", "Rwanda",
+  "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman",
+  "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia", "Rwanda",
   "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria",
   "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
-  "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
-  "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
-  "Yemen",
-  "Zambia", "Zimbabwe"
+  "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
+  "Yemen", "Zambia", "Zimbabwe"
 ];
 
 function PaymentContent() {
@@ -123,7 +108,6 @@ function PaymentContent() {
   const [loading, setLoading] = useState(false);
   const isCreatingRef = useRef(false);
 
-  // Sync Global Settings
   useEffect(() => {
     if (!db || authLoading || !user) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
@@ -132,8 +116,6 @@ function PaymentContent() {
         setNetworkFees(data.networkFees || {});
         setConfiguredWallets(data.walletAddresses || {});
       }
-    }, (error) => {
-      console.warn('[Payment] Settings listener throttled:', error.message);
     });
     return () => unsub();
   }, [authLoading, user]);
@@ -167,28 +149,8 @@ function PaymentContent() {
   const createFinalOrder = async () => {
     if (!user || !selectedCoin || !selectedNetwork || isCreatingRef.current) return;
     
-    // Check if we already have an order for this plan/size in WAITING status
-    const ordersRef = collection(db, "orders");
-    const q = query(ordersRef, 
-      where("userId", "==", user.uid), 
-      where("status", "==", "waiting"),
-      where("plan", "==", plan),
-      where("accountSize", "==", size)
-    );
-    
-    try {
-      const existing = await getDocs(q);
-      if (!existing.empty) {
-        setOrderId(existing.docs[0].id);
-        setStep(6);
-        return;
-      }
-    } catch (e) {
-      // Index might be building, proceed to create new if lookup fails
-    }
-
-    isCreatingRef.current = true;
     setLoading(true);
+    isCreatingRef.current = true;
 
     try {
       const tag = selectedNetwork.id === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
@@ -207,7 +169,6 @@ function PaymentContent() {
         status: "waiting",
         createdAt: serverTimestamp(),
         submittedAt: serverTimestamp(),
-        expiresAt: new Date(Date.now() + 1200 * 1000).toISOString(),
         amountNative: totalAmountUsd * 1.002
       });
 
@@ -235,6 +196,14 @@ function PaymentContent() {
 
       if (remaining <= 0 && data.status === 'waiting') {
         updateDoc(doc(db, 'orders', orderId), { status: 'expired' });
+        addDoc(collection(db, 'users', user.uid, 'notifications'), {
+          title: '❌ Order Expired',
+          message: `Your payment window for ${plan} has expired. Please try again.`,
+          type: 'order_failed',
+          isRead: false,
+          createdAt: serverTimestamp()
+        });
+        setOrderStatus("expired");
       }
 
       if (data.status === "completed") setOrderStatus("completed");
@@ -244,13 +213,18 @@ function PaymentContent() {
       } else if (data.status === "expired" || data.status === "rejected") {
         setOrderStatus("expired");
       }
-    }, (error) => {
-      console.warn('[Payment] Order monitor fault:', error.message);
     });
     return () => unsub();
-  }, [orderId, user]);
+  }, [orderId, user, plan]);
 
   const formatTime = (s: number) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2, '0')}`;
+
+  const handleTryAgain = () => {
+    setOrderId(null);
+    setOrderStatus("waiting");
+    setTimeLeft(1200);
+    setStep(4);
+  };
 
   if (orderStatus === 'completed') {
     return (
@@ -276,7 +250,7 @@ function PaymentContent() {
           </div>
           <h2 className="text-3xl font-headline font-bold text-white">Payment Window Expired</h2>
           <p className="text-zinc-400">The 20-minute deposit window has closed. Please start a new session.</p>
-          <Button variant="outline" className="font-bold h-12 px-8" onClick={() => window.location.reload()}>Try Again</Button>
+          <Button variant="outline" className="font-bold h-12 px-8" onClick={handleTryAgain}>Try Again</Button>
         </motion.div>
       </div>
     );
@@ -439,14 +413,14 @@ function PaymentContent() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <StablecoinCard 
                  coin="USDT" 
-                 networks={`${NETWORKS.USDT.length} networks`}
+                 networks="4 networks"
                  logoUrl="https://cryptologos.cc/logos/tether-usdt-logo.svg"
                  selected={selectedCoin === 'USDT'} 
                  onClick={() => { setSelectedCoin('USDT'); setStep(5); }} 
                />
                <StablecoinCard 
                  coin="USDC" 
-                 networks={`${NETWORKS.USDC.length} networks`}
+                 networks="6 networks"
                  logoUrl="https://cryptologos.cc/logos/usd-coin-usdc-logo.svg"
                  selected={selectedCoin === 'USDC'} 
                  onClick={() => { setSelectedCoin('USDC'); setStep(5); }} 

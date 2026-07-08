@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -125,7 +124,6 @@ export default function AdminPage() {
     }
   }, [isAuthenticated, isAuthorized, authLoading]);
 
-  // Real-time tab data syncing
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
 
@@ -178,7 +176,6 @@ export default function AdminPage() {
         });
         break;
       default:
-        // Overview Tab - Multi-sync
         const unsubOrders = onSnapshot(query(collection(db, 'orders'), limit(10), orderBy('submittedAt', 'desc')), (s) => {
           setTabData((prev: any) => ({ ...prev, orders: s.docs.map(d => ({ id: d.id, ...d.data() })) }));
         });
@@ -408,7 +405,7 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({stats.totalNodesCount})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase || 'N/A'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'active' || acc.status === 'passed') ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase || 'evaluation'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'active' || acc.status === 'passed') ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="phase-passers" className="space-y-6">
@@ -428,7 +425,26 @@ export default function AdminPage() {
 
           <TabsContent value="payout-hub" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Withdrawal Requests ({tabData.payouts?.length || 0})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Submitted</th><th className="p-4">Trader</th><th className="p-4">Method / Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.payouts?.map((p: any) => (<tr key={p.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 text-xs font-bold">{p.email}</td><td className="p-4"><p className="text-[9px] font-bold text-zinc-400">{p.method}</p><p className="text-[8px] font-mono truncate max-w-[150px]">{p.address}</p></td><td className="p-4 text-right font-mono font-bold text-white">${parseFloat(p.amount || 0).toLocaleString()}</td><td className="p-4 text-right">{p.status === 'pending' && (<div className="flex justify-end gap-2"><Button size="sm" className="h-7 text-[8px] bg-emerald-500 text-black font-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Approve</Button><Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive" onClick={() => updatePayoutStatusAction(p.id, 'rejected')}>Reject</Button></div>)}<Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Submitted</th><th className="p-4">Trader</th><th className="p-4">Method / Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.payouts?.map((p: any) => (
+               <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                 <td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                 <td className="p-4 text-xs font-bold">{p.email}</td>
+                 <td className="p-4">
+                   <p className="text-[9px] font-bold text-zinc-400">{p.method}</p>
+                   <p className="text-[8px] font-mono truncate max-w-[150px]">{p.address}</p>
+                 </td>
+                 <td className="p-4 text-right font-mono font-bold text-white">${parseFloat(p.amount || 0).toLocaleString()}</td>
+                 <td className="p-4 text-right">
+                   {p.status === 'pending' && (
+                     <div className="flex justify-end gap-2">
+                       <Button size="sm" className="h-7 text-[8px] bg-emerald-500 text-black font-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Approve</Button>
+                       <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive" onClick={() => updatePayoutStatusAction(p.id, 'rejected')}>Reject</Button>
+                     </div>
+                   )}
+                   <Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge>
+                 </td>
+               </tr>
+             ))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="order-review" className="space-y-6">
@@ -514,7 +530,6 @@ export default function AdminPage() {
         </Tabs>
       </main>
 
-      {/* USER MANAGEMENT MODAL */}
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-2xl bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
@@ -557,7 +572,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* KYC REVIEW MODAL */}
       <Dialog open={isKycModalOpen} onOpenChange={setIsKycModalOpen}>
         <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
@@ -569,12 +583,6 @@ export default function AdminPage() {
             <KycDocCard label="ID Back" url={kycInquiryUser?.idBackProofUrl || kycInquiryUser?.addressProofUrl} />
             <KycDocCard label="Selfie" url={kycInquiryUser?.selfieProofUrl} />
           </div>
-          {kycInquiryUser?.kycStatus === 'verified' && (
-            <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center gap-3">
-              <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-              <span className="font-headline font-bold text-emerald-500 uppercase italic">Identity Verified!</span>
-            </div>
-          )}
           <DialogFooter className="gap-2">
             <Button variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/5" onClick={() => handleUpdateKycStatus(kycInquiryUser.id, 'rejected')} disabled={actionLoading}>Reject KYC</Button>
             <Button className="bg-emerald-500 text-black font-bold" onClick={() => handleUpdateKycStatus(kycInquiryUser.id, 'verified')} disabled={actionLoading || kycInquiryUser?.kycStatus === 'verified'}>Approve Verification</Button>
@@ -582,7 +590,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* GIFT ACCOUNT MODAL */}
       <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
@@ -632,7 +639,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* BROADCAST MODAL */}
       <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
@@ -667,7 +673,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* IMAGE PREVIEW MODAL */}
       <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
         <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black border-none">
           <DialogHeader className="sr-only">
@@ -706,7 +711,7 @@ function DiagnosticItem({ label, value, isBadge = false }: { label: string, valu
     <div>
       <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest mb-1">{label}</p>
       {isBadge ? (
-        <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] uppercase font-bold">{value || '—'}</Badge>
+        <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] uppercase font-bold">{value || 'evaluation'}</Badge>
       ) : (
         <p className="text-xs font-mono font-bold text-white break-all">{value || '—'}</p>
       )}
