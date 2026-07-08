@@ -397,7 +397,7 @@ export default function AdminPage() {
 
           <TabsContent value="user-directory" className="space-y-6">
              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">User Directory ({tabData.users?.length || 0})</h2>
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">User Directory ({stats.totalUsersCount})</h2>
                 <div className="relative w-96">
                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                    <Input placeholder="Search Users, Emails, IDs..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" />
@@ -407,7 +407,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="trading-nodes" className="space-y-6">
-             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({tabData.demoAccounts?.length || 0})</h2>
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({stats.totalNodesCount})</h2>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.plan} · {acc.planType || '1-step'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : acc.status === 'passed' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
@@ -417,7 +417,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="breaches" className="space-y-6">
-             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Liquidation Log ({tabData.breaches?.length || 0})</h2>
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Liquidation Log ({stats.totalLiquidationCount})</h2>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Violation Time</th><th className="p-4">Account / Trader</th><th className="p-4">Violation Reason</th><th className="p-4 text-right">Final Equity</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.breaches?.map((b: any) => (<tr key={b.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><p className="font-mono text-[10px] text-destructive">{b.id}</p><p className="text-[9px] text-muted-foreground">{b.email}</p></td><td className="p-4 text-[10px] text-zinc-300 italic font-medium">{b.breachReason}</td><td className="p-4 text-right font-mono text-white">${b.equity?.toLocaleString()}</td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 

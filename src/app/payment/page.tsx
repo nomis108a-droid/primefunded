@@ -43,7 +43,6 @@ import Link from 'next/link';
 /**
  * Institutional Network Configuration
  * Standardized with official brand assets.
- * Default addresses are provided but will be overridden by Firestore settings if available.
  */
 const NETWORKS = {
   USDT: [
@@ -124,7 +123,7 @@ function PaymentContent() {
   const [loading, setLoading] = useState(false);
   const isCreatingRef = useRef(false);
 
-  // Sync Global Settings (Fees + Wallets)
+  // Sync Global Settings
   useEffect(() => {
     if (!db || authLoading || !user) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
@@ -134,7 +133,7 @@ function PaymentContent() {
         setConfiguredWallets(data.walletAddresses || {});
       }
     }, (error) => {
-      console.warn('[Payment] Settings listener throttled or permission issue:', error.message);
+      console.warn('[Payment] Settings listener throttled:', error.message);
     });
     return () => unsub();
   }, [authLoading, user]);
@@ -168,9 +167,24 @@ function PaymentContent() {
   const createFinalOrder = async () => {
     if (!user || !selectedCoin || !selectedNetwork || isCreatingRef.current) return;
     
-    if (orderId) {
-      setStep(6);
-      return;
+    // Check if we already have an order for this plan/size in WAITING status
+    const ordersRef = collection(db, "orders");
+    const q = query(ordersRef, 
+      where("userId", "==", user.uid), 
+      where("status", "==", "waiting"),
+      where("plan", "==", plan),
+      where("accountSize", "==", size)
+    );
+    
+    try {
+      const existing = await getDocs(q);
+      if (!existing.empty) {
+        setOrderId(existing.docs[0].id);
+        setStep(6);
+        return;
+      }
+    } catch (e) {
+      // Index might be building, proceed to create new if lookup fails
     }
 
     isCreatingRef.current = true;
@@ -231,7 +245,7 @@ function PaymentContent() {
         setOrderStatus("expired");
       }
     }, (error) => {
-      console.warn('[Payment] Order monitor fault (expected during cleanup):', error.message);
+      console.warn('[Payment] Order monitor fault:', error.message);
     });
     return () => unsub();
   }, [orderId, user]);

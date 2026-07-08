@@ -58,6 +58,16 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "openedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "demoTrades",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "accountId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "closedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
