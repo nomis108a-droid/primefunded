@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -77,6 +77,10 @@ export default function AdminPage() {
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
 
+  // Pagination for User Directory
+  const [userPage, setUserPage] = useState(1);
+  const usersPerPage = 50;
+
   const instanceId = "Studio-8383940162";
 
   const isAuthorized = useMemo(() => {
@@ -129,7 +133,8 @@ export default function AdminPage() {
 
     switch(activeTab) {
       case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(1000)), (snap) => {
+        // Removed limit(1000) to show true total as requested
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -285,6 +290,18 @@ export default function AdminPage() {
     const term = searchTerm.toLowerCase();
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
+
+  // Reset page when search changes
+  useEffect(() => {
+    setUserPage(1);
+  }, [searchTerm]);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (userPage - 1) * usersPerPage;
+    return filteredUsers.slice(start, start + usersPerPage);
+  }, [filteredUsers, userPage]);
+
+  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage);
 
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
@@ -498,7 +515,7 @@ export default function AdminPage() {
              <TabHeader title="Institutional Trader Directory" count={filteredUsers.length} onSearch={setSearchTerm} />
              <DataTable 
                 loading={isLoading} 
-                data={filteredUsers} 
+                data={paginatedUsers} 
                 columns={['Trader Name', 'Registered Email', 'Trader ID', 'Tier', 'Joined Date', 'Actions']}
                 renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
@@ -511,6 +528,20 @@ export default function AdminPage() {
                   </tr>
                 )}
              />
+             
+             {totalUserPages > 1 && (
+               <div className="flex items-center justify-between mt-4 px-2">
+                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {filteredUsers.length} traders (Page {userPage} of {totalUserPages})</p>
+                 <div className="flex gap-2">
+                   <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}>
+                     <ChevronLeft className="w-4 h-4 mr-1" /> Previous
+                   </Button>
+                   <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>
+                     Next <ChevronRight className="w-4 h-4 ml-1" />
+                   </Button>
+                 </div>
+               </div>
+             )}
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
@@ -662,7 +693,9 @@ export default function AdminPage() {
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                   <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
                   <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
+                  <SelectItem value="3-step-classic">3-Step Classic</SelectItem>
                   <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                  <SelectItem value="instant-pro">Instant Pro</SelectItem>
                 </SelectContent>
               </Select></div>
             </div>

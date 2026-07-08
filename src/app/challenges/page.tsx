@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, memo, useEffect, useMemo } from 'react';
@@ -602,7 +603,7 @@ export default function ChallengesPage() {
                     <TabsTrigger value="1-step" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">1-Step</TabsTrigger>
                     <TabsTrigger value="2-step" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">2-Step</TabsTrigger>
                     <TabsTrigger value="3-step" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">3-Step</TabsTrigger>
-                    <TabsTrigger value="instant" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant</TabsTrigger>
+                    <TabsTrigger value="instant" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant Funding</TabsTrigger>
                     <TabsTrigger value="instant-pro" className="data-[state=active]:bg-background font-bold rounded-lg cursor-pointer">Instant Pro</TabsTrigger>
                   </TabsList>
                 </div>
