@@ -59,12 +59,10 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // STATS STATE
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0 
   });
 
-  // TAB DATA STATE (Lazy Loading)
   const [tabData, setTabData] = useState<any>({
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: []
   });
@@ -93,28 +91,24 @@ export default function AdminPage() {
     return user && ADMIN_EMAILS.includes(user.email || "");
   }, [user]);
 
-  // OPTIMIZED STATS REFRESH (Decoupled from Tab Switch to save Quota)
   const refreshStats = useCallback(async () => {
     if (!isAuthenticated || !isAuthorized) return;
     
     try {
-      const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersSnap] = await Promise.all([
+      const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersCountSnap] = await Promise.all([
         getCountFromServer(collection(db, 'users')),
         getCountFromServer(collection(db, 'demoAccounts')),
         getCountFromServer(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         getCountFromServer(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        getDocs(query(collection(db, 'orders'), limit(100), orderBy('createdAt', 'desc')))
+        getCountFromServer(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review'])))
       ]);
-
-      const orders = ordersSnap.docs.map(d => d.data());
-      const pendingOrders = orders.filter((o: any) => o.status === 'pending' || o.status === 'manual_review').length;
 
       setStats({
         totalUsersCount: userCountSnap.data().count,
         totalNodesCount: accountsCountSnap.data().count,
         totalLiquidationCount: liquidSnap.data().count,
         phasePassersCount: passedSnap.data().count,
-        pendingOrdersCount: pendingOrders,
+        pendingOrdersCount: ordersCountSnap.data().count,
         totalAum: accountsCountSnap.data().count * 50000 
       });
     } catch (err: any) {
@@ -122,7 +116,6 @@ export default function AdminPage() {
     }
   }, [isAuthenticated, isAuthorized]);
 
-  // LAZY DATA FETCHING BY TAB (With strict limits)
   const fetchTabData = useCallback(async (tab: string) => {
     if (!isAuthenticated || !isAuthorized) return;
     setIsLoading(true);
@@ -142,32 +135,32 @@ export default function AdminPage() {
           }));
           break;
         case 'user-directory':
-          snap = await getDocs(query(collection(db, 'users'), limit(100), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'users'), limit(50), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'trading-nodes':
         case 'phase-passers':
-          snap = await getDocs(query(collection(db, 'demoAccounts'), limit(100), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'demoAccounts'), limit(50), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'payout-hub':
-          snap = await getDocs(query(collection(db, 'payouts'), limit(50), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'payouts'), limit(20), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'order-review':
-          snap = await getDocs(query(collection(db, 'orders'), limit(100), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'orders'), limit(50), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'referral-audit':
-          snap = await getDocs(query(collection(db, 'referrals'), limit(100), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'referrals'), limit(50), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'broadcasts':
-          snap = await getDocs(query(collection(db, 'broadcasts'), limit(50), orderBy('sentAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'broadcasts'), limit(20), orderBy('sentAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'breaches':
-          snap = await getDocs(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(100), orderBy('updatedAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(50), orderBy('updatedAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
       }
@@ -186,7 +179,6 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      // Refresh stats on first mount only
       if (stats.totalUsersCount === 0) refreshStats();
       fetchTabData(activeTab);
     }
@@ -235,8 +227,8 @@ export default function AdminPage() {
     setActionLoading(true);
     try {
       const [nodesSnap, tradesSnap] = await Promise.all([
-        getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', user.id))),
-        getDocs(query(collection(db, 'demoTrades'), where('userId', '==', user.id), limit(50), orderBy('openedAt', 'desc')))
+        getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', user.id), limit(10))),
+        getDocs(query(collection(db, 'demoTrades'), where('userId', '==', user.id), limit(20), orderBy('openedAt', 'desc')))
       ]);
       setInspectNodes(nodesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setInspectTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -305,7 +297,6 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  // Filter Logic
   const filteredNodes = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => {
     const term = searchTerm.toLowerCase();
     return a.id.toLowerCase().includes(term) || a.email?.toLowerCase().includes(term) || a.label?.toLowerCase().includes(term);
@@ -623,7 +614,9 @@ export default function AdminPage() {
       {/* MODAL: Image Preview (KYC/Order Proof) */}
       <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
         <DialogContent className="max-w-4xl p-0 bg-black border-none">
-          <DialogHeader className="sr-only"><DialogTitle>Document Preview</DialogTitle></DialogHeader>
+          <DialogHeader className="sr-only">
+             <DialogTitle>Document Preview</DialogTitle>
+          </DialogHeader>
           <div className="relative aspect-video w-full">
             {previewImage && (
               <Image src={previewImage} alt="Document Proof" fill className="object-contain" />
