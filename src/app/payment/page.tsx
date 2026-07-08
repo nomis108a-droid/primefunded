@@ -72,7 +72,7 @@ const NETWORK_CONFIG = [
 
 function PaymentContent() {
   const searchParams = useSearchParams();
-  const { user, userData } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
@@ -84,7 +84,7 @@ function PaymentContent() {
   const [destinationTag, setDestinationTag] = useState<number | null>(null);
   const [orderStatus, setOrderStatus] = useState<'idle' | 'waiting' | 'detected' | 'completed'>('idle');
   const [confirmations, setConfirmations] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(1200); // 20 minutes
+  const [timeLeft, setTimeLeft] = useState(1200); 
   
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [selectedCoin, setSelectedCoin] = useState<string | null>(null);
@@ -107,12 +107,10 @@ function PaymentContent() {
     isCreatingRef.current = true;
     setLoading(true);
     try {
-      // 1. LOOKUP EXISTING WAITING ORDER
+      // 1. LOOKUP EXISTING WAITING ORDER FOR THIS USER
       const q = query(
         collection(db, "orders"),
         where("userId", "==", user.uid),
-        where("plan", "==", plan),
-        where("accountSize", "==", size),
         where("status", "==", "waiting"),
         orderBy("createdAt", "desc"),
         limit(1)
@@ -122,27 +120,30 @@ function PaymentContent() {
       if (!existingSnap.empty) {
         const existingOrder = existingSnap.docs[0];
         const data = existingOrder.data();
-        const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
-        const ageMs = Date.now() - createdAt.getTime();
         
-        // If order is still valid (under 20 mins), reuse and update it
-        if (ageMs < 1200 * 1000) {
-          await updateDoc(existingOrder.ref, {
-            network: selectedNetwork,
-            coin: selectedCoin,
-            updatedAt: serverTimestamp()
-          });
-          setOrderId(existingOrder.id);
-          setDestinationTag(data.destinationTag);
-          setOrderStatus('waiting');
-          setTimeLeft(Math.max(0, 1200 - Math.floor(ageMs / 1000)));
-          setLoading(false);
-          isCreatingRef.current = false;
-          return;
+        // REUSE IF PLAN AND SIZE MATCH
+        if (data.plan === plan && data.accountSize === size) {
+          const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
+          const ageMs = Date.now() - createdAt.getTime();
+          
+          if (ageMs < 1200 * 1000) {
+            await updateDoc(existingOrder.ref, {
+              network: selectedNetwork,
+              coin: selectedCoin,
+              updatedAt: serverTimestamp()
+            });
+            setOrderId(existingOrder.id);
+            setDestinationTag(data.destinationTag);
+            setOrderStatus('waiting');
+            setTimeLeft(Math.max(0, 1200 - Math.floor(ageMs / 1000)));
+            setLoading(false);
+            isCreatingRef.current = false;
+            return;
+          }
         }
       }
 
-      // 2. CREATE NEW ORDER (If no valid existing one found)
+      // 2. CREATE NEW ORDER
       const tag = selectedNetwork === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
@@ -176,7 +177,6 @@ function PaymentContent() {
     }
   }, [selectedNetwork, selectedCoin, user, orderId, createOrder]);
 
-  // Status Monitoring
   useEffect(() => {
     if (!orderId) return;
 
@@ -193,16 +193,18 @@ function PaymentContent() {
 
     const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
       const data = snap.data();
-      if (data?.status === "completed") {
+      if (!data) return;
+      
+      if (data.status === "completed") {
         setOrderStatus("completed");
         toast({ title: "Payment Verified!", description: "Your account is ready." });
-      } else if (data?.status === "detected") {
+      } else if (data.status === "detected") {
         setOrderStatus("detected");
         setConfirmations(data.confirmations || 0);
-      } else if (data?.status === "rejected" || data?.status === "expired") {
+      } else if (data.status === "rejected" || data.status === "expired") {
         setOrderStatus("idle");
         setOrderId(null);
-        toast({ variant: "destructive", title: "Order Failed", description: "Payment session expired or rejected." });
+        toast({ variant: "destructive", title: "Session Ended", description: "Payment window expired or was rejected." });
       }
     });
 
