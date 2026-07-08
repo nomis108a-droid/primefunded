@@ -254,7 +254,7 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
-      createdAt: serverTimestamp()
+      createdAt: FieldValue.serverTimestamp()
     });
     
     return { success: true };
@@ -280,9 +280,56 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
       message: status === 'done' ? `Your withdrawal of $${payout.amount} has been sent.` : `Your payout request was rejected.`,
       type: 'payout_update',
       isRead: false,
-      createdAt: serverTimestamp()
+      createdAt: FieldValue.serverTimestamp()
     });
     
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
+}
+
+/**
+ * CLEANUP PROTOCOL: Purges redundant duplicate WAITING orders.
+ * Identifies orders with the same trader/plan/amount created in a single session.
+ */
+export async function cleanupDuplicateOrdersAction() {
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  try {
+    const db = getAdminDb();
+    const ordersSnap = await db.collection('orders')
+      .where('status', '==', 'waiting')
+      .get();
+    
+    const orders = ordersSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() as any }));
+    const clusters: Record<string, any[]> = {};
+
+    // Group by unique key
+    orders.forEach(o => {
+      const key = `${o.userId}-${o.plan}-${o.accountSize}-${o.amountPaid}`;
+      if (!clusters[key]) clusters[key] = [];
+      clusters[key].push(o);
+    });
+
+    let deleteCount = 0;
+    const batch = db.batch();
+
+    Object.values(clusters).forEach(group => {
+      if (group.length > 1) {
+        // Sort by creation time (desc) to keep the most recent one
+        group.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        // Delete all except the first one
+        group.slice(1).forEach(redundant => {
+          batch.delete(redundant.ref);
+          deleteCount++;
+        });
+      }
+    });
+
+    if (deleteCount > 0) {
+      await batch.commit();
+    }
+
+    return { success: true, count: deleteCount };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }

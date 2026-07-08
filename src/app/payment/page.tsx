@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback, useMemo } from 'react';
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Copy, CheckCircle2, AlertTriangle, QrCode, Mail, Hash, Loader2, Globe, Upload, FileImage, DollarSign, Timer, ArrowRight, ExternalLink } from 'lucide-react';
@@ -95,22 +95,26 @@ function PaymentContent() {
   const [txHash, setTxHash] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
 
+  const isCreatingRef = useRef(false);
+
   const networkInfo = useMemo(() => 
     NETWORK_CONFIG.find(n => n.id === selectedNetwork)
   , [selectedNetwork]);
 
   const createOrder = useCallback(async () => {
-    if (!user || !selectedNetwork || !selectedCoin) return;
+    if (!user || !selectedNetwork || !selectedCoin || isCreatingRef.current) return;
     
+    isCreatingRef.current = true;
     setLoading(true);
     try {
-      // DUPLICATE PREVENTION: Check for existing WAITING orders for this user/plan
+      // 1. LOOKUP EXISTING WAITING ORDER
       const q = query(
         collection(db, "orders"),
         where("userId", "==", user.uid),
         where("plan", "==", plan),
         where("accountSize", "==", size),
         where("status", "==", "waiting"),
+        orderBy("createdAt", "desc"),
         limit(1)
       );
       
@@ -118,21 +122,27 @@ function PaymentContent() {
       if (!existingSnap.empty) {
         const existingOrder = existingSnap.docs[0];
         const data = existingOrder.data();
-        
-        // Only reuse if it was created in the last 20 minutes
         const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
         const ageMs = Date.now() - createdAt.getTime();
         
+        // If order is still valid (under 20 mins), reuse and update it
         if (ageMs < 1200 * 1000) {
+          await updateDoc(existingOrder.ref, {
+            network: selectedNetwork,
+            coin: selectedCoin,
+            updatedAt: serverTimestamp()
+          });
           setOrderId(existingOrder.id);
           setDestinationTag(data.destinationTag);
           setOrderStatus('waiting');
           setTimeLeft(Math.max(0, 1200 - Math.floor(ageMs / 1000)));
           setLoading(false);
+          isCreatingRef.current = false;
           return;
         }
       }
 
+      // 2. CREATE NEW ORDER (If no valid existing one found)
       const tag = selectedNetwork === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
@@ -151,22 +161,20 @@ function PaymentContent() {
       setOrderId(res.id);
       setDestinationTag(tag);
       setOrderStatus('waiting');
-      setTimeLeft(1200); // Fresh timer for new order
+      setTimeLeft(1200); 
     } catch (e) {
       toast({ variant: "destructive", title: "Order Creation Failed" });
     } finally {
       setLoading(false);
+      isCreatingRef.current = false;
     }
   }, [user, plan, size, price, selectedNetwork, selectedCoin, toast]);
 
-  // Effect: When network or coin changes, clear order state and recreate
   useEffect(() => {
-    if (selectedNetwork && selectedCoin && user) {
-      setOrderId(null);
-      setOrderStatus('idle');
+    if (selectedNetwork && selectedCoin && user && !orderId) {
       createOrder();
     }
-  }, [selectedNetwork, selectedCoin, user]);
+  }, [selectedNetwork, selectedCoin, user, orderId, createOrder]);
 
   // Status Monitoring
   useEffect(() => {
@@ -275,7 +283,7 @@ function PaymentContent() {
                <div className="flex flex-wrap gap-3 w-full sm:w-auto">
                  <div className="space-y-1.5 flex-1 sm:min-w-[180px]">
                    <Label className="text-[9px] font-black uppercase text-zinc-500">1. Select Network</Label>
-                   <Select value={selectedNetwork || ""} onValueChange={(val) => { setSelectedNetwork(val); setSelectedCoin(null); }}>
+                   <Select value={selectedNetwork || ""} onValueChange={(val) => { setSelectedNetwork(val); setSelectedCoin(null); setOrderId(null); }}>
                      <SelectTrigger className="bg-zinc-900 border-zinc-800 h-10 text-xs font-bold"><SelectValue placeholder="Network..." /></SelectTrigger>
                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                        {NETWORK_CONFIG.map(n => <SelectItem key={n.id} value={n.id} className="font-bold">{n.label}</SelectItem>)}
@@ -287,7 +295,7 @@ function PaymentContent() {
                    {selectedNetwork && (
                      <motion.div initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} className="space-y-1.5 flex-1 sm:min-w-[140px]">
                         <Label className="text-[9px] font-black uppercase text-zinc-500">2. Select Asset</Label>
-                        <Select value={selectedCoin || ""} onValueChange={setSelectedCoin}>
+                        <Select value={selectedCoin || ""} onValueChange={(v) => { setSelectedCoin(v); setOrderId(null); }}>
                           <SelectTrigger className="bg-zinc-900 border-zinc-800 h-10 text-xs font-bold"><SelectValue placeholder="Coin..." /></SelectTrigger>
                           <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                             {networkInfo?.coins.map(c => <SelectItem key={c} value={c} className="font-bold">{c}</SelectItem>)}
@@ -405,7 +413,7 @@ function PaymentContent() {
 
            <AnimatePresence>
              {manualMode && (
-               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
+               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, y: 10 }}>
                  <Card className="border-primary/20 bg-primary/5">
                    <CardHeader><CardTitle className="text-sm font-headline font-bold text-white">Manual Verification</CardTitle></CardHeader>
                    <CardContent className="space-y-4">
