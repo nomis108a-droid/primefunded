@@ -15,8 +15,8 @@ import {
   Activity,
   AlertTriangle
 } from 'lucide-react';
-import { db } from '@/lib/firebase';
-import { onSnapshot, collection } from 'firebase/firestore';
+import { rtdb } from '@/lib/firebase';
+import { ref, onValue } from 'firebase/database';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
@@ -58,21 +58,27 @@ export default function AdminPriceTracker() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !rtdb) return;
     setIsSyncing(true);
-    const unsub = onSnapshot(collection(db, 'livePrices'), (snapshot) => {
+    
+    // Switch to Realtime Database for near-zero latency delivery
+    const pricesRef = ref(rtdb, 'livePrices');
+    const unsub = onValue(pricesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
       const newPrices: Record<string, any> = {};
       setHistory(prev => {
         const next = { ...prev };
-        snapshot.docs.forEach(d => {
-          const sym = d.id.toUpperCase();
+        Object.entries(data).forEach(([key, tick]: [string, any]) => {
+          const sym = key.toUpperCase();
           if (SYMBOLS.includes(sym)) {
-            const data = d.data();
-            newPrices[sym] = data;
-            if (data.price) {
+            newPrices[sym] = tick;
+            if (tick.price) {
               const current = next[sym] || [];
-              if (current[current.length - 1] !== data.price) {
-                next[sym] = [...current, data.price].slice(-30);
+              // Only update history if price has actually moved
+              if (current[current.length - 1] !== tick.price) {
+                next[sym] = [...current, tick.price].slice(-30);
               }
             }
           }
@@ -82,8 +88,9 @@ export default function AdminPriceTracker() {
       setPrices(prev => ({ ...prev, ...newPrices }));
       setIsSyncing(false);
     }, (err) => {
-      toast({ variant: "destructive", title: "Stream Failure", description: err.message });
+      toast({ variant: "destructive", title: "RTDB Heartbeat Failure", description: err.message });
     });
+
     return () => unsub();
   }, [isAuthenticated, toast]);
 
@@ -125,19 +132,19 @@ export default function AdminPriceTracker() {
             const data = prices[sym];
             const hist = history[sym] || [];
             const isForex = !['XAUUSD', 'XAGUSD', 'XPTUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(sym);
-            const format = (v: number) => v ? v.toLocaleString(undefined, { minimumFractionDigits: isForex ? 5 : 2 }) : '---';
+            const formatValue = (v: number) => v ? v.toLocaleString(undefined, { minimumFractionDigits: isForex ? 5 : 2 }) : '---';
 
             return (
               <Card key={sym} className="bg-card/30 border-border/50 p-4 hover:border-primary/30 transition-all group">
                 <div className="flex flex-col gap-1">
                   <div className="flex justify-between items-end mb-1">
                     <span className="font-bold text-white text-xs group-hover:text-primary transition-colors">{sym}</span>
-                    <span className="font-mono text-[10px] text-primary tabular-nums">{format(data?.price)}</span>
+                    <span className="font-mono text-[10px] text-primary tabular-nums">{formatValue(data?.price)}</span>
                   </div>
                   <MiniChart history={hist} />
                   <div className="flex justify-between mt-2 pt-2 border-t border-white/5">
-                     <div className="flex flex-col"><span className="text-[7px] text-zinc-600 font-black uppercase">Bid</span><span className="text-[9px] font-mono text-zinc-400">{format(data?.bid)}</span></div>
-                     <div className="flex flex-col items-end"><span className="text-[7px] text-zinc-600 font-black uppercase">Ask</span><span className="text-[9px] font-mono text-zinc-400">{format(data?.ask)}</span></div>
+                     <div className="flex flex-col"><span className="text-[7px] text-zinc-600 font-black uppercase">Bid</span><span className="text-[9px] font-mono text-zinc-400">{formatValue(data?.bid)}</span></div>
+                     <div className="flex flex-col items-end"><span className="text-[7px] text-zinc-600 font-black uppercase">Ask</span><span className="text-[9px] font-mono text-zinc-400">{formatValue(data?.ask)}</span></div>
                   </div>
                 </div>
               </Card>

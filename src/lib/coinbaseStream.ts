@@ -1,3 +1,4 @@
+
 /**
  * @fileOverview Crypto Price Feed via Kraken REST API
  * Shared state manager for crypto liquidity.
@@ -77,6 +78,8 @@ async function fetchKrakenPrices() {
         }
       });
       
+      // IMMEDIATE RTDB SYNC AFTER POLL
+      broadcastToRtdb(cryptoPrices as any);
       await writeCryptoPricesToStorage();
     }
   } catch (e: any) {
@@ -102,6 +105,8 @@ async function fetchBnbPrice() {
         ask: +(price + spread).toFixed(2),
         updatedAt: Date.now()
       };
+      // IMMEDIATE RTDB SYNC FOR BNB
+      broadcastToRtdb({ BNBUSD: cryptoPrices['BNBUSD'] } as any);
     }
   } catch (e) {}
 }
@@ -111,10 +116,6 @@ async function writeCryptoPricesToStorage() {
   isWriting = true;
   
   try {
-    // 1. Write to RTDB (Instant broadcast)
-    broadcastToRtdb(cryptoPrices as any);
-
-    // 2. Write to Firestore (Audit/persistence)
     const db = getAdminDb();
     const batch = db.batch();
     const now = FieldValue.serverTimestamp();
@@ -139,7 +140,8 @@ async function writeCryptoPricesToStorage() {
 
 export function startCoinbaseStream() {
   if (krakenInterval) return;
-  console.log('[KrakenFeed] Starting 3s Crypto Polling Cycle...');
+  // Increased Crypto Polling frequency to 1 second
+  console.log('[KrakenFeed] Starting 1s Crypto Polling Cycle...');
   
   if (!heartbeatInterval) {
     console.log('[KrakenFeed] Initializing High-Frequency Health Heartbeat...');
@@ -150,7 +152,7 @@ export function startCoinbaseStream() {
   }
 
   fetchKrakenPrices();
-  krakenInterval = setInterval(fetchKrakenPrices, 3000);
+  krakenInterval = setInterval(fetchKrakenPrices, 1000);
 }
 
 export function startBnbPolling() {

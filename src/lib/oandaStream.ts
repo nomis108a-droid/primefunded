@@ -1,3 +1,4 @@
+
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { broadcastToRtdb } from './rtdbBroadcast';
@@ -11,6 +12,7 @@ import { broadcastToRtdb } from './rtdbBroadcast';
 let latestOandaTicks: Record<string, { price: number; bid: number; ask: number; updatedAt?: number }> = {};
 let lastWrittenOandaTicks: Record<string, string> = {};
 let isWriting = false;
+let lastRtdbBroadcast = 0;
 let firestoreWriteInterval: NodeJS.Timeout | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
 let tickCount = 0;
@@ -84,12 +86,20 @@ export async function startOandaStream() {
 
             if (!isNaN(price)) {
               tickCount++;
-              latestOandaTicks[symbol] = {
+              const tick = {
                 price: +price.toFixed(5),
                 bid: +bid.toFixed(5),
                 ask: +ask.toFixed(5),
                 updatedAt: Date.now()
               };
+              latestOandaTicks[symbol] = tick;
+              
+              // HIGH FREQUENCY RTDB SYNC (200ms throttle to prevent overhead while ensuring real-time UI)
+              const now = Date.now();
+              if (now - lastRtdbBroadcast > 200) {
+                broadcastToRtdb(latestOandaTicks as any);
+                lastRtdbBroadcast = now;
+              }
             }
           }
         } catch (e) {}
@@ -106,16 +116,14 @@ export async function startOandaStream() {
 export function startOandaThrottledFirestoreWrite() {
   if (firestoreWriteInterval) return;
 
+  // Reduced Firestore write interval for better audit freshness (500ms)
   firestoreWriteInterval = setInterval(async () => {
     if (isWriting) return;
 
     const symbols = Object.keys(latestOandaTicks);
     if (symbols.length === 0) return;
 
-    // 1. Write to RTDB (Near-instant broadcast to all instances)
-    broadcastToRtdb(latestOandaTicks as any);
-
-    // 2. Write to Firestore (Throttled audit persistence)
+    // Firestore update for audit/persistence
     const db = getAdminDb();
     const batch = db.batch();
     let hasChanges = false;
@@ -149,5 +157,5 @@ export function startOandaThrottledFirestoreWrite() {
         isWriting = false;
       }
     }
-  }, 2000); 
+  }, 500); 
 }
