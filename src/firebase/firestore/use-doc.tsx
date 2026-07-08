@@ -12,6 +12,11 @@ import { errorEmitter } from '../error-emitter';
 import { FirestorePermissionError, type SecurityRuleContext } from '../errors';
 
 /**
+ * Shared state for circuit breaker
+ */
+let globalQuotaExhausted = false;
+
+/**
  * useDoc Hook
  * Real-time document listener with automated retry logic and absolute cleanup.
  * Hardened to handle quota exhaustion gracefully.
@@ -23,21 +28,20 @@ export function useDoc<T = DocumentData>(path: string | null) {
   const [error, setError] = useState<Error | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
-  const quotaExhaustedRef = useRef(false);
 
   useEffect(() => {
     isMountedRef.current = true;
 
-    if (!path || !db) {
+    if (!path || !db || globalQuotaExhausted) {
       setLoading(false);
-      setData(null);
+      if (!globalQuotaExhausted) setData(null);
       return;
     }
 
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMountedRef.current || quotaExhaustedRef.current) return;
+      if (!isMountedRef.current || globalQuotaExhausted) return;
 
       try {
         const docRef = doc(db, path) as DocumentReference<T>;
@@ -55,9 +59,9 @@ export function useDoc<T = DocumentData>(path: string | null) {
             
             console.error(`[Firestore-Doc-Listener] Path: ${path} | Error:`, serverError.message || serverError);
 
-            // QUOTA PROTECTION
+            // GLOBAL CIRCUIT BREAKER
             if (serverError.code === 'resource-exhausted') {
-              quotaExhaustedRef.current = true;
+              globalQuotaExhausted = true;
               setError(serverError);
               setLoading(false);
               return;
@@ -79,15 +83,11 @@ export function useDoc<T = DocumentData>(path: string | null) {
             
             setLoading(false);
 
-            // Retry logic
             if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-            
-            if (isAssertionError) {
-              unsubscribe();
-            }
+            if (isAssertionError) unsubscribe();
 
             retryTimerRef.current = setTimeout(() => {
-              if (isMountedRef.current) {
+              if (isMountedRef.current && !globalQuotaExhausted) {
                 subscribe();
               }
             }, isAssertionError ? 5000 : 3000);
@@ -107,14 +107,10 @@ export function useDoc<T = DocumentData>(path: string | null) {
     return () => {
       isMountedRef.current = false;
       clearTimeout(initialDelay);
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-      }
+      if (typeof unsubscribe === 'function') unsubscribe();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     };
   }, [db, path]);
 
-  return useMemo(() => ({ data, loading, error }), [data, loading, error]);
+  return useMemo(() => ({ data, loading, error, isQuotaExhausted: globalQuotaExhausted }), [data, loading, error]);
 }

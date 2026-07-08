@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -41,7 +41,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className={cn("p-2 rounded-lg border", colors[color])}>{icon}</div>
-          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10 animate-pulse">LIVE</Badge>
+          <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">LIVE</Badge>
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
         <h3 className="text-2xl font-headline font-bold text-white group-hover:text-primary transition-colors">{value}</h3>
@@ -93,7 +93,7 @@ export default function AdminPage() {
     return user && ADMIN_EMAILS.includes(user.email || "");
   }, [user]);
 
-  // OPTIMIZED STATS REFRESH (Using metadata counts where possible)
+  // OPTIMIZED STATS REFRESH (Decoupled from Tab Switch to save Quota)
   const refreshStats = useCallback(async () => {
     if (!isAuthenticated || !isAuthorized) return;
     
@@ -115,14 +115,14 @@ export default function AdminPage() {
         totalLiquidationCount: liquidSnap.data().count,
         phasePassersCount: passedSnap.data().count,
         pendingOrdersCount: pendingOrders,
-        totalAum: accountsCountSnap.data().count * 50000 // Average AUM approximation for fast overview
+        totalAum: accountsCountSnap.data().count * 50000 
       });
     } catch (err: any) {
       console.error('[Admin-Stats] Quota or Auth fault:', err.message);
     }
   }, [isAuthenticated, isAuthorized]);
 
-  // LAZY DATA FETCHING BY TAB
+  // LAZY DATA FETCHING BY TAB (With strict limits)
   const fetchTabData = useCallback(async (tab: string) => {
     if (!isAuthenticated || !isAuthorized) return;
     setIsLoading(true);
@@ -132,8 +132,8 @@ export default function AdminPage() {
       switch(tab) {
         case 'overview':
           const [oSnap, uSnap] = await Promise.all([
-            getDocs(query(collection(db, 'orders'), limit(5), orderBy('createdAt', 'desc'))),
-            getDocs(query(collection(db, 'users'), limit(5), orderBy('createdAt', 'desc')))
+            getDocs(query(collection(db, 'orders'), limit(10), orderBy('createdAt', 'desc'))),
+            getDocs(query(collection(db, 'users'), limit(10), orderBy('createdAt', 'desc')))
           ]);
           setTabData((prev: any) => ({ 
             ...prev, 
@@ -142,20 +142,20 @@ export default function AdminPage() {
           }));
           break;
         case 'user-directory':
-          snap = await getDocs(query(collection(db, 'users'), limit(200), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'users'), limit(100), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'trading-nodes':
         case 'phase-passers':
-          snap = await getDocs(query(collection(db, 'demoAccounts'), limit(300), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'demoAccounts'), limit(100), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'payout-hub':
-          snap = await getDocs(query(collection(db, 'payouts'), limit(100), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'payouts'), limit(50), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'order-review':
-          snap = await getDocs(query(collection(db, 'orders'), limit(200), orderBy('createdAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'orders'), limit(100), orderBy('createdAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'referral-audit':
@@ -167,7 +167,7 @@ export default function AdminPage() {
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
         case 'breaches':
-          snap = await getDocs(query(collection(db, 'breaches'), limit(100), orderBy('breachedAt', 'desc')));
+          snap = await getDocs(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(100), orderBy('updatedAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
       }
@@ -186,10 +186,11 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      refreshStats();
+      // Refresh stats on first mount only
+      if (stats.totalUsersCount === 0) refreshStats();
       fetchTabData(activeTab);
     }
-  }, [isAuthenticated, activeTab, refreshStats, fetchTabData]);
+  }, [isAuthenticated, activeTab, fetchTabData, refreshStats, stats.totalUsersCount]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -317,9 +318,20 @@ export default function AdminPage() {
 
   const phasePassers = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => a.status === 'passed'), [tabData.demoAccounts]);
   const kycUsers = useMemo(() => (tabData.users || []).filter((u: any) => u.kycStatus && u.kycStatus !== 'none'), [tabData.users]);
-  const breachedAccounts = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => a.status === 'blown' || a.status === 'breach' || a.status === 'terminated'), [tabData.demoAccounts]);
+  const breachedAccounts = tabData.breaches || [];
 
   if (!isAuthenticated && !showAdminModal) return null;
+
+  if (isAuthenticated && !isAuthorized && !isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <ShieldAlert className="w-16 h-16 text-destructive mb-6 animate-pulse" />
+        <h2 className="text-3xl font-headline font-bold text-white mb-2 uppercase tracking-tight">Firebase Authorization Failed</h2>
+        <p className="text-muted-foreground max-w-md mx-auto mb-8">Your account ({user?.email}) is not registered in the institutional master list. Administrative access denied by security rules.</p>
+        <Button className="font-black px-10 h-12 rounded-xl" onClick={() => window.location.href = '/'}>Return to Terminal</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -401,7 +413,7 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes" className="space-y-6">
              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Active Nodes ({stats.totalNodesCount})</h2>
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Active Nodes ({filteredNodes.length})</h2>
                 <div className="relative w-full md:w-96"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search Nodes..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" /></div>
              </div>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID</th><th className="p-4">Trader / Email</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-border/50">{filteredNodes.map((a: any) => { const isLiquidated = a.status === 'blown' || a.status === 'breach' || a.status === 'terminated'; return (<tr key={a.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-xs text-primary">{a.id}</td><td className="p-4"><p className="font-bold text-xs">{a.label}</p><p className="text-[10px] text-muted-foreground">{a.email}</p></td><td className="p-4 text-right font-mono text-white">${(a.balance || 0).toLocaleString()}</td><td className="p-4 text-right font-mono text-primary">${(a.equity || 0).toLocaleString()}</td><td className="p-4"><Badge className={cn("uppercase text-[8px] font-black", isLiquidated ? "bg-destructive text-white" : "bg-emerald-500/20 text-emerald-500")}>{isLiquidated ? 'Blown' : 'Active'}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-primary/20 text-primary" asChild><Link href={`/demo?accountId=${a.id}`} target="_blank"><Eye size={14} /></Link></Button><Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-amber-500/20 text-amber-500" onClick={() => handleResetAccount(a.id)}><RotateCcw size={14} /></Button></div></td></tr>); })}</tbody></table></CardContent></Card>

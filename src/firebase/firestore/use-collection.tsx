@@ -15,6 +15,11 @@ import { FirestorePermissionError, type SecurityRuleContext } from '../errors';
 const DEFAULT_CONSTRAINTS: QueryConstraint[] = [];
 
 /**
+ * Global Circuit Breaker to prevent listener storms after quota failure
+ */
+let globalQuotaExhausted = false;
+
+/**
  * useCollection Hook
  * Fetches a collection in real-time with optimized query stability and automated retry logic.
  * Hardened to handle quota exhaustion and permission errors gracefully.
@@ -29,15 +34,14 @@ export function useCollection<T = DocumentData>(
   const [error, setError] = useState<Error | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
-  const quotaExhaustedRef = useRef(false);
 
   const q = useMemo(() => {
-    if (!path || !db) return null;
+    if (!path || !db || globalQuotaExhausted) return null;
 
     // Protection: Prevent expensive global collection scans for high-volume paths
     const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "referrals", "notifications"];
     if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
-      console.warn(`[useCollection] Blocked global listen on sensitive path: ${path}`);
+      console.warn(`[useCollection] Blocked global listen on sensitive path: ${path}. Use limits/orderBy.`);
       return null;
     }
 
@@ -52,16 +56,16 @@ export function useCollection<T = DocumentData>(
   useEffect(() => {
     isMountedRef.current = true;
     
-    if (!q) {
+    if (!q || globalQuotaExhausted) {
       setLoading(false);
-      setData([]);
+      if (!globalQuotaExhausted) setData([]);
       return;
     }
 
     let unsubscribe: () => void = () => {};
 
     const subscribe = () => {
-      if (!isMountedRef.current || !q || quotaExhaustedRef.current) return;
+      if (!isMountedRef.current || !q || globalQuotaExhausted) return;
 
       try {
         unsubscribe = onSnapshot(
@@ -78,9 +82,9 @@ export function useCollection<T = DocumentData>(
             
             console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError.message || serverError);
             
-            // QUOTA PROTECTION: Stop retrying if quota is exceeded to prevent listener storms
+            // GLOBAL CIRCUIT BREAKER
             if (serverError.code === 'resource-exhausted') {
-              quotaExhaustedRef.current = true;
+              globalQuotaExhausted = true;
               setError(serverError);
               setLoading(false);
               return;
@@ -107,7 +111,7 @@ export function useCollection<T = DocumentData>(
             // Exponential backoff for transport errors
             const backoff = isAssertionError ? 10000 : 5000;
             retryTimerRef.current = setTimeout(() => {
-              if (isMountedRef.current) subscribe();
+              if (isMountedRef.current && !globalQuotaExhausted) subscribe();
             }, backoff);
           }
         );
@@ -127,5 +131,5 @@ export function useCollection<T = DocumentData>(
     };
   }, [q, path]);
 
-  return useMemo(() => ({ data, loading, error }), [data, loading, error]);
+  return useMemo(() => ({ data, loading, error, isQuotaExhausted: globalQuotaExhausted }), [data, loading, error]);
 }
