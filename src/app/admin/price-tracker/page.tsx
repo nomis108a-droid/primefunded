@@ -58,7 +58,8 @@ export default function AdminPriceTracker() {
     setIsSyncing(true);
     
     const pricesRef = ref(rtdb, 'livePrices');
-    const unsub = onSnapshot(pricesRef, (snapshot) => {
+    // RTDB uses onValue, not onSnapshot
+    const unsub = onValue(pricesRef, (snapshot) => {
       const data = snapshot.val();
       if (!data) return;
 
