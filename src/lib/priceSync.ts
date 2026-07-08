@@ -17,10 +17,11 @@ import { broadcastToRtdb } from './rtdbBroadcast';
  */
 
 let isSyncing = false;
+const flightRequests = new Map<string, Promise<any>>();
 
 /**
  * Synchronizes local memory ticks across all server nodes by listening to RTDB.
- * This ensures SSE streams work correctly even on non-leader nodes.
+ * Optimized with child listeners to prevent heavy object transfers on every tick.
  */
 export function startGlobalPriceSync() {
   try {
@@ -33,26 +34,28 @@ export function startGlobalPriceSync() {
 
     console.log('[PriceSync] Initializing Global Memory Listener...');
 
-    pricesRef.on('value', (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
+    const updateLocalBuffer = (snapshot: any) => {
+      const tick = snapshot.val();
+      const symbol = snapshot.key;
+      if (!tick || !symbol) return;
 
-      Object.entries(data).forEach(([symbol, tick]: [string, any]) => {
-        const payload = {
-          price: Number(tick.price),
-          bid: Number(tick.bid),
-          ask: Number(tick.ask),
-          updatedAt: tick.updatedAt || Date.now()
-        };
+      const payload = {
+        price: Number(tick.price),
+        bid: Number(tick.bid),
+        ask: Number(tick.ask),
+        updatedAt: tick.updatedAt || Date.now()
+      };
 
-        const symUpper = symbol.toUpperCase().trim();
-        if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symUpper)) {
-          setLatestCoinbaseTick(symUpper, payload);
-        } else {
-          setLatestOandaTick(symUpper, payload);
-        }
-      });
-    });
+      const symUpper = symbol.toUpperCase().trim();
+      if (['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(symUpper)) {
+        setLatestCoinbaseTick(symUpper, payload);
+      } else {
+        setLatestOandaTick(symUpper, payload);
+      }
+    };
+
+    pricesRef.on('child_added', updateLocalBuffer);
+    pricesRef.on('child_changed', updateLocalBuffer);
   } catch (err) {
     console.error('[PriceSync] Memory Listener Failed:', err);
   }
@@ -61,20 +64,22 @@ export function startGlobalPriceSync() {
 /**
  * Institutional GOLDEN SOURCE Utility: Fetches a fresh price with multi-layered fallback.
  * Priority: Local Memory -> Shared RTDB -> Forced REST Poll -> Firestore.
- * Updates shared state automatically on forced recovery.
+ * 
+ * Hardened with Request Coalescing: multiple concurrent requests for the same symbol
+ * share the same flight request to prevent API flooding and log storms.
  */
 export async function getAuthoritativePrice(symbol: string) {
   const sym = symbol.toUpperCase().trim();
   const isCrypto = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'ADAUSD', 'DOGEUSD', 'BNBUSD'].includes(sym);
   const now = Date.now();
   
-  // 1. Check Local Memory Buffer (Ultra-fast, synced via GlobalPriceSync)
+  // 1. Check Local Memory Buffer
   const memTick = getLatestOandaTicks()[sym] || getLatestCoinbaseTicks()[sym];
   if (memTick && (now - (memTick.updatedAt || 0) < 5000)) {
     return { ...memTick, source: 'memory' };
   }
 
-  // 2. Check RTDB Direct (Shared high-frequency buffer between all instances)
+  // 2. Check RTDB Direct (Shared high-frequency buffer)
   try {
     const rtdb = getAdminRtdb();
     if (rtdb) {
@@ -83,7 +88,6 @@ export async function getAuthoritativePrice(symbol: string) {
         const tick = snap.val();
         const tickAge = now - (tick.updatedAt || 0);
         if (tickAge < 5000) {
-          // Hydrate local memory for subsequent calls
           const payload = { ...tick, updatedAt: tick.updatedAt };
           if (isCrypto) setLatestCoinbaseTick(sym, payload);
           else setLatestOandaTick(sym, payload);
@@ -91,85 +95,87 @@ export async function getAuthoritativePrice(symbol: string) {
         }
       }
     }
-  } catch (e) {
-    console.warn(`[Price-Sync] RTDB check failed for ${sym}`);
-  }
-
-  // 3. Forced REST Recovery (Last resort for execution, matches Chart's poller)
-  // FIX: Using Pricing endpoint instead of Candles to avoid 1-minute boundaries
-  console.log(`[Price-Sync] SELF-HEALING: Triggering high-frequency REST poll for ${sym}...`);
-  let freshTick: any = null;
-
-  try {
-    if (isCrypto) {
-      if (sym === 'BNBUSD') {
-        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
-        const data = await res.json();
-        const p = data?.binancecoin?.usd;
-        if (p) freshTick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2) };
-      } else {
-        const kPair = sym === 'BTCUSD' ? 'XBTUSD' : sym === 'DOGEUSD' ? 'XDGUSD' : sym;
-        const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { signal: AbortSignal.timeout(3000) });
-        const d = await res.json();
-        if (d.result) {
-          const resKey = Object.keys(d.result)[0];
-          const item = d.result[resKey];
-          freshTick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
-        }
-      }
-    } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
-      const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
-      const instr = oMap[sym] || sym;
-      // Authoritative pricing check for recovery
-      const res = await fetch(`https://api-fxpractice.oanda.com/v3/accounts/${process.env.OANDA_ACCOUNT_ID}/pricing?instruments=${instr}`, { 
-        headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
-        signal: AbortSignal.timeout(3000),
-        cache: 'no-store'
-      });
-      if (res.ok) {
-        const d = await res.json();
-        const p = d.prices?.[0];
-        if (p) {
-          const bid = parseFloat(p.bids[0].price);
-          const ask = parseFloat(p.asks[0].price);
-          freshTick = { bid, ask, price: (bid + ask) / 2 };
-        }
-      }
-    }
-  } catch (e: any) {
-    console.warn(`[Price-Sync] Forced REST poll failed for ${sym}:`, e.message);
-  }
-
-  if (freshTick) {
-    const payload = { ...freshTick, updatedAt: Date.now() };
-    // Update memory
-    if (isCrypto) setLatestCoinbaseTick(sym, payload);
-    else setLatestOandaTick(sym, payload);
-    // Bridge to RTDB for other instances
-    broadcastToRtdb({ [sym]: payload });
-    // Throttled Firestore update
-    const db = getAdminDb();
-    if (db) {
-      db.collection('livePrices').doc(sym).set({ ...payload, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
-    }
-    
-    return { ...payload, source: 'forced-rest' };
-  }
-
-  // 4. Final Fallback: Firestore (Likely stale, but prevents null return)
-  try {
-    const db = getAdminDb();
-    if (db) {
-      const snap = await db.collection('livePrices').doc(sym).get();
-      if (snap.exists) {
-        const data = snap.data()!;
-        const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
-        return { ...data, updatedAt: ts, source: 'firestore' };
-      }
-    }
   } catch (e) {}
 
-  return null;
+  // 3. Forced REST Recovery with Request Coalescing
+  if (flightRequests.has(sym)) {
+    return flightRequests.get(sym);
+  }
+
+  const flight = (async () => {
+    let freshTick: any = null;
+    try {
+      if (isCrypto) {
+        if (sym === 'BNBUSD') {
+          const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=binancecoin&vs_currencies=usd');
+          const data = await res.json();
+          const p = data?.binancecoin?.usd;
+          if (p) freshTick = { price: p, bid: +(p * 0.9995).toFixed(2), ask: +(p * 1.0005).toFixed(2) };
+        } else {
+          const kPair = sym === 'BTCUSD' ? 'XBTUSD' : sym === 'DOGEUSD' ? 'XDGUSD' : sym;
+          const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${kPair}`, { signal: AbortSignal.timeout(3000) });
+          const d = await res.json();
+          if (d.result) {
+            const resKey = Object.keys(d.result)[0];
+            const item = d.result[resKey];
+            freshTick = { price: parseFloat(item.c[0]), bid: parseFloat(item.b[0]), ask: parseFloat(item.a[0]) };
+          }
+        }
+      } else if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
+        const oMap: Record<string, string> = { 'XAUUSD': 'XAU_USD', 'EURUSD': 'EUR_USD', 'GBPUSD': 'GBP_USD', 'USDJPY': 'USD_JPY' };
+        const instr = oMap[sym] || sym;
+        const res = await fetch(`https://api-fxpractice.oanda.com/v3/accounts/${process.env.OANDA_ACCOUNT_ID}/pricing?instruments=${instr}`, { 
+          headers: { 'Authorization': `Bearer ${process.env.OANDA_API_KEY}` },
+          signal: AbortSignal.timeout(3000),
+          cache: 'no-store'
+        });
+        if (res.ok) {
+          const d = await res.json();
+          const p = d.prices?.[0];
+          if (p) {
+            const bid = parseFloat(p.bids[0].price);
+            const ask = parseFloat(p.asks[0].price);
+            freshTick = { bid, ask, price: (bid + ask) / 2 };
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[Price-Sync] Self-healing failed for ${sym}:`, e.message);
+    }
+
+    if (freshTick) {
+      const payload = { ...freshTick, updatedAt: Date.now() };
+      if (isCrypto) setLatestCoinbaseTick(sym, payload);
+      else setLatestOandaTick(sym, payload);
+      broadcastToRtdb({ [sym]: payload });
+      const db = getAdminDb();
+      if (db) {
+        db.collection('livePrices').doc(sym).set({ ...payload, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+      }
+      return { ...payload, source: 'forced-rest' };
+    }
+
+    // Final Fallback: Firestore (Likely stale)
+    try {
+      const db = getAdminDb();
+      if (db) {
+        const snap = await db.collection('livePrices').doc(sym).get();
+        if (snap.exists) {
+          const data = snap.data()!;
+          const ts = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.updatedAt || 0);
+          return { ...data, updatedAt: ts, source: 'firestore' };
+        }
+      }
+    } catch (e) {}
+
+    return null;
+  })();
+
+  flightRequests.set(sym, flight);
+  // Clean up flight after 2 seconds to allow new polls if still stale
+  setTimeout(() => flightRequests.delete(sym), 2000);
+
+  return flight;
 }
 
 /**
