@@ -42,14 +42,6 @@
       ]
     },
     {
-      "collectionGroup": "demoAccounts",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "userId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "demoTrades",
       "queryScope": "COLLECTION",
       "fields": [
