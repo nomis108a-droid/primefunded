@@ -105,28 +105,41 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     
     try {
-      const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersCountSnap, volumeSnap] = await Promise.all([
-        getCountFromServer(collection(db, 'users')),
-        getCountFromServer(collection(db, 'demoAccounts')),
-        getCountFromServer(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
-        getCountFromServer(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        getCountFromServer(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting']))),
-        getAggregateFromServer(
-          query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
-          { totalVolume: sum('amountPaid') }
-        )
+      // Execute each stat count individually to prevent index errors in one from zeroing out others
+      const fetchCount = async (q: any) => {
+        try { return (await getCountFromServer(q)).data().count; } 
+        catch (e) { console.warn('[Admin-Stats] Count query failed:', e); return 0; }
+      };
+
+      const [uCount, nCount, lCount, pCount, pOrdersCount] = await Promise.all([
+        fetchCount(collection(db, 'users')),
+        fetchCount(collection(db, 'demoAccounts')),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting'])))
       ]);
 
+      let aum = 0;
+      try {
+        const volumeSnap = await getAggregateFromServer(
+          query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
+          { totalVolume: sum('amountPaid') }
+        );
+        aum = volumeSnap.data().totalVolume || 0;
+      } catch (e) {
+        console.warn('[Admin-Stats] Volume aggregation failed - index may be building.');
+      }
+
       setStats({
-        totalUsersCount: userCountSnap.data().count,
-        totalNodesCount: accountsCountSnap.data().count,
-        totalLiquidationCount: liquidSnap.data().count,
-        phasePassersCount: passedSnap.data().count,
-        pendingOrdersCount: ordersCountSnap.data().count,
-        totalAum: volumeSnap.data().totalVolume || 0
+        totalUsersCount: uCount,
+        totalNodesCount: nCount,
+        totalLiquidationCount: lCount,
+        phasePassersCount: pCount,
+        pendingOrdersCount: pOrdersCount,
+        totalAum: aum
       });
     } catch (err: any) {
-      console.error('[Admin-Stats] Quota or Auth fault:', err.message);
+      console.error('[Admin-Stats] Critical fault:', err.message);
     }
   }, [isAuthenticated, isAuthorized, authLoading]);
 
