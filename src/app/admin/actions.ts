@@ -6,7 +6,7 @@ import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
-import { sendCredentialEmail } from '@/lib/email';
+import { sendCredentialEmail, sendReferralCommissionEmail } from '@/lib/email';
 import { isValidTxHash } from '@/lib/onChainVerification';
 
 /**
@@ -84,8 +84,37 @@ export async function giftAccountAction(traderId: string, email: string, account
       type: 'account_gifted', isRead: false, createdAt: FieldValue.serverTimestamp()
     });
 
+    // Handle Referral Commission
+    const userSnap = await db.collection('users').doc(userId).get();
+    const referredBy = userSnap.data()?.referredBy;
+    if (referredBy) {
+      const commission = startBalance === 5000 ? 5 : (startBalance * 0.02); // 2% institutional commission for gifted? standard 10% for purchase
+      await handleReferralBonus(db, referredBy, userId, targetEmail, commission);
+    }
+
     return { success: true, accountId: docRef.id };
   } catch (err: any) { return { success: false, error: err.message }; }
+}
+
+async function handleReferralBonus(db: any, referrerUid: string, referredUid: string, referredEmail: string, amount: number) {
+  const referralId = Math.random().toString(36).substring(7);
+  await db.collection('referrals').doc(referralId).set({
+    referrerId: referrerUid,
+    referredUserId: referredUid,
+    referredUserEmail: referredEmail,
+    status: 'funded',
+    amount: amount,
+    createdAt: FieldValue.serverTimestamp()
+  });
+
+  await db.collection('users').doc(referrerUid).update({
+    referralEarnings: FieldValue.increment(amount)
+  });
+
+  const referrerSnap = await db.collection('users').doc(referrerUid).get();
+  if (referrerSnap.exists) {
+    sendReferralCommissionEmail(referrerSnap.data()?.email, amount, referredEmail);
+  }
 }
 
 export async function approveManualOrderAction(id: string) {
@@ -100,13 +129,16 @@ export async function approveManualOrderAction(id: string) {
     if (order.status === 'completed') return { success: true, alreadyDone: true };
 
     const userSnap = await db.collection('users').doc(order.userId).get();
-    const traderId = userSnap.data()?.traderId;
+    const userData = userSnap.data();
+    const traderId = userData?.traderId;
+
+    const startBalance = parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000;
 
     // AUTO-PROVISION ACCOUNT
     const res = await giftAccountAction(
       traderId, order.email, 
       `Verified Challenge — ${order.accountSize}`,
-      parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000,
+      startBalance,
       order.plan, 'evaluation'
     );
 
@@ -126,6 +158,12 @@ export async function approveManualOrderAction(id: string) {
         isRead: false,
         createdAt: FieldValue.serverTimestamp()
       });
+
+      // REFERRAL COMMISSION (10% of purchase)
+      if (userData?.referredBy) {
+        const commissionAmount = order.amountPaid * 0.10;
+        await handleReferralBonus(db, userData.referredBy, order.userId, order.email, commissionAmount);
+      }
 
       return { success: true };
     }

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useMemo, useState, memo, useEffect } from 'react';
@@ -123,7 +124,7 @@ export default function PayoutsPage() {
       await addDoc(collection(db, 'payouts'), {
         userId: user.uid,
         email: user.email,
-        amount: amountNum.toFixed(2),
+        amount: amountNum, // Store as number for audit accuracy
         method: payoutForm.method,
         address: payoutForm.address,
         status: "pending",
@@ -219,9 +220,9 @@ export default function PayoutsPage() {
                     <tr key={i}><td colSpan={4} className="py-4"><Skeleton className="h-10 w-full rounded-lg" /></td></tr>
                   )) : payouts?.map((p: any) => (
                     <tr key={p.id} className="hover:bg-secondary/20 transition-colors">
-                      <td className="py-4 px-2 font-medium text-white">{new Date(p.date).toLocaleDateString()}</td>
+                      <td className="py-4 px-2 font-medium text-white">{new Date(p.date || p.createdAt?.toDate()).toLocaleDateString()}</td>
                       <td className="py-4 px-2 text-muted-foreground">{p.method}</td>
-                      <td className="py-4 px-2 font-bold text-accent text-right">${parseFloat(p.amount).toLocaleString()}</td>
+                      <td className="py-4 px-2 font-bold text-accent text-right">${parseFloat(p.amount || 0).toLocaleString()}</td>
                       <td className="py-4 px-2 text-right">
                         <Badge variant="outline" className="text-[10px] uppercase font-black">{p.status}</Badge>
                       </td>

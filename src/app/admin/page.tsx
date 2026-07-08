@@ -14,14 +14,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save, Network
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save, Network, ArrowUpRight
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction, updateGlobalSettingsAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getDocs } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { EXPLORERS, isValidTxHash } from '@/lib/onChainVerification';
@@ -85,6 +85,9 @@ export default function AdminPage() {
   const [isKycModalOpen, setIsKycModalOpen] = useState(false);
   const [kycInquiryUser, setKycInquiryUser] = useState<any>(null);
 
+  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<any>(null);
+
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
   
@@ -122,64 +125,71 @@ export default function AdminPage() {
     }
   }, [isAuthenticated, isAuthorized, authLoading]);
 
-  const fetchTabData = useCallback(async (tab: string) => {
+  // Real-time tab data syncing
+  useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
-    setIsLoading(true);
 
-    try {
-      let snap: any;
-      switch(tab) {
-        case 'overview':
-          const [oSnap, uSnap] = await Promise.all([
-            getDocs(query(collection(db, 'orders'), limit(10), orderBy('createdAt', 'desc'))),
-            getDocs(query(collection(db, 'users'), limit(10), orderBy('createdAt', 'desc')))
-          ]);
-          setTabData((prev: any) => ({ 
-            ...prev, 
-            orders: oSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-            users: uSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-          }));
-          break;
-        case 'user-directory':
-          snap = await getDocs(query(collection(db, 'users'), limit(50), orderBy('createdAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'trading-nodes':
-        case 'phase-passers':
-          snap = await getDocs(query(collection(db, 'demoAccounts'), limit(50), orderBy('createdAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'payout-hub':
-          snap = await getDocs(query(collection(db, 'payouts'), limit(20), orderBy('createdAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'order-review':
-          snap = await getDocs(query(collection(db, 'orders'), limit(50), orderBy('createdAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'referral-audit':
-          snap = await getDocs(query(collection(db, 'referrals'), limit(50), orderBy('createdAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'broadcasts':
-          snap = await getDocs(query(collection(db, 'broadcasts'), limit(20), orderBy('sentAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'breaches':
-          snap = await getDocs(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(50), orderBy('updatedAt', 'desc')));
-          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-        case 'kyc-hub':
-          snap = await getDocs(query(collection(db, 'users'), where('kycStatus', '!=', 'none'), limit(50)));
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
-          break;
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Fetch Error", description: e.message });
-    } finally {
-      setIsLoading(false);
+    let unsub: () => void;
+
+    switch(activeTab) {
+      case 'user-directory':
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(200)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'trading-nodes':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'breaches':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'phase-passers':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'order-review':
+        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'payout-hub':
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'referral-audit':
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'kyc-hub':
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      case 'broadcasts':
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(20)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        break;
+      default:
+        // Overview Tab - Multi-sync
+        const unsubOrders = onSnapshot(query(collection(db, 'orders'), limit(10), orderBy('submittedAt', 'desc')), (s) => {
+          setTabData((prev: any) => ({ ...prev, orders: s.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        const unsubUsers = onSnapshot(query(collection(db, 'users'), limit(10), orderBy('createdAt', 'desc')), (s) => {
+          setTabData((prev: any) => ({ ...prev, users: s.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        });
+        unsub = () => { unsubOrders(); unsubUsers(); };
     }
-  }, [isAuthenticated, isAuthorized, authLoading, toast]);
+
+    return () => { if (unsub) unsub(); };
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -197,9 +207,8 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats();
-      fetchTabData(activeTab);
     }
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, fetchTabData, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -241,7 +250,6 @@ export default function AdminPage() {
       const res = await cleanupDuplicateOrdersAction();
       if (res.success) {
         toast({ title: "Cleanup Successful", description: `${res.count} duplicate orders purged.` });
-        fetchTabData('order-review');
       } else throw new Error(res.error);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Cleanup Failed", description: e.message });
@@ -257,7 +265,6 @@ export default function AdminPage() {
         toast({ title: "Broadcast Deployed Successfully" });
         setIsBroadcastModalOpen(false);
         setBroadcastForm({ title: '', message: '', type: 'info' });
-        fetchTabData('broadcasts');
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Broadcast Failed", description: e.message });
@@ -292,7 +299,6 @@ export default function AdminPage() {
       const res = await updateKycStatusAction(userId, status);
       if (res.success) {
         toast({ title: `KYC ${status}` });
-        fetchTabData(activeTab);
         setIsKycModalOpen(false);
       }
     } finally { setActionLoading(false); }
@@ -303,7 +309,10 @@ export default function AdminPage() {
     return o.id.toLowerCase().includes(term) || o.email?.toLowerCase().includes(term) || o.txHash?.toLowerCase().includes(term);
   }), [tabData.orders, searchTerm]);
 
-  const kycUsers = useMemo(() => (tabData.users || []).filter((u: any) => u.kycStatus && u.kycStatus !== 'none'), [tabData.users]);
+  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
+    const term = searchTerm.toLowerCase();
+    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
+  }), [tabData.users, searchTerm]);
 
   if (!isAuthenticated && !showAdminModal) return null;
 
@@ -350,7 +359,7 @@ export default function AdminPage() {
                 <Button className="h-10 rounded-xl font-black bg-primary text-black hover:bg-primary/90" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => { refreshStats(); fetchTabData(activeTab); }} disabled={isLoading}>
+                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => { refreshStats(); }} disabled={isLoading}>
                   <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                 </Button>
              </div>
@@ -384,6 +393,37 @@ export default function AdminPage() {
                 <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Orders</CardTitle><button onClick={() => setActiveTab('order-review')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{tabData.orders?.slice(0, 5).map((o: any) => (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{o.email}</td><td className="py-3 px-4 text-[10px] text-muted-foreground uppercase">{o.plan}</td><td className="py-3 px-4 text-right"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td></tr>))}</tbody></table></CardContent></Card>
                 <Card className="bg-card/30 border-border/50"><CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4"><CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">Recent Users</CardTitle><button onClick={() => setActiveTab('user-directory')} className="text-[10px] font-black uppercase text-primary">View All</button></CardHeader><CardContent className="p-0"><table className="w-full text-sm text-left"><tbody className="divide-y divide-border/50">{tabData.users?.slice(0, 5).map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="py-3 px-4 font-bold text-xs">{u.name}</td><td className="py-3 px-4 text-[10px] text-muted-foreground">{u.email}</td><td className="py-3 px-4 text-right text-[10px] font-mono text-zinc-500">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
              </div>
+          </TabsContent>
+
+          <TabsContent value="user-directory" className="space-y-6">
+             <div className="flex justify-between items-center">
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">User Directory ({tabData.users?.length || 0})</h2>
+                <div className="relative w-96">
+                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                   <Input placeholder="Search Users, Emails, IDs..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" />
+                </div>
+             </div>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">ID</th><th className="p-4">Joined</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs text-white">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 font-mono text-[10px]">{u.traderId || u.uid?.slice(0, 8)}</td><td className="p-4 text-xs">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", u.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{u.status || 'active'}</Badge></td><td className="p-4 text-right"><Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase" onClick={() => { setSelectedUser(u); setIsUserManagementOpen(true); }}><Settings2 className="w-3 h-3 mr-2" /> Manage</Button></td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="trading-nodes" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Challenge Nodes ({tabData.demoAccounts?.length || 0})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Account ID / Trader</th><th className="p-4">Plan</th><th className="p-4 text-right">Balance</th><th className="p-4 text-right">Equity</th><th className="p-4">Status</th><th className="p-4 text-right">Last Update</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.demoAccounts?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email || 'unknown trader'}</p></td><td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.plan} · {acc.planType || '1-step'}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right font-mono text-white">${acc.equity?.toLocaleString()}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : acc.status === 'passed' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td><td className="p-4 text-right text-[10px] text-zinc-500">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'HH:mm:ss') : '—'}</td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="referral-audit" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Referral Ledger ({tabData.referrals?.length || 0})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Date</th><th className="p-4">Referrer ID</th><th className="p-4">New Trader</th><th className="p-4">Status</th><th className="p-4 text-right">Commission</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.referrals?.map((r: any) => (<tr key={r.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-mono text-[10px]">{r.referrerId}</td><td className="p-4 text-xs font-bold">{r.referredUserEmail}</td><td className="p-4"><Badge variant="outline" className="text-[8px] uppercase font-black">{r.status}</Badge></td><td className="p-4 text-right font-mono font-bold text-emerald-500">${(r.amount || 0).toFixed(2)}</td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="breaches" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Liquidation Log ({tabData.breaches?.length || 0})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Violation Time</th><th className="p-4">Account / Trader</th><th className="p-4">Violation Reason</th><th className="p-4 text-right">Final Equity</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.breaches?.map((b: any) => (<tr key={b.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><p className="font-mono text-[10px] text-destructive">{b.id}</p><p className="text-[9px] text-muted-foreground">{b.email}</p></td><td className="p-4 text-[10px] text-zinc-300 italic font-medium">{b.breachReason}</td><td className="p-4 text-right font-mono text-white">${b.equity?.toLocaleString()}</td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="payout-hub" className="space-y-6">
+             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Withdrawal Requests ({tabData.payouts?.length || 0})</h2>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Submitted</th><th className="p-4">Trader</th><th className="p-4">Method / Address</th><th className="p-4 text-right">Amount</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.payouts?.map((p: any) => (<tr key={p.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 text-xs font-bold">{p.email}</td><td className="p-4"><p className="text-[9px] font-bold text-zinc-400">{p.method}</p><p className="text-[8px] font-mono truncate max-w-[150px]">{p.address}</p></td><td className="p-4 text-right font-mono font-bold text-white">${parseFloat(p.amount || 0).toLocaleString()}</td><td className="p-4 text-right">{p.status === 'pending' && (<div className="flex justify-end gap-2"><Button size="sm" className="h-7 text-[8px] bg-emerald-500 text-black font-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Approve</Button><Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive" onClick={() => updatePayoutStatusAction(p.id, 'rejected')}>Reject</Button></div>)}<Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="order-review" className="space-y-6">
@@ -454,7 +494,7 @@ export default function AdminPage() {
 
           <TabsContent value="kyc-hub" className="space-y-6">
             <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Identity Review Hub</h2>
-            <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">Submitted</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{kycUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><Badge className={cn("text-[9px] uppercase font-black", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{u.kycStatus}</Badge></td><td className="p-4 text-right"><Button size="sm" variant="outline" className="h-8 text-[9px] uppercase font-black" onClick={() => { setKycInquiryUser(u); setIsKycModalOpen(true); }}><FileImage className="w-3 h-3 mr-2" /> View Docs</Button></td></tr>))}</tbody></table></CardContent></Card>
+            <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">Submitted</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.users?.filter((u: any) => u.kycStatus && u.kycStatus !== 'none').map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><Badge className={cn("text-[9px] uppercase font-black", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{u.kycStatus}</Badge></td><td className="p-4 text-right"><Button size="sm" variant="outline" className="h-8 text-[9px] uppercase font-black" onClick={() => { setKycInquiryUser(u); setIsKycModalOpen(true); }}><FileImage className="w-3 h-3 mr-2" /> View Docs</Button></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="broadcasts" className="space-y-6">
@@ -468,6 +508,49 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* USER MANAGEMENT MODAL */}
+      <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
+        <DialogContent className="max-w-2xl bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Trader Diagnostic: {selectedUser?.name}</DialogTitle>
+            <DialogDescription>Full institutional metadata and activity audit.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-6 py-6 border-y border-white/5">
+             <div className="space-y-4">
+                <DiagnosticItem label="Authentication UID" value={selectedUser?.authUid || selectedUser?.uid} />
+                <DiagnosticItem label="Trader ID" value={selectedUser?.traderId} />
+                <DiagnosticItem label="Registered Email" value={selectedUser?.email} />
+                <DiagnosticItem label="Phone Number" value={selectedUser?.phone} />
+             </div>
+             <div className="space-y-4">
+                <DiagnosticItem label="Location" value={selectedUser?.country} />
+                <DiagnosticItem label="Trader Tier" value={selectedUser?.tier} />
+                <DiagnosticItem label="KYC Status" value={selectedUser?.kycStatus} isBadge />
+                <DiagnosticItem label="Join Date" value={selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP p') : '—'} />
+             </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 pt-6">
+             <Card className="bg-secondary/30 p-4 text-center">
+                <p className="text-[8px] font-black uppercase text-zinc-500 mb-1">Node Balance</p>
+                <p className="text-lg font-bold text-white">${(selectedUser?.balance || 0).toLocaleString()}</p>
+             </Card>
+             <Card className="bg-secondary/30 p-4 text-center">
+                <p className="text-[8px] font-black uppercase text-zinc-500 mb-1">Total P&L</p>
+                <p className={cn("text-lg font-bold", (selectedUser?.equity - selectedUser?.balance) >= 0 ? "text-emerald-500" : "text-destructive")}>
+                  ${(selectedUser?.equity - selectedUser?.balance || 0).toLocaleString()}
+                </p>
+             </Card>
+             <Card className="bg-secondary/30 p-4 text-center">
+                <p className="text-[8px] font-black uppercase text-zinc-500 mb-1">Referral Earnings</p>
+                <p className="text-lg font-bold text-primary">${(selectedUser?.referralEarnings || 0).toLocaleString()}</p>
+             </Card>
+          </div>
+          <DialogFooter className="pt-6">
+            <Button variant="outline" className="font-bold rounded-xl h-12 flex-1" onClick={() => setIsUserManagementOpen(false)}>Close Diagnostic</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* KYC REVIEW MODAL */}
       <Dialog open={isKycModalOpen} onOpenChange={setIsKycModalOpen}>
@@ -609,6 +692,19 @@ function KycDocCard({ label, url }: { label: string, url?: string }) {
           <div className="w-full h-full flex items-center justify-center italic text-zinc-600 text-xs">No image provided</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function DiagnosticItem({ label, value, isBadge = false }: { label: string, value: any, isBadge?: boolean }) {
+  return (
+    <div>
+      <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest mb-1">{label}</p>
+      {isBadge ? (
+        <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px] uppercase font-bold">{value || '—'}</Badge>
+      ) : (
+        <p className="text-xs font-mono font-bold text-white break-all">{value || '—'}</p>
+      )}
     </div>
   );
 }
