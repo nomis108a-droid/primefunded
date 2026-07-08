@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -85,7 +86,8 @@ export default function AdminPage() {
   const isAuthorized = useMemo(() => {
     if (!user || !user.email) return false;
     const lowerEmail = user.email.toLowerCase();
-    return ADMIN_EMAILS.map(e => e.toLowerCase()).includes(lowerEmail);
+    const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
+    return adminList.includes(lowerEmail);
   }, [user]);
 
   const refreshStats = useCallback(async () => {
@@ -104,7 +106,7 @@ export default function AdminPage() {
         fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
         fetchCount(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting']))),
         getAggregateFromServer(
-          query(collection(db, 'orders'), where('status', '==', 'completed')),
+          query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
           { totalVolume: sum('amountPaid') }
         )
       ]);
@@ -130,36 +132,37 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsub: () => void = () => {};
 
+    // OPTIMIZATION: Always use strict limits to prevent quota exhaustion
+    const LIST_LIMIT = 100;
+
     switch(activeTab) {
       case 'user-directory':
-        // Optimization: Use limit(100) and getCountFromServer for the total count to avoid quota exhaustion
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          // Manually refresh total count for accuracy
           refreshStats();
         });
         break;
       case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(500)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(200)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -171,13 +174,13 @@ export default function AdminPage() {
         });
         break;
       case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(LIST_LIMIT)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -282,7 +285,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!selectedUser?.id || !isUserManagementOpen) return;
-    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'), limit(200));
+    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'), limit(100));
     const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     return () => unsubT();
   }, [selectedUser?.id, isUserManagementOpen]);
@@ -292,7 +295,6 @@ export default function AdminPage() {
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
 
-  // Reset page when search changes
   useEffect(() => {
     setUserPage(1);
   }, [searchTerm]);
@@ -377,28 +379,14 @@ export default function AdminPage() {
              </div>
              
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <AdminSummaryTable 
-                  title="Recent Orders" 
-                  data={tabData.orders} 
-                  columns={['email', 'plan', 'status']} 
-                  onViewAll={() => setActiveTab('order-review')} 
-                />
-                <AdminSummaryTable 
-                  title="Recent Users" 
-                  data={tabData.users} 
-                  columns={['name', 'email', 'createdAt']} 
-                  onViewAll={() => setActiveTab('user-directory')} 
-                />
+                <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => setActiveTab('order-review')} />
+                <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => setActiveTab('user-directory')} />
              </div>
           </TabsContent>
 
           <TabsContent value="phase-passers" className="space-y-6">
              <TabHeader title="Elite Performance: Phase Passers" count={stats.phasePassersCount} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.passers} 
-                columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']}
-                renderRow={(acc) => (
+             <DataTable loading={isLoading} data={tabData.passers} columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']} renderRow={(acc) => (
                   <tr key={acc.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
                     <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
@@ -412,19 +400,13 @@ export default function AdminPage() {
 
           <TabsContent value="payout-hub" className="space-y-6">
              <TabHeader title="Withdrawal Queue" count={tabData.payouts?.length} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.payouts} 
-                columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']}
-                renderRow={(p) => (
+             <DataTable loading={isLoading} data={tabData.payouts} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
                   <tr key={p.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{p.email}</td>
                     <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
                     <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
                     <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
-                    <td className="p-4 text-right">
-                       <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button>
-                    </td>
+                    <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
                   </tr>
                 )}
              />
@@ -432,11 +414,7 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes" className="space-y-6">
              <TabHeader title="Challenge Node Registry" count={stats.totalNodesCount} onSearch={setSearchTerm} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.demoAccounts} 
-                columns={['Account ID', 'Plan / Phase', 'Balance', 'Equity', 'Status', 'Actions']}
-                renderRow={(acc) => (
+             <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['Account ID', 'Plan / Phase', 'Balance', 'Equity', 'Status', 'Actions']} renderRow={(acc) => (
                   <tr key={acc.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4"><p className="font-mono text-[10px] text-primary">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
@@ -451,11 +429,7 @@ export default function AdminPage() {
 
           <TabsContent value="breaches" className="space-y-6">
              <TabHeader title="Liquidated Nodes (Hard Breaches)" count={stats.totalLiquidationCount} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.breaches} 
-                columns={['Date', 'Account ID', 'Reason', 'Final Balance', 'Actions']}
-                renderRow={(acc) => (
+             <DataTable loading={isLoading} data={tabData.breaches} columns={['Date', 'Account ID', 'Reason', 'Final Balance', 'Actions']} renderRow={(acc) => (
                   <tr key={acc.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 text-xs text-muted-foreground">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
                     <td className="p-4"><p className="font-mono text-[10px] text-destructive">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td>
@@ -472,11 +446,7 @@ export default function AdminPage() {
                 <TabHeader title="Payment Verification Pipeline" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
                 <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
              </div>
-             <DataTable 
-                loading={isLoading} 
-                data={filteredOrders} 
-                columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'Status', 'Actions']}
-                renderRow={(o) => (
+             <DataTable loading={isLoading} data={filteredOrders} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'Status', 'Actions']} renderRow={(o) => (
                   <tr key={o.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-mono text-[10px]">{o.id}</td>
                     <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
@@ -496,11 +466,7 @@ export default function AdminPage() {
 
           <TabsContent value="referral-audit" className="space-y-6">
              <TabHeader title="Affiliate Performance Tracking" count={tabData.referrals?.length} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.referrals} 
-                columns={['Referrer ID', 'Referred User', 'Commission', 'Date', 'Status']}
-                renderRow={(r) => (
+             <DataTable loading={isLoading} data={tabData.referrals} columns={['Referrer ID', 'Referred User', 'Commission', 'Date', 'Status']} renderRow={(r) => (
                   <tr key={r.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-mono text-[10px] text-primary">{r.referrerId}</td>
                     <td className="p-4 font-bold text-xs">{r.referredUserEmail ? `${r.referredUserEmail.slice(0,3)}***@${r.referredUserEmail.split('@')[1]}` : 'Anonymous'}</td>
@@ -514,11 +480,7 @@ export default function AdminPage() {
 
           <TabsContent value="user-directory" className="space-y-6">
              <TabHeader title="Institutional Trader Directory" count={stats.totalUsersCount} onSearch={setSearchTerm} />
-             <DataTable 
-                loading={isLoading} 
-                data={paginatedUsers} 
-                columns={['Trader Name', 'Registered Email', 'Trader ID', 'Tier', 'Joined Date', 'Actions']}
-                renderRow={(u) => (
+             <DataTable loading={isLoading} data={paginatedUsers} columns={['Trader Name', 'Registered Email', 'Trader ID', 'Tier', 'Joined Date', 'Actions']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-sm text-white">{u.name || 'Trader'}</td>
                     <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
@@ -532,14 +494,10 @@ export default function AdminPage() {
              
              {totalUserPages > 1 && (
                <div className="flex items-center justify-between mt-4 px-2">
-                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {stats.totalUsersCount} traders (Page {userPage} of {totalUserPages})</p>
+                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {stats.totalUsersCount} traders</p>
                  <div className="flex gap-2">
-                   <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}>
-                     <ChevronLeft className="w-4 h-4 mr-1" /> Previous
-                   </Button>
-                   <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>
-                     Next <ChevronRight className="w-4 h-4 ml-1" />
-                   </Button>
+                   <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
+                   <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
                  </div>
                </div>
              )}
@@ -547,11 +505,7 @@ export default function AdminPage() {
 
           <TabsContent value="kyc-hub" className="space-y-6">
              <TabHeader title="Compliance: Identity Review" count={tabData.users?.filter((u:any) => u.kycStatus === 'pending').length} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.users?.filter((u:any) => u.kycStatus === 'pending')} 
-                columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']}
-                renderRow={(u) => (
+             <DataTable loading={isLoading} data={tabData.users?.filter((u:any) => u.kycStatus === 'pending')} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{u.email}</td>
                     <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
@@ -569,11 +523,7 @@ export default function AdminPage() {
 
           <TabsContent value="broadcasts" className="space-y-6">
              <TabHeader title="System Announcements" count={tabData.broadcasts?.length} />
-             <DataTable 
-                loading={isLoading} 
-                data={tabData.broadcasts} 
-                columns={['Sent At', 'Title', 'Message Summary', 'Type']}
-                renderRow={(b) => (
+             <DataTable loading={isLoading} data={tabData.broadcasts} columns={['Sent At', 'Title', 'Message Summary', 'Type']} renderRow={(b) => (
                   <tr key={b.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
                     <td className="p-4 font-bold text-xs text-white">{b.title}</td>
@@ -586,17 +536,13 @@ export default function AdminPage() {
         </Tabs>
       </main>
 
-      {/* Unified Inspection Terminal */}
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-6 border-b border-white/5 shrink-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary"><User size={24} /></div>
-                <div>
-                  <DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">{selectedUser?.name}</DialogTitle>
-                  <p className="text-xs text-muted-foreground">Trader GUID: {selectedUser?.id}</p>
-                </div>
+                <div><DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">{selectedUser?.name}</DialogTitle><p className="text-xs text-muted-foreground">Trader GUID: {selectedUser?.id}</p></div>
               </div>
               <div className="flex items-center gap-2">
                  <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-black">{selectedUser?.tier || 'Bronze'}</Badge>
@@ -604,7 +550,6 @@ export default function AdminPage() {
               </div>
             </div>
           </DialogHeader>
-
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
             <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
               <TabsList className="bg-transparent h-12 justify-start p-0 gap-8">
@@ -613,7 +558,6 @@ export default function AdminPage() {
                 ))}
               </TabsList>
             </div>
-
             <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                <TabsContent value="overview" className="m-0 space-y-6">
                   <div className="grid grid-cols-3 gap-4">
@@ -621,36 +565,21 @@ export default function AdminPage() {
                      <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
                      <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Joined</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : '—'}</p></div>
                   </div>
-                  <Card className="bg-zinc-900/30 border-white/5">
-                    <CardHeader className="p-4 border-b border-white/5"><CardTitle className="text-[10px] font-black uppercase text-primary">Metadata Diagnostic</CardTitle></CardHeader>
-                    <CardContent className="p-4 space-y-2">
-                       <p className="text-[10px] text-zinc-500 font-mono">AUTH_UID: {selectedUser?.authUid || selectedUser?.id}</p>
-                       <p className="text-[10px] text-zinc-500 font-mono">LOCATION: {selectedUser?.country || 'Unknown'}</p>
-                    </CardContent>
-                  </Card>
                </TabsContent>
-
                <TabsContent value="trading-nodes" className="m-0 space-y-4">
-                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).length === 0 ? (
-                    <div className="p-20 text-center text-muted-foreground italic text-xs">No active nodes provisioned.</div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-4">
-                       {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => (
-                         <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade'); }}>
-                            <CardHeader className="p-4 flex flex-row items-center justify-between">
-                               <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
-                               <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
-                            </CardHeader>
-                            <CardContent className="px-4 pb-4 grid grid-cols-2 gap-2">
-                               <div><p className="text-[7px] font-black uppercase text-zinc-600">Balance</p><p className="text-[11px] font-mono font-bold">${(acc.balance || 0).toLocaleString()}</p></div>
-                               <div><p className="text-[7px] font-black uppercase text-zinc-600">Equity</p><p className="text-[11px] font-mono font-bold">${(acc.equity || 0).toLocaleString()}</p></div>
-                            </CardContent>
-                         </Card>
-                       ))}
-                    </div>
-                  )}
+                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => (
+                    <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade'); }}>
+                      <CardHeader className="p-4 flex flex-row items-center justify-between">
+                         <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
+                         <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
+                      </CardHeader>
+                      <CardContent className="px-4 pb-4 grid grid-cols-2 gap-2">
+                         <div><p className="text-[7px] font-black uppercase text-zinc-600">Balance</p><p className="text-[11px] font-mono font-bold">${(acc.balance || 0).toLocaleString()}</p></div>
+                         <div><p className="text-[7px] font-black uppercase text-zinc-600">Equity</p><p className="text-[11px] font-mono font-bold">${(acc.equity || 0).toLocaleString()}</p></div>
+                      </CardContent>
+                    </Card>
+                  ))}
                </TabsContent>
-
                <TabsContent value="trade" className="m-0">
                   <div className="flex justify-between items-center mb-4">
                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Execution Ledger {nodeFilterId && <span className="text-primary">— Filtering by Node: {nodeFilterId.slice(0,8)}</span>}</p>
@@ -659,13 +588,11 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs text-left">
                       <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
-                        <tr><th className="py-2 px-1">Symbol</th><th className="py-2 px-1">Type</th><th className="py-2 px-1">Lots</th><th className="py-2 px-1 text-right">PnL</th><th className="py-2 px-1 text-right">Date</th></tr>
+                        <tr><th className="py-2 px-1">Symbol</th><th className="py-2 px-1">Type</th><th className="py-2 px-1 text-right">PnL</th><th className="py-2 px-1 text-right">Date</th></tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).length === 0 ? (
-                          <tr><td colSpan={5} className="py-10 text-center text-[10px] text-zinc-600 font-bold">No trades found.</td></tr>
-                        ) : userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => (
-                          <tr key={t.id} className="hover:bg-white/5"><td className="py-2 px-1 font-bold">{t.symbol}</td><td className="py-2 px-1 uppercase font-medium">{t.type}</td><td className="py-2 px-1 font-mono">{t.lots}</td><td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td><td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'HH:mm') : '—'}</td></tr>
+                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => (
+                          <tr key={t.id} className="hover:bg-white/5"><td className="py-2 px-1 font-bold">{t.symbol}</td><td className="py-2 px-1 uppercase font-medium">{t.type}</td><td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td><td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'HH:mm') : '—'}</td></tr>
                         ))}
                       </tbody>
                     </table>
@@ -686,7 +613,7 @@ export default function AdminPage() {
               <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                  {[5, 10, 25, 50, 100, 200].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
+                  {[5, 10, 25, 50, 100, 200, 300].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
                 </SelectContent>
               </Select></div>
               <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => setGiftForm({...giftForm, plan: v})}>
@@ -737,7 +664,7 @@ function DataTable({ loading, data, columns, renderRow }: { loading: boolean, da
     return (
       <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
         <Info className="w-12 h-12 mb-4" />
-        <p className="text-sm font-black uppercase tracking-widest">No matching records found in institutional database.</p>
+        <p className="text-sm font-black uppercase tracking-widest">No matching records found.</p>
       </Card>
     );
   }

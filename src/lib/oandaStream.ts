@@ -5,8 +5,8 @@ import { broadcastToRtdb } from './rtdbBroadcast';
 
 /**
  * @fileOverview OANDA Institutional Pricing Stream
- * Maintains a persistent HTTP connection to OANDA for real-time FX/Metals liquidity.
- * Updates both /livePrices and /market paths for unified synchronization.
+ * Optimized for Quota Safety: Uses RTDB for high-frequency UI updates.
+ * Firestore writes are throttled to 10-minute intervals for fallback only.
  */
 
 let latestOandaTicks: Record<string, { price: number; bid: number; ask: number; updatedAt?: number }> = {};
@@ -37,11 +37,9 @@ export async function startOandaStream() {
     return;
   }
 
-  // Start Health Heartbeat (Institutional Monitoring - 3s Interval)
   if (!heartbeatInterval) {
-    console.log('[OandaStream] Initializing High-Frequency Health Heartbeat...');
     heartbeatInterval = setInterval(() => {
-      console.log(`[Master-Fetcher] OANDA STATUS: Healthy | Ticks Processed (3s): ${tickCount}`);
+      console.log(`[Master-Fetcher] OANDA STATUS: Healthy | Ticks (3s): ${tickCount}`);
       tickCount = 0;
     }, 3000);
   }
@@ -58,11 +56,9 @@ export async function startOandaStream() {
     });
 
     if (!response.ok) throw new Error(`OANDA HTTP ${response.status}`);
-    if (!response.body) throw new Error('OANDA Body Empty');
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('OANDA Stream Unreadable');
 
-    console.log('[OandaStream] Persistent connection established.');
-
-    const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -94,9 +90,10 @@ export async function startOandaStream() {
               };
               latestOandaTicks[symbol] = tick;
               
-              // HIGH FREQUENCY RTDB SYNC (200ms throttle to prevent overhead while ensuring real-time UI)
+              // HIGH FREQUENCY RTDB SYNC (150ms throttle)
+              // This is free in the Spark plan up to certain limits and doesn't hit Firestore quota
               const now = Date.now();
-              if (now - lastRtdbBroadcast > 200) {
+              if (now - lastRtdbBroadcast > 150) {
                 broadcastToRtdb(latestOandaTicks as any);
                 lastRtdbBroadcast = now;
               }
@@ -109,22 +106,23 @@ export async function startOandaStream() {
     console.warn('[OandaStream] Connection reset:', err.message);
   }
 
-  // Exponential backoff retry
   setTimeout(startOandaStream, 5000);
 }
 
 export function startOandaThrottledFirestoreWrite() {
   if (firestoreWriteInterval) return;
 
-  // Reduced Firestore write interval for better audit freshness (500ms)
+  // QUOTA PROTECTION: Only write to Firestore once every 10 minutes
+  // This is used for historical fallback and doesn't need high frequency.
   firestoreWriteInterval = setInterval(async () => {
     if (isWriting) return;
 
     const symbols = Object.keys(latestOandaTicks);
     if (symbols.length === 0) return;
 
-    // Firestore update for audit/persistence
     const db = getAdminDb();
+    if (!db) return;
+
     const batch = db.batch();
     let hasChanges = false;
     const now = FieldValue.serverTimestamp();
@@ -135,13 +133,7 @@ export function startOandaThrottledFirestoreWrite() {
 
       if (lastWrittenOandaTicks[symbol] !== tickStr) {
         const liveRef = db.collection('livePrices').doc(symbol);
-        const payload = {
-          ...tick,
-          symbol,
-          updatedAt: now
-        };
-
-        batch.set(liveRef, payload, { merge: true });
+        batch.set(liveRef, { ...tick, symbol, updatedAt: now }, { merge: true });
         lastWrittenOandaTicks[symbol] = tickStr;
         hasChanges = true;
       }
@@ -151,11 +143,11 @@ export function startOandaThrottledFirestoreWrite() {
       isWriting = true;
       try {
         await batch.commit();
+        console.log('[Firestore-Sync] Fallback market prices updated (10m interval)');
       } catch (err) {
-        // Silent batch failure log
       } finally {
         isWriting = false;
       }
     }
-  }, 500); 
+  }, 600000); 
 }
