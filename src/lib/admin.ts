@@ -4,6 +4,7 @@
  */
 export const ADMIN_EMAILS = [
   "sitarama108a@gmail.com",
+  "sitarama108a-alt@gmail.com",
   "nomis108a@gmail.com",
   "Pawanvish0907@gmail.com",
   "radhakrishna200803@gmail.com",

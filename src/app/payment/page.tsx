@@ -1,7 +1,6 @@
-
 "use client";
 
-import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
@@ -18,16 +17,9 @@ import { useToast } from '@/hooks/use-toast';
 import { 
   Copy, 
   CheckCircle2, 
-  AlertTriangle, 
-  QrCode, 
   Loader2, 
-  Network, 
-  CreditCard, 
-  Coins, 
   ChevronLeft, 
   ArrowRight, 
-  Check, 
-  Search,
   ShieldCheck, 
   Lock,
   Clock,
@@ -36,8 +28,6 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn } from '@/lib/utils';
-import Link from 'next/link';
 
 const NETWORKS = {
   USDT: [
@@ -81,7 +71,6 @@ function PaymentContent() {
   const [confirmations, setConfirmations] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Sync Global Settings
   useEffect(() => {
     if (!db || authLoading || !user) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
@@ -132,7 +121,6 @@ function PaymentContent() {
     } finally { setLoading(false); }
   };
 
-  // 1. Accuracy Guard: Countdown Sync
   useEffect(() => {
     if (!orderId || orderStatus !== 'waiting') return;
 
@@ -149,7 +137,6 @@ function PaymentContent() {
     return () => clearInterval(timer);
   }, [orderId, orderStatus]);
 
-  // 2. State & Expiry Sync with Firestore
   useEffect(() => {
     if (!orderId || !user) return;
     
@@ -162,27 +149,15 @@ function PaymentContent() {
         const diff = Math.floor((Date.now() - createdAt.getTime()) / 1000);
         const remaining = Math.max(0, PAYMENT_WINDOW_SECONDS - diff);
         
-        // Ensure local timer is synced with server ground-truth
         if (Math.abs(timeLeft - remaining) > 5) {
           setTimeLeft(remaining);
         }
 
         if (remaining <= 0 && data.status === 'waiting') {
-           // Auto-Expire Record
            updateDoc(doc(db, 'orders', orderId), { 
              status: 'expired',
              expiredAt: serverTimestamp() 
            });
-           
-           // Notify User in Background
-           addDoc(collection(db, 'users', user.uid, 'notifications'), {
-             title: "⏳ Payment Window Expired",
-             message: `Your payment window for the ${size} challenge has ended. Please generate a fresh request.`,
-             type: 'order_failed',
-             isRead: false,
-             createdAt: serverTimestamp()
-           });
-
            setOrderStatus('expired');
         }
       }
@@ -196,7 +171,7 @@ function PaymentContent() {
     });
 
     return () => unsub();
-  }, [orderId, user, timeLeft, size]);
+  }, [orderId, user, timeLeft]);
 
   const handleTryAgain = () => {
     setOrderId(null);
@@ -204,12 +179,12 @@ function PaymentContent() {
     setTimeLeft(PAYMENT_WINDOW_SECONDS);
     setSelectedCoin(null);
     setSelectedNetwork(null);
-    setStep(4); // Back to asset selection
+    setStep(4);
   };
 
   if (orderStatus === 'completed') {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8">
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8 bg-background">
         <div className="w-24 h-24 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
           <CheckCircle2 className="w-12 h-12 text-emerald-500" />
         </div>
@@ -222,7 +197,7 @@ function PaymentContent() {
 
   if (orderStatus === 'expired') {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8">
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8 bg-background">
         <XCircle className="w-16 h-16 text-destructive mb-6" />
         <h2 className="text-3xl font-headline font-bold text-white mb-4">Payment Window Expired</h2>
         <p className="text-muted-foreground max-w-sm mx-auto mb-8">Your order could not be verified in time. No funds were detected at the address before timeout.</p>
@@ -249,7 +224,7 @@ function PaymentContent() {
                       <Label htmlFor="terms" className="text-sm text-zinc-300">I accept the Terms & Conditions and understand all challenge risk protocols.</Label>
                     </div>
                   </CardContent>
-                  <CardFooter><Button disabled={Terminated} onClick={() => setStep(4)} className="w-full h-12 font-black text-lg cyan-box-glow">Continue to Payment</Button></CardFooter>
+                  <CardFooter><Button disabled={!termsAccepted} onClick={() => setStep(4)} className="w-full h-12 font-black text-lg cyan-box-glow">Continue to Payment</Button></CardFooter>
                 </Card>
               </motion.div>
             )}
@@ -319,7 +294,6 @@ function PaymentContent() {
                 <div className="flex justify-center gap-6 opacity-30">
                   <ShieldCheck className="w-6 h-6" />
                   <Lock className="w-6 h-6" />
-                  <CreditCard className="w-6 h-6" />
                   <Clock className="w-6 h-6" />
                 </div>
               </motion.div>

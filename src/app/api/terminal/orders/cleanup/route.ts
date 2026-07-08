@@ -1,7 +1,6 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 
 /**
  * @fileOverview Institutional Order Cleanup Engine
@@ -21,7 +20,6 @@ export async function GET(req: NextRequest) {
   if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
 
   try {
-    // 1. Fetch all orders stuck in 'waiting' status
     const waitingOrdersSnap = await db.collection('orders')
       .where('status', '==', 'waiting')
       .get();
@@ -45,14 +43,13 @@ export async function GET(req: NextRequest) {
       if (age > PAYMENT_WINDOW_MS) {
         expiredCount++;
         
-        // Mark Order as Expired
         batch.update(orderDoc.ref, {
           status: 'expired',
           expiredAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
 
-        // Notify User
+        // Notify User Server-Side
         const notifRef = db.collection('users').doc(order.userId).collection('notifications').doc();
         batch.set(notifRef, {
           title: '⏳ Payment Window Expired',
