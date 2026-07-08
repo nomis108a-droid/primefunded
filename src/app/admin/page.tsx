@@ -704,6 +704,9 @@ export default function AdminPage() {
       {/* Image Preview Modal */}
       <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
         <DialogContent className="max-w-4xl p-2 bg-zinc-950 border-white/10">
+           <DialogHeader className="sr-only">
+             <DialogTitle>Verification Document Preview</DialogTitle>
+           </DialogHeader>
            <div className="relative aspect-video w-full">
               {previewImage && <Image src={previewImage} alt="Verification" fill className="object-contain" unoptimized />}
            </div>
