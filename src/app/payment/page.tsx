@@ -17,9 +17,22 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query,
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { 
-  Copy, CheckCircle2, AlertTriangle, QrCode, Loader2, Network, 
-  CreditCard, Coins, ChevronLeft, ArrowRight, Check, Search,
-  ShieldCheck, Lock
+  Copy, 
+  CheckCircle2, 
+  AlertTriangle, 
+  QrCode, 
+  Loader2, 
+  Network, 
+  CreditCard, 
+  Coins, 
+  ChevronLeft, 
+  ArrowRight, 
+  Check, 
+  Search,
+  ShieldCheck, 
+  Lock,
+  Clock,
+  XCircle
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -29,6 +42,7 @@ import Link from 'next/link';
 /**
  * Institutional Network Configuration
  * Standardized with official brand assets.
+ * Default addresses are provided but will be overridden by Firestore settings if available.
  */
 const NETWORKS = {
   USDT: [
@@ -90,6 +104,7 @@ function PaymentContent() {
   const [mailingList, setMailingList] = useState(false);
   const [couponCode, setCouponCode] = useState('');
   const [networkFees, setNetworkFees] = useState<Record<string, number>>({});
+  const [configuredWallets, setConfiguredWallets] = useState<Record<string, string>>({});
   
   const [billing, setBilling] = useState({
     firstName: '', lastName: '', phone: '', address: '', suite: '', city: '', state: '', zip: '', country: 'United States'
@@ -108,14 +123,17 @@ function PaymentContent() {
   const [loading, setLoading] = useState(false);
   const isCreatingRef = useRef(false);
 
+  // Sync Global Settings (Fees + Wallets)
   useEffect(() => {
     if (!db) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
       if (snap.exists()) {
-        setNetworkFees(snap.data().networkFees || {});
+        const data = snap.data();
+        setNetworkFees(data.networkFees || {});
+        setConfiguredWallets(data.walletAddresses || {});
       }
     }, (error) => {
-      console.warn('[Payment] Settings listener throttled:', error.message);
+      console.warn('[Payment] Settings listener throttled or permission issue:', error.message);
     });
     return () => unsub();
   }, []);
@@ -124,6 +142,12 @@ function PaymentContent() {
     if (!selectedNetwork) return 0;
     return networkFees[selectedNetwork.id] ?? selectedNetwork.defaultFee || 0;
   }, [selectedNetwork, networkFees]);
+
+  const currentWalletAddress = useMemo(() => {
+    if (!selectedNetwork) return '';
+    // Priority: Database Configured Wallet > Hardcoded Placeholder
+    return configuredWallets[selectedNetwork.id] || selectedNetwork.address;
+  }, [selectedNetwork, configuredWallets]);
 
   const totalAmountUsd = useMemo(() => challengeAmount + currentNetworkFee, [challengeAmount, currentNetworkFee]);
 
@@ -183,8 +207,10 @@ function PaymentContent() {
     }
   };
 
+  // Status Monitoring with Auth Guard to prevent permission errors
   useEffect(() => {
-    if (!orderId || !user) return;
+    if (!orderId || !user || !db) return;
+    
     const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
       const data = snap.data();
       if (!data) return;
@@ -206,7 +232,7 @@ function PaymentContent() {
         setOrderStatus("expired");
       }
     }, (error) => {
-      console.warn('[Payment] Order listener throttled:', error.message);
+      console.warn('[Payment] Order monitor fault (expected during cleanup):', error.message);
     });
     return () => unsub();
   }, [orderId, user]);
@@ -401,14 +427,14 @@ function PaymentContent() {
                <StablecoinCard 
                  coin="USDT" 
                  networks={`${NETWORKS.USDT.length} networks`}
-                 logoUrl="https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032"
+                 logoUrl="https://cryptologos.cc/logos/tether-usdt-logo.svg"
                  selected={selectedCoin === 'USDT'} 
                  onClick={() => { setSelectedCoin('USDT'); setStep(5); }} 
                />
                <StablecoinCard 
                  coin="USDC" 
                  networks={`${NETWORKS.USDC.length} networks`}
-                 logoUrl="https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032"
+                 logoUrl="https://cryptologos.cc/logos/usd-coin-usdc-logo.svg"
                  selected={selectedCoin === 'USDC'} 
                  onClick={() => { setSelectedCoin('USDC'); setStep(5); }} 
                />
@@ -517,7 +543,7 @@ function PaymentContent() {
 
                   <div className="flex flex-col md:flex-row gap-10 items-center justify-center">
                     <div className="bg-white p-3 rounded-2xl shadow-2xl shrink-0 group relative">
-                       <QRCodeSVG value={`${selectedNetwork.address}?amount=${(totalAmountUsd * 1.002).toFixed(4)}`} size={180} />
+                       <QRCodeSVG value={`${currentWalletAddress}?amount=${(totalAmountUsd * 1.002).toFixed(4)}`} size={180} />
                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl">
                          <p className="text-white text-[10px] font-black uppercase tracking-widest">Scan to Pay</p>
                        </div>
@@ -526,8 +552,8 @@ function PaymentContent() {
                        <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">DEPOSIT ADDRESS</Label>
                           <div className="flex gap-2">
-                            <Input readOnly value={selectedNetwork.address} className="bg-zinc-900/50 font-mono text-[10px] h-12 border-zinc-800 text-white" />
-                            <Button variant="secondary" size="icon" className="h-12 w-12 shrink-0" onClick={() => { navigator.clipboard.writeText(selectedNetwork.address); toast({ title: "Address Copied" }); }}><Copy size={16} /></Button>
+                            <Input readOnly value={currentWalletAddress} className="bg-zinc-900/50 font-mono text-[10px] h-12 border-zinc-800 text-white" />
+                            <Button variant="secondary" size="icon" className="h-12 w-12 shrink-0" onClick={() => { navigator.clipboard.writeText(currentWalletAddress); toast({ title: "Address Copied" }); }}><Copy size={16} /></Button>
                           </div>
                        </div>
                        
@@ -545,9 +571,10 @@ function PaymentContent() {
                               </>
                             )}
                           </p>
-                          <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">
-                            quote valid for <span className="text-white font-mono tabular-nums">{formatTime(timeLeft)}</span>
-                          </p>
+                          <div className="flex items-center justify-between text-[10px] font-black uppercase text-zinc-500 tracking-widest">
+                            <span>quote valid for</span>
+                            <span className="text-white font-mono tabular-nums">{formatTime(timeLeft)}</span>
+                          </div>
                           <Progress value={(timeLeft / 1200) * 100} className="h-1 bg-zinc-900" />
                        </div>
                     </div>
@@ -566,6 +593,7 @@ function PaymentContent() {
                 <ShieldCheck className="w-6 h-6" />
                 <Lock className="w-6 h-6" />
                 <CreditCard className="w-6 h-6" />
+                <Clock className="w-6 h-6" />
               </div>
             </div>
           </motion.div>

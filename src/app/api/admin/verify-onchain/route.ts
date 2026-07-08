@@ -27,12 +27,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: order.status, message: "Order already processed" });
     }
 
-    // 1. Identify Target Network and Address
-    const network = order.network || "Polygon";
-    let walletAddress = "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; // Default monitored EVM wallet
+    // 1. Identify Target Network and Address from Firestore Settings
+    const settingsSnap = await db.collection("settings").doc("payments").get();
+    const configuredWallets = settingsSnap.exists ? settingsSnap.data()?.walletAddresses || {} : {};
 
-    if (network === "TRON") walletAddress = "TMitDXKKnsHKgBVENHdorV4axBou6KC5JM";
-    if (network === "XRPL") walletAddress = "rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6";
+    const network = order.network || "Polygon";
+    let walletAddress = configuredWallets[network] || "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; 
+
+    // Legacy/Hardcoded defaults if not in DB
+    if (!configuredWallets[network]) {
+      if (network === "TRON") walletAddress = "TMitDXKKnsHKgBVENHdorV4axBou6KC5JM";
+      if (network === "XRPL") walletAddress = "rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6";
+    }
 
     const expectedNative = order.amountNative; 
 
@@ -48,7 +54,6 @@ export async function POST(req: NextRequest) {
       const chainConfig = SUPPORTED_CHAINS[network];
       
       if (network === "XRPL" || network === "TRON") {
-        // High-speed chains are final as soon as detected in a confirmed ledger/transaction set
         return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, 1);
       }
 
@@ -57,7 +62,6 @@ export async function POST(req: NextRequest) {
       if (confirmations >= (chainConfig?.confirmations || 12)) {
         return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, confirmations);
       } else {
-        // TRANSACTION DETECTED BUT PENDING CONFIRMATIONS
         await orderRef.update({
           status: "detected",
           txHash: matchingTx.hash,
@@ -76,7 +80,6 @@ export async function POST(req: NextRequest) {
 }
 
 async function finalizeProvisioning(db: any, orderRef: any, order: any, txHash: string, confirmations: number) {
-  // AUTOMATIC APPROVAL AND ACCOUNT PROVISIONING
   const userSnap = await db.collection("users").doc(order.userId).get();
   const traderId = userSnap.data()?.traderId;
 

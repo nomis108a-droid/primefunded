@@ -1,4 +1,3 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -6,12 +5,14 @@ service cloud.firestore {
     // Helper: Check if user is in the authorized admin email list
     function isAdmin() {
       return request.auth != null && (
-        request.auth.token.email == "sitarama108a@gmail.com" ||
-        request.auth.token.email == "sitarama108a-alt@gmail.com" ||
-        request.auth.token.email == "nomis108a@gmail.com" ||
-        request.auth.token.email == "Pawanvish0907@gmail.com" ||
-        request.auth.token.email == "radhakrishna200803@gmail.com" ||
-        request.auth.token.email == "rachithraj133@gmail.com"
+        request.auth.token.email in [
+          "sitarama108a@gmail.com",
+          "sitarama108a-alt@gmail.com",
+          "nomis108a@gmail.com",
+          "Pawanvish0907@gmail.com",
+          "radhakrishna200803@gmail.com",
+          "rachithraj133@gmail.com"
+        ]
       );
     }
 
@@ -28,7 +29,7 @@ service cloud.firestore {
 
     // Orders Collection: Users can create/read own, admins can manage all
     match /orders/{id} {
-      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow update: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow delete: if isAdmin();
