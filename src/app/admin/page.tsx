@@ -92,7 +92,9 @@ export default function AdminPage() {
   const instanceId = "Studio-8383940162";
 
   const isAuthorized = useMemo(() => {
-    return user && ADMIN_EMAILS.includes(user.email || "");
+    if (!user || !user.email) return false;
+    const lowerEmail = user.email.toLowerCase();
+    return ADMIN_EMAILS.map(e => e.toLowerCase()).includes(lowerEmail);
   }, [user]);
 
   const refreshStats = useCallback(async () => {
@@ -245,6 +247,39 @@ export default function AdminPage() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
     } finally { setActionLoading(false); }
+  };
+
+  const handleGiftAccount = async () => {
+    if (!giftForm.traderId && !giftForm.email) {
+      toast({ variant: "destructive", title: "Input Required", description: "Please enter a Trader ID or Email." });
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const startBalance = giftForm.size;
+      const res = await giftAccountAction(
+        giftForm.traderId,
+        giftForm.email,
+        `Gifted ${giftForm.plan.toUpperCase()} — $${startBalance / 1000}k`,
+        startBalance,
+        giftForm.plan,
+        'evaluation'
+      );
+
+      if (res.success) {
+        toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
+        setIsGiftModalOpen(false);
+        setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+        refreshStats();
+      } else {
+        throw new Error(res.error);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Grant Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleViewUserByAccount = async (userId: string) => {
