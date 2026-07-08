@@ -18,7 +18,8 @@ import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Copy, CheckCircle2, AlertTriangle, QrCode, Loader2, Network, 
-  CreditCard, Coins, ChevronLeft, ArrowRight, Check, Search
+  CreditCard, Coins, ChevronLeft, ArrowRight, Check, Search,
+  ShieldCheck, Lock
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -27,22 +28,22 @@ import Link from 'next/link';
 
 /**
  * Institutional Network Configuration
- * Note: Solana removed as audit confirmed no valid monitored address/listener exists.
+ * Standardized with official brand assets.
  */
 const NETWORKS = {
   USDT: [
-    { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network', defaultFee: 1.50 },
-    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Ethereum', defaultFee: 12.00 },
-    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base', defaultFee: 0.50 },
-    { id: 'BEP20', label: 'BNB Chain', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on BNB Smart Chain', defaultFee: 0.80 }
+    { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network', defaultFee: 1.50, logo: 'https://cryptologos.cc/logos/tron-trx-logo.svg' },
+    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Ethereum', defaultFee: 12.00, logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg' },
+    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base', defaultFee: 0.50, logo: 'https://raw.githubusercontent.com/base-org/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg' },
+    { id: 'BEP20', label: 'BNB Chain', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on BNB Smart Chain', defaultFee: 0.80, logo: 'https://cryptologos.cc/logos/bnb-bnb-logo.svg' }
   ],
   USDC: [
-    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Ethereum', defaultFee: 12.00 },
-    { id: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Polygon', defaultFee: 0.50 },
-    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base', defaultFee: 0.50 },
-    { id: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Arbitrum One', defaultFee: 0.50 },
-    { id: 'Avalanche', label: 'Avalanche', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Avalanche C-Chain', defaultFee: 0.80 },
-    { id: 'XRPL', label: 'XRP Ledger', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on XRP Ledger', defaultFee: 0.10 }
+    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Ethereum', defaultFee: 12.00, logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg' },
+    { id: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Polygon', defaultFee: 0.50, logo: 'https://cryptologos.cc/logos/polygon-matic-logo.svg' },
+    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base', defaultFee: 0.50, logo: 'https://raw.githubusercontent.com/base-org/brand-kit/main/logo/symbol/Base_Symbol_Blue.svg' },
+    { id: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Arbitrum One', defaultFee: 0.50, logo: 'https://cryptologos.cc/logos/arbitrum-arb-logo.svg' },
+    { id: 'Avalanche', label: 'Avalanche', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Avalanche C-Chain', defaultFee: 0.80, logo: 'https://cryptologos.cc/logos/avalanche-avax-logo.svg' },
+    { id: 'XRPL', label: 'XRP Ledger', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on XRP Ledger', defaultFee: 0.10, logo: 'https://cryptologos.cc/logos/xrp-xrp-logo.svg' }
   ]
 };
 
@@ -108,10 +109,13 @@ function PaymentContent() {
   const isCreatingRef = useRef(false);
 
   useEffect(() => {
+    if (!db) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
       if (snap.exists()) {
         setNetworkFees(snap.data().networkFees || {});
       }
+    }, (error) => {
+      console.warn('[Payment] Settings listener throttled:', error.message);
     });
     return () => unsub();
   }, []);
@@ -180,7 +184,7 @@ function PaymentContent() {
   };
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId || !user) return;
     const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
       const data = snap.data();
       if (!data) return;
@@ -201,9 +205,11 @@ function PaymentContent() {
       } else if (data.status === "expired" || data.status === "rejected") {
         setOrderStatus("expired");
       }
+    }, (error) => {
+      console.warn('[Payment] Order listener throttled:', error.message);
     });
     return () => unsub();
-  }, [orderId]);
+  }, [orderId, user]);
 
   const formatTime = (s: number) => `${Math.floor(s/60)}:${(s%60).toString().padStart(2, '0')}`;
 
@@ -394,13 +400,15 @@ function PaymentContent() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <StablecoinCard 
                  coin="USDT" 
-                 networks="4 networks" 
+                 networks={`${NETWORKS.USDT.length} networks`}
+                 logoUrl="https://cryptologos.cc/logos/tether-usdt-logo.svg?v=032"
                  selected={selectedCoin === 'USDT'} 
                  onClick={() => { setSelectedCoin('USDT'); setStep(5); }} 
                />
                <StablecoinCard 
                  coin="USDC" 
-                 networks="6 networks" 
+                 networks={`${NETWORKS.USDC.length} networks`}
+                 logoUrl="https://cryptologos.cc/logos/usd-coin-usdc-logo.svg?v=032"
                  selected={selectedCoin === 'USDC'} 
                  onClick={() => { setSelectedCoin('USDC'); setStep(5); }} 
                />
@@ -429,8 +437,12 @@ function PaymentContent() {
                   className="w-full p-5 rounded-2xl bg-card/40 border border-zinc-800 hover:border-primary/50 text-left transition-all flex items-center justify-between group"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 group-hover:text-primary transition-colors">
-                      <Network className="w-5 h-5" />
+                    <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-400 group-hover:text-primary transition-colors overflow-hidden">
+                      {net.logo ? (
+                        <img src={net.logo} alt={net.label} className="w-6 h-6 object-contain" />
+                      ) : (
+                        <Network className="w-5 h-5" />
+                      )}
                     </div>
                     <div>
                       <p className="font-bold text-white text-lg">{net.label}</p>
@@ -519,10 +531,19 @@ function PaymentContent() {
                           </div>
                        </div>
                        
-                       <div className="space-y-2">
-                          <p className="text-xs font-bold text-white flex items-center gap-2">
-                            <Loader2 className="w-3 h-3 text-primary animate-spin" />
-                            {orderStatus === 'detected' ? `Transaction detected: ${confirmations} confirmations...` : 'Waiting for your transfer...'}
+                       <div className="space-y-2 text-center md:text-left">
+                          <p className="text-xs font-bold text-white flex items-center justify-center md:justify-start gap-2">
+                            {orderStatus === 'detected' ? (
+                              <>
+                                <Loader2 className="w-3 h-3 text-primary animate-spin" />
+                                Transaction detected: {confirmations} confirmations...
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="w-3 h-3 text-primary" />
+                                Waiting for your transfer...
+                              </>
+                            )}
                           </p>
                           <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">
                             quote valid for <span className="text-white font-mono tabular-nums">{formatTime(timeLeft)}</span>
@@ -554,7 +575,7 @@ function PaymentContent() {
   );
 }
 
-function StablecoinCard({ coin, networks, selected, onClick }: any) {
+function StablecoinCard({ coin, networks, selected, onClick, logoUrl }: any) {
   return (
     <button 
       onClick={onClick}
@@ -567,7 +588,11 @@ function StablecoinCard({ coin, networks, selected, onClick }: any) {
         "w-16 h-16 rounded-2xl flex items-center justify-center border transition-all duration-500 group-hover:scale-110",
         selected ? "bg-primary border-primary text-black" : "bg-zinc-900 border-zinc-800 text-zinc-400"
       )}>
-        <Coins className="w-8 h-8" />
+        {logoUrl ? (
+          <img src={logoUrl} alt={coin} className="w-8 h-8 object-contain" />
+        ) : (
+          <Coins className="w-8 h-8" />
+        )}
       </div>
       <div>
         <h4 className="text-xl font-headline font-bold text-white">Pay with {coin}</h4>
