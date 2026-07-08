@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, LogOut, Gift, Image as ImageIcon, ChevronRight, History, Megaphone, AlertTriangle, RotateCcw, Zap, Link as LinkIcon, ScrollText
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, LogOut, Gift, Image as ImageIcon, ChevronRight, History, Megaphone, AlertTriangle, RotateCcw, Zap, Link as LinkIcon, ScrollText, Plus
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, manualBreachAccountAction, approveManualOrderAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -26,6 +26,7 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { isValidTxHash, EXPLORERS } from '@/lib/onChainVerification';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import Link from 'next/link';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -206,7 +207,7 @@ export default function AdminPage() {
              </div>
 
              <div className="flex gap-2">
-                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10 hover:bg-white/5" onClick={() => toast({ title: "Friday Reset Triggered" })}>
+                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10 hover:bg-white/5" onClick={() => toast({ title: "Friday Rule Reset Triggered" })}>
                   <RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset
                 </Button>
                 <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10 hover:bg-white/5" onClick={() => toast({ title: "Syncing Prices..." })}>

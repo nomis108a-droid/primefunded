@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -6,6 +7,7 @@ service cloud.firestore {
     function isAdmin() {
       return request.auth != null && (
         request.auth.token.email == "sitarama108a@gmail.com" ||
+        request.auth.token.email == "sitarama108a-alt@gmail.com" ||
         request.auth.token.email == "nomis108a@gmail.com" ||
         request.auth.token.email == "Pawanvish0907@gmail.com" ||
         request.auth.token.email == "radhakrishna200803@gmail.com" ||
@@ -73,6 +75,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Payouts Hub
+    match /payouts/{id} {
+      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
+    }
+
     // Price Feeds and Terminal Data
     match /livePrices/{symbol} {
       allow read: if true;
@@ -92,6 +101,20 @@ service cloud.firestore {
     match /alerts/{id} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow read, delete: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
+    }
+    
+    // Global System Collections
+    match /broadcasts/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /_system/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /_locks/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
     // Global Settings
