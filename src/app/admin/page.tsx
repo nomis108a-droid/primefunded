@@ -110,32 +110,27 @@ export default function AdminPage() {
         catch (e) { return 0; }
       };
 
-      const [uCount, nCount, lCount, pCount, pOrdersCount] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchCount(collection(db, 'users')),
         fetchCount(collection(db, 'demoAccounts')),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting'])))
-      ]);
-
-      let aum = 0;
-      try {
-        const volumeSnap = await getAggregateFromServer(
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting']))),
+        getAggregateFromServer(
           query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
           { totalVolume: sum('amountPaid') }
-        );
-        aum = volumeSnap.data().totalVolume || 0;
-      } catch (e) {
-        console.warn('[Admin-Stats] Volume aggregation skipped - index building.');
-      }
+        )
+      ]);
+
+      const [uCount, nCount, lCount, pCount, pOrdersCount, volumeAgg] = results.map(r => r.status === 'fulfilled' ? r.value : 0);
 
       setStats({
-        totalUsersCount: uCount,
-        totalNodesCount: nCount,
-        totalLiquidationCount: lCount,
-        phasePassersCount: pCount,
-        pendingOrdersCount: pOrdersCount,
-        totalAum: aum
+        totalUsersCount: typeof uCount === 'number' ? uCount : 0,
+        totalNodesCount: typeof nCount === 'number' ? nCount : 0,
+        totalLiquidationCount: typeof lCount === 'number' ? lCount : 0,
+        phasePassersCount: typeof pCount === 'number' ? pCount : 0,
+        pendingOrdersCount: typeof pOrdersCount === 'number' ? pOrdersCount : 0,
+        totalAum: (volumeAgg as any)?.data?.()?.totalVolume || 0
       });
     } catch (err: any) {
       console.error('[Admin-Stats] Core fault:', err.message);
