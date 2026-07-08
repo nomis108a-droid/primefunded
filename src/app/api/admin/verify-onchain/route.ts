@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     // 1. Identify Target Network and Address
     const network = order.network || "Polygon";
-    let walletAddress = "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; // default EVM
+    let walletAddress = "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; // Default monitored EVM wallet
 
     if (network === "TRON") walletAddress = "TMitDXKKnsHKgBVENHdorV4axBou6KC5JM";
     if (network === "XRPL") walletAddress = "rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6";
@@ -47,15 +47,14 @@ export async function POST(req: NextRequest) {
     if (matchingTx) {
       const chainConfig = SUPPORTED_CHAINS[network];
       
-      // For non-EVM or high-speed chains, validations might be different
-      if (network === "XRPL") {
-        // XRP is final as soon as it's in a validated ledger
+      if (network === "XRPL" || network === "TRON") {
+        // High-speed chains are final as soon as detected in a confirmed ledger/transaction set
         return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, 1);
       }
 
       const confirmations = parseInt(matchingTx.confirmations || "0");
 
-      if (confirmations >= chainConfig.confirmations) {
+      if (confirmations >= (chainConfig?.confirmations || 12)) {
         return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, confirmations);
       } else {
         // TRANSACTION DETECTED BUT PENDING CONFIRMATIONS
@@ -64,7 +63,7 @@ export async function POST(req: NextRequest) {
           txHash: matchingTx.hash,
           confirmations: confirmations
         });
-        return NextResponse.json({ status: "detected", confirmations, required: chainConfig.confirmations });
+        return NextResponse.json({ status: "detected", confirmations, required: chainConfig?.confirmations || 12 });
       }
     }
 

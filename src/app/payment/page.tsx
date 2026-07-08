@@ -11,13 +11,14 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useAuth } from '@/context/AuthContext';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Copy, CheckCircle2, AlertTriangle, QrCode, Loader2, Network, 
-  CreditCard, Coins, ChevronLeft, ArrowRight
+  CreditCard, Coins, ChevronLeft, ArrowRight, Check, Search
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -26,11 +27,11 @@ import Link from 'next/link';
 
 /**
  * Institutional Network Configuration
+ * Note: Solana removed as audit confirmed no valid monitored address/listener exists.
  */
 const NETWORKS = {
   USDT: [
     { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network', defaultFee: 1.50 },
-    { id: 'Solana', label: 'Solana', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDT on Solana', defaultFee: 0.10 },
     { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Ethereum', defaultFee: 12.00 },
     { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base', defaultFee: 0.50 },
     { id: 'BEP20', label: 'BNB Chain', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on BNB Smart Chain', defaultFee: 0.80 }
@@ -41,9 +42,36 @@ const NETWORKS = {
     { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base', defaultFee: 0.50 },
     { id: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Arbitrum One', defaultFee: 0.50 },
     { id: 'Avalanche', label: 'Avalanche', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Avalanche C-Chain', defaultFee: 0.80 },
-    { id: 'Solana', label: 'Solana', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on Solana', defaultFee: 0.10 }
+    { id: 'XRPL', label: 'XRP Ledger', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on XRP Ledger', defaultFee: 0.10 }
   ]
 };
+
+const COUNTRIES = [
+  "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
+  "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi",
+  "Cabo Verde", "Cambodia", "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic",
+  "Denmark", "Djibouti", "Dominica", "Dominican Republic",
+  "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia",
+  "Fiji", "Finland", "France",
+  "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana",
+  "Haiti", "Honduras", "Hungary",
+  "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy",
+  "Jamaica", "Japan", "Jordan",
+  "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan",
+  "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
+  "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar",
+  "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway",
+  "Oman",
+  "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal",
+  "Qatar",
+  "Romania", "Russia", "Rwanda",
+  "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria",
+  "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
+  "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
+  "Vanuatu", "Vatican City", "Venezuela", "Vietnam",
+  "Yemen",
+  "Zambia", "Zimbabwe"
+];
 
 function PaymentContent() {
   const searchParams = useSearchParams();
@@ -66,6 +94,8 @@ function PaymentContent() {
     firstName: '', lastName: '', phone: '', address: '', suite: '', city: '', state: '', zip: '', country: 'United States'
   });
   const [errors, setErrors] = useState<Record<string, boolean>>({});
+  const [countrySearch, setCountrySearch] = useState("");
+  const [countryOpen, setCountryOpen] = useState(false);
 
   const [selectedCoin, setSelectedCoin] = useState<'USDT' | 'USDC' | null>(null);
   const [selectedNetwork, setSelectedNetwork] = useState<any | null>(null);
@@ -93,9 +123,13 @@ function PaymentContent() {
 
   const totalAmountUsd = useMemo(() => challengeAmount + currentNetworkFee, [challengeAmount, currentNetworkFee]);
 
+  const filteredCountries = useMemo(() => {
+    return COUNTRIES.filter(c => c.toLowerCase().includes(countrySearch.toLowerCase()));
+  }, [countrySearch]);
+
   const validateBilling = () => {
     const newErrors: Record<string, boolean> = {};
-    const required = ['firstName', 'lastName', 'phone', 'address', 'city', 'state', 'zip'];
+    const required = ['firstName', 'lastName', 'phone', 'address', 'city', 'state', 'zip', 'country'];
     required.forEach(field => {
       if (!billing[field as keyof typeof billing]) newErrors[field] = true;
     });
@@ -115,30 +149,6 @@ function PaymentContent() {
     setLoading(true);
 
     try {
-      const q = query(
-        collection(db, "orders"), 
-        where("userId", "==", user.uid), 
-        where("status", "==", "waiting"),
-        where("plan", "==", plan),
-        where("accountSize", "==", size),
-        limit(1)
-      );
-      const existing = await getDocs(q);
-      
-      if (!existing.empty) {
-        const existingOrder = existing.docs[0];
-        const data = existingOrder.data();
-        const createdAt = data.createdAt?.toMillis?.() || Date.now();
-        const age = (Date.now() - createdAt) / 1000;
-        if (age < 1200) {
-          setOrderId(existingOrder.id);
-          setStep(6);
-          isCreatingRef.current = false;
-          setLoading(false);
-          return;
-        }
-      }
-
       const tag = selectedNetwork.id === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
@@ -326,16 +336,44 @@ function PaymentContent() {
                     <Input value={billing.zip} onChange={(e) => setBilling({...billing, zip: e.target.value})} className={cn("bg-zinc-900 border-zinc-800", errors.zip && "border-destructive")} />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-[11px] font-bold uppercase text-zinc-500">Country *</Label>
-                    <Select value={billing.country} onValueChange={(v) => setBilling({...billing, country: v})}>
-                      <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                        <SelectItem value="United States">United States</SelectItem>
-                        <SelectItem value="United Kingdom">United Kingdom</SelectItem>
-                        <SelectItem value="India">India</SelectItem>
-                        <SelectItem value="Canada">Canada</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label className={cn("text-[11px] font-bold uppercase", errors.country ? "text-destructive" : "text-zinc-500")}>Country *</Label>
+                    <Popover open={countryOpen} onOpenChange={setCountryOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className={cn("w-full justify-between bg-zinc-900 border-zinc-800 text-white font-normal", errors.country && "border-destructive")}>
+                          {billing.country || "Search country..."}
+                          <Search className="ml-2 h-4 w-4 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[300px] p-0 bg-zinc-950 border-zinc-800">
+                        <div className="p-3 border-b border-zinc-800">
+                           <div className="relative">
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+                              <Input 
+                                placeholder="Start typing..." 
+                                value={countrySearch} 
+                                onChange={(e) => setCountrySearch(e.target.value)}
+                                className="h-9 pl-9 bg-zinc-900 border-zinc-800 text-xs"
+                              />
+                           </div>
+                        </div>
+                        <div className="max-h-[250px] overflow-y-auto custom-scrollbar">
+                          {filteredCountries.length === 0 ? (
+                            <div className="p-4 text-xs text-center text-zinc-500 italic">No countries found</div>
+                          ) : (
+                            filteredCountries.map(c => (
+                              <button 
+                                key={c}
+                                onClick={() => { setBilling({...billing, country: c}); setCountryOpen(false); setCountrySearch(""); }}
+                                className="w-full text-left px-4 py-2.5 text-xs text-zinc-300 hover:bg-primary/10 hover:text-primary transition-colors flex items-center justify-between group"
+                              >
+                                {c}
+                                {billing.country === c && <Check className="h-3 w-3 text-primary" />}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
               </CardContent>
@@ -356,7 +394,7 @@ function PaymentContent() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <StablecoinCard 
                  coin="USDT" 
-                 networks="5 networks" 
+                 networks="4 networks" 
                  selected={selectedCoin === 'USDT'} 
                  onClick={() => { setSelectedCoin('USDT'); setStep(5); }} 
                />
