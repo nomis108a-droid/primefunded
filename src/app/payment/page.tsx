@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -17,13 +16,12 @@ import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query,
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { 
-  Copy, CheckCircle2, AlertTriangle, QrCode, Mail, Hash, Loader2, Globe, 
-  Upload, FileImage, DollarSign, Timer, ArrowRight, ExternalLink, 
-  ShieldCheck, Info, ChevronLeft, CreditCard, Coins, Network, Smartphone
+  Copy, CheckCircle2, AlertTriangle, QrCode, Loader2, Network, 
+  CreditCard, Coins, ChevronLeft, ArrowRight
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { cn, sanitizeInput } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 /**
@@ -49,7 +47,7 @@ const NETWORKS = {
 
 function PaymentContent() {
   const searchParams = useSearchParams();
-  const { user, userData } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
@@ -59,7 +57,7 @@ function PaymentContent() {
   const challengeAmount = parseFloat(priceStr.replace('$', '').replace(',', ''));
   
   const [step, setStep] = useState(2);
-  const [termsAccepted, setTemsAccepted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [mailingList, setMailingList] = useState(false);
   const [couponCode, setCouponCode] = useState('');
   const [networkFees, setNetworkFees] = useState<Record<string, number>>({});
@@ -79,7 +77,6 @@ function PaymentContent() {
   const [loading, setLoading] = useState(false);
   const isCreatingRef = useRef(false);
 
-  // Load latest fees from settings
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
       if (snap.exists()) {
@@ -109,7 +106,6 @@ function PaymentContent() {
   const createFinalOrder = async () => {
     if (!user || !selectedCoin || !selectedNetwork || isCreatingRef.current) return;
     
-    // Check if an order for this session already exists to prevent duplicates
     if (orderId) {
       setStep(6);
       return;
@@ -119,7 +115,6 @@ function PaymentContent() {
     setLoading(true);
 
     try {
-      // Cleanup any previous WAITING orders for this user/plan to keep things clean
       const q = query(
         collection(db, "orders"), 
         where("userId", "==", user.uid), 
@@ -133,8 +128,8 @@ function PaymentContent() {
       if (!existing.empty) {
         const existingOrder = existing.docs[0];
         const data = existingOrder.data();
-        // Reuse if created within last 20 mins
-        const age = (Date.now() - (data.createdAt?.toMillis?.() || Date.now())) / 1000;
+        const createdAt = data.createdAt?.toMillis?.() || Date.now();
+        const age = (Date.now() - createdAt) / 1000;
         if (age < 1200) {
           setOrderId(existingOrder.id);
           setStep(6);
@@ -159,8 +154,9 @@ function PaymentContent() {
         billing: billing,
         status: "waiting",
         createdAt: serverTimestamp(),
+        submittedAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 1200 * 1000).toISOString(),
-        amountNative: totalAmountUsd * 1.002 // Add slight slippage buffer for auto-detect
+        amountNative: totalAmountUsd * 1.002
       });
 
       setOrderId(res.id);
@@ -234,7 +230,6 @@ function PaymentContent() {
   return (
     <div className="max-w-4xl mx-auto py-10 px-4">
       <AnimatePresence mode="wait">
-        {/* STEP 2: BEFORE YOU PROCEED */}
         {step === 2 && (
           <motion.div key="step2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <Card className="w-full max-w-lg bg-zinc-950 border-zinc-800 shadow-2xl">
@@ -245,7 +240,7 @@ function PaymentContent() {
               <CardContent className="space-y-6">
                 <div className="space-y-4">
                   <div className="flex items-start gap-3">
-                    <Checkbox id="terms" checked={termsAccepted} onCheckedChange={(v) => setTemsAccepted(!!v)} className="mt-1" />
+                    <Checkbox id="terms" checked={termsAccepted} onCheckedChange={(v) => setTermsAccepted(!!v)} className="mt-1" />
                     <Label htmlFor="terms" className="text-sm text-zinc-300 leading-relaxed cursor-pointer">
                       I accept the <Link href="/rules" target="_blank" className="text-primary hover:underline font-bold">Terms & Conditions</Link>
                     </Label>
@@ -276,7 +271,6 @@ function PaymentContent() {
           </motion.div>
         )}
 
-        {/* STEP 3: BILLING DETAILS */}
         {step === 3 && (
           <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
             <Card className="bg-card/40 border-zinc-800 shadow-2xl overflow-hidden">
@@ -353,7 +347,6 @@ function PaymentContent() {
           </motion.div>
         )}
 
-        {/* STEP 4: CHOOSE STABLECOIN */}
         {step === 4 && (
           <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
             <div className="text-center">
@@ -382,7 +375,6 @@ function PaymentContent() {
           </motion.div>
         )}
 
-        {/* STEP 5: CHOOSE NETWORK */}
         {step === 5 && selectedCoin && (
           <motion.div key="step5" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
             <div className="flex items-center justify-between mb-4">
@@ -414,7 +406,6 @@ function PaymentContent() {
           </motion.div>
         )}
 
-        {/* STEP 5.5: SUMMARY BEFORE DEPOSIT */}
         {step === 5.5 && selectedNetwork && (
           <motion.div key="step5.5" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex justify-center">
             <Card className="w-full max-w-md bg-zinc-950 border-zinc-800 shadow-2xl">
@@ -450,7 +441,6 @@ function PaymentContent() {
           </motion.div>
         )}
 
-        {/* STEP 6: PAYMENT/DEPOSIT */}
         {step === 6 && selectedNetwork && (
           <motion.div key="step6" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
             <Card className="bg-card/40 border-primary/20 shadow-2xl relative overflow-hidden">

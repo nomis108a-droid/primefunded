@@ -1,19 +1,15 @@
-
 'use client';
 
-import { useEffect, useState, memo, useCallback, useRef } from 'react';
+import { useEffect, useState, memo } from 'react';
 import { Navigation } from '@/components/Navigation';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   Zap,
   RefreshCw,
-  Clock,
   ShieldCheck,
-  Fingerprint,
-  Activity,
-  AlertTriangle
+  Fingerprint
 } from 'lucide-react';
 import { rtdb } from '@/lib/firebase';
 import { ref, onValue } from 'firebase/database';
@@ -61,7 +57,6 @@ export default function AdminPriceTracker() {
     if (!isAuthenticated || !rtdb) return;
     setIsSyncing(true);
     
-    // Switch to Realtime Database for near-zero latency delivery
     const pricesRef = ref(rtdb, 'livePrices');
     const unsub = onValue(pricesRef, (snapshot) => {
       const data = snapshot.val();
@@ -76,7 +71,6 @@ export default function AdminPriceTracker() {
             newPrices[sym] = tick;
             if (tick.price) {
               const current = next[sym] || [];
-              // Only update history if price has actually moved
               if (current[current.length - 1] !== tick.price) {
                 next[sym] = [...current, tick.price].slice(-30);
               }
