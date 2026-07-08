@@ -87,8 +87,22 @@ export default function AdminPage() {
   // Instance ID
   const instanceId = "Studio-8383940162";
 
+  const isAuthorized = useMemo(() => {
+    return user && ADMIN_EMAILS.includes(user.email || "");
+  }, [user]);
+
   const refreshData = useCallback(async () => {
     if (!isAuthenticated) return;
+    if (!isAuthorized) {
+       toast({
+         variant: "destructive",
+         title: "Firebase Authorization Failed",
+         description: `Your account (${user?.email}) is not listed in ADMIN_EMAILS. Firestore queries will be blocked.`,
+       });
+       setIsLoading(false);
+       return;
+    }
+
     setIsLoading(true);
     try {
       const [usersSnap, accountsSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap] = await Promise.all([
@@ -122,7 +136,7 @@ export default function AdminPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, toast]);
+  }, [isAuthenticated, isAuthorized, user?.email, toast]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -133,13 +147,14 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAuthenticated) {
       refreshData();
-      // Listen for real-time user count
-      const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-        setAdminData((prev: any) => ({ ...prev, totalUsersCount: snap.size }));
-      });
-      return () => unsub();
+      if (isAuthorized) {
+        const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+          setAdminData((prev: any) => ({ ...prev, totalUsersCount: snap.size }));
+        });
+        return () => unsub();
+      }
     }
-  }, [isAuthenticated, refreshData]);
+  }, [isAuthenticated, isAuthorized, refreshData]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,6 +172,20 @@ export default function AdminPage() {
       const res = await resetAllHistoryAction();
       if (res.success) {
         toast({ title: `Reset Complete: ${res.count} trades archived.` });
+        refreshData();
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
+    } finally { setActionLoading(false); }
+  };
+
+  const handleResetAccount = async (accountId: string) => {
+    if (!confirm('Are you sure you want to reset this account? Balance will be restored to starting amount.')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetDemoAccountAction(accountId);
+      if (res.success) {
+        toast({ title: "Account Reset Complete" });
         refreshData();
       }
     } catch (e: any) {
@@ -466,6 +495,30 @@ export default function AdminPage() {
              <Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button>
              <Button className="font-black bg-primary text-black px-8 h-11 rounded-xl" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "PROVISION ACCOUNT"}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Admin Password Auth */}
+      <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
+        <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-center font-headline font-bold text-xl uppercase tracking-tighter">Identity Verification Required</DialogTitle>
+            <DialogDescription className="text-center text-zinc-500 text-xs">Enter administrative master key to unlock terminal nodes.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAdminAuth} className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Master Access Key</Label>
+              <Input 
+                type="password" 
+                value={adminPasswordInput} 
+                onChange={e => setAdminPasswordInput(e.target.value)} 
+                className="bg-secondary/30 border-white/10 h-12 text-center text-xl font-mono tracking-widest"
+                autoFocus
+              />
+            </div>
+            {adminError && <p className="text-xs text-red-500 font-bold text-center animate-pulse">{adminError}</p>}
+            <Button type="submit" className="w-full h-12 font-black bg-primary text-black rounded-xl">UNLOCK TERMINAL</Button>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
