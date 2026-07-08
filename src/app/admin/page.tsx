@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save, Network, ArrowUpRight
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save, Network, ArrowUpRight, Wallet, User, ExternalLink, BarChart3
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction, updateGlobalSettingsAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -88,6 +88,9 @@ export default function AdminPage() {
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [inspectionTab, setInspectionTab] = useState('overview');
+  const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
+  const [userTrades, setUserTrades] = useState<any[]>([]);
 
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
@@ -325,6 +328,8 @@ export default function AdminPage() {
       }
       if (userObj) {
         setSelectedUser(userObj);
+        setInspectionTab('overview');
+        setNodeFilterId(null);
         setIsUserManagementOpen(true);
       } else {
         toast({ variant: "destructive", title: "Trader Not Found", description: "Node has an orphaned userId." });
@@ -335,6 +340,45 @@ export default function AdminPage() {
       setIsLoading(false);
     }
   };
+
+  // Real-time listener for inspected trader's trades
+  useEffect(() => {
+    if (!selectedUser?.id || !isUserManagementOpen) {
+      setUserTrades([]);
+      return;
+    }
+    const qT = query(
+      collection(db, 'demoTrades'),
+      where('userId', '==', selectedUser.id),
+      orderBy('openedAt', 'desc'),
+      limit(200)
+    );
+    const unsubT = onSnapshot(qT, (snap) => {
+      setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubT();
+  }, [selectedUser?.id, isUserManagementOpen]);
+
+  const userNodes = useMemo(() => 
+    (tabData.demoAccounts || []).filter((acc: any) => acc.userId === selectedUser?.id)
+  , [tabData.demoAccounts, selectedUser?.id]);
+
+  const userTotalBalance = useMemo(() => 
+    userNodes.reduce((acc, n) => acc + (n.balance || 0), 0)
+  , [userNodes]);
+
+  const userTotalPnl = useMemo(() => 
+    userTrades.reduce((acc, t) => acc + (t.pnl || 0), 0)
+  , [userTrades]);
+
+  const filteredUserTrades = useMemo(() => {
+    if (!nodeFilterId) return userTrades;
+    return userTrades.filter(t => t.accountId === nodeFilterId);
+  }, [userTrades, nodeFilterId]);
+
+  const userBreaches = useMemo(() => 
+    userNodes.filter(n => ['blown', 'breach', 'terminated'].includes(n.status))
+  , [userNodes]);
 
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
@@ -435,7 +479,7 @@ export default function AdminPage() {
                    <Input placeholder="Search Users, Emails, IDs..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 bg-secondary/30" />
                 </div>
              </div>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">ID</th><th className="p-4">Joined</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs text-white">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 font-mono text-[10px]">{u.traderId || u.uid?.slice(0, 8)}</td><td className="p-4 text-xs">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", u.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{u.status || 'active'}</Badge></td><td className="p-4 text-right"><Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase" onClick={() => { setSelectedUser(u); setIsUserManagementOpen(true); }}><Settings2 className="w-3 h-3 mr-2" /> Manage</Button></td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">ID</th><th className="p-4">Joined</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs text-white">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 font-mono text-[10px]">{u.traderId || u.uid?.slice(0, 8)}</td><td className="p-4 text-xs">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td><td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", u.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{u.status || 'active'}</Badge></td><td className="p-4 text-right"><Button variant="outline" size="sm" className="h-8 text-[9px] font-black uppercase" onClick={() => handleViewUserByAccount(u.id)}><Settings2 className="w-3 h-3 mr-2" /> Manage</Button></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="trading-nodes" className="space-y-6">
@@ -445,7 +489,7 @@ export default function AdminPage() {
 
           <TabsContent value="phase-passers" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Phase Passers ({stats.phasePassersCount})</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Passed At</th><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Final Balance</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.passers?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><p className="font-mono text-[10px] text-emerald-500">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td><td className="p-4 text-[10px] uppercase font-bold">{acc.planType} · {acc.phase}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Passed At</th><th className="p-4">Account ID / Trader</th><th className="p-4">Plan / Phase</th><th className="p-4 text-right">Final Balance</th><th className="p-4 text-right">Action</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.passers?.map((acc: any) => (<tr key={acc.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-xs">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><p className="font-mono text-[10px] text-emerald-500">{acc.id}</p><p className="text-[9px] text-muted-foreground">{acc.email}</p></td><td className="p-4 text-[10px] uppercase font-bold">{acc.planType} · {acc.phase}</td><td className="p-4 text-right font-mono text-white">${acc.balance?.toLocaleString()}</td><td className="p-4 text-right"><Button variant="ghost" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-4 h-4" /></Button></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="payout-hub" className="space-y-6">
@@ -529,26 +573,182 @@ export default function AdminPage() {
         </Tabs>
       </main>
 
+      {/* Institutional Inspection Terminal */}
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
-        <DialogContent className="max-w-2xl bg-zinc-950 border-zinc-800 text-white">
-          <DialogHeader>
-            <DialogTitle>Trader Diagnostic: {selectedUser?.name}</DialogTitle>
-            <DialogDescription>Institutional metadata audit.</DialogDescription>
+        <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b border-white/5 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <User size={24} />
+                </div>
+                <div>
+                  <DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">
+                    Inspection Terminal: {selectedUser?.name}
+                  </DialogTitle>
+                  <p className="text-xs text-muted-foreground font-medium">Trader GUID: {selectedUser?.id}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-black px-3 py-1">
+                   {selectedUser?.tier || 'Bronze'}
+                 </Badge>
+                 <Badge variant="outline" className={cn(
+                   "text-[10px] uppercase font-black px-3 py-1",
+                   selectedUser?.kycVerified ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20"
+                 )}>
+                   KYC: {selectedUser?.kycStatus || 'None'}
+                 </Badge>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-6 py-6 border-y border-white/5">
-             <div className="space-y-4">
-                <DiagnosticItem label="Authentication UID" value={selectedUser?.authUid || selectedUser?.uid} />
-                <DiagnosticItem label="Trader ID" value={selectedUser?.traderId} />
-                <DiagnosticItem label="Registered Email" value={selectedUser?.email} />
-             </div>
-             <div className="space-y-4">
-                <DiagnosticItem label="Location" value={selectedUser?.country} />
-                <DiagnosticItem label="Trader Tier" value={selectedUser?.tier} />
-                <DiagnosticItem label="KYC Status" value={selectedUser?.kycStatus} isBadge />
-             </div>
+
+          <div className="flex-1 overflow-hidden flex flex-col">
+             <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col">
+                <div className="px-6 border-b border-white/5 bg-zinc-900/30">
+                  <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8">
+                    <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Profile Overview</TabsTrigger>
+                    <TabsTrigger value="nodes" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trading Nodes</TabsTrigger>
+                    <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Trade Status / History</TabsTrigger>
+                    <TabsTrigger value="breaches" className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">Breach Logs</TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                   <TabsContent value="overview" className="m-0 space-y-8">
+                      {/* Stats Summary */}
+                      <div className="grid grid-cols-3 gap-4">
+                         <InspectionStatCard title="Total Balance" value={`$${userTotalBalance.toLocaleString()}`} icon={<Wallet size={16} />} />
+                         <InspectionStatCard title="Referral Payouts" value={`$${(selectedUser?.referralEarnings || 0).toLocaleString()}`} icon={<LinkIcon size={16} />} />
+                         <InspectionStatCard title="Historical P&L" value={`$${userTotalPnl.toLocaleString()}`} icon={<BarChart3 size={16} />} color={userTotalPnl >= 0 ? 'text-emerald-500' : 'text-destructive'} />
+                      </div>
+
+                      {/* Metadata Grid */}
+                      <div className="grid grid-cols-2 gap-8 pt-4 border-t border-white/5">
+                         <div className="space-y-4">
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-2">Metadata Diagnostic</h4>
+                            <DiagnosticItem label="Authentication UID" value={selectedUser?.authUid || selectedUser?.id} />
+                            <DiagnosticItem label="Trader ID" value={selectedUser?.traderId} />
+                            <DiagnosticItem label="Registered Email" value={selectedUser?.email} />
+                            <DiagnosticItem label="Phone Number" value={selectedUser?.phone || 'Not Provided'} />
+                         </div>
+                         <div className="space-y-4">
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-primary mb-2">Location & Tier</h4>
+                            <DiagnosticItem label="Primary Country" value={selectedUser?.country} />
+                            <DiagnosticItem label="Growth Tier" value={selectedUser?.tier} />
+                            <DiagnosticItem label="Joined Date" value={selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : 'N/A'} />
+                            <DiagnosticItem label="KYC Status" value={selectedUser?.kycStatus || 'None'} isBadge />
+                         </div>
+                      </div>
+                   </TabsContent>
+
+                   <TabsContent value="nodes" className="m-0 space-y-4">
+                      {userNodes.length === 0 ? (
+                        <div className="p-20 text-center text-muted-foreground italic text-xs">No trading nodes provisioned for this trader.</div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                           {userNodes.map(acc => (
+                             <Card 
+                              key={acc.id} 
+                              className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group"
+                              onClick={() => {
+                                setInspectionTab('history');
+                                setNodeFilterId(acc.id);
+                              }}
+                             >
+                               <CardHeader className="p-4 flex flex-row items-center justify-between">
+                                  <div>
+                                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.planType || acc.plan}</p>
+                                     <CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle>
+                                  </div>
+                                  <Badge variant="outline" className={cn("text-[8px] uppercase font-black", (acc.status === 'active' || acc.status === 'passed') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-destructive/20 text-destructive')}>
+                                    {acc.status}
+                                  </Badge>
+                               </CardHeader>
+                               <CardContent className="p-4 pt-0 grid grid-cols-2 gap-4">
+                                  <div>
+                                     <p className="text-[8px] uppercase text-zinc-600 font-bold">Balance</p>
+                                     <p className="text-xs font-mono font-bold text-white">${(acc.balance || 0).toLocaleString()}</p>
+                                  </div>
+                                  <div className="text-right">
+                                     <p className="text-[8px] uppercase text-zinc-600 font-bold">Equity</p>
+                                     <p className="text-xs font-mono font-bold text-white">${(acc.equity || 0).toLocaleString()}</p>
+                                  </div>
+                               </CardContent>
+                             </Card>
+                           ))}
+                        </div>
+                      )}
+                   </TabsContent>
+
+                   <TabsContent value="history" className="m-0 space-y-4">
+                      <div className="flex justify-between items-center bg-zinc-900/50 p-3 rounded-lg border border-white/5">
+                         <div className="flex items-center gap-3">
+                            <p className="text-[10px] font-black uppercase text-zinc-500">History Source:</p>
+                            <Badge variant="outline" className="text-[9px] font-mono border-zinc-700">
+                              {nodeFilterId ? `Node Filter: ${nodeFilterId}` : 'Unified Ledger (All Nodes)'}
+                            </Badge>
+                         </div>
+                         {nodeFilterId && (
+                           <Button variant="ghost" size="sm" className="h-6 text-[9px] font-black uppercase text-primary" onClick={() => setNodeFilterId(null)}>
+                              Clear Filter
+                           </Button>
+                         )}
+                      </div>
+                      <div className="overflow-x-auto">
+                         <table className="w-full text-xs text-left">
+                           <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
+                              <tr>
+                                 <th className="py-2 px-1">Symbol</th>
+                                 <th className="py-2 px-1">Type</th>
+                                 <th className="py-2 px-1">Lots</th>
+                                 <th className="py-2 px-1 text-right">PnL</th>
+                                 <th className="py-2 px-1 text-right">Date</th>
+                              </tr>
+                           </thead>
+                           <tbody className="divide-y divide-white/5">
+                              {filteredUserTrades.length === 0 ? (
+                                 <tr><td colSpan={5} className="py-10 text-center italic text-zinc-600">No execution records found.</td></tr>
+                              ) : filteredUserTrades.map(t => (
+                                <tr key={t.id} className="hover:bg-white/5">
+                                   <td className="py-2 px-1 font-bold text-white">{t.symbol}</td>
+                                   <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
+                                   <td className="py-2 px-1 font-mono">{t.lots}</td>
+                                   <td className={cn("py-2 px-1 text-right font-mono font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>
+                                     {(t.pnl || 0).toLocaleString()}
+                                   </td>
+                                   <td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                                </tr>
+                              ))}
+                           </tbody>
+                         </table>
+                      </div>
+                   </TabsContent>
+
+                   <TabsContent value="breaches" className="m-0 space-y-4">
+                      {userBreaches.length === 0 ? (
+                        <div className="p-20 text-center text-muted-foreground italic text-xs">Zero liquidation records in history.</div>
+                      ) : userBreaches.map(acc => (
+                        <Card key={acc.id} className="bg-destructive/5 border-destructive/20 p-4 space-y-3">
+                           <div className="flex justify-between items-start">
+                              <h4 className="text-sm font-bold text-white">{acc.label}</h4>
+                              <Badge variant="destructive" className="text-[8px] font-black uppercase">{acc.status}</Badge>
+                           </div>
+                           <p className="text-xs text-destructive/90 leading-relaxed italic bg-destructive/5 p-3 rounded-lg border border-destructive/10">
+                              {acc.breachReason || 'Risk parameters exceeded.'}
+                           </p>
+                           <div className="text-[9px] text-muted-foreground uppercase font-bold">
+                              Liquidated: {acc.blownAt?.toDate ? format(acc.blownAt.toDate(), 'PPP p') : 'Unknown'}
+                           </div>
+                        </Card>
+                      ))}
+                   </TabsContent>
+                </div>
+             </Tabs>
           </div>
-          <DialogFooter className="pt-6">
-            <Button variant="outline" className="font-bold rounded-xl h-12 flex-1" onClick={() => setIsUserManagementOpen(false)}>Close Diagnostic</Button>
+
+          <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/50 shrink-0">
+            <Button variant="outline" className="font-bold rounded-xl h-12 flex-1 border-white/10" onClick={() => setIsUserManagementOpen(false)}>Close Inspection</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -578,3 +778,13 @@ function DiagnosticItem({ label, value, isBadge = false }: { label: string, valu
     </div>
   );
 }
+
+const InspectionStatCard = ({ title, value, icon, color = 'text-white' }: { title: string, value: string, icon: any, color?: string }) => (
+  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
+    <div className="flex items-center justify-between">
+      <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{title}</p>
+      <div className="text-zinc-600">{icon}</div>
+    </div>
+    <p className={cn("text-lg font-headline font-bold", color)}>{value}</p>
+  </div>
+);
