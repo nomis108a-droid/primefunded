@@ -86,7 +86,10 @@ export async function POST(req: NextRequest) {
       if (!accSnap.exists) throw new Error("Trading node not found");
       const account = accSnap.data()!;
 
-      if (account.status !== 'active' && account.status !== 'passed') throw new Error("Account is not in active state");
+      // HARD SECURITY GUARD: Restrict execution to ACTIVE or PASSED accounts only
+      if (account.status !== 'active' && account.status !== 'passed') {
+        throw new Error(`Account Terminated: Current status is ${account.status.toUpperCase()}. No new orders permitted.`);
+      }
 
       const rawPlan = String(account.plan || '10k');
       const planKey = rawPlan.toLowerCase().trim().replace('$', '');

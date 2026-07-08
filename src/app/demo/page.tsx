@@ -14,7 +14,7 @@ import {
   Crosshair, Circle, Slash, ArrowRight,
   Square, Type, Eraser, SeparatorVertical,
   MousePointer2, Pencil, LayoutGrid, Plus, History, ChevronLeft, Minus,
-  TrendingUp, TrendingDown, ShieldCheck, Timer, Menu
+  TrendingUp, TrendingDown, ShieldCheck, Timer, Menu, Lock
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -110,6 +110,7 @@ const OrderPanelContent = memo(({
 }: OrderPanelProps) => {
   const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
   const isBlown = selectedAccount?.status === 'blown' || selectedAccount?.status === 'breach' || selectedAccount?.status === 'terminated';
+  const isReadOnly = !selectedAccount || (selectedAccount.status !== 'active' && selectedAccount.status !== 'passed');
 
   return (
     <div className="flex flex-col h-full space-y-6">
@@ -147,62 +148,74 @@ const OrderPanelContent = memo(({
            </div>
         </div>
 
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
-          <div className="relative">
-            <Input 
-              type="text" 
-              value={lotsInput} 
-              onChange={e => setLotsInput(e.target.value)} 
-              className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
-              disabled={isBlown}
-            />
-            <div className="absolute inset-y-0 left-0 flex items-center px-3">
-              <button 
-                onClick={() => setLotsInput(String(Math.max(0.01, (parseFloat(lotsInput) || 0) - 0.01).toFixed(2)))} 
-                className="text-zinc-500 hover:text-white"
-                disabled={isBlown}
-              >
-                <Minus size={14} />
-              </button>
-            </div>
-            <div className="absolute inset-y-0 right-0 flex items-center px-3">
-              <button 
-                onClick={() => setLotsInput(String(((parseFloat(lotsInput) || 0) + 0.01).toFixed(2)))} 
-                className="text-zinc-500 hover:text-white"
-                disabled={isBlown}
-              >
-                <Plus size={14} />
-              </button>
-            </div>
+        {isReadOnly ? (
+          <div className="p-6 rounded-xl bg-destructive/10 border border-destructive/20 text-center space-y-3">
+             <Lock className="w-8 h-8 text-destructive mx-auto opacity-40" />
+             <p className="text-xs font-black uppercase text-destructive tracking-widest">Execution Locked</p>
+             <p className="text-[10px] text-muted-foreground leading-relaxed">
+               This node is currently read-only. Orders are restricted for terminated or inactive evaluation nodes.
+             </p>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase text-zinc-500">Volume (Lots)</Label>
+              <div className="relative">
+                <Input 
+                  type="text" 
+                  value={lotsInput} 
+                  onChange={e => setLotsInput(e.target.value)} 
+                  className="h-11 bg-zinc-900 border-zinc-800 text-center font-mono font-bold text-white text-lg" 
+                  disabled={isBlown}
+                />
+                <div className="absolute inset-y-0 left-0 flex items-center px-3">
+                  <button 
+                    onClick={() => setLotsInput(String(Math.max(0.01, (parseFloat(lotsInput) || 0) - 0.01).toFixed(2)))} 
+                    className="text-zinc-500 hover:text-white"
+                    disabled={isBlown}
+                  >
+                    <Minus size={14} />
+                  </button>
+                </div>
+                <div className="absolute inset-y-0 right-0 flex items-center px-3">
+                  <button 
+                    onClick={() => setLotsInput(String(((parseFloat(lotsInput) || 0) + 0.01).toFixed(2)))} 
+                    className="text-zinc-500 hover:text-white"
+                    disabled={isBlown}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label>
-            <Input type="text" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" disabled={isBlown} />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label>
-            <Input type="text" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" disabled={isBlown} />
-          </div>
-        </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-zinc-500">Stop Loss</Label>
+                <Input type="text" placeholder="0.000" value={sl} onChange={e => setSl(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" disabled={isBlown} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase text-zinc-500">Take Profit</Label>
+                <Input type="text" placeholder="0.000" value={tp} onChange={e => setTp(e.target.value)} className="h-9 bg-zinc-900 border-zinc-800 text-xs" disabled={isBlown} />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="mt-auto grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
         <button 
           onClick={() => placeTrade('buy')} 
-          disabled={actionLoading || !activePrice || isBlown}
+          disabled={actionLoading || !activePrice || isReadOnly}
           className={cn(
             "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
-            isBlown ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500"
+            isReadOnly ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-500"
           )}
         >
-          {!isBlown && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
+          {!isReadOnly && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
           {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
             <>
-              <span className="text-sm tracking-widest relative z-10">{isBlown ? 'FAILED' : 'BUY'}</span>
+              <span className="text-sm tracking-widest relative z-10">{isReadOnly ? 'LOCKED' : 'BUY'}</span>
               <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.ask?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
             </>
           )}
@@ -210,16 +223,16 @@ const OrderPanelContent = memo(({
         </button>
         <button 
           onClick={() => placeTrade('sell')} 
-          disabled={actionLoading || !activePrice || isBlown}
+          disabled={actionLoading || !activePrice || isReadOnly}
           className={cn(
             "h-20 rounded-xl font-black text-white shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group overflow-hidden relative",
-            isBlown ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"
+            isReadOnly ? "bg-zinc-800 opacity-50 cursor-not-allowed" : "bg-red-600 hover:bg-red-500"
           )}
         >
-          {!isBlown && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
+          {!isReadOnly && <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />}
           {actionLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (
             <>
-              <span className="text-sm tracking-widest relative z-10">{isBlown ? 'FAILED' : 'SELL'}</span>
+              <span className="text-sm tracking-widest relative z-10">{isReadOnly ? 'LOCKED' : 'SELL'}</span>
               <span className="text-[10px] opacity-70 relative z-10 tabular-nums">{activePrice?.bid?.toFixed(getPrecision(selectedSymbol)) || '---'}</span>
             </>
           )}
@@ -285,17 +298,20 @@ export default function DemoPage() {
 
   const accountConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid)] : [], [user?.uid]);
   const { data: accounts } = useCollection<any>(user?.uid ? "demoAccounts" : null, accountConstraints);
-  const activeAccounts = useMemo(() => accounts.filter(a => a.status === 'active' || a.status === 'passed'), [accounts]);
   
-  // Use first account if currentAccountId is null or invalid
+  // Terminal should prioritize showing active nodes for selection
+  const activeAccounts = useMemo(() => 
+    accounts.filter(a => a.status === 'active' || a.status === 'passed')
+  , [accounts]);
+  
   const selectedAccount = useMemo(() => 
-    accounts.find(a => a.id === currentAccountId) || accounts[0] || null
-  , [accounts, currentAccountId]);
+    accounts.find(a => a.id === currentAccountId) || activeAccounts[0] || accounts[0] || null
+  , [accounts, activeAccounts, currentAccountId]);
 
   const tradeConstraints = useMemo(() => user?.uid ? [where("userId", "==", user.uid), orderBy("openedAt", "desc")] : [], [user?.uid]);
   const { data: allUserTrades } = useCollection<any>(tradeConstraints.length ? "demoTrades" : null, tradeConstraints);
   
-  const activeAccId = currentAccountId || accounts[0]?.id;
+  const activeAccId = currentAccountId || selectedAccount?.id;
   const trades = useMemo(() => allUserTrades.filter(t => t.accountId === activeAccId), [allUserTrades, activeAccId]);
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
 
@@ -318,7 +334,6 @@ export default function DemoPage() {
       const data = await res.json();
       if (data.candles && data.candles.length > 0 && mainSeriesRef.current) {
         data.candles.forEach((c: any) => {
-          // Normalize timestamp to seconds
           const normalizedTime = typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time;
           mainSeriesRef.current?.update({ ...c, time: normalizedTime as any });
         });
@@ -392,7 +407,6 @@ export default function DemoPage() {
       .then(res => res.json())
       .then(data => {
         if (data.candles && mainSeriesRef.current) {
-          // Robust timestamp normalization for history
           const normalizedCandles = data.candles.map((c: any) => ({
             ...c,
             time: (typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time) as any
@@ -406,7 +420,6 @@ export default function DemoPage() {
             lastClosePriceRef.current = last.close;
             currentHighRef.current = last.high;
             currentLowRef.current = last.low;
-            console.log(`[Chart-Engine] History loaded. Last Boundary: ${last.time}`);
           }
           chartInstanceRef.current?.timeScale().fitContent();
         }
@@ -435,7 +448,6 @@ export default function DemoPage() {
         tickTime = Math.floor(Date.now() / 1000);
       }
       
-      // Timestamp Guardian: Ensure we are in Unix seconds
       if (tickTime < 1000000000) { tickTime = Math.floor(Date.now() / 1000); }
 
       const bucketTime = Math.floor(tickTime / intervalSec) * intervalSec;
@@ -446,7 +458,6 @@ export default function DemoPage() {
 
       try {
         if (isNew) {
-          // Boundary crossed: Spawn new bar inheriting previous close
           const openPrice = lastClosePriceRef.current || price;
           const high = Math.max(openPrice, price);
           const low = Math.min(openPrice, price);
@@ -465,12 +476,9 @@ export default function DemoPage() {
           currentHighRef.current = high;
           currentLowRef.current = low;
           
-          console.log(`[Tick-Engine] NEW CANDLE: ${price} @ ${bucketTime}`);
-          // Reconcile official bar after slight delay
           setTimeout(reconcileHistory, 2000);
         } 
         else if (isUpdate) {
-          // Within same bucket: Update wicks and close
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
           
           const newHigh = Math.max(currentHighRef.current || price, price);
@@ -501,7 +509,6 @@ export default function DemoPage() {
     const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === sym);
     const activeIds = new Set(currentSymbolTrades.map(t => t.id));
     
-    // Cleanup old lines
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
         lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
@@ -509,7 +516,6 @@ export default function DemoPage() {
       }
     });
 
-    // Draw active lines
     currentSymbolTrades.forEach(trade => {
       const { pnl, pct } = calculateTradePnL(trade);
       const pnlDisplay = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
@@ -561,8 +567,10 @@ export default function DemoPage() {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
     
     const isBlown = selectedAccount.status === 'blown' || selectedAccount.status === 'breach' || selectedAccount.status === 'terminated';
-    if (isBlown) {
-      toast({ title: "Account Terminated", description: "This node is no longer eligible for execution.", variant: "destructive" });
+    const isReadOnly = selectedAccount.status !== 'active' && selectedAccount.status !== 'passed';
+    
+    if (isBlown || isReadOnly) {
+      toast({ title: "Account Restricted", description: "This node is in read-only mode.", variant: "destructive" });
       return;
     }
 
