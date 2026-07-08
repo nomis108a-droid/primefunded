@@ -270,7 +270,7 @@ function PaymentContent() {
           <div className="bg-secondary/50 border border-border px-6 py-3 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-right-4">
              <Timer className="w-5 h-5 text-primary animate-pulse" />
              <div>
-                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Awaiting Transaction</p>
+                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest Awaiting Transaction</p>
                 <p className="text-xl font-mono font-bold text-white">{formatTime(timeLeft)}</p>
              </div>
           </div>

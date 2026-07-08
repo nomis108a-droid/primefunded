@@ -434,11 +434,169 @@ export default function AdminPage() {
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredOrders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; const isHashValid = isValidTxHash(o.txHash, o.network); return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex flex-col gap-1">{o.txHash ? (<div className="flex items-center gap-2"><a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>{!isHashValid && <Badge variant="destructive" className="h-3 text-[7px] font-black">INVALID HASH</Badge>}</div>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'waiting' ? "bg-blue-500/20 text-blue-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
           </TabsContent>
 
-          {/* ... other tab contents ... */}
+          <TabsContent value="kyc-hub" className="space-y-6">
+            <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Identity Review Hub</h2>
+            <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">Submitted</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{kycUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><Badge className={cn("text-[9px] uppercase font-black", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{u.kycStatus}</Badge></td><td className="p-4 text-right"><Button size="sm" variant="outline" className="h-8 text-[9px] uppercase font-black" onClick={() => { setKycInquiryUser(u); setIsKycModalOpen(true); }}><FileImage className="w-3 h-3 mr-2" /> View Docs</Button></td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="broadcasts" className="space-y-6">
+             <div className="flex justify-between items-center">
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">System Broadcasts</h2>
+                <Button className="h-10 rounded-xl font-bold bg-primary text-black" onClick={() => setIsBroadcastModalOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" /> New Broadcast
+                </Button>
+             </div>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Sent At</th><th className="p-4">Title</th><th className="p-4">Message</th><th className="p-4 text-right">Type</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.broadcasts?.map((b: any) => (<tr key={b.id} className="hover:bg-white/5 transition-colors"><td className="p-4 text-[10px] font-mono">{b.sentAt ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td><td className="p-4 font-bold text-xs">{b.title}</td><td className="p-4 text-xs text-muted-foreground">{b.message}</td><td className="p-4 text-right"><Badge variant="outline" className="text-[8px] uppercase font-black">{b.type}</Badge></td></tr>))}</tbody></table></CardContent></Card>
+          </TabsContent>
         </Tabs>
       </main>
-      
-      {/* ... existing modals ... */}
+
+      {/* KYC REVIEW MODAL */}
+      <Dialog open={isKycModalOpen} onOpenChange={setIsKycModalOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Identity Verification: {kycInquiryUser?.name}</DialogTitle>
+            <DialogDescription>Review submitted documents for compliance approval.</DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-6">
+            <KycDocCard label="ID Front" url={kycInquiryUser?.idProofUrl} />
+            <KycDocCard label="ID Back" url={kycInquiryUser?.idBackProofUrl || kycInquiryUser?.addressProofUrl} />
+            <KycDocCard label="Selfie" url={kycInquiryUser?.selfieProofUrl} />
+          </div>
+          {kycInquiryUser?.kycStatus === 'verified' && (
+            <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center gap-3">
+              <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+              <span className="font-headline font-bold text-emerald-500 uppercase italic">Identity Verified!</span>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/5" onClick={() => handleUpdateKycStatus(kycInquiryUser.id, 'rejected')} disabled={actionLoading}>Reject KYC</Button>
+            <Button className="bg-emerald-500 text-black font-bold" onClick={() => handleUpdateKycStatus(kycInquiryUser.id, 'verified')} disabled={actionLoading || kycInquiryUser?.kycStatus === 'verified'}>Approve Verification</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* GIFT ACCOUNT MODAL */}
+      <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Provision Institutional Account</DialogTitle>
+            <DialogDescription>Manually grant a challenge or funded node to a trader.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Trader ID or Email</Label>
+              <Input placeholder="e.g. 09283742 or trader@email.com" value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Challenge Plan</Label>
+                <Select value={giftForm.plan} onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                    <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
+                    <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
+                    <SelectItem value="3-step-classic">3-Step Classic</SelectItem>
+                    <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                    <SelectItem value="instant-pro">Instant Pro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Account Size</Label>
+                <Select value={String(giftForm.size)} onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
+                  <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                    <SelectItem value="5000">$5,000</SelectItem>
+                    <SelectItem value="10000">$10,000</SelectItem>
+                    <SelectItem value="25000">$25,000</SelectItem>
+                    <SelectItem value="50000">$50,000</SelectItem>
+                    <SelectItem value="100000">$100,000</SelectItem>
+                    <SelectItem value="200000">$200,000</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="w-full bg-primary text-black font-black" onClick={handleGiftAccount} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="animate-spin" /> : "PROVISION ACCOUNT"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* BROADCAST MODAL */}
+      <Dialog open={isBroadcastModalOpen} onOpenChange={setIsBroadcastModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Deploy System Broadcast</DialogTitle>
+            <DialogDescription>Push a real-time notification to all active traders.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Broadcast Title</Label>
+              <Input value={broadcastForm.title} onChange={e => setBroadcastForm({...broadcastForm, title: e.target.value})} className="bg-zinc-900 border-zinc-800" />
+            </div>
+            <div className="space-y-2">
+              <Label>Message Content</Label>
+              <Textarea value={broadcastForm.message} onChange={e => setBroadcastForm({...broadcastForm, message: e.target.value})} className="bg-zinc-900 border-zinc-800 min-h-[100px]" />
+            </div>
+            <div className="space-y-2">
+              <Label>Alert Level</Label>
+              <Select value={broadcastForm.type} onValueChange={v => setBroadcastForm({...broadcastForm, type: v})}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                  <SelectItem value="info">Information</SelectItem>
+                  <SelectItem value="warning">Warning</SelectItem>
+                  <SelectItem value="success">Success</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsBroadcastModalOpen(false)}>Cancel</Button>
+            <Button className="bg-primary text-black font-bold" onClick={handleDeployBroadcast} disabled={actionLoading}>Deploy Broadcast</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* IMAGE PREVIEW MODAL */}
+      <Dialog open={isImageModalOpen} onOpenChange={setIsImageModalOpen}>
+        <DialogContent className="max-w-4xl p-0 overflow-hidden bg-black border-none">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Image Preview</DialogTitle>
+          </DialogHeader>
+          {previewImage && <img src={previewImage} alt="Payment Proof" className="w-full h-auto object-contain max-h-[90vh]" />}
+          <div className="absolute top-4 right-4"><Button size="icon" variant="ghost" className="text-white hover:bg-white/20" onClick={() => setIsImageModalOpen(false)}><XCircle /></Button></div>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function KycDocCard({ label, url }: { label: string, url?: string }) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-[10px] font-black uppercase text-zinc-500">{label}</Label>
+      <div className="aspect-[4/3] rounded-xl bg-zinc-900 border border-zinc-800 overflow-hidden relative group">
+        {url ? (
+          <>
+            <img src={url} alt={label} className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Button size="sm" variant="outline" className="text-[10px] font-black" onClick={() => window.open(url, '_blank')}>Expand <IconOpenLink className="ml-2 w-3 h-3" /></Button>
+            </div>
+          </>
+        ) : (
+          <div className="w-full h-full flex items-center justify-center italic text-zinc-600 text-xs">No image provided</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IconOpenLink(props: any) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
   );
 }
