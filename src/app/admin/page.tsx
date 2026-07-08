@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -133,10 +132,12 @@ export default function AdminPage() {
 
     switch(activeTab) {
       case 'user-directory':
-        // Removed limit(1000) to show true total as requested
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
+        // Optimization: Use limit(100) and getCountFromServer for the total count to avoid quota exhaustion
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          // Manually refresh total count for accuracy
+          refreshStats();
         });
         break;
       case 'trading-nodes':
@@ -301,7 +302,7 @@ export default function AdminPage() {
     return filteredUsers.slice(start, start + usersPerPage);
   }, [filteredUsers, userPage]);
 
-  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage);
+  const totalUserPages = Math.ceil(stats.totalUsersCount / usersPerPage);
 
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
@@ -343,8 +344,8 @@ export default function AdminPage() {
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
-                  <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
+                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
+                  <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
                 </Button>
                 <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" asChild>
                   <Link href="/dashboard"><LogOut size={16} /></Link>
@@ -392,7 +393,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="phase-passers" className="space-y-6">
-             <TabHeader title="Elite Performance: Phase Passers" count={tabData.passers?.length} />
+             <TabHeader title="Elite Performance: Phase Passers" count={stats.phasePassersCount} />
              <DataTable 
                 loading={isLoading} 
                 data={tabData.passers} 
@@ -430,7 +431,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="trading-nodes" className="space-y-6">
-             <TabHeader title="Challenge Node Registry" count={tabData.demoAccounts?.length} onSearch={setSearchTerm} />
+             <TabHeader title="Challenge Node Registry" count={stats.totalNodesCount} onSearch={setSearchTerm} />
              <DataTable 
                 loading={isLoading} 
                 data={tabData.demoAccounts} 
@@ -449,7 +450,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="breaches" className="space-y-6">
-             <TabHeader title="Liquidated Nodes (Hard Breaches)" count={tabData.breaches?.length} />
+             <TabHeader title="Liquidated Nodes (Hard Breaches)" count={stats.totalLiquidationCount} />
              <DataTable 
                 loading={isLoading} 
                 data={tabData.breaches} 
@@ -468,7 +469,7 @@ export default function AdminPage() {
 
           <TabsContent value="order-review" className="space-y-6">
              <div className="flex justify-between items-center">
-                <TabHeader title="Payment Verification Pipeline" count={filteredOrders.length} onSearch={setSearchTerm} />
+                <TabHeader title="Payment Verification Pipeline" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
                 <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
              </div>
              <DataTable 
@@ -512,7 +513,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="user-directory" className="space-y-6">
-             <TabHeader title="Institutional Trader Directory" count={filteredUsers.length} onSearch={setSearchTerm} />
+             <TabHeader title="Institutional Trader Directory" count={stats.totalUsersCount} onSearch={setSearchTerm} />
              <DataTable 
                 loading={isLoading} 
                 data={paginatedUsers} 
@@ -531,7 +532,7 @@ export default function AdminPage() {
              
              {totalUserPages > 1 && (
                <div className="flex items-center justify-between mt-4 px-2">
-                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {filteredUsers.length} traders (Page {userPage} of {totalUserPages})</p>
+                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {stats.totalUsersCount} traders (Page {userPage} of {totalUserPages})</p>
                  <div className="flex gap-2">
                    <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}>
                      <ChevronLeft className="w-4 h-4 mr-1" /> Previous
