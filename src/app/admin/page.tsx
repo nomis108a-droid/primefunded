@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getDocs, getAggregateFromServer, sum } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { EXPLORERS, isValidTxHash } from '@/lib/onChainVerification';
@@ -103,12 +103,16 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     
     try {
-      const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersCountSnap] = await Promise.all([
+      const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersCountSnap, volumeSnap] = await Promise.all([
         getCountFromServer(collection(db, 'users')),
         getCountFromServer(collection(db, 'demoAccounts')),
         getCountFromServer(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         getCountFromServer(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        getCountFromServer(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting'])))
+        getCountFromServer(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting']))),
+        getAggregateFromServer(
+          query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
+          { totalVolume: sum('amountPaid') }
+        )
       ]);
 
       setStats({
@@ -117,7 +121,7 @@ export default function AdminPage() {
         totalLiquidationCount: liquidSnap.data().count,
         phasePassersCount: passedSnap.data().count,
         pendingOrdersCount: ordersCountSnap.data().count,
-        totalAum: accountsCountSnap.data().count * 50000 
+        totalAum: volumeSnap.data().totalVolume || 0
       });
     } catch (err: any) {
       console.error('[Admin-Stats] Quota or Auth fault:', err.message);
@@ -380,7 +384,7 @@ export default function AdminPage() {
           <TabsContent value="overview" className="space-y-8">
              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
-                <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(1)}M`} icon={<BarChart2 />} color="green" />
+                <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
                 <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
                 <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
                 <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
@@ -460,7 +464,15 @@ export default function AdminPage() {
                    </div>
                 </div>
              </div>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredOrders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; const isHashValid = isValidTxHash(o.txHash, o.network); return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex flex-col gap-1">{o.txHash ? (<div className="flex items-center gap-2"><a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>{!isHashValid && <Badge variant="destructive" className="h-3 text-[7px] font-black">INVALID HASH</Badge>}</div>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'waiting' ? "bg-blue-500/20 text-blue-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredOrders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; const isHashValid = isValidTxHash(o.txHash, o.network); return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex flex-col gap-1">{o.txHash ? (<div className="flex items-center gap-2"><a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>{!isHashValid && <Badge variant="destructive" className="h-3 text-[7px] font-black">INVALID HASH</Badge>}</div>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'waiting' ? "bg-blue-500/20 text-blue-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{(o.status === 'completed' || o.status === 'approved') ? (
+                       <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>
+                         Approved ✓
+                       </Button>
+                     ) : (
+                       <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>
+                         Approve
+                       </Button>
+                     )}</div></td></tr>); })}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="global-settings" className="space-y-6">
