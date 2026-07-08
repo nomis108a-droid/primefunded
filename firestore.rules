@@ -95,7 +95,7 @@ service cloud.firestore {
     }
 
     match /demoTrades/{id} {
-      allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
+      allow read: if isAdmin() || (request.auth != null && (resource == null || request.auth.uid == resource.data.userId));
       allow write: if isAdmin();
     }
 
