@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query, where, getDocs, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { Copy, CheckCircle2, AlertTriangle, QrCode, Mail, Hash, Loader2, Globe, Upload, FileImage, DollarSign, Timer, ArrowRight, ExternalLink } from 'lucide-react';
@@ -100,9 +100,39 @@ function PaymentContent() {
   , [selectedNetwork]);
 
   const createOrder = useCallback(async () => {
-    if (!user || orderId || !selectedNetwork || !selectedCoin) return;
+    if (!user || !selectedNetwork || !selectedCoin) return;
+    
     setLoading(true);
     try {
+      // DUPLICATE PREVENTION: Check for existing WAITING orders for this user/plan
+      const q = query(
+        collection(db, "orders"),
+        where("userId", "==", user.uid),
+        where("plan", "==", plan),
+        where("accountSize", "==", size),
+        where("status", "==", "waiting"),
+        limit(1)
+      );
+      
+      const existingSnap = await getDocs(q);
+      if (!existingSnap.empty) {
+        const existingOrder = existingSnap.docs[0];
+        const data = existingOrder.data();
+        
+        // Only reuse if it was created in the last 20 minutes
+        const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
+        const ageMs = Date.now() - createdAt.getTime();
+        
+        if (ageMs < 1200 * 1000) {
+          setOrderId(existingOrder.id);
+          setDestinationTag(data.destinationTag);
+          setOrderStatus('waiting');
+          setTimeLeft(Math.max(0, 1200 - Math.floor(ageMs / 1000)));
+          setLoading(false);
+          return;
+        }
+      }
+
       const tag = selectedNetwork === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
@@ -121,29 +151,36 @@ function PaymentContent() {
       setOrderId(res.id);
       setDestinationTag(tag);
       setOrderStatus('waiting');
+      setTimeLeft(1200); // Fresh timer for new order
     } catch (e) {
       toast({ variant: "destructive", title: "Order Creation Failed" });
     } finally {
       setLoading(false);
     }
-  }, [user, plan, size, price, selectedNetwork, selectedCoin, orderId, toast]);
+  }, [user, plan, size, price, selectedNetwork, selectedCoin, toast]);
 
   // Effect: When network or coin changes, clear order state and recreate
   useEffect(() => {
     if (selectedNetwork && selectedCoin && user) {
       setOrderId(null);
       setOrderStatus('idle');
-      setTimeLeft(1200);
       createOrder();
     }
-  }, [selectedNetwork, selectedCoin, user, createOrder]);
+  }, [selectedNetwork, selectedCoin, user]);
 
   // Status Monitoring
   useEffect(() => {
     if (!orderId) return;
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          updateDoc(doc(db, "orders", orderId), { status: "expired" }).catch(() => {});
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
@@ -154,11 +191,15 @@ function PaymentContent() {
       } else if (data?.status === "detected") {
         setOrderStatus("detected");
         setConfirmations(data.confirmations || 0);
+      } else if (data?.status === "rejected" || data?.status === "expired") {
+        setOrderStatus("idle");
+        setOrderId(null);
+        toast({ variant: "destructive", title: "Order Failed", description: "Payment session expired or rejected." });
       }
     });
 
     const poller = setInterval(async () => {
-      if (orderStatus !== 'completed') {
+      if (orderStatus !== 'completed' && orderStatus !== 'idle') {
         fetch('/api/admin/verify-onchain', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

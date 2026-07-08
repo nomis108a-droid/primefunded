@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -74,6 +74,9 @@ export default function AdminPage() {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
+  const [isKycModalOpen, setIsKycModalOpen] = useState(false);
+  const [kycInquiryUser, setKycInquiryUser] = useState<any>(null);
+
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message: '', type: 'info' });
   
@@ -100,7 +103,7 @@ export default function AdminPage() {
         getCountFromServer(collection(db, 'demoAccounts')),
         getCountFromServer(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         getCountFromServer(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        getCountFromServer(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review'])))
+        getCountFromServer(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting'])))
       ]);
 
       setStats({
@@ -163,6 +166,10 @@ export default function AdminPage() {
           snap = await getDocs(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(50), orderBy('updatedAt', 'desc')));
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
           break;
+        case 'kyc-hub':
+          snap = await getDocs(query(collection(db, 'users'), where('kycStatus', '!=', 'none'), limit(50)));
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map((d: any) => ({ id: d.id, ...d.data() })) }));
+          break;
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Fetch Error", description: e.message });
@@ -179,10 +186,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      if (stats.totalUsersCount === 0) refreshStats();
+      refreshStats();
       fetchTabData(activeTab);
     }
-  }, [isAuthenticated, activeTab, fetchTabData, refreshStats, stats.totalUsersCount]);
+  }, [isAuthenticated, activeTab, fetchTabData, refreshStats]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,6 +289,7 @@ export default function AdminPage() {
       if (res.success) {
         toast({ title: `KYC ${status}` });
         fetchTabData(activeTab);
+        setIsKycModalOpen(false);
       }
     } finally { setActionLoading(false); }
   };
@@ -417,7 +425,7 @@ export default function AdminPage() {
 
           <TabsContent value="order-review" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Order Verification Pipeline</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.orders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex items-center gap-2">{o.txHash ? (<a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{tabData.orders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex items-center gap-2">{o.txHash ? (<a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'waiting' ? "bg-blue-500/20 text-blue-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="referral-audit" className="space-y-6">
@@ -435,7 +443,7 @@ export default function AdminPage() {
 
           <TabsContent value="kyc-hub" className="space-y-6">
              <h2 className="text-xl font-headline font-bold uppercase tracking-tight">Identity Review Queue</h2>
-             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">Submitted At</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{kycUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><Badge className={cn("uppercase text-[8px]", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{u.kycStatus}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{u.idProofUrl && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(u.idProofUrl); setIsImageModalOpen(true); }}>View Docs</Button>)}{u.kycStatus === 'pending' && (<><Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleUpdateKycStatus(u.id, 'verified')}>Approve</Button><Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => handleUpdateKycStatus(u.id, 'rejected')}>Reject</Button></>)}</div></td></tr>))}</tbody></table></CardContent></Card>
+             <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Trader</th><th className="p-4">Submitted At</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{kycUsers.map((u: any) => (<tr key={u.id} className="hover:bg-white/5 transition-colors"><td className="p-4"><p className="font-bold text-xs">{u.name}</p><p className="text-[10px] text-muted-foreground">{u.email}</p></td><td className="p-4 text-xs">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : '—'}</td><td className="p-4"><Badge className={cn("uppercase text-[8px]", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{u.kycStatus}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setKycInquiryUser(u); setIsKycModalOpen(true); }}>View Docs</Button>{u.kycStatus === 'pending' && (<><Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleUpdateKycStatus(u.id, 'verified')}>Approve</Button><Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => handleUpdateKycStatus(u.id, 'rejected')}>Reject</Button></>)}</div></td></tr>))}</tbody></table></CardContent></Card>
           </TabsContent>
 
           <TabsContent value="broadcasts" className="space-y-6">
@@ -447,6 +455,62 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* MODAL: KYC Inquiry Detail */}
+      <Dialog open={isKycModalOpen} onOpenChange={setIsKycModalOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-white/10 text-white max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-headline font-bold">Identity Verification Audit</DialogTitle>
+            <DialogDescription className="text-zinc-500 text-xs">Review submitted documents for {kycInquiryUser?.name}.</DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-8">
+             <div className="space-y-3">
+                <Label className="text-[10px] uppercase font-black tracking-widest text-primary flex items-center gap-2"><FileImage size={12}/> ID Front Photo</Label>
+                <div className="aspect-video relative rounded-xl border border-white/5 overflow-hidden bg-zinc-900 group">
+                   {kycInquiryUser?.idProofUrl ? (
+                     <Image src={kycInquiryUser.idProofUrl} alt="ID Front" fill className="object-cover group-hover:scale-110 transition-transform" />
+                   ) : <div className="absolute inset-0 flex items-center justify-center text-[10px] text-zinc-700">Missing</div>}
+                   <Button size="icon" variant="secondary" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => { setPreviewImage(kycInquiryUser.idProofUrl); setIsImageModalOpen(true); }}><Eye size={12}/></Button>
+                </div>
+             </div>
+             <div className="space-y-3">
+                <Label className="text-[10px] uppercase font-black tracking-widest text-primary flex items-center gap-2"><FileImage size={12}/> ID Back Photo</Label>
+                <div className="aspect-video relative rounded-xl border border-white/5 overflow-hidden bg-zinc-900 group">
+                   {kycInquiryUser?.idBackProofUrl ? (
+                     <Image src={kycInquiryUser.idBackProofUrl} alt="ID Back" fill className="object-cover group-hover:scale-110 transition-transform" />
+                   ) : <div className="absolute inset-0 flex items-center justify-center text-[10px] text-zinc-700">Missing</div>}
+                   <Button size="icon" variant="secondary" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => { setPreviewImage(kycInquiryUser.idBackProofUrl); setIsImageModalOpen(true); }}><Eye size={12}/></Button>
+                </div>
+             </div>
+             <div className="space-y-3">
+                <Label className="text-[10px] uppercase font-black tracking-widest text-primary flex items-center gap-2"><FileImage size={12}/> Selfie with ID</Label>
+                <div className="aspect-video relative rounded-xl border border-white/5 overflow-hidden bg-zinc-900 group">
+                   {kycInquiryUser?.selfieProofUrl ? (
+                     <Image src={kycInquiryUser.selfieProofUrl} alt="Selfie" fill className="object-cover group-hover:scale-110 transition-transform" />
+                   ) : <div className="absolute inset-0 flex items-center justify-center text-[10px] text-zinc-700">Missing</div>}
+                   <Button size="icon" variant="secondary" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => { setPreviewImage(kycInquiryUser.selfieProofUrl); setIsImageModalOpen(true); }}><Eye size={12}/></Button>
+                </div>
+             </div>
+          </div>
+
+          {kycInquiryUser?.kycVerified && (
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center flex items-center justify-center gap-3 text-emerald-500 font-bold mb-6">
+               <CheckCircle2 size={18} /> Identity Verified! Document log permanently archived.
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+             <Button variant="ghost" onClick={() => setIsKycModalOpen(false)}>Close Inquiry</Button>
+             {!kycInquiryUser?.kycVerified && (
+               <>
+                 <Button variant="destructive" onClick={() => handleUpdateKycStatus(kycInquiryUser.id, 'rejected')}>Reject Submission</Button>
+                 <Button className="bg-emerald-600 hover:bg-emerald-500" onClick={() => handleUpdateKycStatus(kycInquiryUser.id, 'verified')}>Approve Identity</Button>
+               </>
+             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL: Manage User */}
       <Dialog open={isManageModalOpen} onOpenChange={setIsManageModalOpen}>
@@ -588,6 +652,7 @@ export default function AdminPage() {
                       <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
                       <SelectItem value="3-step-classic">3-Step Classic</SelectItem>
                       <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                      <SelectItem value="instant-pro">Instant Pro</SelectItem>
                    </SelectContent>
                 </Select>
              </div>
@@ -595,6 +660,7 @@ export default function AdminPage() {
                 <Select value={String(giftForm.size)} onValueChange={v => setGiftForm({...giftForm, size: Number(v)})}>
                    <SelectTrigger className="bg-secondary/30 border-white/5"><SelectValue /></SelectTrigger>
                    <SelectContent className="bg-zinc-900 border-white/10 text-white">
+                      <SelectItem value="5000">$5,000</SelectItem>
                       <SelectItem value="10000">$10,000</SelectItem>
                       <SelectItem value="25000">$25,000</SelectItem>
                       <SelectItem value="50000">$50,000</SelectItem>
@@ -628,7 +694,7 @@ export default function AdminPage() {
 
       {/* MODAL: Admin Password Auth */}
       <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
-        <DialogContent className="bg-zinc-950 border-white/10 text-white max-w-sm">
+        <DialogContent className="bg-zinc-950 border-white/10 text-white max-sm">
           <DialogHeader>
             <DialogTitle className="text-center font-headline font-bold text-xl uppercase tracking-tighter">Identity Verification Required</DialogTitle>
             <DialogDescription className="text-center text-zinc-500 text-xs">Enter administrative master key to unlock terminal nodes.</DialogDescription>

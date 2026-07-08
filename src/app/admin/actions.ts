@@ -67,8 +67,8 @@ export async function giftAccountAction(traderId: string, email: string, account
     });
 
     await db.collection('users').doc(userId).collection('notifications').add({
-      title: '🎁 Account Gifted',
-      message: `Your ${accountLabel} has been provisioned by an administrator.`,
+      title: '🎁 Account Provisioned',
+      message: `Your ${accountLabel} challenge is now live in your dashboard.`,
       type: 'account_gifted', isRead: false, createdAt: FieldValue.serverTimestamp()
     });
 
@@ -112,9 +112,12 @@ export async function approveManualOrderAction(id: string) {
     if (!orderSnap.exists) throw new Error("Order not found");
     const order = orderSnap.data()!;
 
+    if (order.status === 'completed') return { success: true, alreadyDone: true };
+
     const userSnap = await db.collection('users').doc(order.userId).get();
     const traderId = userSnap.data()?.traderId;
 
+    // AUTO-PROVISION ACCOUNT
     const res = await giftAccountAction(
       traderId, order.email, 
       `Verified Challenge — ${order.accountSize}`,
@@ -129,6 +132,16 @@ export async function approveManualOrderAction(id: string) {
         approvedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp()
       });
+
+      // NOTIFY USER
+      await db.collection('users').doc(order.userId).collection('notifications').add({
+        title: '✅ Order Verified',
+        message: `Your order for ${order.accountSize} has been verified. Your account is now live in your dashboard.`,
+        type: 'order_verified',
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp()
+      });
+
       return { success: true };
     }
     throw new Error(res.error);
@@ -139,9 +152,26 @@ export async function updateOrderStatusAction(id: string, status: string, reason
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    const orderRef = db.collection('orders').doc(id);
+    const orderSnap = await orderRef.get();
+    if (!orderSnap.exists) throw new Error("Order not found");
+    const order = orderSnap.data()!;
+
     const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.rejectionReason = reason;
-    await db.collection('orders').doc(id).update(updates);
+    await orderRef.update(updates);
+
+    // NOTIFY USER ON REJECTION/EXPIRY
+    if (status === 'rejected' || status === 'expired') {
+      await db.collection('users').doc(order.userId).collection('notifications').add({
+        title: '❌ Order Failed',
+        message: status === 'expired' ? "Your payment window expired. Please try again." : `Your order was rejected. Reason: ${reason || "Verification failed"}.`,
+        type: 'order_failed',
+        isRead: false,
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
+
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }
