@@ -1,4 +1,3 @@
-
 'use server';
 
 import { cookies } from 'next/headers';
@@ -7,6 +6,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 import { sendBreachEmail, sendCredentialEmail } from '@/lib/email';
+import { isValidTxHash } from '@/lib/onChainVerification';
 
 /**
  * INSTITUTIONAL HELPER: Serialization
@@ -44,8 +44,16 @@ export async function verifyAdminAuth() {
 }
 
 export async function giftAccountAction(traderId: string, email: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
+  // CRITICAL SECURITY GUARD: Prevent unauthorized provisioning
+  if (!await verifyAdminAuth()) {
+    console.error(`[GiftAccount] Unauthorized provisioning attempt for Trader: ${traderId}`);
+    return { success: false, error: "Unauthorized administrative access required." };
+  }
+
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const userLookupSnap = await db.collection('users').where('traderId', '==', traderId).limit(1).get();
     if (userLookupSnap.empty) return { success: false, error: "No trader found" };
     
@@ -84,10 +92,17 @@ export async function approveManualOrderAction(id: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) throw new Error("Database unavailable");
+
     const orderRef = db.collection('orders').doc(id);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
     const order = orderSnap.data()!;
+
+    // Hash Integrity Audit
+    if (!isValidTxHash(order.txHash, order.network || "Polygon")) {
+      throw new Error("Cannot approve: Transaction hash is malformed or invalid for the selected network.");
+    }
 
     const userSnap = await db.collection('users').doc(order.userId).get();
     const traderId = userSnap.data()?.traderId;
@@ -106,7 +121,8 @@ export async function approveManualOrderAction(id: string) {
         status: 'completed', 
         approvedBy: "admin", 
         approvedAt: FieldValue.serverTimestamp(),
-        verificationMethod: "manual_admin"
+        verificationMethod: "manual_admin",
+        updatedAt: FieldValue.serverTimestamp()
       });
       return { success: true };
     }
@@ -118,6 +134,8 @@ export async function updateOrderStatusAction(id: string, status: string, reason
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const orderRef = db.collection('orders').doc(id);
     const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.rejectionReason = reason;
@@ -130,6 +148,8 @@ export async function fetchUserDetailAction(userId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const userSnap = await db.collection('users').doc(userId).get();
     if (!userSnap.exists) return { success: false, error: "User not found" };
     const [accounts, referrals, payouts, trades] = await Promise.all([
@@ -153,6 +173,8 @@ export async function resetDemoAccountAction(accountId: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const accountRef = db.collection('demoAccounts').doc(accountId);
     const accountSnap = await accountRef.get();
     if (!accountSnap.exists) throw new Error("Account not found");
@@ -172,6 +194,8 @@ export async function manualBreachAccountAction(accountId: string, reason: strin
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const accRef = db.collection('demoAccounts').doc(accountId);
     const accSnap = await accRef.get();
     if (!accSnap.exists) throw new Error("Account not found");
@@ -201,6 +225,8 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     await db.collection('broadcasts').add({ ...data, sentAt: FieldValue.serverTimestamp(), sentBy: 'admin' });
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
@@ -210,6 +236,8 @@ export async function cleanupDemoAccountsAction() {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const snap = await db.collection('demoAccounts').get();
     const batch = db.batch();
     snap.docs.forEach(doc => batch.delete(doc.ref));
@@ -222,6 +250,8 @@ export async function auditAndResetFridayBreachesAction(dryRun: boolean = true) 
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
+
     const blownSnap = await db.collection('demoAccounts').where('status', '==', 'blown').get();
     const affected: any[] = [];
     for (const doc of blownSnap.docs) {

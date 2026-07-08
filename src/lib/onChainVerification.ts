@@ -24,6 +24,35 @@ export const SUPPORTED_CHAINS: Record<string, ChainConfig> = {
   "XRPL": { id: 0, name: "XRP Ledger", confirmations: 1, nativeToken: "XRP" }
 };
 
+export const EXPLORERS: Record<string, string> = {
+  "ERC20": "https://etherscan.io/tx/",
+  "BEP20": "https://bscscan.com/tx/",
+  "Polygon": "https://polygonscan.com/tx/",
+  "Arbitrum": "https://arbiscan.io/tx/",
+  "Base": "https://basescan.org/tx/",
+  "Avalanche": "https://snowtrace.io/tx/",
+  "TRON": "https://tronscan.org/#/transaction/",
+  "XRPL": "https://xrpscan.com/tx/"
+};
+
+/**
+ * Validates if a string matches the expected transaction hash format for the network.
+ */
+export function isValidTxHash(hash: string, network: string): boolean {
+  if (!hash) return false;
+  if (hash === "ADMIN-GIFT" || hash.startsWith("COUPON-") || hash === "ADMIN-MANUAL") return true;
+
+  const cleanHash = hash.trim();
+  
+  if (network === "TRON" || network === "XRPL") {
+    // 64-character hexadecimal
+    return /^[a-fA-F0-9]{64}$/.test(cleanHash);
+  }
+  
+  // EVM (0x + 64-character hexadecimal)
+  return /^0x[a-fA-F0-9]{64}$/.test(cleanHash);
+}
+
 /**
  * Fetches the latest transaction list for a wallet on a specific network.
  */
@@ -63,7 +92,6 @@ async function getTronTransactions(address: string) {
     const headers: any = { 'Content-Type': 'application/json' };
     if (TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = TRONGRID_API_KEY;
 
-    // Fetch both TRX and TRC20 (USDT)
     const url = `https://api.trongrid.io/v1/accounts/${address}/transactions/trc20?limit=20&contract_address=TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`;
     const res = await fetch(url, { headers, next: { revalidate: 15 } });
     const data = await res.json();
@@ -76,7 +104,7 @@ async function getTronTransactions(address: string) {
         value: tx.value,
         tokenDecimal: tx.token_info?.decimals || 6,
         type: 'trc20',
-        confirmations: 20 // TronGrid only returns confirmed data in this endpoint usually
+        confirmations: 20
       }));
     }
     return [];
@@ -104,7 +132,7 @@ async function getXrpTransactions(address: string) {
         hash: t.tx.hash,
         from: t.tx.Account,
         to: t.tx.Destination,
-        value: t.tx.Amount, // Drops for XRP
+        value: t.tx.Amount,
         destinationTag: t.tx.DestinationTag,
         validated: t.validated,
         type: 'xrp'
@@ -120,10 +148,8 @@ async function getXrpTransactions(address: string) {
  * Validates if a transaction matches the expected order parameters.
  */
 export function validateTransaction(tx: any, expectedAddress: string, expectedValueNative: number, tolerance: number = 0.02, destinationTag?: number | null) {
-  // 1. Target Address Check
   if (tx.to?.toLowerCase() !== expectedAddress.toLowerCase()) return false;
 
-  // 2. Network Specific Logic
   if (tx.type === 'xrp') {
     if (!tx.validated) return false;
     if (destinationTag && tx.destinationTag !== destinationTag) return false;
@@ -136,7 +162,6 @@ export function validateTransaction(tx: any, expectedAddress: string, expectedVa
     return valueCheck(valueUsdt, expectedValueNative, tolerance);
   }
 
-  // EVM Defaults
   const valueWei = BigInt(tx.value || "0");
   const valueNative = Number(valueWei) / 1e18;
   return valueCheck(valueNative, expectedValueNative, tolerance);

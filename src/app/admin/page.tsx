@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -14,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone, Landmark, Share2, Info, ArrowUpRight, Wallet, TrendingUp
+  Users, Activity, Search, Loader2, DollarSign, ChevronLeft, Terminal, Database, ShieldCheck, Wand2, RefreshCw, BarChart2, Monitor, Clock, AlertOctagon, Trophy, CreditCard, Send, Fingerprint, Skull, Filter, ExternalLink, CheckCircle2, XCircle, Eye, Phone, Globe, Mail, User, AlertCircle, RotateCcw, Zap, Trash2, LogOut, Gift, Image as ImageIcon, Copy, ChevronRight, History, Megaphone, Landmark, Share2, Info, ArrowUpRight, Wallet, TrendingUp, AlertTriangle
 } from 'lucide-react';
 import { updateOrderStatusAction, processKycAction, resetDemoAccountAction, sendGlobalBroadcastAction, fetchUserDetailAction, cleanupDemoAccountsAction, manualBreachAccountAction, auditAndResetFridayBreachesAction, approveManualOrderAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -26,6 +25,7 @@ import { db, auth as clientAuth } from '@/lib/firebase';
 import { collection, getDocs, query, orderBy, limit, where, getCountFromServer } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { firebaseConfig } from '@/firebase/config';
+import { isValidTxHash, EXPLORERS } from '@/lib/onChainVerification';
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -67,10 +67,6 @@ export default function AdminPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
 
-  const [userDetail, setUserDetail] = useState<any>(null);
-  const [isUserDetailModalOpen, setIsUserDetailModalOpen] = useState(false);
-  const [userDetailLoading, setUserDetailLoading] = useState(false);
-
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
@@ -85,7 +81,7 @@ export default function AdminPage() {
       const [usersSnap, accountsSnap, ordersSnap, payoutsSnap, referralsSnap, broadcastsSnap, breachesSnap] = await Promise.all([
         getDocs(query(collection(db, 'users'), limit(500), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'demoAccounts'), limit(500), orderBy('createdAt', 'desc'))),
-        getDocs(query(collection(db, 'orders'), limit(500), orderBy('submittedAt', 'desc'))),
+        getDocs(query(collection(db, 'orders'), limit(500), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'payouts'), limit(500), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'referrals'), limit(500), orderBy('createdAt', 'desc'))),
         getDocs(query(collection(db, 'broadcasts'), limit(100), orderBy('sentAt', 'desc'))),
@@ -205,40 +201,78 @@ export default function AdminPage() {
                     <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-bold tracking-widest">
                       <tr>
                         <th className="p-4">Trader / Plan</th>
-                        <th className="p-4">TX Hash</th>
+                        <th className="p-4">TX Hash / Explorer</th>
                         <th className="p-4">Proof</th>
                         <th className="p-4">Status</th>
                         <th className="p-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
-                      {filteredOrders.map((o: any) => (
-                        <tr key={o.id} className="hover:bg-white/5 transition-colors">
-                          <td className="p-4">
-                            <p className="font-bold">{o.email}</p>
-                            <p className="text-[10px] text-primary">{o.accountSize} {o.plan}</p>
-                          </td>
-                          <td className="p-4 font-mono text-[10px]">
-                             <a href={`https://polygonscan.com/tx/${o.txHash}`} target="_blank" className="flex items-center gap-1 hover:text-primary">
-                               {o.txHash?.slice(0,10)}... <ExternalLink size={10} />
-                             </a>
-                          </td>
-                          <td className="p-4">
-                             {o.paymentScreenshot && <Button variant="outline" size="sm" className="h-7 text-[9px]" onClick={()=>{setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true);}}>View Image</Button>}
-                          </td>
-                          <td className="p-4">
-                             <Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? 'bg-emerald-500' : 'bg-amber-500')}>{o.status}</Badge>
-                          </td>
-                          <td className="p-4 text-right">
-                             {o.status !== 'completed' && (
-                               <div className="flex justify-end gap-2">
-                                  <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-500" onClick={() => handleApproveOrder(o.id)} disabled={actionLoading}>Verify & Provision</Button>
-                                  <Button size="sm" variant="destructive" className="h-8">Reject</Button>
+                      {filteredOrders.map((o: any) => {
+                        const isValidHash = isValidTxHash(o.txHash, o.network || "Polygon");
+                        const explorerBase = EXPLORERS[o.network || "Polygon"] || EXPLORERS["Polygon"];
+
+                        return (
+                          <tr key={o.id} className="hover:bg-white/5 transition-colors">
+                            <td className="p-4">
+                              <p className="font-bold">{o.email}</p>
+                              <p className="text-[10px] text-primary">{o.accountSize} {o.plan}</p>
+                            </td>
+                            <td className="p-4 font-mono text-[10px]">
+                               <div className="flex flex-col gap-1">
+                                 {isValidHash ? (
+                                   <a 
+                                    href={`${explorerBase}${o.txHash}`} 
+                                    target="_blank" 
+                                    className="flex items-center gap-1 text-primary hover:underline group"
+                                  >
+                                    {o.txHash?.slice(0,12)}... <ExternalLink size={10} className="group-hover:translate-x-0.5 transition-transform" />
+                                  </a>
+                                 ) : (
+                                   <div className="flex items-center gap-1 text-destructive font-black">
+                                      <AlertTriangle size={10} /> INVALID HASH: {o.txHash?.slice(0, 10)}...
+                                   </div>
+                                 )}
+                                 <span className="text-[8px] text-muted-foreground uppercase font-black">{o.network || 'Polygon'}</span>
                                </div>
-                             )}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td className="p-4">
+                               {o.paymentScreenshot && <Button variant="outline" size="sm" className="h-7 text-[9px]" onClick={()=>{setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true);}}>View Image</Button>}
+                            </td>
+                            <td className="p-4">
+                               <Badge className={cn(
+                                 "uppercase text-[8px] font-black", 
+                                 o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500' : 
+                                 o.status === 'rejected' ? 'bg-destructive' : 'bg-amber-500'
+                                )}>
+                                  {o.status}
+                                </Badge>
+                            </td>
+                            <td className="p-4 text-right">
+                               {o.status !== 'completed' && o.status !== 'approved' && (
+                                 <div className="flex justify-end gap-2">
+                                    <Button 
+                                      size="sm" 
+                                      className="h-8 bg-emerald-600 hover:bg-emerald-500 text-white font-bold" 
+                                      onClick={() => handleApproveOrder(o.id)} 
+                                      disabled={actionLoading || !isValidHash}
+                                    >
+                                      Verify & Provision
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="destructive" 
+                                      className="h-8 font-bold"
+                                      onClick={() => updateOrderStatusAction(o.id, 'rejected', 'Invalid transaction hash provided.')}
+                                    >
+                                      Reject
+                                    </Button>
+                                 </div>
+                               )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                </CardContent>
