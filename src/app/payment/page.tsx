@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -90,7 +91,7 @@ const COUNTRIES = [
 
 function PaymentContent() {
   const searchParams = useSearchParams();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
@@ -125,7 +126,7 @@ function PaymentContent() {
 
   // Sync Global Settings (Fees + Wallets)
   useEffect(() => {
-    if (!db) return;
+    if (!db || authLoading || !user) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -136,7 +137,7 @@ function PaymentContent() {
       console.warn('[Payment] Settings listener throttled or permission issue:', error.message);
     });
     return () => unsub();
-  }, []);
+  }, [authLoading, user]);
 
   const currentNetworkFee = useMemo(() => {
     if (!selectedNetwork) return 0;
@@ -145,7 +146,6 @@ function PaymentContent() {
 
   const currentWalletAddress = useMemo(() => {
     if (!selectedNetwork) return '';
-    // Priority: Database Configured Wallet > Hardcoded Placeholder
     return configuredWallets[selectedNetwork.id] || selectedNetwork.address;
   }, [selectedNetwork, configuredWallets]);
 
@@ -207,7 +207,6 @@ function PaymentContent() {
     }
   };
 
-  // Status Monitoring with Auth Guard to prevent permission errors
   useEffect(() => {
     if (!orderId || !user || !db) return;
     
@@ -484,7 +483,7 @@ function PaymentContent() {
 
         {step === 5.5 && selectedNetwork && (
           <motion.div key="step5.5" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex justify-center">
-            <Card className="w-full max-w-md bg-zinc-950 border-zinc-800 shadow-2xl">
+            <Card className="w-full max-md bg-zinc-950 border-zinc-800 shadow-2xl">
               <CardHeader>
                 <CardTitle className="text-xl font-headline font-bold text-white">Payment Summary</CardTitle>
                 <CardDescription>Review your final total including network fees.</CardDescription>

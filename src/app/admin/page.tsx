@@ -14,7 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save, Network
 } from 'lucide-react';
 import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction, updateGlobalSettingsAction } from './actions';
 import { cn } from '@/lib/utils';
@@ -52,7 +52,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
 });
 
 export default function AdminPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
@@ -98,7 +98,7 @@ export default function AdminPage() {
   }, [user]);
 
   const refreshStats = useCallback(async () => {
-    if (!isAuthenticated || !isAuthorized) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     
     try {
       const [userCountSnap, accountsCountSnap, liquidSnap, passedSnap, ordersCountSnap] = await Promise.all([
@@ -120,10 +120,10 @@ export default function AdminPage() {
     } catch (err: any) {
       console.error('[Admin-Stats] Quota or Auth fault:', err.message);
     }
-  }, [isAuthenticated, isAuthorized]);
+  }, [isAuthenticated, isAuthorized, authLoading]);
 
   const fetchTabData = useCallback(async (tab: string) => {
-    if (!isAuthenticated || !isAuthorized) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     setIsLoading(true);
 
     try {
@@ -179,25 +179,27 @@ export default function AdminPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, isAuthorized, toast]);
+  }, [isAuthenticated, isAuthorized, authLoading, toast]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
     else setShowAdminModal(true);
 
+    if (!isAuthorized || authLoading) return;
+
     const unsubSettings = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
       if (snap.exists()) setGlobalSettings(snap.data() as any);
     });
     return () => unsubSettings();
-  }, []);
+  }, [isAuthorized, authLoading]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats();
       fetchTabData(activeTab);
     }
-  }, [isAuthenticated, activeTab, fetchTabData, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, fetchTabData, refreshStats]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,7 +307,7 @@ export default function AdminPage() {
 
   if (!isAuthenticated && !showAdminModal) return null;
 
-  if (isAuthenticated && !isAuthorized && !isLoading) {
+  if (isAuthenticated && !isAuthorized && !authLoading && !isLoading) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <ShieldAlert className="w-16 h-16 text-destructive mb-6 animate-pulse" />
