@@ -133,7 +133,7 @@ export default function AdminPage() {
         totalAum: (volumeAgg as any)?.data?.()?.totalVolume || 0
       });
     } catch (err: any) {
-      console.error('[Admin-Stats] Core fault:', err.message);
+      console.error('[Admin-Stats] Refresh fault:', err.message);
     }
   }, [isAuthenticated, isAuthorized, authLoading]);
 
