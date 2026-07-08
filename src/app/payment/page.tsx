@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/context/AuthContext';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
@@ -23,25 +24,26 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn, sanitizeInput } from '@/lib/utils';
+import Link from 'next/link';
 
 /**
  * Institutional Network Configuration
  */
 const NETWORKS = {
   USDT: [
-    { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network' },
-    { id: 'Solana', label: 'Solana', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDT on Solana' },
-    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Ethereum' },
-    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base' },
-    { id: 'BEP20', label: 'BNB Chain', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on BNB Smart Chain' }
+    { id: 'TRON', label: 'Tron (TRC20)', address: 'TMitDXKKnsHKgBVENHdorV4axBou6KC5JM', subtitle: 'USDT on Tron Network', defaultFee: 1.50 },
+    { id: 'Solana', label: 'Solana', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDT on Solana', defaultFee: 0.10 },
+    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Ethereum', defaultFee: 12.00 },
+    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on Base', defaultFee: 0.50 },
+    { id: 'BEP20', label: 'BNB Chain', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDT on BNB Smart Chain', defaultFee: 0.80 }
   ],
   USDC: [
-    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Ethereum' },
-    { id: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Polygon' },
-    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base' },
-    { id: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Arbitrum One' },
-    { id: 'Avalanche', label: 'Avalanche', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Avalanche C-Chain' },
-    { id: 'Solana', label: 'Solana', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on Solana' }
+    { id: 'Ethereum', label: 'Ethereum (ERC20)', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Ethereum', defaultFee: 12.00 },
+    { id: 'Polygon', label: 'Polygon', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Polygon', defaultFee: 0.50 },
+    { id: 'Base', label: 'Base', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Base', defaultFee: 0.50 },
+    { id: 'Arbitrum', label: 'Arbitrum', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Arbitrum One', defaultFee: 0.50 },
+    { id: 'Avalanche', label: 'Avalanche', address: '0x3ab3ca43dc691f468bea91883f493cabf6da84d4', subtitle: 'USDC on Avalanche C-Chain', defaultFee: 0.80 },
+    { id: 'Solana', label: 'Solana', address: 'rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6', subtitle: 'USDC on Solana', defaultFee: 0.10 }
   ]
 };
 
@@ -53,13 +55,14 @@ function PaymentContent() {
   
   const plan = searchParams.get('plan') || '1-Step Pro';
   const size = searchParams.get('size') || '$100,000';
-  const price = searchParams.get('price') || '$499';
+  const priceStr = searchParams.get('price') || '$499';
+  const challengeAmount = parseFloat(priceStr.replace('$', '').replace(',', ''));
   
-  // Multi-step State (Steps 2-6)
   const [step, setStep] = useState(2);
   const [termsAccepted, setTemsAccepted] = useState(false);
   const [mailingList, setMailingList] = useState(false);
   const [couponCode, setCouponCode] = useState('');
+  const [networkFees, setNetworkFees] = useState<Record<string, number>>({});
   
   const [billing, setBilling] = useState({
     firstName: '', lastName: '', phone: '', address: '', suite: '', city: '', state: '', zip: '', country: 'United States'
@@ -74,8 +77,25 @@ function PaymentContent() {
   const [timeLeft, setTimeLeft] = useState(1200); 
   const [confirmations, setConfirmations] = useState(0);
   const [loading, setLoading] = useState(false);
+  const isCreatingRef = useRef(false);
 
-  // Validation Helper
+  // Load latest fees from settings
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
+      if (snap.exists()) {
+        setNetworkFees(snap.data().networkFees || {});
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const currentNetworkFee = useMemo(() => {
+    if (!selectedNetwork) return 0;
+    return networkFees[selectedNetwork.id] ?? selectedNetwork.defaultFee || 0;
+  }, [selectedNetwork, networkFees]);
+
+  const totalAmountUsd = useMemo(() => challengeAmount + currentNetworkFee, [challengeAmount, currentNetworkFee]);
+
   const validateBilling = () => {
     const newErrors: Record<string, boolean> = {};
     const required = ['firstName', 'lastName', 'phone', 'address', 'city', 'state', 'zip'];
@@ -86,21 +106,53 @@ function PaymentContent() {
     return Object.keys(newErrors).length === 0;
   };
 
-  /**
-   * Institutional Order Creation
-   * Only triggers when Step 6 (Final Payment) is reached.
-   */
   const createFinalOrder = async () => {
-    if (!user || !selectedCoin || !selectedNetwork || orderId) return;
+    if (!user || !selectedCoin || !selectedNetwork || isCreatingRef.current) return;
+    
+    // Check if an order for this session already exists to prevent duplicates
+    if (orderId) {
+      setStep(6);
+      return;
+    }
+
+    isCreatingRef.current = true;
     setLoading(true);
+
     try {
+      // Cleanup any previous WAITING orders for this user/plan to keep things clean
+      const q = query(
+        collection(db, "orders"), 
+        where("userId", "==", user.uid), 
+        where("status", "==", "waiting"),
+        where("plan", "==", plan),
+        where("accountSize", "==", size),
+        limit(1)
+      );
+      const existing = await getDocs(q);
+      
+      if (!existing.empty) {
+        const existingOrder = existing.docs[0];
+        const data = existingOrder.data();
+        // Reuse if created within last 20 mins
+        const age = (Date.now() - (data.createdAt?.toMillis?.() || Date.now())) / 1000;
+        if (age < 1200) {
+          setOrderId(existingOrder.id);
+          setStep(6);
+          isCreatingRef.current = false;
+          setLoading(false);
+          return;
+        }
+      }
+
       const tag = selectedNetwork.id === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
         email: user.email,
         plan,
         accountSize: size,
-        amountPaid: parseFloat(price.replace('$', '').replace(',', '')),
+        challengeAmount,
+        networkFee: currentNetworkFee,
+        amountPaid: totalAmountUsd,
         network: selectedNetwork.id,
         coin: selectedCoin,
         destinationTag: tag,
@@ -108,18 +160,19 @@ function PaymentContent() {
         status: "waiting",
         createdAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 1200 * 1000).toISOString(),
-        amountNative: parseFloat(price.replace('$', '').replace(',', '')) * 1.002 // Cover fee variance
+        amountNative: totalAmountUsd * 1.002 // Add slight slippage buffer for auto-detect
       });
+
       setOrderId(res.id);
       setStep(6);
-    } catch (e) {
-      toast({ variant: "destructive", title: "Order Creation Failed" });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Order Creation Failed", description: e.message });
     } finally {
       setLoading(false);
+      isCreatingRef.current = false;
     }
   };
 
-  // Timer & Real-time Update Logic
   useEffect(() => {
     if (!orderId) return;
     const unsub = onSnapshot(doc(db, "orders", orderId), (snap) => {
@@ -128,7 +181,12 @@ function PaymentContent() {
       
       const createdAt = data.createdAt?.toDate?.() || new Date(data.createdAt);
       const diff = Math.floor((Date.now() - createdAt.getTime()) / 1000);
-      setTimeLeft(Math.max(0, 1200 - diff));
+      const remaining = Math.max(0, 1200 - diff);
+      setTimeLeft(remaining);
+
+      if (remaining <= 0 && data.status === 'waiting') {
+        updateDoc(doc(db, 'orders', orderId), { status: 'expired' });
+      }
 
       if (data.status === "completed") setOrderStatus("completed");
       else if (data.status === "detected") {
@@ -158,10 +216,25 @@ function PaymentContent() {
     );
   }
 
+  if (orderStatus === 'expired') {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className="w-20 h-20 bg-destructive/10 rounded-full flex items-center justify-center mx-auto">
+            <AlertTriangle className="w-10 h-10 text-destructive" />
+          </div>
+          <h2 className="text-3xl font-headline font-bold text-white">Payment Window Expired</h2>
+          <p className="text-zinc-400">The 20-minute deposit window has closed. Please start a new session.</p>
+          <Button variant="outline" className="font-bold h-12 px-8" onClick={() => window.location.reload()}>Try Again</Button>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto py-10 px-4">
       <AnimatePresence mode="wait">
-        {/* STEP 2: MODAL OVERLAY */}
+        {/* STEP 2: BEFORE YOU PROCEED */}
         {step === 2 && (
           <motion.div key="step2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
             <Card className="w-full max-w-lg bg-zinc-950 border-zinc-800 shadow-2xl">
@@ -214,7 +287,7 @@ function PaymentContent() {
                     <h3 className="text-xl font-headline font-bold text-white">{plan} · {size}</h3>
                   </div>
                   <div className="text-right">
-                    <p className="text-2xl font-headline font-bold text-primary">{price}</p>
+                    <p className="text-2xl font-headline font-bold text-primary">{priceStr}</p>
                   </div>
                 </div>
               </div>
@@ -261,7 +334,7 @@ function PaymentContent() {
                   <div className="space-y-2">
                     <Label className="text-[11px] font-bold uppercase text-zinc-500">Country *</Label>
                     <Select value={billing.country} onValueChange={(v) => setBilling({...billing, country: v})}>
-                      <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="bg-zinc-900 border-zinc-800 text-white"><SelectValue /></SelectTrigger>
                       <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                         <SelectItem value="United States">United States</SelectItem>
                         <SelectItem value="United Kingdom">United Kingdom</SelectItem>
@@ -322,7 +395,7 @@ function PaymentContent() {
               {NETWORKS[selectedCoin].map((net) => (
                 <button 
                   key={net.id}
-                  onClick={() => { setSelectedNetwork(net); createFinalOrder(); }}
+                  onClick={() => { setSelectedNetwork(net); setStep(5.5); }}
                   className="w-full p-5 rounded-2xl bg-card/40 border border-zinc-800 hover:border-primary/50 text-left transition-all flex items-center justify-between group"
                 >
                   <div className="flex items-center gap-4">
@@ -341,6 +414,42 @@ function PaymentContent() {
           </motion.div>
         )}
 
+        {/* STEP 5.5: SUMMARY BEFORE DEPOSIT */}
+        {step === 5.5 && selectedNetwork && (
+          <motion.div key="step5.5" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex justify-center">
+            <Card className="w-full max-w-md bg-zinc-950 border-zinc-800 shadow-2xl">
+              <CardHeader>
+                <CardTitle className="text-xl font-headline font-bold text-white">Payment Summary</CardTitle>
+                <CardDescription>Review your final total including network fees.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="p-4 rounded-xl bg-secondary/20 border border-white/5 space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-500">Challenge Price</span>
+                    <span className="text-white font-bold">${challengeAmount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-500">Network Fee ({selectedNetwork.id})</span>
+                    <span className="text-white font-bold">${currentNetworkFee.toFixed(2)}</span>
+                  </div>
+                  <div className="h-px bg-white/5" />
+                  <div className="flex justify-between text-lg">
+                    <span className="font-headline font-bold text-white">Total Due</span>
+                    <span className="font-headline font-bold text-primary">${totalAmountUsd.toFixed(2)}</span>
+                  </div>
+                </div>
+                <p className="text-[10px] text-zinc-500 italic text-center">Crypto amount is calculated at 1:1 with USD plus 0.2% slippage buffer.</p>
+              </CardContent>
+              <CardFooter className="gap-3">
+                <Button variant="ghost" className="flex-1 font-bold" onClick={() => setStep(5)}>Back</Button>
+                <Button className="flex-2 font-black px-8 cyan-box-glow" onClick={createFinalOrder} disabled={loading}>
+                   {loading ? <Loader2 className="animate-spin" /> : "PROCEED TO DEPOSIT"}
+                </Button>
+              </CardFooter>
+            </Card>
+          </motion.div>
+        )}
+
         {/* STEP 6: PAYMENT/DEPOSIT */}
         {step === 6 && selectedNetwork && (
           <motion.div key="step6" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-8">
@@ -350,8 +459,13 @@ function PaymentContent() {
                   <div className="text-center space-y-2">
                      <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.3em]">SEND EXACTLY</p>
                      <h3 className="text-5xl font-headline font-bold text-white tabular-nums">
-                       {(parseFloat(price.replace('$', '')) * 1.002).toFixed(4)} <span className="text-primary">{selectedCoin}</span>
+                       {(totalAmountUsd * 1.002).toFixed(4)} <span className="text-primary">{selectedCoin}</span>
                      </h3>
+                     <div className="flex items-center justify-center gap-2 pt-2">
+                        <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 font-mono text-[10px]">
+                           Fee included: ${currentNetworkFee.toFixed(2)} ({selectedNetwork.id})
+                        </Badge>
+                     </div>
                   </div>
 
                   <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-4">
@@ -363,7 +477,7 @@ function PaymentContent() {
 
                   <div className="flex flex-col md:flex-row gap-10 items-center justify-center">
                     <div className="bg-white p-3 rounded-2xl shadow-2xl shrink-0 group relative">
-                       <QRCodeSVG value={`${selectedNetwork.address}?amount=${(parseFloat(price.replace('$', '')) * 1.002).toFixed(4)}`} size={180} />
+                       <QRCodeSVG value={`${selectedNetwork.address}?amount=${(totalAmountUsd * 1.002).toFixed(4)}`} size={180} />
                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-2xl">
                          <p className="text-white text-[10px] font-black uppercase tracking-widest">Scan to Pay</p>
                        </div>
@@ -372,7 +486,7 @@ function PaymentContent() {
                        <div className="space-y-2">
                           <Label className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">DEPOSIT ADDRESS</Label>
                           <div className="flex gap-2">
-                            <Input readOnly value={selectedNetwork.address} className="bg-zinc-900/50 font-mono text-[10px] h-12 border-zinc-800" />
+                            <Input readOnly value={selectedNetwork.address} className="bg-zinc-900/50 font-mono text-[10px] h-12 border-zinc-800 text-white" />
                             <Button variant="secondary" size="icon" className="h-12 w-12 shrink-0" onClick={() => { navigator.clipboard.writeText(selectedNetwork.address); toast({ title: "Address Copied" }); }}><Copy size={16} /></Button>
                           </div>
                        </div>

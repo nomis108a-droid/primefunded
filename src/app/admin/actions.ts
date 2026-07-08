@@ -25,6 +25,15 @@ export async function verifyAdminAuth() {
   } catch (error) { return false; }
 }
 
+export async function updateGlobalSettingsAction(settings: any) {
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  try {
+    const db = getAdminDb();
+    await db.collection('settings').doc('payments').set(settings, { merge: true });
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
+}
+
 export async function giftAccountAction(traderId: string, email: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
   if (!await verifyAdminAuth()) {
     return { success: false, error: "Unauthorized administrative access required." };
@@ -231,7 +240,7 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
-      createdAt: FieldValue.serverTimestamp()
+      createdAt: serverTimestamp()
     });
     
     return { success: true };
@@ -254,7 +263,7 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
       message: status === 'done' ? `Your withdrawal of $${payout.amount} has been sent.` : `Your payout request was rejected.`,
       type: 'payout_update',
       isRead: false,
-      createdAt: FieldValue.serverTimestamp()
+      createdAt: serverTimestamp()
     });
     
     return { success: true };

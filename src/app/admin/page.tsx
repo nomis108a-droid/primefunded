@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -13,14 +14,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, FileImage, CheckCircle2, Trash2, Settings2, Save
 } from 'lucide-react';
-import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from './actions';
+import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction, updateGlobalSettingsAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, limit, where, getCountFromServer, doc } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { EXPLORERS, isValidTxHash } from '@/lib/onChainVerification';
@@ -67,6 +68,13 @@ export default function AdminPage() {
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: []
   });
 
+  const [globalSettings, setGlobalSettings] = useState({
+    networkFees: {
+      TRON: 1.50, Ethereum: 12.00, Solana: 0.10, Base: 0.50, BEP20: 0.80, Polygon: 0.50, Arbitrum: 0.50, Avalanche: 0.80
+    },
+    maintenanceMode: false
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const { toast } = useToast();
@@ -82,11 +90,6 @@ export default function AdminPage() {
   
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-
-  const [isManageModalOpen, setIsManageModalOpen] = useState(false);
-  const [inspectUser, setInspectUser] = useState<any>(null);
-  const [inspectNodes, setInspectNodes] = useState<any[]>([]);
-  const [inspectTrades, setInspectTrades] = useState<any[]>([]);
 
   const instanceId = "Studio-8383940162";
 
@@ -182,6 +185,11 @@ export default function AdminPage() {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
     else setShowAdminModal(true);
+
+    const unsubSettings = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
+      if (snap.exists()) setGlobalSettings(snap.data() as any);
+    });
+    return () => unsubSettings();
   }, []);
 
   useEffect(() => {
@@ -198,6 +206,17 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       setShowAdminModal(false);
     } else setAdminError('❌ Invalid credentials');
+  };
+
+  const handleSaveSettings = async () => {
+    setActionLoading(true);
+    try {
+      const res = await updateGlobalSettingsAction(globalSettings);
+      if (res.success) toast({ title: "Settings Updated" });
+      else throw new Error(res.error);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Save Failed", description: e.message });
+    } finally { setActionLoading(false); }
   };
 
   const handleResetHistory = async () => {
@@ -224,36 +243,6 @@ export default function AdminPage() {
       } else throw new Error(res.error);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Cleanup Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  };
-
-  const handleResetAccount = async (accountId: string) => {
-    if (!confirm('Are you sure you want to reset this account? Balance will be restored to starting amount.')) return;
-    setActionLoading(true);
-    try {
-      const res = await resetDemoAccountAction(accountId);
-      if (res.success) {
-        toast({ title: "Account Reset Complete" });
-        fetchTabData(activeTab);
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  };
-
-  const handleManageUser = async (user: any) => {
-    setInspectUser(user);
-    setIsManageModalOpen(true);
-    setActionLoading(true);
-    try {
-      const [nodesSnap, tradesSnap] = await Promise.all([
-        getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', user.id), limit(10))),
-        getDocs(query(collection(db, 'demoTrades'), where('userId', '==', user.id), limit(20), orderBy('openedAt', 'desc')))
-      ]);
-      setInspectNodes(nodesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setInspectTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      console.error(e);
     } finally { setActionLoading(false); }
   };
 
@@ -307,35 +296,12 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  const handleUpdatePayoutStatus = async (payoutId: string, status: string) => {
-    setActionLoading(true);
-    try {
-      const res = await updatePayoutStatusAction(payoutId, status);
-      if (res.success) {
-        toast({ title: `Payout ${status}` });
-        fetchTabData(activeTab);
-      }
-    } finally { setActionLoading(false); }
-  };
-
-  const filteredNodes = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => {
-    const term = searchTerm.toLowerCase();
-    return a.id.toLowerCase().includes(term) || a.email?.toLowerCase().includes(term) || a.label?.toLowerCase().includes(term);
-  }), [tabData.demoAccounts, searchTerm]);
-
-  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
-    const term = searchTerm.toLowerCase();
-    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
-  }), [tabData.users, searchTerm]);
-
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
     return o.id.toLowerCase().includes(term) || o.email?.toLowerCase().includes(term) || o.txHash?.toLowerCase().includes(term);
   }), [tabData.orders, searchTerm]);
 
-  const phasePassers = useMemo(() => (tabData.demoAccounts || []).filter((a: any) => a.status === 'passed'), [tabData.demoAccounts]);
   const kycUsers = useMemo(() => (tabData.users || []).filter((u: any) => u.kycStatus && u.kycStatus !== 'none'), [tabData.users]);
-  const breachedAccounts = tabData.breaches || [];
 
   if (!isAuthenticated && !showAdminModal) return null;
 
@@ -393,7 +359,7 @@ export default function AdminPage() {
           <div className="relative">
             <ScrollArea className="w-full">
               <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-                {['Overview', 'Phase Passers', 'Payout Hub', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map((tab) => (
+                {['Overview', 'Phase Passers', 'Payout Hub', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts', 'Global Settings'].map((tab) => (
                   <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">
                     {tab}
                   </TabsTrigger>
@@ -432,6 +398,56 @@ export default function AdminPage() {
                 </div>
              </div>
              <Card className="bg-card/40 border-border/50"><CardContent className="p-0 overflow-x-auto"><table className="w-full text-sm text-left"><thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest"><tr><th className="p-4">Order ID</th><th className="p-4">Trader / Plan</th><th className="p-4 text-right">Amount</th><th className="p-4">TX Hash</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-border/50">{filteredOrders.map((o: any) => { const explorer = EXPLORERS[o.network] || EXPLORERS.ERC20; const isHashValid = isValidTxHash(o.txHash, o.network); return (<tr key={o.id} className="hover:bg-white/5 transition-colors"><td className="p-4 font-mono text-[10px]">{o.id}</td><td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td><td className="p-4 text-right font-mono text-white">${o.amountPaid}</td><td className="p-4"><div className="flex flex-col gap-1">{o.txHash ? (<div className="flex items-center gap-2"><a href={`${explorer}${o.txHash}`} target="_blank" className="text-[10px] font-mono text-primary hover:underline truncate max-w-[100px]">{o.txHash}</a>{!isHashValid && <Badge variant="destructive" className="h-3 text-[7px] font-black">INVALID HASH</Badge>}</div>) : (<span className="text-zinc-600 text-[10px]">No Hash</span>)}</div></td><td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'waiting' ? "bg-blue-500/20 text-blue-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td><td className="p-4 text-right"><div className="flex justify-end gap-2">{o.paymentScreenshot && (<Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPreviewImage(o.paymentScreenshot); setIsImageModalOpen(true); }}>View Proof</Button>)}{o.status !== 'completed' && (<Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>)}</div></td></tr>); })}</tbody></table></CardContent></Card>
+          </TabsContent>
+
+          <TabsContent value="global-settings" className="space-y-6">
+             <div className="flex justify-between items-center">
+                <h2 className="text-xl font-headline font-bold uppercase tracking-tight">System Configuration</h2>
+                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={handleSaveSettings} disabled={actionLoading}>
+                   {actionLoading ? <Loader2 className="animate-spin" /> : <Save className="w-4 h-4 mr-2" />} Save Settings
+                </Button>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <Card className="bg-card/30 border-border/50">
+                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><Network className="w-4 h-4 text-primary" /> Network Fee Table (USD)</CardTitle><CardDescription>Adjust transaction fees per network to cover Firm costs.</CardDescription></CardHeader>
+                   <CardContent className="space-y-4">
+                      {Object.keys(globalSettings.networkFees).map(net => (
+                        <div key={net} className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/50 border border-border">
+                           <Label className="font-bold text-xs uppercase text-zinc-400">{net}</Label>
+                           <div className="relative w-24">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 text-xs">$</span>
+                              <Input 
+                                type="number" 
+                                value={globalSettings.networkFees[net as keyof typeof globalSettings.networkFees]} 
+                                onChange={e => setGlobalSettings({...globalSettings, networkFees: {...globalSettings.networkFees, [net]: parseFloat(e.target.value)}})}
+                                className="h-9 pl-6 bg-zinc-950 border-zinc-800 text-xs font-mono" 
+                              />
+                           </div>
+                        </div>
+                      ))}
+                   </CardContent>
+                </Card>
+
+                <Card className="bg-card/30 border-border/50">
+                   <CardHeader><CardTitle className="text-sm font-headline font-bold text-white uppercase flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-primary" /> Global Flags</CardTitle></CardHeader>
+                   <CardContent className="space-y-6">
+                      <div className="flex items-center justify-between p-4 rounded-xl bg-destructive/5 border border-destructive/20">
+                         <div>
+                            <p className="font-bold text-white text-sm">Maintenance Mode</p>
+                            <p className="text-[10px] text-zinc-500">Enable to redirect all users to maintenance page.</p>
+                         </div>
+                         <Button 
+                           variant={globalSettings.maintenanceMode ? "destructive" : "outline"} 
+                           className="font-black h-9 text-[10px]"
+                           onClick={() => setGlobalSettings({...globalSettings, maintenanceMode: !globalSettings.maintenanceMode})}
+                         >
+                            {globalSettings.maintenanceMode ? "ENABLED" : "DISABLED"}
+                         </Button>
+                      </div>
+                   </CardContent>
+                </Card>
+             </div>
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
