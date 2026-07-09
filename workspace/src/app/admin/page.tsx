@@ -19,6 +19,7 @@ import {
 import { updateOrderStatusAction, resetDemoAccountAction, resetSingleAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
@@ -26,6 +27,7 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 
+// Memoized StatCard to prevent re-renders on table updates
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
@@ -43,6 +45,75 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
         <h3 className="text-2xl font-headline font-bold text-white group-hover:text-primary transition-colors">{value}</h3>
+      </CardContent>
+    </Card>
+  );
+});
+
+// Memoized DataTable to prevent lag during tab switching
+const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
+  if (loading) {
+    return (
+      <Card className="bg-card/40 border-border/50">
+        <CardContent className="p-0 space-y-4 py-8">
+          {[1, 2, 3].map(i => <div key={i} className="h-12 mx-4 bg-white/5 animate-pulse rounded-lg" />)}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
+        <Info className="w-12 h-12 mb-4" />
+        <p className="text-sm font-black uppercase tracking-widest">No matching records found.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="bg-card/40 border-border/50 overflow-hidden shadow-2xl">
+      <CardContent className="p-0 overflow-x-auto custom-scrollbar">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest border-b border-white/5">
+            <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {data.map(item => renderRow(item))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+});
+
+const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns, onViewAll }: { title: string, data: any[], columns: string[], onViewAll: () => void }) {
+  return (
+    <Card className="bg-card/30 border-border/50">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+        <CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">{title}</CardTitle>
+        <button onClick={onViewAll} className="text-[10px] font-black uppercase text-primary hover:text-white transition-colors">View All</button>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm text-left">
+          <tbody className="divide-y divide-border/50">
+            {!data || data.length === 0 ? (
+              <tr><td colSpan={3} className="py-10 text-center text-[10px] text-zinc-600 font-bold uppercase">No data found.</td></tr>
+            ) : data.slice(0, 5).map((item, i) => (
+              <tr key={i} className="hover:bg-white/5 transition-colors">
+                <td className="py-3 px-4 font-bold text-xs truncate max-w-[120px]">{item[columns[0]]}</td>
+                <td className="py-3 px-4 text-[10px] text-muted-foreground uppercase truncate max-w-[100px]">{item[columns[1]]}</td>
+                <td className="py-3 px-4 text-right">
+                   {columns[2] === 'status' ? (
+                     <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
+                   ) : (
+                     <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
+                   )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </CardContent>
     </Card>
   );
@@ -114,16 +185,18 @@ export default function AdminPage() {
         )
       ]);
 
-      const [uCount, nCount, lCount, pCount, pOrdersCount, volumeAgg] = results.map(r => r.status === 'fulfilled' ? (r as any).value : 0);
-
-      setStats({
-        totalUsersCount: typeof uCount === 'number' ? uCount : 11259,
-        totalNodesCount: typeof nCount === 'number' ? nCount : 434,
-        totalLiquidationCount: typeof lCount === 'number' ? lCount : 328,
-        phasePassersCount: typeof pCount === 'number' ? pCount : 0,
-        pendingOrdersCount: typeof pOrdersCount === 'number' ? pOrdersCount : 0,
-        totalAum: (volumeAgg as any)?.data?.()?.totalVolume || 3030000
+      const statsPayload: any = {};
+      results.forEach((r, i) => {
+        const val = r.status === 'fulfilled' ? r.value : 0;
+        if (i === 0) statsPayload.totalUsersCount = val;
+        if (i === 1) statsPayload.totalNodesCount = val;
+        if (i === 2) statsPayload.totalLiquidationCount = val;
+        if (i === 3) statsPayload.phasePassersCount = val;
+        if (i === 4) statsPayload.pendingOrdersCount = val;
+        if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
       });
+
+      setStats(prev => ({ ...prev, ...statsPayload }));
     } catch (err: any) {
       console.error('[Admin-Stats] Refresh fault:', err.message);
     }
@@ -135,59 +208,60 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsub: () => void = () => {};
 
+    // QUOTA PROTECTION: All listeners now use limit(100)
+    // Combined with refreshStats decoupling to prevent the "Reads Bomb"
     switch(activeTab) {
       case 'user-directory':
-        // Removed limit(100) to allow search to work correctly across the dataset
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          refreshStats();
+          // refreshStats removed from here to stop the loop
         });
         break;
       case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'payout-hub':
-        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'broadcasts':
-        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -198,7 +272,14 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab]); // refreshStats removed from deps
+
+  // Run stats exactly once on mount
+  useEffect(() => {
+    if (isAuthenticated && isAuthorized && !authLoading) {
+      refreshStats();
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -236,7 +317,6 @@ export default function AdminPage() {
       const res = await resetSingleAccountAction(accountId);
       if (res.success) {
         toast({ title: "Account Restored", description: "Balance reset and history cleared." });
-        // Refresh local trade data if currently inspecting this user
         if (selectedUser) {
            const snap = await getDoc(doc(db, 'users', selectedUser.id));
            if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
@@ -342,7 +422,6 @@ export default function AdminPage() {
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
 
-  // Reset page when search term changes to avoid empty views
   useEffect(() => {
     setUserPage(1);
   }, [searchTerm]);
@@ -352,7 +431,7 @@ export default function AdminPage() {
     return filteredUsers.slice(start, start + usersPerPage);
   }, [filteredUsers, userPage]);
 
-  const totalUserPages = Math.ceil(stats.totalUsersCount / usersPerPage);
+  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage);
 
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
@@ -553,7 +632,7 @@ export default function AdminPage() {
              
              {totalUserPages > 1 && (
                <div className="flex items-center justify-between mt-4 px-2">
-                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {stats.totalUsersCount} traders</p>
+                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {filteredUsers.length} traders (Snapshot view)</p>
                  <div className="flex gap-2">
                    <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
                    <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
@@ -563,8 +642,8 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
-             <TabHeader title="Compliance: Identity Review" count={tabData.users?.filter((u:any) => u.kycStatus === 'pending').length} />
-             <DataTable loading={isLoading} data={tabData.users?.filter((u:any) => u.kycStatus === 'pending')} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
+             <TabHeader title="Compliance: Identity Review" count={tabData.users?.length} />
+             <DataTable loading={isLoading} data={tabData.users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{u.email}</td>
                     <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
@@ -663,12 +742,45 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs text-left">
                       <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
-                        <tr><th className="py-2 px-1">Symbol</th><th className="py-2 px-1">Type</th><th className="py-2 px-1 text-right">PnL</th><th className="py-2 px-1 text-right">Date</th></tr>
+                        <tr>
+                          <th className="py-2 px-1">Symbol</th>
+                          <th className="py-2 px-1">Type</th>
+                          <th className="py-2 px-1">Lots</th>
+                          <th className="py-2 px-1 text-right">Open</th>
+                          <th className="py-2 px-1 text-right">Close</th>
+                          <th className="py-2 px-1 text-center">Dur.</th>
+                          <th className="py-2 px-1 text-right">Comm.</th>
+                          <th className="py-2 px-1 text-right">PnL</th>
+                          <th className="py-2 px-1 text-right">Time</th>
+                        </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => (
-                          <tr key={t.id} className="hover:bg-white/5"><td className="py-2 px-1 font-bold">{t.symbol}</td><td className="py-2 px-1 uppercase font-medium">{t.type}</td><td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td><td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'HH:mm') : '—'}</td></tr>
-                        ))}
+                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
+                          const openDate = t.openedAt?.toDate?.() || (t.openedAt ? new Date(t.openedAt) : null);
+                          const closeDate = t.closedAt?.toDate?.() || (t.closedAt ? new Date(t.closedAt) : null);
+                          
+                          let durationStr = "—";
+                          if (openDate && closeDate) {
+                            const diff = Math.floor((closeDate.getTime() - openDate.getTime()) / 1000);
+                            const m = Math.floor(diff / 60);
+                            const s = diff % 60;
+                            durationStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+                          }
+
+                          return (
+                            <tr key={t.id} className="hover:bg-white/5">
+                              <td className="py-2 px-1 font-bold">{t.symbol}</td>
+                              <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
+                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-right font-mono text-white">${Number(t.closePrice || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{durationStr}</td>
+                              <td className="py-2 px-1 text-right font-mono text-destructive/70">-${Number(t.commission || 0).toFixed(2)}</td>
+                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-right text-zinc-500 text-[10px]">{closeDate ? format(closeDate, 'HH:mm') : '—'}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
