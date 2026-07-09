@@ -48,6 +48,77 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
   );
 });
 
+/**
+ * Institutional Data View: Memoized to prevent button and interaction lag.
+ */
+const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
+  if (loading) {
+    return (
+      <Card className="bg-card/40 border-border/50">
+        <CardContent className="p-0 space-y-4 py-8">
+          {[1, 2, 3].map(i => <div key={i} className="h-12 mx-4 bg-white/5 animate-pulse rounded-lg" />)}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
+        <Info className="w-12 h-12 mb-4" />
+        <p className="text-sm font-black uppercase tracking-widest">No matching records found.</p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="bg-card/40 border-border/50 overflow-hidden shadow-2xl">
+      <CardContent className="p-0 overflow-x-auto custom-scrollbar">
+        <table className="w-full text-sm text-left">
+          <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest border-b border-white/5">
+            <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {data.map(item => renderRow(item))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+});
+
+const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns, onViewAll }: { title: string, data: any[], columns: string[], onViewAll: () => void }) {
+  return (
+    <Card className="bg-card/30 border-border/50">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
+        <CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">{title}</CardTitle>
+        <button onClick={onViewAll} className="text-[10px] font-black uppercase text-primary hover:text-white transition-colors">View All</button>
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm text-left">
+          <tbody className="divide-y divide-border/50">
+            {!data || data.length === 0 ? (
+              <tr><td colSpan={3} className="py-10 text-center text-[10px] text-zinc-600 font-bold uppercase">No data found.</td></tr>
+            ) : data.slice(0, 5).map((item, i) => (
+              <tr key={i} className="hover:bg-white/5 transition-colors">
+                <td className="py-3 px-4 font-bold text-xs truncate max-w-[120px]">{item[columns[0]]}</td>
+                <td className="py-3 px-4 text-[10px] text-muted-foreground uppercase truncate max-w-[100px]">{item[columns[1]]}</td>
+                <td className="py-3 px-4 text-right">
+                   {columns[2] === 'status' ? (
+                     <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
+                   ) : (
+                     <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
+                   )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+});
+
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -114,16 +185,18 @@ export default function AdminPage() {
         )
       ]);
 
-      const [uCount, nCount, lCount, pCount, pOrdersCount, volumeAgg] = results.map(r => r.status === 'fulfilled' ? (r as any).value : 0);
-
-      setStats({
-        totalUsersCount: typeof uCount === 'number' ? uCount : 11259,
-        totalNodesCount: typeof nCount === 'number' ? nCount : 434,
-        totalLiquidationCount: typeof lCount === 'number' ? lCount : 328,
-        phasePassersCount: typeof pCount === 'number' ? pCount : 0,
-        pendingOrdersCount: typeof pOrdersCount === 'number' ? pOrdersCount : 0,
-        totalAum: (volumeAgg as any)?.data?.()?.totalVolume || 3030000
+      const statsPayload: any = {};
+      results.forEach((r, i) => {
+        const val = r.status === 'fulfilled' ? r.value : 0;
+        if (i === 0) statsPayload.totalUsersCount = val;
+        if (i === 1) statsPayload.totalNodesCount = val;
+        if (i === 2) statsPayload.totalLiquidationCount = val;
+        if (i === 3) statsPayload.phasePassersCount = val;
+        if (i === 4) statsPayload.pendingOrdersCount = val;
+        if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
       });
+
+      setStats(prev => ({ ...prev, ...statsPayload }));
     } catch (err: any) {
       console.error('[Admin-Stats] Refresh fault:', err.message);
     }
@@ -135,58 +208,60 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsub: () => void = () => {};
 
+    // CRITICAL: All real-time listeners MUST use limit(100) to protect Firestore Quota
+    // especially with collections exceeding 11,000 documents.
     switch(activeTab) {
       case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
           refreshStats();
         });
         break;
       case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'payout-hub':
-        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'broadcasts':
-        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -235,7 +310,6 @@ export default function AdminPage() {
       const res = await resetSingleAccountAction(accountId);
       if (res.success) {
         toast({ title: "Account Restored", description: "Balance reset and history cleared." });
-        // Refresh local trade data if currently inspecting this user
         if (selectedUser) {
            const snap = await getDoc(doc(db, 'users', selectedUser.id));
            if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
@@ -350,7 +424,7 @@ export default function AdminPage() {
     return filteredUsers.slice(start, start + usersPerPage);
   }, [filteredUsers, userPage]);
 
-  const totalUserPages = Math.ceil(stats.totalUsersCount / usersPerPage);
+  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage);
 
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
@@ -551,7 +625,7 @@ export default function AdminPage() {
              
              {totalUserPages > 1 && (
                <div className="flex items-center justify-between mt-4 px-2">
-                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {stats.totalUsersCount} traders</p>
+                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {filteredUsers.length} traders (Snapshot view)</p>
                  <div className="flex gap-2">
                    <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
                    <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
@@ -561,8 +635,8 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
-             <TabHeader title="Compliance: Identity Review" count={tabData.users?.filter((u:any) => u.kycStatus === 'pending').length} />
-             <DataTable loading={isLoading} data={tabData.users?.filter((u:any) => u.kycStatus === 'pending')} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
+             <TabHeader title="Compliance: Identity Review" count={tabData.users?.length} />
+             <DataTable loading={isLoading} data={tabData.users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{u.email}</td>
                     <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
@@ -748,70 +822,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
   );
 }
 
-function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
-  if (loading) {
-    return (
-      <Card className="bg-card/40 border-border/50">
-        <CardContent className="p-0 space-y-4 py-8">
-          {[1, 2, 3].map(i => <div key={i} className="h-12 mx-4 bg-white/5 animate-pulse rounded-lg" />)}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
-        <Info className="w-12 h-12 mb-4" />
-        <p className="text-sm font-black uppercase tracking-widest">No matching records found.</p>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="bg-card/40 border-border/50 overflow-hidden shadow-2xl">
-      <CardContent className="p-0 overflow-x-auto custom-scrollbar">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest border-b border-white/5">
-            <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            {data.map(item => renderRow(item))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AdminSummaryTable({ title, data, columns, onViewAll }: { title: string, data: any[], columns: string[], onViewAll: () => void }) {
-  return (
-    <Card className="bg-card/30 border-border/50">
-      <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
-        <CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">{title}</CardTitle>
-        <button onClick={onViewAll} className="text-[10px] font-black uppercase text-primary hover:text-white transition-colors">View All</button>
-      </CardHeader>
-      <CardContent className="p-0">
-        <table className="w-full text-sm text-left">
-          <tbody className="divide-y divide-border/50">
-            {!data || data.length === 0 ? (
-              <tr><td colSpan={3} className="py-10 text-center text-[10px] text-zinc-600 font-bold uppercase">No data found.</td></tr>
-            ) : data.slice(0, 5).map((item, i) => (
-              <tr key={i} className="hover:bg-white/5 transition-colors">
-                <td className="py-3 px-4 font-bold text-xs truncate max-w-[120px]">{item[columns[0]]}</td>
-                <td className="py-3 px-4 text-[10px] text-muted-foreground uppercase truncate max-w-[100px]">{item[columns[1]]}</td>
-                <td className="py-3 px-4 text-right">
-                   {columns[2] === 'status' ? (
-                     <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
-                   ) : (
-                     <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
-                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
-}
