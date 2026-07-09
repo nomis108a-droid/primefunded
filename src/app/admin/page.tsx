@@ -19,6 +19,7 @@ import {
 import { updateOrderStatusAction, resetDemoAccountAction, resetSingleAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db } from '@/lib/firebase';
 import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
@@ -208,13 +209,11 @@ export default function AdminPage() {
     let unsub: () => void = () => {};
 
     // QUOTA PROTECTION: All listeners now use limit(100)
-    // Combined with refreshStats decoupling to prevent the "Reads Bomb"
     switch(activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          // refreshStats removed from here to stop the loop
         });
         break;
       case 'trading-nodes':
@@ -271,9 +270,8 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab]); // refreshStats removed from deps
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab]);
 
-  // Run stats exactly once on mount
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats();
@@ -750,32 +748,25 @@ export default function AdminPage() {
                           <th className="py-2 px-1 text-center">Dur.</th>
                           <th className="py-2 px-1 text-right">Comm.</th>
                           <th className="py-2 px-1 text-right">PnL</th>
-                          <th className="py-2 px-1 text-right">Date</th>
+                          <th className="py-2 px-1 text-right">Time</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
                         {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
-                          const openDate = t.openedAt?.toDate?.() || (t.openedAt ? new Date(t.openedAt) : null);
-                          const closeDate = t.closedAt?.toDate?.() || (t.closedAt ? new Date(t.closedAt) : null);
+                          const openDate = getTradeDate(t.openedAt);
+                          const closeDate = getTradeDate(t.closedAt);
+                          const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt || new Date());
                           
-                          let durationStr = "—";
-                          if (openDate && closeDate) {
-                            const diff = Math.floor((closeDate.getTime() - openDate.getTime()) / 1000);
-                            const m = Math.floor(diff / 60);
-                            const s = diff % 60;
-                            durationStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
-                          }
-
                           return (
                             <tr key={t.id} className="hover:bg-white/5">
                               <td className="py-2 px-1 font-bold">{t.symbol}</td>
                               <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
-                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots}</td>
-                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString()}</td>
-                              <td className="py-2 px-1 text-right font-mono text-white">${Number(t.closePrice || 0).toLocaleString()}</td>
-                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{durationStr}</td>
-                              <td className="py-2 px-1 text-right font-mono text-destructive/70">-${Number(t.commission || 0).toFixed(2)}</td>
-                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots?.toFixed(2) || '0.00'}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">{t.status === 'open' ? '—' : `$${Number(t.closePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}`}</td>
+                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{formatDuration(durationSec)}</td>
+                              <td className="py-2 px-1 text-right font-mono text-destructive/70">{t.commission ? `$${Number(t.commission).toFixed(2)}` : '—'}</td>
+                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(Number(t.pnl) || 0).toLocaleString()}</td>
                               <td className="py-2 px-1 text-right text-zinc-500 text-[10px]">{closeDate ? format(closeDate, 'HH:mm') : '—'}</td>
                             </tr>
                           );
