@@ -76,6 +76,9 @@ function PaymentContent() {
   const [submittingProof, setSubmittingProof] = useState(false);
   const [proofSubmitted, setProofSubmitted] = useState(false);
 
+  // Derive proof validity for UX
+  const isProofValid = /^(0x)?[a-fA-F0-9]{64}$/.test(txid.trim()) && !!proofFile;
+
   useEffect(() => {
     if (!db || authLoading || !user) return;
     const unsub = onSnapshot(doc(db, 'settings', 'payments'), (snap) => {
@@ -128,22 +131,43 @@ function PaymentContent() {
 
   const submitPaymentProof = async () => {
     if (!user || !orderId) return;
-    if (!txid.trim()) {
+
+    const cleanTxid = txid.trim();
+    const txidRegex = /^(0x)?[a-fA-F0-9]{64}$/;
+
+    if (!cleanTxid) {
       toast({ variant: "destructive", title: "TXID Required", description: "Please enter your transaction hash/ID." });
       return;
     }
+
+    if (!txidRegex.test(cleanTxid)) {
+      toast({ 
+        variant: "destructive", 
+        title: "Invalid Transaction ID", 
+        description: "Please enter a valid transaction hash (64 hex characters, with or without 0x prefix)." 
+      });
+      return;
+    }
+
+    if (!proofFile) {
+      toast({ 
+        variant: "destructive", 
+        title: "Screenshot Required", 
+        description: "Please upload a screenshot of your payment confirmation." 
+      });
+      return;
+    }
+
     setSubmittingProof(true);
     try {
-      let screenshotUrl = '';
-      if (proofFile) {
-        const fileName = `${Date.now()}_${proofFile.name}`;
-        const storageRef = ref(storage, `payment-proofs/${user.uid}/${fileName}`);
-        const snapshot = await uploadBytes(storageRef, proofFile);
-        screenshotUrl = await getDownloadURL(snapshot.ref);
-      }
+      const fileName = `${Date.now()}_${proofFile.name}`;
+      const storageRef = ref(storage, `payment-proofs/${user.uid}/${fileName}`);
+      const snapshot = await uploadBytes(storageRef, proofFile);
+      const screenshotUrl = await getDownloadURL(snapshot.ref);
+
       await updateDoc(doc(db, 'orders', orderId), {
-        txHash: txid.trim(),
-        proofScreenshotUrl: screenshotUrl || null,
+        txHash: cleanTxid,
+        proofScreenshotUrl: screenshotUrl,
         status: 'manual_review',
         proofSubmittedAt: serverTimestamp()
       });
@@ -352,10 +376,14 @@ function PaymentContent() {
                             <Input value={txid} onChange={(e) => setTxid(e.target.value)} placeholder="Paste your transaction hash here" className="bg-zinc-900 font-mono text-xs" />
                           </div>
                           <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase text-zinc-500">Payment Screenshot (optional)</Label>
+                            <Label className="text-[10px] font-black uppercase text-zinc-500">Payment Screenshot (required)</Label>
                             <Input type="file" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 text-xs" />
                           </div>
-                          <Button className="w-full bg-primary text-black font-black h-11" onClick={submitPaymentProof} disabled={submittingProof}>
+                          <Button 
+                            className="w-full bg-primary text-black font-black h-11" 
+                            onClick={submitPaymentProof} 
+                            disabled={submittingProof || !isProofValid}
+                          >
                             {submittingProof ? <Loader2 className="animate-spin" /> : "Submit Payment Proof"}
                           </Button>
                         </div>
