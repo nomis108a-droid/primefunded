@@ -16,9 +16,11 @@ service cloud.firestore {
       );
     }
 
-    // Public read for system-wide sync
-    match /{document=**} {
+
+    // Site Settings (branding, config)
+    match /settings/{document} {
       allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Unified Market Feed
