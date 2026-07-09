@@ -218,6 +218,40 @@ export async function resetDemoAccountAction(accountId: string) {
   } catch (err: any) { return { success: false, error: err.message }; }
 }
 
+export async function resetSingleAccountAction(accountId: string) {
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+  try {
+    const db = getAdminDb();
+    const accountRef = db.collection('demoAccounts').doc(accountId);
+    const accountSnap = await accountRef.get();
+    if (!accountSnap.exists) throw new Error("Account not found");
+    const data = accountSnap.data()!;
+
+    const batch = db.batch();
+    
+    // 1. Reset account document
+    batch.update(accountRef, {
+      balance: data.startBalance || 100000,
+      equity: data.startBalance || 100000,
+      status: 'active',
+      breachReason: null,
+      dailyGrossLossUsd: 0,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+
+    // 2. Delete trades for this specific account only
+    const tradesSnap = await db.collection('demoTrades').where('accountId', '==', accountId).get();
+    tradesSnap.docs.forEach(tradeDoc => {
+      batch.delete(tradeDoc.ref);
+    });
+
+    await batch.commit();
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
 export async function resetAllHistoryAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
@@ -278,7 +312,7 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
-      createdAt: serverTimestamp()
+      createdAt: FieldValue.serverTimestamp()
     });
     
     return { success: true };
@@ -301,7 +335,7 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
       message: status === 'done' ? `Your withdrawal of $${payout.amount} has been sent.` : `Your payout request was rejected.`,
       type: 'payout_update',
       isRead: false,
-      createdAt: serverTimestamp()
+      createdAt: FieldValue.serverTimestamp()
     });
     
     return { success: true };

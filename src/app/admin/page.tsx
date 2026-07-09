@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { updateOrderStatusAction, resetDemoAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from './actions';
+import { updateOrderStatusAction, resetDemoAccountAction, resetSingleAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from './actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { db } from '@/lib/firebase';
@@ -226,6 +226,28 @@ export default function AdminPage() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
     } finally { setActionLoading(false); }
+  };
+
+  const handleResetSingleAccount = async (accountId: string) => {
+    if (!confirm('WARNING: This will reset the account balance to its starting value and PERMANENTLY DELETE all trade history for this account only. Continue?')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetSingleAccountAction(accountId);
+      if (res.success) {
+        toast({ title: "Account Restored", description: "Balance reset and history cleared." });
+        // Refresh local trade data if currently inspecting this user
+        if (selectedUser) {
+           const snap = await getDoc(doc(db, 'users', selectedUser.id));
+           if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
+        }
+      } else {
+        throw new Error(res.error || "Reset failed");
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Operation Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleGiftAccount = async () => {
@@ -602,18 +624,34 @@ export default function AdminPage() {
                   </div>
                </TabsContent>
                <TabsContent value="trading-nodes" className="m-0 space-y-4">
-                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => (
-                    <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade'); }}>
-                      <CardHeader className="p-4 flex flex-row items-center justify-between">
-                         <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
-                         <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
-                      </CardHeader>
-                      <CardContent className="px-4 pb-4 grid grid-cols-2 gap-2">
-                         <div><p className="text-[7px] font-black uppercase text-zinc-600">Balance</p><p className="text-[11px] font-mono font-bold">${(acc.balance || 0).toLocaleString()}</p></div>
-                         <div><p className="text-[7px] font-black uppercase text-zinc-600">Equity</p><p className="text-[11px] font-mono font-bold">${(acc.equity || 0).toLocaleString()}</p></div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => {
+                    const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
+                    return (
+                      <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade'); }}>
+                        <CardHeader className="p-4 flex flex-row items-center justify-between">
+                           <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
+                           <div className="flex items-center gap-2">
+                              <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
+                              <Button variant="outline" size="sm" className="h-7 text-[8px] border-destructive/30 text-destructive hover:bg-destructive/10 font-black" onClick={(e) => { e.stopPropagation(); handleResetSingleAccount(acc.id); }}>
+                                <RefreshCw className="w-3 h-3 mr-1" /> RESET BALANCE
+                              </Button>
+                           </div>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-4 space-y-4">
+                           <div className="grid grid-cols-2 gap-2">
+                              <div><p className="text-[7px] font-black uppercase text-zinc-600">Balance</p><p className="text-[11px] font-mono font-bold">${(acc.balance || 0).toLocaleString()}</p></div>
+                              <div><p className="text-[7px] font-black uppercase text-zinc-600">Equity</p><p className="text-[11px] font-mono font-bold">${(acc.equity || 0).toLocaleString()}</p></div>
+                           </div>
+                           {isLiquidated && (
+                             <div className="pt-2 border-t border-white/5">
+                                <p className="text-[7px] font-black uppercase text-destructive tracking-widest mb-1">Termination Reason</p>
+                                <p className="text-[10px] font-medium text-red-400 italic">"{acc.breachReason || 'No reason recorded.'}"</p>
+                             </div>
+                           )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                </TabsContent>
                <TabsContent value="trade" className="m-0">
                   <div className="flex justify-between items-center mb-4">
