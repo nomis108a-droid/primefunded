@@ -26,6 +26,7 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 
+// Memoized StatCard to prevent re-renders on table updates
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
@@ -48,9 +49,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
   );
 });
 
-/**
- * Institutional Data View: Memoized to prevent button and interaction lag.
- */
+// Memoized DataTable to prevent lag during tab switching
 const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
   if (loading) {
     return (
@@ -208,14 +207,14 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsub: () => void = () => {};
 
-    // CRITICAL: All real-time listeners MUST use limit(100) to protect Firestore Quota
-    // especially with collections exceeding 11,000 documents.
+    // QUOTA PROTECTION: All listeners now use limit(100)
+    // Combined with refreshStats decoupling to prevent the "Reads Bomb"
     switch(activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          refreshStats();
+          // refreshStats removed from here to stop the loop
         });
         break;
       case 'trading-nodes':
@@ -272,7 +271,14 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab]); // refreshStats removed from deps
+
+  // Run stats exactly once on mount
+  useEffect(() => {
+    if (isAuthenticated && isAuthorized && !authLoading) {
+      refreshStats();
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -735,12 +741,45 @@ export default function AdminPage() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs text-left">
                       <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
-                        <tr><th className="py-2 px-1">Symbol</th><th className="py-2 px-1">Type</th><th className="py-2 px-1 text-right">PnL</th><th className="py-2 px-1 text-right">Date</th></tr>
+                        <tr>
+                          <th className="py-2 px-1">Symbol</th>
+                          <th className="py-2 px-1">Type</th>
+                          <th className="py-2 px-1">Lots</th>
+                          <th className="py-2 px-1 text-right">Open</th>
+                          <th className="py-2 px-1 text-right">Close</th>
+                          <th className="py-2 px-1 text-center">Dur.</th>
+                          <th className="py-2 px-1 text-right">Comm.</th>
+                          <th className="py-2 px-1 text-right">PnL</th>
+                          <th className="py-2 px-1 text-right">Date</th>
+                        </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
-                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => (
-                          <tr key={t.id} className="hover:bg-white/5"><td className="py-2 px-1 font-bold">{t.symbol}</td><td className="py-2 px-1 uppercase font-medium">{t.type}</td><td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td><td className="py-2 px-1 text-right text-zinc-500">{t.closedAt?.toDate ? format(t.closedAt.toDate(), 'HH:mm') : '—'}</td></tr>
-                        ))}
+                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
+                          const openDate = t.openedAt?.toDate?.() || (t.openedAt ? new Date(t.openedAt) : null);
+                          const closeDate = t.closedAt?.toDate?.() || (t.closedAt ? new Date(t.closedAt) : null);
+                          
+                          let durationStr = "—";
+                          if (openDate && closeDate) {
+                            const diff = Math.floor((closeDate.getTime() - openDate.getTime()) / 1000);
+                            const m = Math.floor(diff / 60);
+                            const s = diff % 60;
+                            durationStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
+                          }
+
+                          return (
+                            <tr key={t.id} className="hover:bg-white/5">
+                              <td className="py-2 px-1 font-bold">{t.symbol}</td>
+                              <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
+                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-right font-mono text-white">${Number(t.closePrice || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{durationStr}</td>
+                              <td className="py-2 px-1 text-right font-mono text-destructive/70">-${Number(t.commission || 0).toFixed(2)}</td>
+                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-right text-zinc-500 text-[10px]">{closeDate ? format(closeDate, 'HH:mm') : '—'}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -821,4 +860,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
-
