@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Suspense, useState, useEffect, useMemo } from 'react';
@@ -307,6 +306,7 @@ function PaymentContent() {
                    <CardContent className="p-10 space-y-10">
                       <div className="text-center space-y-4">
                          <div className="space-y-1">
+                            <p className="text-[9px] font-bold uppercase tracking-wide text-destructive text-center mb-2">If you send fake payment details, your account will be terminated or risk audited.</p>
                             <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.3em]">SEND EXACTLY</p>
                             <h3 className="text-5xl font-headline font-bold text-white tabular-nums">{(totalAmountUsd * 1.002).toFixed(4)} <span className="text-primary">{selectedCoin}</span></h3>
                          </div>
@@ -363,6 +363,9 @@ function PaymentContent() {
                         <div className="pt-6 border-t border-white/10 text-center space-y-2">
                           <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
                           <p className="text-xs font-bold text-white">Proof submitted — awaiting admin verification.</p>
+                          <p className="text-[10px] text-muted-foreground">Your challenge account will be activated within 1 to 4 hours after verification.</p>
+                          <p className="text-[10px] text-muted-foreground">Once approved, your new trading account will appear on your Dashboard.</p>
+                          <Button variant="outline" className="mt-3" onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
                         </div>
                       )}
                    </CardContent>
