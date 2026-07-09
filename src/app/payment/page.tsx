@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Suspense, useState, useEffect, useMemo } from 'react';
@@ -12,7 +13,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/context/AuthContext';
 import { collection, addDoc, serverTimestamp, doc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Copy, 
@@ -70,6 +72,10 @@ function PaymentContent() {
   const [timeLeft, setTimeLeft] = useState(PAYMENT_WINDOW_SECONDS); 
   const [confirmations, setConfirmations] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [txid, setTxid] = useState('');
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [submittingProof, setSubmittingProof] = useState(false);
+  const [proofSubmitted, setProofSubmitted] = useState(false);
 
   useEffect(() => {
     if (!db || authLoading || !user) return;
@@ -90,7 +96,7 @@ function PaymentContent() {
 
   const currentNetworkFee = useMemo(() => {
     if (!selectedNetwork) return 0;
-    return networkFees[selectedNetwork.id] ?? selectedNetwork.defaultFee || 0;
+    return (networkFees[selectedNetwork.id] ?? selectedNetwork.defaultFee) || 0;
   }, [selectedNetwork, networkFees]);
 
   const totalAmountUsd = useMemo(() => challengeAmount + currentNetworkFee, [challengeAmount, currentNetworkFee]);
@@ -119,6 +125,36 @@ function PaymentContent() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Failed", description: e.message });
     } finally { setLoading(false); }
+  };
+
+  const submitPaymentProof = async () => {
+    if (!user || !orderId) return;
+    if (!txid.trim()) {
+      toast({ variant: "destructive", title: "TXID Required", description: "Please enter your transaction hash/ID." });
+      return;
+    }
+    setSubmittingProof(true);
+    try {
+      let screenshotUrl = '';
+      if (proofFile) {
+        const fileName = `${Date.now()}_${proofFile.name}`;
+        const storageRef = ref(storage, `payment-proofs/${user.uid}/${fileName}`);
+        const snapshot = await uploadBytes(storageRef, proofFile);
+        screenshotUrl = await getDownloadURL(snapshot.ref);
+      }
+      await updateDoc(doc(db, 'orders', orderId), {
+        txHash: txid.trim(),
+        proofScreenshotUrl: screenshotUrl || null,
+        status: 'manual_review',
+        proofSubmittedAt: serverTimestamp()
+      });
+      setProofSubmitted(true);
+      toast({ title: "Submitted", description: "Your payment proof is under review." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Submission Failed", description: e.message });
+    } finally {
+      setSubmittingProof(false);
+    }
   };
 
   useEffect(() => {
@@ -308,6 +344,27 @@ function PaymentContent() {
                            </div>
                         </div>
                       </div>
+
+                      {!proofSubmitted ? (
+                        <div className="space-y-4 pt-6 border-t border-white/10">
+                          <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase text-zinc-500">Transaction ID / Hash</Label>
+                            <Input value={txid} onChange={(e) => setTxid(e.target.value)} placeholder="Paste your transaction hash here" className="bg-zinc-900 font-mono text-xs" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-[10px] font-black uppercase text-zinc-500">Payment Screenshot (optional)</Label>
+                            <Input type="file" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 text-xs" />
+                          </div>
+                          <Button className="w-full bg-primary text-black font-black h-11" onClick={submitPaymentProof} disabled={submittingProof}>
+                            {submittingProof ? <Loader2 className="animate-spin" /> : "Submit Payment Proof"}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="pt-6 border-t border-white/10 text-center space-y-2">
+                          <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
+                          <p className="text-xs font-bold text-white">Proof submitted — awaiting admin verification.</p>
+                        </div>
+                      )}
                    </CardContent>
                 </Card>
                 <div className="flex justify-center gap-6 opacity-30">

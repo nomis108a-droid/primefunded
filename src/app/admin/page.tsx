@@ -6,6 +6,7 @@ import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -75,9 +76,11 @@ export default function AdminPage() {
   const [userTrades, setUserTrades] = useState<any[]>([]);
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
 
-  // Pagination for User Directory
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
 
@@ -111,7 +114,7 @@ export default function AdminPage() {
         )
       ]);
 
-      const [uCount, nCount, lCount, pCount, pOrdersCount, volumeAgg] = results.map(r => r.status === 'fulfilled' ? r.value : 0);
+      const [uCount, nCount, lCount, pCount, pOrdersCount, volumeAgg] = results.map(r => r.status === 'fulfilled' ? (r as any).value : 0);
 
       setStats({
         totalUsersCount: typeof uCount === 'number' ? uCount : 11259,
@@ -132,61 +135,58 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsub: () => void = () => {};
 
-    // OPTIMIZATION: Always use strict limits to prevent quota exhaustion
-    const LIST_LIMIT = 100;
-
     switch(activeTab) {
       case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
           refreshStats();
         });
         break;
       case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'payout-hub':
-        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(50)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(LIST_LIMIT)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'broadcasts':
-        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(20)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -256,6 +256,30 @@ export default function AdminPage() {
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Grant Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectOrder = async () => {
+    if (!rejectingOrderId || !rejectReason.trim()) {
+      toast({ variant: "destructive", title: "Reason Required", description: "Please enter a rejection message." });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await updateOrderStatusAction(rejectingOrderId, 'rejected', rejectReason.trim());
+      if (res.success) {
+        toast({ title: "Order Rejected", description: "The trader has been notified." });
+        setIsRejectModalOpen(false);
+        setRejectingOrderId(null);
+        setRejectReason('');
+        refreshStats();
+      } else {
+        throw new Error(res.error || "Rejection failed");
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Rejection Failed", description: e.message });
     } finally {
       setActionLoading(false);
     }
@@ -346,8 +370,8 @@ export default function AdminPage() {
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
-                  <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} />
+                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
+                  <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
                 </Button>
                 <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" asChild>
                   <Link href="/dashboard"><LogOut size={16} /></Link>
@@ -446,17 +470,28 @@ export default function AdminPage() {
                 <TabHeader title="Payment Verification Pipeline" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
                 <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
              </div>
-             <DataTable loading={isLoading} data={filteredOrders} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'Status', 'Actions']} renderRow={(o) => (
+             <DataTable loading={isLoading} data={filteredOrders} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'TXID', 'Proof', 'Status', 'Actions']} renderRow={(o) => (
                   <tr key={o.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-mono text-[10px]">{o.id}</td>
                     <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
                     <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
-                    <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' || o.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
-                    <td className="p-4 text-right">
+                    <td className="p-4 font-mono text-[9px] text-zinc-400 max-w-[140px] truncate">{o.txHash || '—'}</td>
+                    <td className="p-4 text-center">
+                      {o.proofScreenshotUrl ? (
+                        <a href={o.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-[9px] font-black uppercase">View</a>
+                      ) : '—'}
+                    </td>
+                    <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' || o.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
+                    <td className="p-4 text-right space-x-2">
                       {(o.status === 'completed' || o.status === 'approved') ? (
                         <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>Approved ✓</Button>
+                      ) : o.status === 'rejected' ? (
+                        <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive cursor-default" disabled>Rejected</Button>
                       ) : (
-                        <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>
+                        <>
+                          <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>
+                          <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -629,6 +664,32 @@ export default function AdminPage() {
             </div>
           </div>
           <DialogFooter><Button className="w-full bg-primary text-black font-black" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "GRANT ACCOUNT"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Reject Order</DialogTitle>
+            <DialogDescription>Enter a message explaining why this order is being rejected. The trader will be notified.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Rejection Message</Label>
+              <Textarea
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="e.g. Transaction amount does not match, screenshot unclear, TXID not found on-chain..."
+                className="bg-zinc-900 border-zinc-800 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="flex-1" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
+            <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectOrder} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="animate-spin" /> : "Send Rejection"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
