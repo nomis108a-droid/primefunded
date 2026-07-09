@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -209,13 +208,11 @@ export default function AdminPage() {
     let unsub: () => void = () => {};
 
     // QUOTA PROTECTION: All listeners now use limit(100)
-    // Combined with refreshStats decoupling to prevent the "Reads Bomb"
     switch(activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          // refreshStats removed from here to stop the loop
         });
         break;
       case 'trading-nodes':
@@ -272,9 +269,8 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab]); // refreshStats removed from deps
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab]);
 
-  // Run stats exactly once on mount
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats();
@@ -756,27 +752,20 @@ export default function AdminPage() {
                       </thead>
                       <tbody className="divide-y divide-white/5">
                         {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
-                          const openDate = t.openedAt?.toDate?.() || (t.openedAt ? new Date(t.openedAt) : null);
-                          const closeDate = t.closedAt?.toDate?.() || (t.closedAt ? new Date(t.closedAt) : null);
+                          const openDate = getTradeDate(t.openedAt);
+                          const closeDate = getTradeDate(t.closedAt);
+                          const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt || new Date());
                           
-                          let durationStr = "—";
-                          if (openDate && closeDate) {
-                            const diff = Math.floor((closeDate.getTime() - openDate.getTime()) / 1000);
-                            const m = Math.floor(diff / 60);
-                            const s = diff % 60;
-                            durationStr = m > 0 ? `${m}m ${s}s` : `${s}s`;
-                          }
-
                           return (
                             <tr key={t.id} className="hover:bg-white/5">
                               <td className="py-2 px-1 font-bold">{t.symbol}</td>
                               <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
-                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots}</td>
-                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString()}</td>
-                              <td className="py-2 px-1 text-right font-mono text-white">${Number(t.closePrice || 0).toLocaleString()}</td>
-                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{durationStr}</td>
-                              <td className="py-2 px-1 text-right font-mono text-destructive/70">-${Number(t.commission || 0).toFixed(2)}</td>
-                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(t.pnl || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots?.toFixed(2) || '0.00'}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">{t.status === 'open' ? '—' : `$${Number(t.closePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}`}</td>
+                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{formatDuration(durationSec)}</td>
+                              <td className="py-2 px-1 text-right font-mono text-destructive/70">{t.commission ? `$${Number(t.commission).toFixed(2)}` : '—'}</td>
+                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(Number(t.pnl) || 0).toLocaleString()}</td>
                               <td className="py-2 px-1 text-right text-zinc-500 text-[10px]">{closeDate ? format(closeDate, 'HH:mm') : '—'}</td>
                             </tr>
                           );
@@ -859,73 +848,5 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
         </div>
       )}
     </div>
-  );
-}
-
-function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
-  if (loading) {
-    return (
-      <Card className="bg-card/40 border-border/50">
-        <CardContent className="p-0 space-y-4 py-8">
-          {[1, 2, 3].map(i => <div key={i} className="h-12 mx-4 bg-white/5 animate-pulse rounded-lg" />)}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!data || data.length === 0) {
-    return (
-      <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
-        <Info className="w-12 h-12 mb-4" />
-        <p className="text-sm font-black uppercase tracking-widest">No matching records found.</p>
-      </Card>
-    );
-  }
-
-  return (
-    <Card className="bg-card/40 border-border/50 overflow-hidden shadow-2xl">
-      <CardContent className="p-0 overflow-x-auto custom-scrollbar">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-secondary/30 text-muted-foreground uppercase text-[10px] font-black tracking-widest border-b border-white/5">
-            <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            {data.map(item => renderRow(item))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AdminSummaryTable({ title, data, columns, onViewAll }: { title: string, data: any[], columns: string[], onViewAll: () => void }) {
-  return (
-    <Card className="bg-card/30 border-border/50">
-      <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 pb-4">
-        <CardTitle className="text-sm font-headline font-bold uppercase tracking-tight">{title}</CardTitle>
-        <button onClick={onViewAll} className="text-[10px] font-black uppercase text-primary hover:text-white transition-colors">View All</button>
-      </CardHeader>
-      <CardContent className="p-0">
-        <table className="w-full text-sm text-left">
-          <tbody className="divide-y divide-border/50">
-            {!data || data.length === 0 ? (
-              <tr><td colSpan={3} className="py-10 text-center text-[10px] text-zinc-600 font-bold uppercase">No data found.</td></tr>
-            ) : data.slice(0, 5).map((item, i) => (
-              <tr key={i} className="hover:bg-white/5 transition-colors">
-                <td className="py-3 px-4 font-bold text-xs truncate max-w-[120px]">{item[columns[0]]}</td>
-                <td className="py-3 px-4 text-[10px] text-muted-foreground uppercase truncate max-w-[100px]">{item[columns[1]]}</td>
-                <td className="py-3 px-4 text-right">
-                   {columns[2] === 'status' ? (
-                     <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
-                   ) : (
-                     <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
-                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
   );
 }
