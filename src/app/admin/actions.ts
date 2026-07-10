@@ -1,4 +1,3 @@
-
 'use server';
 
 import { cookies } from 'next/headers';
@@ -130,7 +129,12 @@ export async function approveManualOrderAction(id: string) {
 
     const userSnap = await db.collection('users').doc(order.userId).get();
     const userData = userSnap.data();
+    
+    // Explicit validation to prevent silent provisioning failures
     const traderId = userData?.traderId;
+    if (!traderId) {
+      return { success: false, error: "User has no traderId assigned — cannot provision account." };
+    }
 
     const startBalance = parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000;
 

@@ -1,4 +1,3 @@
-
 # Firebase App Hosting Configuration
 # Documentation: https://firebase.google.com/docs/app-hosting/configure
 
@@ -33,6 +32,8 @@ env:
     value: 1:667427838842:web:bc1a55f81c2f032cfc54c3
   - variable: NEXT_PUBLIC_FIREBASE_DATABASE_URL
     value: https://studio-8383940162-6976e-default-rtdb.asia-southeast1.firebasedatabase.app
+  - variable: CRON_SECRET_KEY
+    secret: CRON_SECRET_KEY
 
 # Automated Server-Side Sync Jobs
 # Note: Frequencies below 1 min require external loopers.
