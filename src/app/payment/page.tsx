@@ -75,9 +75,13 @@ function PaymentContent() {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [submittingProof, setSubmittingProof] = useState(false);
   const [proofSubmitted, setProofSubmitted] = useState(false);
+  const [txidVerifying, setTxidVerifying] = useState(false);
+  const [txidVerified, setTxidVerified] = useState(false);
+  const [txidVerifyError, setTxidVerifyError] = useState('');
 
   // Derive proof validity for UX
-  const isProofValid = /^(0x)?[a-fA-F0-9]{64}$/.test(txid.trim()) && !!proofFile;
+  const isValidTxHashFormat = /^(0x)?[a-fA-F0-9]{64}$/.test(txid.trim());
+  const isProofValid = txidVerified && !!proofFile;
 
   useEffect(() => {
     if (!db || authLoading || !user) return;
@@ -177,6 +181,32 @@ function PaymentContent() {
       toast({ variant: "destructive", title: "Submission Failed", description: e.message });
     } finally {
       setSubmittingProof(false);
+    }
+  };
+
+  const verifyTxid = async () => {
+    if (!txid.trim() || !orderId) return;
+    setTxidVerifying(true);
+    setTxidVerifyError('');
+    try {
+      const res = await fetch('/api/verify-txid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, txid: txid.trim() })
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setTxidVerified(true);
+        toast({ title: "Verified", description: "Transaction confirmed on-chain." });
+      } else {
+        setTxidVerified(false);
+        setTxidVerifyError(data.reason || "Verification failed.");
+      }
+    } catch (e: any) {
+      setTxidVerified(false);
+      setTxidVerifyError("Could not reach verification service. Try again.");
+    } finally {
+      setTxidVerifying(false);
     }
   };
 
@@ -373,7 +403,25 @@ function PaymentContent() {
                         <div className="space-y-4 pt-6 border-t border-white/10">
                           <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase text-zinc-500">Transaction ID / Hash</Label>
-                            <Input value={txid} onChange={(e) => setTxid(e.target.value)} placeholder="Paste your transaction hash here" className="bg-zinc-900 font-mono text-xs" />
+                            <div className="flex gap-2">
+                              <Input 
+                                value={txid} 
+                                onChange={(e) => { setTxid(e.target.value); setTxidVerified(false); setTxidVerifyError(''); }} 
+                                placeholder="Paste your transaction hash here" 
+                                className="bg-zinc-900 font-mono text-xs flex-1" 
+                              />
+                              <Button 
+                                type="button"
+                                variant="outline" 
+                                onClick={verifyTxid} 
+                                disabled={txidVerifying || txidVerified || !isValidTxHashFormat}
+                                className="shrink-0"
+                              >
+                                {txidVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : txidVerified ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : "Verify"}
+                              </Button>
+                            </div>
+                            {txidVerifyError && <p className="text-[10px] text-destructive font-bold">{txidVerifyError}</p>}
+                            {txidVerified && <p className="text-[10px] text-emerald-500 font-bold">✓ Transaction verified on-chain</p>}
                           </div>
                           <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase text-zinc-500">Payment Screenshot (required)</Label>
@@ -419,4 +467,3 @@ export default function PaymentPage() {
     </Suspense>
   );
 }
-
