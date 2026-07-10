@@ -850,4 +850,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
-

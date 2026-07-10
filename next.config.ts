@@ -8,7 +8,8 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   experimental: {
-    optimizeCss: true,
+    // Disabled to speed up development compilation and prevent startup timeouts
+    optimizeCss: false,
   },
   images: {
     minimumCacheTTL: 3600,
