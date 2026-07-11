@@ -15,12 +15,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight
 } from 'lucide-react';
-import { updateOrderStatusAction, resetDemoAccountAction, resetSingleAccountAction, sendGlobalBroadcastAction, approveManualOrderAction, resetAllHistoryAction, giftAccountAction, updateKycStatusAction, updatePayoutStatusAction, cleanupDuplicateOrdersAction } from '@/app/admin/actions';
+import { 
+  updateOrderStatusAction, 
+  resetDemoAccountAction, 
+  resetSingleAccountAction, 
+  sendGlobalBroadcastAction, 
+  approveManualOrderAction, 
+  resetAllHistoryAction, 
+  giftAccountAction, 
+  updateKycStatusAction, 
+  updatePayoutStatusAction, 
+  cleanupDuplicateOrdersAction 
+} from '@/app/admin/actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -126,6 +137,7 @@ export default function AdminPage() {
   const [adminError, setAdminError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0 
@@ -137,6 +149,7 @@ export default function AdminPage() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [approvingOrderId, setApprovingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
@@ -162,6 +175,14 @@ export default function AdminPage() {
     const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
     return adminList.includes(lowerEmail);
   }, [user]);
+
+  // Debounce search term to prevent excessive reads
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const refreshStats = useCallback(async () => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -207,7 +228,42 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsub: () => void = () => {};
 
-    // QUOTA PROTECTION: All listeners now use limit(100)
+    const term = debouncedSearchTerm.toLowerCase().trim();
+
+    // SERVER-SIDE SEARCH LOGIC for Users and Accounts
+    if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
+      const handleSearch = async () => {
+        try {
+          if (activeTab === 'user-directory') {
+            const q = query(
+              collection(db, 'users'),
+              where('email', '>=', term),
+              where('email', '<=', term + '\uf8ff'),
+              limit(50)
+            );
+            const snap = await getDocs(q);
+            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          } else if (activeTab === 'trading-nodes') {
+            const q = query(
+              collection(db, 'demoAccounts'),
+              where('email', '>=', term),
+              where('email', '<=', term + '\uf8ff'),
+              limit(50)
+            );
+            const snap = await getDocs(q);
+            setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          }
+        } catch (err) {
+          console.error('[Admin-Search] Failure:', err);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      handleSearch();
+      return;
+    }
+
+    // REAL-TIME SNAPSHOT LOGIC (Fallback when not searching)
     switch(activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
@@ -269,7 +325,7 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
@@ -290,6 +346,23 @@ export default function AdminPage() {
       setIsAuthenticated(true);
       setShowAdminModal(false);
     } else setAdminError('❌ Invalid credentials');
+  };
+
+  const handleApproveOrder = async (orderId: string) => {
+    setApprovingOrderId(orderId);
+    try {
+      const res = await approveManualOrderAction(orderId);
+      if (res.success) {
+        toast({ title: "Order Approved", description: "Account has been provisioned." });
+        refreshStats();
+      } else {
+        toast({ variant: "destructive", title: "Approval Failed", description: res.error || "Could not approve order." });
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message || "An unexpected error occurred." });
+    } finally {
+      setApprovingOrderId(null);
+    }
   };
 
   const handleResetHistory = async () => {
@@ -588,7 +661,14 @@ export default function AdminPage() {
                         <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive cursor-default" disabled>Rejected</Button>
                       ) : (
                         <>
-                          <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => approveManualOrderAction(o.id)}>Approve</Button>
+                          <Button 
+                            size="sm" 
+                            className="h-7 text-[8px] bg-primary text-black" 
+                            onClick={() => handleApproveOrder(o.id)}
+                            disabled={approvingOrderId === o.id}
+                          >
+                            {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+                          </Button>
                           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
                         </>
                       )}
@@ -628,7 +708,10 @@ export default function AdminPage() {
              
              {totalUserPages > 1 && (
                <div className="flex items-center justify-between mt-4 px-2">
-                 <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {filteredUsers.length} traders (Snapshot view)</p>
+                 <p className="text-xs text-muted-foreground">
+                   {debouncedSearchTerm ? 'Search Results' : 'Live Snapshot'}: 
+                   Showing {paginatedUsers.length} of {filteredUsers.length} traders
+                 </p>
                  <div className="flex gap-2">
                    <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}><ChevronLeft className="w-4 h-4 mr-1" /> Previous</Button>
                    <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
@@ -850,4 +933,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
-

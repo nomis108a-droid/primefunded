@@ -75,6 +75,8 @@ function PaymentContent() {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [submittingProof, setSubmittingProof] = useState(false);
   const [proofSubmitted, setProofSubmitted] = useState(false);
+  
+  // Verification States
   const [txidVerifying, setTxidVerifying] = useState(false);
   const [txidVerified, setTxidVerified] = useState(false);
   const [txidVerifyError, setTxidVerifyError] = useState('');
@@ -136,19 +138,8 @@ function PaymentContent() {
     if (!user || !orderId) return;
 
     const cleanTxid = txid.trim();
-    const txidRegex = /^(0x)?[a-fA-F0-9]{64}$/;
-
     if (!cleanTxid) {
       toast({ variant: "destructive", title: "TXID Required", description: "Please enter your transaction hash/ID." });
-      return;
-    }
-
-    if (!txidRegex.test(cleanTxid)) {
-      toast({ 
-        variant: "destructive", 
-        title: "Invalid Transaction ID", 
-        description: "Please enter a valid transaction hash (64 hex characters, with or without 0x prefix)." 
-      });
       return;
     }
 
@@ -288,7 +279,7 @@ function PaymentContent() {
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8 bg-background">
         <XCircle className="w-16 h-16 text-destructive mb-6" />
         <h2 className="text-3xl font-headline font-bold text-white mb-4">Payment Window Expired</h2>
-        <p className="text-muted-foreground max-sm mx-auto mb-8">Your order could not be verified in time. No funds were detected at the address before timeout.</p>
+        <p className="text-muted-foreground max-w-sm mx-auto mb-8">Your order could not be verified in time. No funds were detected at the address before timeout.</p>
         <Button className="font-bold px-10 h-12 rounded-xl" onClick={handleTryAgain}>
           <RefreshCw className="w-4 h-4 mr-2" /> Try Again
         </Button>
