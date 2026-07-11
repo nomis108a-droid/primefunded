@@ -79,7 +79,6 @@ function PaymentContent() {
   const [txidVerified, setTxidVerified] = useState(false);
   const [txidVerifyError, setTxidVerifyError] = useState('');
 
-  // Derive proof validity for UX
   const isValidTxHashFormat = /^(0x)?[a-fA-F0-9]{64}$/.test(txid.trim());
   const isProofValid = txidVerified && !!proofFile;
 
@@ -289,7 +288,7 @@ function PaymentContent() {
       <div className="min-h-[60vh] flex flex-col items-center justify-center text-center p-8 bg-background">
         <XCircle className="w-16 h-16 text-destructive mb-6" />
         <h2 className="text-3xl font-headline font-bold text-white mb-4">Payment Window Expired</h2>
-        <p className="text-muted-foreground max-w-sm mx-auto mb-8">Your order could not be verified in time. No funds were detected at the address before timeout.</p>
+        <p className="text-muted-foreground max-sm mx-auto mb-8">Your order could not be verified in time. No funds were detected at the address before timeout.</p>
         <Button className="font-bold px-10 h-12 rounded-xl" onClick={handleTryAgain}>
           <RefreshCw className="w-4 h-4 mr-2" /> Try Again
         </Button>
@@ -415,7 +414,7 @@ function PaymentContent() {
                                 variant="outline" 
                                 onClick={verifyTxid} 
                                 disabled={txidVerifying || txidVerified || !isValidTxHashFormat}
-                                className="shrink-0"
+                                className="shrink-0 font-black"
                               >
                                 {txidVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : txidVerified ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : "Verify"}
                               </Button>

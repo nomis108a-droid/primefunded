@@ -9,6 +9,7 @@ export async function register() {
   // Guard: Only run background tasks in the Node.js runtime (not Edge)
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     // Unblock the main startup thread to allow the server to report "Ready" faster
+    // Deferring all heavy imports and service starts
     setTimeout(async () => {
       try {
         const dns = await import('dns');
@@ -22,7 +23,7 @@ export async function register() {
 
         let leaderServicesStarted = false;
 
-        // Resilient Startup Loop: Retries every 5s until Firebase Admin is ready
+        // Resilient Startup Loop: Retries until Firebase Admin is ready
         const initInterval = setInterval(() => {
           const services = getAdminServices();
           if (!services) {
@@ -30,8 +31,8 @@ export async function register() {
             return;
           }
           
-          console.log('[Instrumentation] Firebase Admin connected. Initializing background task registry...');
           clearInterval(initInterval);
+          console.log('[Instrumentation] Initializing background tasks...');
 
           // 1. Start Global Listener (All Instances)
           startGlobalPriceSync();
@@ -40,7 +41,7 @@ export async function register() {
           startLeaderHeartbeat(() => {
             if (leaderServicesStarted) return;
             
-            console.log('[Instrumentation] Leadership acquired. Initializing master fetchers...');
+            console.log('[Instrumentation] Leadership acquired. Starting master fetchers...');
             leaderServicesStarted = true;
 
             if (process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID) {
@@ -51,22 +52,18 @@ export async function register() {
             startCoinbaseStream();
             startBnbPolling();
 
-            const auditInterval = setInterval(() => {
-              syncPricesAndAudit().catch(e => {
-                if (e.message?.includes('unauthenticated') || e.code === 16) {
-                  console.error('[BackgroundSync] Audit loop auth failure.');
-                  clearInterval(auditInterval);
-                }
-              });
-            }, 2000);
+            // Periodic risk audit loop
+            setInterval(() => {
+              syncPricesAndAudit().catch(() => {});
+            }, 5000);
           }, () => {
-            console.warn('[Instrumentation] Node switching to STANDBY.');
+            leaderServicesStarted = false;
           });
         }, 5000);
 
       } catch (err: any) {
         console.error('[Instrumentation] Fatal Registry Fault:', err.message);
       }
-    }, 100);
+    }, 500); // 500ms delay to ensure main loop is free
   }
 }

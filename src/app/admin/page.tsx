@@ -325,7 +325,7 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
@@ -709,7 +709,7 @@ export default function AdminPage() {
              {totalUserPages > 1 && (
                <div className="flex items-center justify-between mt-4 px-2">
                  <p className="text-xs text-muted-foreground">
-                   {searchTerm ? 'Search Results' : 'Live Snapshot'}: 
+                   {debouncedSearchTerm ? 'Search Results' : 'Live Snapshot'}: 
                    Showing {paginatedUsers.length} of {filteredUsers.length} traders
                  </p>
                  <div className="flex gap-2">
