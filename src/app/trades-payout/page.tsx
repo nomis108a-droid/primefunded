@@ -28,12 +28,16 @@ const StatBox = memo(function StatBox({ title, value, icon, color = 'primary' }:
 export default function TradesPayoutPage() {
   const { data: featuredPayouts, loading } = useCollection<any>(
     'featured_payouts',
-    [orderBy('rank', 'asc')]
+    [orderBy('paidOut', 'desc')]
   );
 
-  const totalPaidOut = useMemo(() => {
-    return (featuredPayouts || []).reduce((acc, curr) => acc + (parseFloat(curr.paidOut) || 0), 0);
+  const sortedPayouts = useMemo(() => {
+    return [...(featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
   }, [featuredPayouts]);
+
+  const totalPaidOut = useMemo(() => {
+    return sortedPayouts.reduce((acc, curr) => acc + (parseFloat(curr.paidOut) || 0), 0);
+  }, [sortedPayouts]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -84,7 +88,7 @@ export default function TradesPayoutPage() {
                         <td colSpan={6} className="py-6 px-6"><Skeleton className="h-4 w-full bg-secondary/50 rounded" /></td>
                       </tr>
                     ))
-                  ) : featuredPayouts.length === 0 ? (
+                  ) : sortedPayouts.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-20 text-center text-muted-foreground italic flex flex-col items-center gap-4">
                         <Info className="w-12 h-12 opacity-20" />
@@ -92,45 +96,51 @@ export default function TradesPayoutPage() {
                       </td>
                     </tr>
                   ) : (
-                    featuredPayouts.map((p) => (
-                      <tr key={p.id} className="hover:bg-primary/5 transition-colors group">
-                        <td className="py-4 px-6">
-                           <Badge variant="outline" className={cn(
-                             "w-8 h-8 rounded-full flex items-center justify-center p-0 font-black text-xs",
-                             p.rank === 1 ? "bg-amber-500/20 text-amber-500 border-amber-500/50" :
-                             p.rank === 2 ? "bg-zinc-400/20 text-zinc-400 border-zinc-400/50" :
-                             p.rank === 3 ? "bg-orange-600/20 text-orange-600 border-orange-600/50" :
-                             "border-border"
-                           )}>
-                             {p.rank}
-                           </Badge>
-                        </td>
-                        <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.name}</td>
-                        <td className="py-4 px-6 text-zinc-400 text-xs flex items-center gap-2">
-                           <Globe className="w-3.5 h-3.5 opacity-50" /> {p.country}
-                        </td>
-                        <td className="py-4 px-6 text-right font-mono font-bold text-emerald-500">
-                          ${(parseFloat(p.paidOut) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-4 px-6 text-center">
-                           <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.payoutsCount}</Badge>
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          {p.proofUrl ? (
-                            <a 
-                              href={p.proofUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase text-primary hover:text-white transition-colors"
-                            >
-                              View Proof <ExternalLink className="w-3 h-3" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-zinc-600 font-bold uppercase">Pending</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                    sortedPayouts.map((p, index) => {
+                      const rank = index + 1;
+                      return (
+                        <tr key={p.id} className="hover:bg-primary/5 transition-colors group">
+                          <td className="py-4 px-6">
+                            <Badge variant="outline" className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center p-0 font-black text-xs",
+                              rank === 1 ? "bg-amber-500/20 text-amber-500 border-amber-500/50" :
+                              rank === 2 ? "bg-zinc-400/20 text-zinc-400 border-zinc-400/50" :
+                              rank === 3 ? "bg-orange-600/20 text-orange-600 border-orange-600/50" :
+                              "border-border"
+                            )}>
+                              {rank}
+                            </Badge>
+                          </td>
+                          <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.name}</td>
+                          <td className="py-4 px-6 text-zinc-400 text-xs">
+                             <div className="flex items-center gap-2">
+                                <span className="text-base">{p.countryFlag}</span>
+                                <span>{p.country}</span>
+                             </div>
+                          </td>
+                          <td className="py-4 px-6 text-right font-mono font-bold text-emerald-500">
+                            ${(parseFloat(p.paidOut) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-4 px-6 text-center">
+                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.payoutsCount}</Badge>
+                          </td>
+                          <td className="py-4 px-6 text-right">
+                            {p.proofUrl ? (
+                              <a 
+                                href={p.proofUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase text-primary hover:text-white transition-colors"
+                              >
+                                View Proof <ExternalLink className="w-3 h-3" />
+                              </a>
+                            ) : (
+                              <span className="text-[10px] text-zinc-600 font-bold uppercase">Pending</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

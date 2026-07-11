@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,8 +13,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -36,8 +38,50 @@ import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSn
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Link from 'next/link';
+
+// Static Country List with Flag Emojis
+const COUNTRIES = [
+  { name: "Afghanistan", code: "AF", flag: "🇦🇫" }, { name: "Albania", code: "AL", flag: "🇦🇱" }, { name: "Algeria", code: "DZ", flag: "🇩🇿" }, { name: "Andorra", code: "AD", flag: "🇦🇩" }, { name: "Angola", code: "AO", flag: "🇦🇴" },
+  { name: "Argentina", code: "AR", flag: "🇦🇷" }, { name: "Armenia", code: "AM", flag: "🇦🇲" }, { name: "Australia", code: "AU", flag: "🇦🇺" }, { name: "Austria", code: "AT", flag: "🇦🇹" }, { name: "Azerbaijan", code: "AZ", flag: "🇦🇿" },
+  { name: "Bahamas", code: "BS", flag: "🇧🇸" }, { name: "Bahrain", code: "BH", flag: "🇧🇭" }, { name: "Bangladesh", code: "BD", flag: "🇧🇩" }, { name: "Barbados", code: "BB", flag: "🇧🇧" }, { name: "Belarus", code: "BY", flag: "🇧🇾" },
+  { name: "Belgium", code: "BE", flag: "🇧🇪" }, { name: "Belize", code: "BZ", flag: "🇧🇿" }, { name: "Benin", code: "BJ", flag: "🇧🇯" }, { name: "Bermuda", code: "BM", flag: "🇧🇲" }, { name: "Bhutan", code: "BT", flag: "🇧🇹" },
+  { name: "Bolivia", code: "BO", flag: "🇧🇴" }, { name: "Bosnia and Herzegovina", code: "BA", flag: "🇧🇦" }, { name: "Botswana", code: "BW", flag: "🇧🇼" }, { name: "Brazil", code: "BR", flag: "🇧🇷" }, { name: "Brunei", code: "BN", flag: "🇧🇳" },
+  { name: "Bulgaria", code: "BG", flag: "🇧🇬" }, { name: "Burkina Faso", code: "BF", flag: "🇧🇫" }, { name: "Burundi", code: "BI", flag: "🇧🇮" }, { name: "Cambodia", code: "KH", flag: "🇰🇭" }, { name: "Cameroon", code: "CM", flag: "🇨🇲" },
+  { name: "Canada", code: "CA", flag: "🇨🇦" }, { name: "Cape Verde", code: "CV", flag: "🇨🇻" }, { name: "Central African Republic", code: "CF", flag: "🇨🇫" }, { name: "Chad", code: "TD", flag: "🇹🇩" }, { name: "Chile", code: "CL", flag: "🇨🇱" },
+  { name: "China", code: "CN", flag: "🇨🇳" }, { name: "Colombia", code: "CO", flag: "🇨🇴" }, { name: "Comoros", code: "KM", flag: "🇰🇲" }, { name: "Congo", code: "CG", flag: "🇨🇬" }, { name: "Costa Rica", code: "CR", flag: "🇨🇷" },
+  { name: "Croatia", code: "HR", flag: "🇭🇷" }, { name: "Cuba", code: "CU", flag: "🇨🇺" }, { name: "Cyprus", code: "CY", flag: "🇨🇾" }, { name: "Czech Republic", code: "CZ", flag: "🇨🇿" }, { name: "Denmark", code: "DK", flag: "🇩🇰" },
+  { name: "Djibouti", code: "DJ", flag: "🇩🇯" }, { name: "Dominica", code: "DM", flag: "🇩🇲" }, { name: "Dominican Republic", code: "DO", flag: "🇩🇴" }, { name: "Ecuador", code: "EC", flag: "🇪🇨" }, { name: "Egypt", code: "EG", flag: "🇪🇬" },
+  { name: "El Salvador", code: "SV", flag: "🇸🇻" }, { name: "Equatorial Guinea", code: "GQ", flag: "🇬🇶" }, { name: "Eritrea", code: "ER", flag: "🇪🇷" }, { name: "Estonia", code: "EE", flag: "🇪🇪" }, { name: "Eswatini", code: "SZ", flag: "🇸🇿" },
+  { name: "Ethiopia", code: "ET", flag: "🇪🇹" }, { name: "Fiji", code: "FJ", flag: "🇫🇯" }, { name: "Finland", code: "FI", flag: "🇫🇮" }, { name: "France", code: "FR", flag: "🇫🇷" }, { name: "Gabon", code: "GA", flag: "🇬🇦" },
+  { name: "Gambia", code: "GM", flag: "🇬🇲" }, { name: "Georgia", code: "GE", flag: "🇬🇪" }, { name: "Germany", code: "DE", flag: "🇩🇪" }, { name: "Ghana", code: "GH", flag: "🇬🇭" }, { name: "Greece", code: "GR", flag: "🇬🇷" },
+  { name: "Grenada", code: "GD", flag: "🇬🇩" }, { name: "Guatemala", code: "GT", flag: "🇬🇹" }, { name: "Guinea", code: "GN", flag: "🇬🇳" }, { name: "Guinea-Bissau", code: "GW", flag: "🇬🇼" }, { name: "Guyana", code: "GY", flag: "🇬🇾" },
+  { name: "Haiti", code: "HT", flag: "🇭🇹" }, { name: "Honduras", code: "HN", flag: "🇭🇳" }, { name: "Hungary", code: "HU", flag: "🇭🇺" }, { name: "Iceland", code: "IS", flag: "🇮🇸" }, { name: "India", code: "IN", flag: "🇮🇳" },
+  { name: "Indonesia", code: "ID", flag: "🇮🇩" }, { name: "Iran", code: "IR", flag: "🇮🇷" }, { name: "Iraq", code: "IQ", flag: "🇮🇶" }, { name: "Ireland", code: "IE", flag: "🇮🇪" }, { name: "Israel", code: "IL", flag: "🇮🇱" },
+  { name: "Italy", code: "IT", flag: "🇮🇹" }, { name: "Jamaica", code: "JM", flag: "🇯🇲" }, { name: "Japan", code: "JP", flag: "🇯🇵" }, { name: "Jordan", code: "JO", flag: "🇯🇴" }, { name: "Kazakhstan", code: "KZ", flag: "🇰🇿" },
+  { name: "Kenya", code: "KE", flag: "🇰🇪" }, { name: "Kiribati", code: "KI", flag: "🇰🇮" }, { name: "Korea, North", code: "KP", flag: "🇰🇵" }, { name: "Korea, South", code: "KR", flag: "🇰🇷" }, { name: "Kuwait", code: "KW", flag: "🇰🇼" },
+  { name: "Kyrgyzstan", code: "KG", flag: "🇰🇬" }, { name: "Laos", code: "LA", flag: "🇱🇦" }, { name: "Latvia", code: "LV", flag: "🇱🇻" }, { name: "Lebanon", code: "LB", flag: "🇱🇧" }, { name: "Lesotho", code: "LS", flag: "🇱🇸" },
+  { name: "Liberia", code: "LR", flag: "🇱🇷" }, { name: "Libya", code: "LY", flag: "🇱🇾" }, { name: "Liechtenstein", code: "LI", flag: "🇱🇮" }, { name: "Lithuania", code: "LT", flag: "🇱🇹" }, { name: "Luxembourg", code: "LU", flag: "🇱🇺" },
+  { name: "Madagascar", code: "MG", flag: "🇲🇬" }, { name: "Malawi", code: "MW", flag: "🇲🇼" }, { name: "Malaysia", code: "MY", flag: "🇲🇾" }, { name: "Maldives", code: "MV", flag: "🇲🇻" }, { name: "Mali", code: "ML", flag: "🇲🇱" },
+  { name: "Malta", code: "MT", flag: "🇲🇹" }, { name: "Marshall Islands", code: "MH", flag: "🇲🇭" }, { name: "Mauritania", code: "MR", flag: "🇲🇷" }, { name: "Mauritius", code: "MU", flag: "🇲🇺" }, { name: "Mexico", code: "MX", flag: "🇲🇽" },
+  { name: "Micronesia", code: "FM", flag: "🇫🇲" }, { name: "Moldova", code: "MD", flag: "🇲🇩" }, { name: "Monaco", code: "MC", flag: "🇲🇨" }, { name: "Mongolia", code: "MN", flag: "🇲🇳" }, { name: "Montenegro", code: "ME", flag: "🇲🇪" },
+  { name: "Morocco", code: "MA", flag: "🇲🇦" }, { name: "Mozambique", code: "MZ", flag: "🇲🇿" }, { name: "Myanmar", code: "MM", flag: "🇲🇲" }, { name: "Namibia", code: "NA", flag: "🇳🇦" }, { name: "Nauru", code: "NR", flag: "🇳🇷" },
+  { name: "Nepal", code: "NP", flag: "🇳🇵" }, { name: "Netherlands", code: "NL", flag: "🇳🇱" }, { name: "New Zealand", code: "NZ", flag: "🇳🇿" }, { name: "Nicaragua", code: "NI", flag: "🇳🇮" }, { name: "Niger", code: "NE", flag: "🇳🇪" },
+  { name: "Nigeria", code: "NG", flag: "🇳🇬" }, { name: "North Macedonia", code: "MK", flag: "🇲🇰" }, { name: "Norway", code: "NO", flag: "🇳🇴" }, { name: "Oman", code: "OM", flag: "🇴🇲" }, { name: "Pakistan", code: "PK", flag: "🇵🇰" },
+  { name: "Palau", code: "PW", flag: "🇵🇼" }, { name: "Panama", code: "PA", flag: "🇵🇦" }, { name: "Papua New Guinea", code: "PG", flag: "🇵🇬" }, { name: "Paraguay", code: "PY", flag: "🇵🇾" }, { name: "Peru", code: "PE", flag: "🇵🇪" },
+  { name: "Philippines", code: "PH", flag: "🇵🇭" }, { name: "Poland", code: "PL", flag: "🇵🇱" }, { name: "Portugal", code: "PT", flag: "🇵🇹" }, { name: "Qatar", code: "QA", flag: "🇶🇦" }, { name: "Romania", code: "RO", flag: "🇷🇴" },
+  { name: "Russia", code: "RU", flag: "🇷🇺" }, { name: "Rwanda", code: "RW", flag: "🇷🇼" }, { name: "Saint Kitts and Nevis", code: "KN", flag: "🇰🇳" }, { name: "Saint Lucia", code: "LC", flag: "🇱🇨" }, { name: "Saint Vincent and the Grenadines", code: "VC", flag: "🇻🇨" },
+  { name: "Samoa", code: "WS", flag: "🇼🇸" }, { name: "San Marino", code: "SM", flag: "🇸🇲" }, { name: "Sao Tome and Principe", code: "ST", flag: "🇸🇹" }, { name: "Saudi Arabia", code: "SA", flag: "🇸🇦" }, { name: "Senegal", code: "SN", flag: "🇸🇳" },
+  { name: "Serbia", code: "RS", flag: "🇷🇸" }, { name: "Seychelles", code: "SC", flag: "🇸🇨" }, { name: "Sierra Leone", code: "SL", flag: "🇸🇱" }, { name: "Singapore", code: "SG", flag: "🇸🇬" }, { name: "Slovakia", code: "SK", flag: "🇸🇰" },
+  { name: "Slovenia", code: "SI", flag: "🇸🇮" }, { name: "Solomon Islands", code: "SB", flag: "🇸🇧" }, { name: "Somalia", code: "SO", flag: "🇸🇴" }, { name: "South Africa", code: "ZA", flag: "🇿🇦" }, { name: "South Sudan", code: "SS", flag: "🇸🇸" },
+  { name: "Spain", code: "ES", flag: "🇪🇸" }, { name: "Sri Lanka", code: "LK", flag: "🇱🇰" }, { name: "Sudan", code: "SD", flag: "🇸🇩" }, { name: "Suriname", code: "SR", flag: "🇸🇷" }, { name: "Sweden", code: "SE", flag: "🇸🇪" },
+  { name: "Switzerland", code: "CH", flag: "🇨🇭" }, { name: "Syria", code: "SY", flag: "🇸🇾" }, { name: "Taiwan", code: "TW", flag: "🇹🇼" }, { name: "Tajikistan", code: "TJ", flag: "🇹🇯" }, { name: "Tanzania", code: "TZ", flag: "🇹🇿" },
+  { name: "Thailand", code: "TH", flag: "🇹🇭" }, { name: "Timor-Leste", code: "TL", flag: "🇹🇱" }, { name: "Togo", code: "TG", flag: "🇹🇬" }, { name: "Tonga", code: "TO", flag: "🇹🇴" }, { name: "Trinidad and Tobago", code: "TT", flag: "🇹🇹" },
+  { name: "Tunisia", code: "TN", flag: "🇹🇳" }, { name: "Turkey", code: "TR", flag: "🇹🇷" }, { name: "Turkmenistan", code: "TM", flag: "🇹🇲" }, { name: "Tuvalu", code: "TV", flag: "🇹🇻" }, { name: "Uganda", code: "UG", flag: "🇺🇬" },
+  { name: "Ukraine", code: "UA", flag: "🇺🇦" }, { name: "United Arab Emirates", code: "AE", flag: "🇦🇪" }, { name: "United Kingdom", code: "GB", flag: "🇬🇧" }, { name: "United States", code: "US", flag: "🇺🇸" }, { name: "Uruguay", code: "UY", flag: "🇺🇾" },
+  { name: "Uzbekistan", code: "UZ", flag: "🇺🇿" }, { name: "Vanuatu", code: "VU", flag: "🇻🇺" }, { name: "Vatican City", code: "VA", flag: "🇻🇦" }, { name: "Venezuela", code: "VE", flag: "🇻🇪" }, { name: "Vietnam", code: "VN", flag: "🇻🇳" },
+  { name: "Yemen", code: "YE", flag: "🇾🇪" }, { name: "Zambia", code: "ZM", flag: "🇿🇲" }, { name: "Zimbabwe", code: "ZW", flag: "🇿🇼" }
+];
 
 // Memoized StatCard to prevent re-renders on table updates
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -63,7 +107,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
 });
 
 // Memoized DataTable to prevent lag during tab switching
-const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
+const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any, index: number) => React.ReactNode }) {
   if (loading) {
     return (
       <Card className="bg-card/40 border-border/50">
@@ -91,7 +135,7 @@ const DataTable = memo(function DataTable({ loading, data, columns, renderRow }:
             <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-border/50">
-            {data.map(item => renderRow(item))}
+            {data.map((item, index) => renderRow(item, index))}
           </tbody>
         </table>
       </CardContent>
@@ -168,8 +212,9 @@ export default function AdminPage() {
 
   // Featured Payout States
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
-  const [payoutForm, setPayoutForm] = useState({ id: '', rank: '', name: '', country: '', paidOut: '', payoutsCount: '' });
+  const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
+  const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
@@ -309,7 +354,7 @@ export default function AdminPage() {
         });
         break;
       case 'trades-payouts':
-        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('rank', 'asc'), limit(50)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(50)), (snap) => {
           setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -378,8 +423,12 @@ export default function AdminPage() {
     }
   };
 
+  const sortedFeaturedPayouts = useMemo(() => {
+    return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
+  }, [tabData.featuredPayouts]);
+
   const handleSaveFeaturedPayout = async () => {
-    if (!payoutForm.name || !payoutForm.rank || !payoutForm.paidOut) {
+    if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) {
       toast({ variant: "destructive", title: "Missing Fields" });
       return;
     }
@@ -394,9 +443,9 @@ export default function AdminPage() {
       }
 
       const data = {
-        rank: parseInt(payoutForm.rank),
         name: payoutForm.name,
         country: payoutForm.country,
+        countryFlag: payoutForm.countryFlag,
         paidOut: parseFloat(payoutForm.paidOut),
         payoutsCount: parseInt(payoutForm.payoutsCount || '1'),
         proofUrl,
@@ -411,7 +460,7 @@ export default function AdminPage() {
 
       toast({ title: "Success", description: "Featured payout saved." });
       setIsFeaturedPayoutModalOpen(false);
-      setPayoutForm({ id: '', rank: '', name: '', country: '', paidOut: '', payoutsCount: '' });
+      setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
       setPayoutProofFile(null);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Save Failed", description: e.message });
@@ -572,6 +621,10 @@ export default function AdminPage() {
     return o.email?.toLowerCase().includes(term) || o.id.toLowerCase().includes(term);
   }), [tabData.orders, searchTerm]);
 
+  const filteredCountries = useMemo(() => {
+    return COUNTRIES.filter(c => c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())).slice(0, 100);
+  }, [countrySearchTerm]);
+
   if (!isAuthenticated && !showAdminModal) return null;
 
   return (
@@ -664,7 +717,7 @@ export default function AdminPage() {
              <DataTable loading={isLoading} data={tabData.payouts} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
                   <tr key={p.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{p.email}</td>
-                    <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-xs">{p.address}</p></td>
+                    <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
                     <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
                     <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
                     <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
@@ -676,14 +729,14 @@ export default function AdminPage() {
           <TabsContent value="trades-payouts" className="space-y-6">
              <div className="flex justify-between items-center">
                 <TabHeader title="Trades Payout Manager" count={tabData.featuredPayouts?.length} />
-                <Button className="h-10 bg-primary text-black font-black" onClick={() => { setPayoutForm({ id: '', rank: '', name: '', country: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Featured Payout</Button>
+                <Button className="h-10 bg-primary text-black font-black" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Featured Payout</Button>
              </div>
-             <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Rank', 'Name / Country', 'Paid Out', 'Count', 'Proof', 'Actions']} renderRow={(p) => (
+             <DataTable loading={isLoading} data={sortedFeaturedPayouts} columns={['Rank', 'Name / Country', 'Paid Out', 'Count', 'Proof', 'Actions']} renderRow={(p, idx) => (
                   <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-xs">#{p.rank}</td>
+                    <td className="p-4 font-bold text-xs">#{idx + 1}</td>
                     <td className="p-4">
                       <p className="font-bold text-xs text-white uppercase">{p.name}</p>
-                      <p className="text-[10px] text-zinc-500">{p.country}</p>
+                      <p className="text-[10px] text-zinc-500 flex items-center gap-1.5">{p.countryFlag} {p.country}</p>
                     </td>
                     <td className="p-4 font-mono text-emerald-500 font-bold">${(p.paidOut || 0).toLocaleString()}</td>
                     <td className="p-4 text-center font-bold text-zinc-400">{p.payoutsCount}</td>
@@ -691,7 +744,7 @@ export default function AdminPage() {
                       {p.proofUrl && <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View</a>}
                     </td>
                     <td className="p-4 text-right space-x-2">
-                       <Button size="sm" variant="ghost" onClick={() => { setPayoutForm({ id: p.id, rank: p.rank.toString(), name: p.name, country: p.country, paidOut: p.paidOut.toString(), payoutsCount: p.payoutsCount.toString() }); setIsFeaturedPayoutModalOpen(true); }}><Settings2 className="w-4 h-4" /></Button>
+                       <Button size="sm" variant="ghost" onClick={() => { setPayoutForm({ id: p.id, name: p.name, country: p.country, countryFlag: p.countryFlag, paidOut: p.paidOut.toString(), payoutsCount: p.payoutsCount.toString() }); setIsFeaturedPayoutModalOpen(true); }}><Settings2 className="w-4 h-4" /></Button>
                        <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteFeaturedPayout(p.id)}><Trash2 className="w-4 h-4" /></Button>
                     </td>
                   </tr>
@@ -848,13 +901,56 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-             <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>Rank</Label><Input type="number" value={payoutForm.rank} onChange={e => setPayoutForm({...payoutForm, rank: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             <div className="space-y-2">
+                <Label>Trader Name</Label>
+                <Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" />
              </div>
-             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-             <div className="space-y-2"><Label>Country</Label><Input value={payoutForm.country} onChange={e => setPayoutForm({...payoutForm, country: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-             <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             
+             <div className="space-y-2">
+                <Label>Country</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800 font-normal">
+                      {payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-full p-0 bg-zinc-900 border-zinc-800">
+                    <div className="p-2 border-b border-zinc-800">
+                       <Input 
+                        placeholder="Search country..." 
+                        value={countrySearchTerm} 
+                        onChange={(e) => setCountrySearchTerm(e.target.value)}
+                        className="h-8 bg-zinc-800 border-zinc-700"
+                       />
+                    </div>
+                    <ScrollArea className="h-64">
+                       <div className="p-1">
+                          {filteredCountries.map((c) => (
+                            <button
+                              key={c.code}
+                              onClick={() => {
+                                setPayoutForm({...payoutForm, country: c.name, countryFlag: c.flag});
+                                setCountrySearchTerm('');
+                              }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left"
+                            >
+                              <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
+                              <span className="text-base">{c.flag}</span>
+                              <span className="text-zinc-300">{c.name}</span>
+                            </button>
+                          ))}
+                       </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
+             </div>
+
+             <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+                <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             </div>
+
              <div className="space-y-2"><Label>Proof Screenshot</Label><Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 border-zinc-800 text-xs" /></div>
           </div>
           <DialogFooter>
