@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, memo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -770,8 +770,8 @@ export default function AdminPage() {
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
             <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
               <TabsList className="bg-transparent h-12 justify-start p-0 gap-8">
-                {['Overview', 'Trading Nodes', 'Trade Status / History', 'Breach Logs'].map(tab => (
-                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(/ /g, '-').split('/')[0].trim()} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+                {['Overview', 'Trading Nodes', 'Trade History', 'Breach Logs'].map(tab => (
+                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(/ /g, '-').replace('-history', '-ledger')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
                 ))}
               </TabsList>
             </div>
@@ -787,7 +787,7 @@ export default function AdminPage() {
                   {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => {
                     const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
                     return (
-                      <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade'); }}>
+                      <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade-ledger'); }}>
                         <CardHeader className="p-4 flex flex-row items-center justify-between">
                            <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
                            <div className="flex items-center gap-2">
@@ -813,7 +813,7 @@ export default function AdminPage() {
                     );
                   })}
                </TabsContent>
-               <TabsContent value="trade" className="m-0">
+               <TabsContent value="trade-ledger" className="m-0">
                   <div className="flex justify-between items-center mb-4">
                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Execution Ledger {nodeFilterId && <span className="text-primary">— Filtering by Node: {nodeFilterId.slice(0,8)}</span>}</p>
                      {nodeFilterId && <Button variant="ghost" className="h-6 text-[8px] font-black" onClick={() => setNodeFilterId(null)}>CLEAR FILTER</Button>}

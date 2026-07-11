@@ -27,6 +27,7 @@ export async function updateGlobalSettingsAction(settings: any) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     await db.collection('settings').doc('payments').set(settings, { merge: true });
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
@@ -119,6 +120,7 @@ export async function approveManualOrderAction(id: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const orderRef = db.collection('orders').doc(id);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
@@ -178,6 +180,7 @@ export async function updateOrderStatusAction(id: string, status: string, reason
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const orderRef = db.collection('orders').doc(id);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
@@ -206,6 +209,7 @@ export async function resetDemoAccountAction(accountId: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const accountRef = db.collection('demoAccounts').doc(accountId);
     const accountSnap = await accountRef.get();
     if (!accountSnap.exists) throw new Error("Account not found");
@@ -225,6 +229,7 @@ export async function resetSingleAccountAction(accountId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const accountRef = db.collection('demoAccounts').doc(accountId);
     const accountSnap = await accountRef.get();
     if (!accountSnap.exists) throw new Error("Account not found");
@@ -259,6 +264,7 @@ export async function resetAllHistoryAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const tradesSnap = await db.collection('demoTrades').get();
     const batch = db.batch();
     tradesSnap.docs.forEach(doc => batch.delete(doc.ref));
@@ -283,6 +289,7 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     await db.collection('broadcasts').add({ ...data, sentAt: FieldValue.serverTimestamp() });
     
     const usersSnap = await db.collection('users').get();
@@ -306,6 +313,7 @@ export async function updateKycStatusAction(userId: string, status: string, reas
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const updates: any = { kycStatus: status, kycVerified: status === 'verified', updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.kycRejectionReason = reason;
     await db.collection('users').doc(userId).update(updates);
@@ -326,6 +334,7 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const payoutRef = db.collection('payouts').doc(payoutId);
     const payoutSnap = await payoutRef.get();
     if (!payoutSnap.exists) throw new Error("Payout record not found");
@@ -349,6 +358,7 @@ export async function cleanupDuplicateOrdersAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) return { success: false, error: "Database unavailable" };
     const ordersSnap = await db.collection('orders').where('status', '==', 'waiting').get();
     const orders = ordersSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() as any }));
     const clusters: Record<string, any[]> = {};
