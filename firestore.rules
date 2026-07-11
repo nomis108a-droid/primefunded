@@ -34,6 +34,7 @@ service cloud.firestore {
     match /orders/{id} {
       allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow find: if isAdmin() || (request.auth != null && request.auth.uid == request.resource.data.userId);
       allow update: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow delete: if isAdmin();
     }
@@ -73,6 +74,7 @@ service cloud.firestore {
     }
 
     // Featured Payouts (Public Leaderboard)
+    // Rules re-triggered for public read synchronization
     match /featured_payouts/{id} {
       allow read: if true;
       allow write: if isAdmin();

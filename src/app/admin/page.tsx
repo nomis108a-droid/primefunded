@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { 
   Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
 } from 'lucide-react';
@@ -77,7 +77,7 @@ const COUNTRIES = [
   { name: "Spain", code: "ES", flag: "🇪🇸" }, { name: "Sri Lanka", code: "LK", flag: "🇱🇰" }, { name: "Sudan", code: "SD", flag: "🇸🇩" }, { name: "Suriname", code: "SR", flag: "🇸🇷" }, { name: "Sweden", code: "SE", flag: "🇸🇪" },
   { name: "Switzerland", code: "CH", flag: "🇨🇭" }, { name: "Syria", code: "SY", flag: "🇸🇾" }, { name: "Taiwan", code: "TW", flag: "🇹🇼" }, { name: "Tajikistan", code: "TJ", flag: "🇹🇯" }, { name: "Tanzania", code: "TZ", flag: "🇹🇿" },
   { name: "Thailand", code: "TH", flag: "🇹🇭" }, { name: "Timor-Leste", code: "TL", flag: "🇹🇱" }, { name: "Togo", code: "TG", flag: "🇹🇬" }, { name: "Tonga", code: "TO", flag: "🇹🇴" }, { name: "Trinidad and Tobago", code: "TT", flag: "🇹🇹" },
-  { name: "Tunisia", code: "TN", flag: "🇹🇳" }, { name: "Turkey", code: "TR", flag: "🇹🇷" }, { name: "Turkmenistan", code: "TM", flag: "🇹🇲" }, { name: "Tuvalu", code: "TV", flag: "🇹🇻" }, { name: "Uganda", code: "UG", flag: "🇺🇬" },
+  { name: "Tunisia", code: "TN", flag: "🇹🇳" }, { name: "Turkey", code: "TR", flag: "🇹🇷" }, { name: "Turkmenistan", code: "TM", flag: "🇹🇲" }, { name: "Tuvalu", code: "TV", flag: "🇹🇻" }, { name: "Uganda", code: "UG", font: "🇺🇬" },
   { name: "Ukraine", code: "UA", flag: "🇺🇦" }, { name: "United Arab Emirates", code: "AE", flag: "🇦🇪" }, { name: "United Kingdom", code: "GB", flag: "🇬🇧" }, { name: "United States", code: "US", flag: "🇺🇸" }, { name: "Uruguay", code: "UY", flag: "🇺🇾" },
   { name: "Uzbekistan", code: "UZ", flag: "🇺🇿" }, { name: "Vanuatu", code: "VU", flag: "🇻🇺" }, { name: "Vatican City", code: "VA", flag: "🇻🇦" }, { name: "Venezuela", code: "VE", flag: "🇻🇪" }, { name: "Vietnam", code: "VN", flag: "🇻🇳" },
   { name: "Yemen", code: "YE", flag: "🇾🇪" }, { name: "Zambia", code: "ZM", flag: "🇿🇲" }, { name: "Zimbabwe", code: "ZW", flag: "🇿🇼" }
@@ -394,7 +394,7 @@ export default function AdminPage() {
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
-    else setShowAdminModal(true);
+    else setShowAdminModal(false);
   }, []);
 
   const handleAdminAuth = (e: React.FormEvent) => {
