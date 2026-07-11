@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -21,7 +22,8 @@ import {
   TrendingUp,
   ChevronLeft,
   Gift,
-  BookOpen
+  BookOpen,
+  DollarSign
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -43,6 +45,7 @@ const navItems = [
 
 const secondaryItems = [
   { name: 'Rules', href: '/rules', icon: BookOpen },
+  { name: 'Trades Payout', href: '/trades-payout', icon: DollarSign },
   { name: 'KYC Verification', href: '/kyc', icon: FingerprintIcon },
   { name: 'Profile', href: '/profile', icon: UserCircle },
   { name: 'Support', href: '/support', icon: HelpCircle },

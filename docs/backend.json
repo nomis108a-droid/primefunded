@@ -119,6 +119,20 @@
         "status": { "type": "string", "enum": ["active", "triggered"] },
         "createdAt": { "type": "string", "format": "date-time" }
       }
+    },
+    "FeaturedPayout": {
+      "title": "Featured Payout",
+      "description": "Public payout showcase for the leaderboard.",
+      "type": "object",
+      "properties": {
+        "rank": { "type": "number" },
+        "name": { "type": "string" },
+        "country": { "type": "string" },
+        "paidOut": { "type": "number" },
+        "payoutsCount": { "type": "number" },
+        "proofUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
     }
   },
   "auth": {
@@ -148,6 +162,10 @@
     "/alerts/{alertId}": {
       "schema": { "$ref": "#/backend/entities/Alert" },
       "description": "Stores user price alerts."
+    },
+    "/featured_payouts/{id}": {
+      "schema": { "$ref": "#/backend/entities/FeaturedPayout" },
+      "description": "Public payout showcases."
     }
   }
 }

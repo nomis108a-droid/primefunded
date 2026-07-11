@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -13,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -30,8 +31,9 @@ import {
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
@@ -144,7 +146,7 @@ export default function AdminPage() {
   });
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -163,6 +165,11 @@ export default function AdminPage() {
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+
+  // Featured Payout States
+  const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
+  const [payoutForm, setPayoutForm] = useState({ id: '', rank: '', name: '', country: '', paidOut: '', payoutsCount: '' });
+  const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
 
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
@@ -301,6 +308,12 @@ export default function AdminPage() {
           setIsLoading(false);
         });
         break;
+      case 'trades-payouts':
+        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('rank', 'asc'), limit(50)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
       case 'referral-audit':
         unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
@@ -362,6 +375,58 @@ export default function AdminPage() {
       toast({ variant: "destructive", title: "Error", description: e.message || "An unexpected error occurred." });
     } finally {
       setApprovingOrderId(null);
+    }
+  };
+
+  const handleSaveFeaturedPayout = async () => {
+    if (!payoutForm.name || !payoutForm.rank || !payoutForm.paidOut) {
+      toast({ variant: "destructive", title: "Missing Fields" });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
+      
+      if (payoutProofFile) {
+        const storageRef = ref(storage, `featured-payout-proofs/${Date.now()}_${payoutProofFile.name}`);
+        const snap = await uploadBytes(storageRef, payoutProofFile);
+        proofUrl = await getDownloadURL(snap.ref);
+      }
+
+      const data = {
+        rank: parseInt(payoutForm.rank),
+        name: payoutForm.name,
+        country: payoutForm.country,
+        paidOut: parseFloat(payoutForm.paidOut),
+        payoutsCount: parseInt(payoutForm.payoutsCount || '1'),
+        proofUrl,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (payoutForm.id) {
+        await setDoc(doc(db, 'featured_payouts', payoutForm.id), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'featured_payouts'), { ...data, createdAt: serverTimestamp() });
+      }
+
+      toast({ title: "Success", description: "Featured payout saved." });
+      setIsFeaturedPayoutModalOpen(false);
+      setPayoutForm({ id: '', rank: '', name: '', country: '', paidOut: '', payoutsCount: '' });
+      setPayoutProofFile(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Save Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteFeaturedPayout = async (id: string) => {
+    if (!confirm("Are you sure?")) return;
+    try {
+      await deleteDoc(doc(db, 'featured_payouts', id));
+      toast({ title: "Deleted" });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Delete Failed", description: e.message });
     }
   };
 
@@ -555,7 +620,7 @@ export default function AdminPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map((tab) => (
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map((tab) => (
                 <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">
                   {tab}
                 </TabsTrigger>
@@ -599,10 +664,36 @@ export default function AdminPage() {
              <DataTable loading={isLoading} data={tabData.payouts} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
                   <tr key={p.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{p.email}</td>
-                    <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
+                    <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-xs">{p.address}</p></td>
                     <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
                     <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
                     <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
+                  </tr>
+                )}
+             />
+          </TabsContent>
+
+          <TabsContent value="trades-payouts" className="space-y-6">
+             <div className="flex justify-between items-center">
+                <TabHeader title="Trades Payout Manager" count={tabData.featuredPayouts?.length} />
+                <Button className="h-10 bg-primary text-black font-black" onClick={() => { setPayoutForm({ id: '', rank: '', name: '', country: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Featured Payout</Button>
+             </div>
+             <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Rank', 'Name / Country', 'Paid Out', 'Count', 'Proof', 'Actions']} renderRow={(p) => (
+                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-bold text-xs">#{p.rank}</td>
+                    <td className="p-4">
+                      <p className="font-bold text-xs text-white uppercase">{p.name}</p>
+                      <p className="text-[10px] text-zinc-500">{p.country}</p>
+                    </td>
+                    <td className="p-4 font-mono text-emerald-500 font-bold">${(p.paidOut || 0).toLocaleString()}</td>
+                    <td className="p-4 text-center font-bold text-zinc-400">{p.payoutsCount}</td>
+                    <td className="p-4 text-center">
+                      {p.proofUrl && <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View</a>}
+                    </td>
+                    <td className="p-4 text-right space-x-2">
+                       <Button size="sm" variant="ghost" onClick={() => { setPayoutForm({ id: p.id, rank: p.rank.toString(), name: p.name, country: p.country, paidOut: p.paidOut.toString(), payoutsCount: p.payoutsCount.toString() }); setIsFeaturedPayoutModalOpen(true); }}><Settings2 className="w-4 h-4" /></Button>
+                       <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteFeaturedPayout(p.id)}><Trash2 className="w-4 h-4" /></Button>
+                    </td>
                   </tr>
                 )}
              />
@@ -752,6 +843,28 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+          <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+             <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2"><Label>Rank</Label><Input type="number" value={payoutForm.rank} onChange={e => setPayoutForm({...payoutForm, rank: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             </div>
+             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             <div className="space-y-2"><Label>Country</Label><Input value={payoutForm.country} onChange={e => setPayoutForm({...payoutForm, country: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             <div className="space-y-2"><Label>Proof Screenshot</Label><Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 border-zinc-800 text-xs" /></div>
+          </div>
+          <DialogFooter>
+             <Button variant="ghost" onClick={() => setIsFeaturedPayoutModalOpen(false)}>Cancel</Button>
+             <Button className="bg-primary text-black font-black" onClick={handleSaveFeaturedPayout} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="animate-spin" /> : <Save className="w-4 h-4 mr-2" />} SAVE SHOWCASE
+             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
