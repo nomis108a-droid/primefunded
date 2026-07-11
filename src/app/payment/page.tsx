@@ -134,6 +134,32 @@ function PaymentContent() {
     } finally { setLoading(false); }
   };
 
+  const verifyTxid = async () => {
+    if (!txid.trim() || !orderId) return;
+    setTxidVerifying(true);
+    setTxidVerifyError('');
+    try {
+      const res = await fetch('/api/verify-txid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, txid: txid.trim() })
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setTxidVerified(true);
+        toast({ title: "Verified", description: "Transaction confirmed on-chain." });
+      } else {
+        setTxidVerified(false);
+        setTxidVerifyError(data.reason || "Verification failed.");
+      }
+    } catch (e: any) {
+      setTxidVerified(false);
+      setTxidVerifyError("Could not reach verification service. Try again.");
+    } finally {
+      setTxidVerifying(false);
+    }
+  };
+
   const submitPaymentProof = async () => {
     if (!user || !orderId) return;
 
@@ -171,32 +197,6 @@ function PaymentContent() {
       toast({ variant: "destructive", title: "Submission Failed", description: e.message });
     } finally {
       setSubmittingProof(false);
-    }
-  };
-
-  const verifyTxid = async () => {
-    if (!txid.trim() || !orderId) return;
-    setTxidVerifying(true);
-    setTxidVerifyError('');
-    try {
-      const res = await fetch('/api/verify-txid', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, txid: txid.trim() })
-      });
-      const data = await res.json();
-      if (data.valid) {
-        setTxidVerified(true);
-        toast({ title: "Verified", description: "Transaction confirmed on-chain." });
-      } else {
-        setTxidVerified(false);
-        setTxidVerifyError(data.reason || "Verification failed.");
-      }
-    } catch (e: any) {
-      setTxidVerified(false);
-      setTxidVerifyError("Could not reach verification service. Try again.");
-    } finally {
-      setTxidVerifying(false);
     }
   };
 
