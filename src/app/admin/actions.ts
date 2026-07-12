@@ -70,6 +70,7 @@ export async function giftAccountAction(traderId: string, email: string, account
       const emailSnap = await db.collection('users').where('email', '==', emailInput).limit(1).get();
       if (!emailSnap.empty) {
         userId = emailSnap.docs[0].id;
+        targetEmail = targetEmail || emailSnap.docs[0].data()?.email;
       }
     }
 
@@ -304,21 +305,31 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     if (!db) return { success: false, error: "Database unavailable" };
+    
+    // 1. Create central record
     await db.collection('broadcasts').add({ ...data, sentAt: FieldValue.serverTimestamp() });
     
+    // 2. Blast individual notifications (Chunked batch to avoid 500 limit)
     const usersSnap = await db.collection('users').get();
-    const batch = db.batch();
-    usersSnap.docs.forEach(userDoc => {
-      const notifRef = userDoc.ref.collection('notifications').doc();
-      batch.set(notifRef, {
-        title: `📢 ${data.title}`,
-        message: data.message,
-        type: 'broadcast',
-        isRead: false,
-        createdAt: FieldValue.serverTimestamp()
+    const userDocs = usersSnap.docs;
+    const CHUNK_SIZE = 450;
+    
+    for (let i = 0; i < userDocs.length; i += CHUNK_SIZE) {
+      const chunk = userDocs.slice(i, i + CHUNK_SIZE);
+      const batch = db.batch();
+      chunk.forEach(userDoc => {
+        const notifRef = userDoc.ref.collection('notifications').doc();
+        batch.set(notifRef, {
+          title: `📢 ${data.title}`,
+          message: data.message,
+          type: 'broadcast',
+          isRead: false,
+          createdAt: FieldValue.serverTimestamp()
+        });
       });
-    });
-    await batch.commit();
+      await batch.commit();
+    }
+    
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }

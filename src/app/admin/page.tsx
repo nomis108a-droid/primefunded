@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -536,20 +535,11 @@ export default function AdminPage() {
     return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
   }, [tabData.featuredPayouts]);
 
-  const COUNTRIES = useMemo(() => [
-    { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
-    { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
-    { name: "India", code: "IN" }, { name: "United States", code: "US" }, { name: "United Kingdom", code: "GB" }
-  ].map(c => ({ 
-    ...c, 
-    flag: String.fromCodePoint(...c.code.toUpperCase().split('').map(char => 127397 + char.charCodeAt(0)))
-  })), []);
-
   const filteredCountries = useMemo(() => {
     return COUNTRIES.filter(c => 
       c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
     ).slice(0, 100);
-  }, [countrySearchTerm, COUNTRIES]);
+  }, [countrySearchTerm]);
 
   const handleCountrySelect = (name: string, flag: string) => {
     setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
@@ -1305,3 +1295,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+function ToolButton({ active, onClick, icon }: any) { return <button onClick={onClick} className={cn("w-8 h-8 rounded flex items-center justify-center transition-all cursor-pointer", active ? "bg-primary text-black" : "text-zinc-500 hover:text-white hover:bg-white/5")}>{icon}</button>; }
