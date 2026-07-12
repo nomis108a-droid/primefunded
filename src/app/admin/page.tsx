@@ -250,7 +250,7 @@ export default function AdminPage() {
         fetchCount(collection(db, 'demoAccounts')),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting']))),
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
         getAggregateFromServer(
           query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
           { totalVolume: sum('amountPaid') }
@@ -342,7 +342,12 @@ export default function AdminPage() {
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
+        unsub = onSnapshot(query(
+          collection(db, 'orders'), 
+          where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']),
+          orderBy('submittedAt', 'desc'), 
+          limit(100)
+        ), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
