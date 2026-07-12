@@ -1,7 +1,6 @@
-
 "use client";
 
-import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -186,7 +185,7 @@ export default function AdminPage() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   
   const [stats, setStats] = useState({ 
-    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0 
+    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
   });
 
   const [tabData, setTabData] = useState<any>({
@@ -209,6 +208,11 @@ export default function AdminPage() {
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+
+  // KYC Rejection States
+  const [isKycRejectModalOpen, setIsKycRejectModalOpen] = useState(false);
+  const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
+  const [kycRejectReason, setKycRejectReason] = useState('');
 
   // Featured Payout States
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
@@ -254,7 +258,8 @@ export default function AdminPage() {
         getAggregateFromServer(
           query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
           { totalVolume: sum('amountPaid') }
-        )
+        ),
+        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
       const statsPayload: any = {};
@@ -266,6 +271,7 @@ export default function AdminPage() {
         if (i === 3) statsPayload.phasePassersCount = val;
         if (i === 4) statsPayload.pendingOrdersCount = val;
         if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
+        if (i === 6) statsPayload.totalKycCount = val;
       });
 
       setStats(prev => ({ ...prev, ...statsPayload }));
@@ -371,7 +377,7 @@ export default function AdminPage() {
         });
         break;
       case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -576,6 +582,30 @@ export default function AdminPage() {
     }
   };
 
+  const handleRejectKyc = async () => {
+    if (!kycRejectingUserId || !kycRejectReason.trim()) {
+      toast({ variant: "destructive", title: "Reason Required" });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason.trim());
+      if (res.success) {
+        toast({ title: "KYC Rejected", description: "Trader has been notified with the reason." });
+        setIsKycRejectModalOpen(false);
+        setKycRejectingUserId(null);
+        setKycRejectReason('');
+        refreshStats();
+      } else {
+        throw new Error(res.error || "Rejection failed");
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleViewUserByAccount = async (userId: string) => {
     if (!userId) return;
     setActionLoading(true);
@@ -688,13 +718,14 @@ export default function AdminPage() {
           </ScrollArea>
 
           <TabsContent value="overview" className="space-y-8">
-             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
                 <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
                 <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
                 <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
                 <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
                 <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
                 <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
+                <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
              </div>
              
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -870,7 +901,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
-             <TabHeader title="Compliance: Identity Review" count={tabData.users?.length} />
+             <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
              <DataTable loading={isLoading} data={tabData.users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{u.email}</td>
@@ -880,7 +911,7 @@ export default function AdminPage() {
                     <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
                     <td className="p-4 text-right space-x-2">
                        <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updateKycStatusAction(u.id, 'verified')}>Approve</Button>
-                       <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => updateKycStatusAction(u.id, 'rejected', 'Documents unclear.')}>Reject</Button>
+                       <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setKycRejectingUserId(u.id); setKycRejectReason(''); setIsKycRejectModalOpen(true); }}>Reject</Button>
                     </td>
                   </tr>
                 )}
@@ -1126,6 +1157,32 @@ export default function AdminPage() {
             <Button variant="outline" className="flex-1" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectOrder} disabled={actionLoading}>
               {actionLoading ? <Loader2 className="animate-spin" /> : "Send Rejection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isKycRejectModalOpen} onOpenChange={setIsKycRejectModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Reject KYC Application</DialogTitle>
+            <DialogDescription>Please provide a specific reason why these documents are being rejected.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Rejection Reason</Label>
+              <Textarea
+                value={kycRejectReason}
+                onChange={e => setKycRejectReason(e.target.value)}
+                placeholder="e.g. ID photo is blurry, expired document, or selfie mismatch..."
+                className="bg-zinc-900 border-zinc-800 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="flex-1" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
+            <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectKyc} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="animate-spin" /> : "Reject Application"}
             </Button>
           </DialogFooter>
         </DialogContent>

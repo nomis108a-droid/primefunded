@@ -45,20 +45,35 @@ export async function giftAccountAction(traderId: string, email: string, account
     let userId = "";
     let targetEmail = email;
 
-    if (traderId) {
-      const userLookupSnap = await db.collection('users').where('traderId', '==', traderId).limit(1).get();
-      if (!userLookupSnap.empty) {
-        userId = userLookupSnap.docs[0].id;
-        targetEmail = targetEmail || userLookupSnap.docs[0].data()?.email;
-      }
-    } else if (email) {
-      const userLookupSnap = await db.collection('users').where('email', '==', email).limit(1).get();
-      if (!userLookupSnap.empty) {
-        userId = userLookupSnap.docs[0].id;
+    const lookupInput = (traderId || "").trim();
+    const emailInput = (email || "").trim().toLowerCase();
+
+    // Strategy 1: Search by Trader ID (numeric identifier)
+    if (lookupInput) {
+      const traderSnap = await db.collection('users').where('traderId', '==', lookupInput).limit(1).get();
+      if (!traderSnap.empty) {
+        userId = traderSnap.docs[0].id;
+        targetEmail = targetEmail || traderSnap.docs[0].data()?.email;
+      } 
+      // Strategy 2: If lookup input looks like an email and ID search failed
+      else if (lookupInput.includes('@')) {
+        const emailSnap = await db.collection('users').where('email', '==', lookupInput.toLowerCase()).limit(1).get();
+        if (!emailSnap.empty) {
+          userId = emailSnap.docs[0].id;
+          targetEmail = targetEmail || emailSnap.docs[0].data()?.email;
+        }
       }
     }
 
-    if (!userId) return { success: false, error: "No trader found with provided credentials" };
+    // Strategy 3: Search by explicit email input
+    if (!userId && emailInput) {
+      const emailSnap = await db.collection('users').where('email', '==', emailInput).limit(1).get();
+      if (!emailSnap.empty) {
+        userId = emailSnap.docs[0].id;
+      }
+    }
+
+    if (!userId) return { success: false, error: "No trader found with provided credentials (checked ID and Email)" };
 
     const planKey = getPlanKey(accountPlan);
     const rules = RULES_CONFIG.plans[planKey]?.[currentPhase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
@@ -193,8 +208,7 @@ export async function updateOrderStatusAction(id: string, status: string, reason
     // NOTIFY USER ON REJECTION/EXPIRY
     if (status === 'rejected' || status === 'expired') {
       await db.collection('users').doc(order.userId).collection('notifications').add({
-        title: '❌ Order Failed',
-        message: status === 'expired' ? "Your payment window expired. Please try again." : `Your order was rejected. Reason: ${reason || "Verification failed"}.`,
+        title: status === 'expired' ? "Your payment window expired. Please try again." : `Your order was rejected. Reason: ${reason || "Verification failed"}.`,
         type: 'order_failed',
         isRead: false,
         createdAt: FieldValue.serverTimestamp()
