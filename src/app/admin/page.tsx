@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -188,6 +187,47 @@ const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isL
         <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
       </tr>
     )} />
+  </div>
+));
+
+const KycHubTab = memo(({ 
+  users, 
+  isLoading, 
+  onApprove, 
+  onReject, 
+  approvingUserId,
+  stats
+}: { 
+  users: any[], 
+  isLoading: boolean, 
+  onApprove: (id: string) => void, 
+  onReject: (id: string) => void,
+  approvingUserId: string | null,
+  stats: any
+}) => (
+  <div className="space-y-6">
+     <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
+     <DataTable loading={isLoading} data={users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
+          <tr key={u.id} className="hover:bg-white/5 transition-colors">
+            <td className="p-4 font-bold text-xs">{u.email}</td>
+            <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
+            <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Front</a>}</td>
+            <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
+            <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
+            <td className="p-4 text-right space-x-2">
+               <Button 
+                 size="sm" 
+                 className="h-7 text-[8px] bg-emerald-600" 
+                 onClick={() => onApprove(u.id)}
+                 disabled={approvingUserId === u.id}
+               >
+                 {approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+               </Button>
+               <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
+            </td>
+          </tr>
+        )}
+     />
   </div>
 ));
 
@@ -973,27 +1013,13 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
-             <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
-             <DataTable loading={isLoading} data={tabData.users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
-                  <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-xs">{u.email}</td>
-                    <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
-                    <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Front</a>}</td>
-                    <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
-                    <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
-                    <td className="p-4 text-right space-x-2">
-                       <Button 
-                         size="sm" 
-                         className="h-7 text-[8px] bg-emerald-600" 
-                         onClick={() => handleApproveKyc(u.id)}
-                         disabled={approvingKycUserId === u.id}
-                       >
-                         {approvingKycUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
-                       </Button>
-                       <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setKycRejectingUserId(u.id); setKycRejectReason(''); setIsKycRejectModalOpen(true); }}>Reject</Button>
-                    </td>
-                  </tr>
-                )}
+             <KycHubTab 
+               users={tabData.users} 
+               isLoading={isLoading} 
+               onApprove={handleApproveKyc} 
+               onReject={(id) => { setKycRejectingUserId(id); setKycRejectReason(''); setIsKycRejectModalOpen(true); }}
+               approvingUserId={approvingKycUserId}
+               stats={stats}
              />
           </TabsContent>
 
@@ -1278,4 +1304,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
