@@ -65,7 +65,7 @@ export async function giftAccountAction(traderId: string, email: string, account
       }
     }
 
-    // Strategy 3: Search by explicit email input
+    // Strategy 3: Search by explicit email input (Final Fallback)
     if (!userId && emailInput) {
       const emailSnap = await db.collection('users').where('email', '==', emailInput).limit(1).get();
       if (!emailSnap.empty) {
