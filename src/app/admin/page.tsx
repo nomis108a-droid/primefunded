@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -1052,7 +1053,12 @@ export default function AdminPage() {
                 <Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800 font-normal">
-                      {payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}
+                      {payoutForm.country ? (
+                        <span className="flex items-center gap-2">
+                          <span>{payoutForm.countryFlag}</span>
+                          <span>{payoutForm.country}</span>
+                        </span>
+                      ) : "Select country..."}
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -1077,17 +1083,12 @@ export default function AdminPage() {
                             <button
                               key={c.code}
                               type="button"
-                              role="option"
-                              onPointerDown={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                handleCountrySelect(c.name, c.flag);
-                              }}
-                              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left relative z-50 interactive-country"
+                              onClick={() => handleCountrySelect(c.name, c.flag)}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left"
                             >
                               <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
-                              <span className="text-base pointer-events-none">{c.flag}</span>
-                              <span className="text-zinc-300 pointer-events-none">{c.name}</span>
+                              <span className="text-base">{c.flag}</span>
+                              <span className="text-zinc-300">{c.name}</span>
                             </button>
                           ))}
                        </div>
