@@ -228,6 +228,7 @@ export default function AdminPage() {
 
   // Featured Payout States
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
+  const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
@@ -958,30 +959,38 @@ export default function AdminPage() {
              
              <div className="space-y-2">
                 <Label>Country</Label>
-                <Popover>
+                <Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800 font-normal">
                       {payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}
                       <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-full p-0 bg-zinc-900 border-zinc-800">
+                  <PopoverContent 
+                    className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" 
+                    align="start"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
                     <div className="p-2 border-b border-zinc-800">
                        <Input 
                         placeholder="Search country..." 
                         value={countrySearchTerm} 
                         onChange={(e) => setCountrySearchTerm(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
                         className="h-8 bg-zinc-800 border-zinc-700"
                        />
                     </div>
-                    <ScrollArea className="h-64">
-                       <div className="p-1">
+                    <ScrollArea className="h-72">
+                       <div className="p-1 flex flex-col">
                           {filteredCountries.map((c) => (
                             <button
                               key={c.code}
+                              type="button"
                               onClick={() => {
                                 setPayoutForm({...payoutForm, country: c.name, countryFlag: c.flag});
                                 setCountrySearchTerm('');
+                                setIsCountryPopoverOpen(false);
                               }}
                               className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left"
                             >

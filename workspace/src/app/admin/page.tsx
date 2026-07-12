@@ -12,8 +12,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -30,12 +32,67 @@ import {
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
-import { db } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs } from 'firebase/firestore';
+import { db, storage } from '@/lib/firebase';
+import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import Link from 'next/link';
+
+/**
+ * Converts ISO 3166-1 alpha-2 country code to flag emoji
+ */
+function getFlagEmoji(countryCode: string) {
+  if (!countryCode || countryCode.length !== 2) return "🌐";
+  const codePoints = countryCode
+    .toUpperCase()
+    .split("")
+    .map(char => 127397 + char.charCodeAt(0));
+  return String.fromCodePoint(...codePoints);
+}
+
+// Static Country List
+const COUNTRIES = [
+  { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
+  { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
+  { name: "Bahamas", code: "BS" }, { name: "Bahrain", code: "BH" }, { name: "Bangladesh", code: "BD" }, { name: "Barbados", code: "BB" }, { name: "Belarus", code: "BY" },
+  { name: "Belgium", code: "BE" }, { name: "Belize", code: "BZ" }, { name: "Benin", code: "BJ" }, { name: "Bermuda", code: "BM" }, { name: "Bhutan", code: "BT" },
+  { name: "Bolivia", code: "BO" }, { name: "Bosnia and Herzegovina", code: "BA" }, { name: "Botswana", code: "BW" }, { name: "Brazil", code: "BR" }, { name: "Brunei", code: "BN" },
+  { name: "Bulgaria", code: "BG" }, { name: "Burkina Faso", code: "BF" }, { name: "Burundi", code: "BI" }, { name: "Cambodia", code: "KH" }, { name: "Cameroon", code: "CM" },
+  { name: "Canada", code: "CA" }, { name: "Cape Verde", code: "CV" }, { name: "Central African Republic", code: "CF" }, { name: "Chad", code: "TD" }, { name: "Chile", code: "CL" },
+  { name: "China", code: "CN" }, { name: "Colombia", code: "CO" }, { name: "Comoros", code: "KM" }, { name: "Congo", code: "CG" }, { name: "Costa Rica", code: "CR" },
+  { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" }, { name: "Cyprus", code: "CY" }, { name: "Czech Republic", code: "CZ" }, { name: "Denmark", code: "DK" },
+  { name: "Djibouti", code: "DJ" }, { name: "Dominica", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
+  { name: "El Salvador", code: "SV" }, { name: "Equatorial Guinea", code: "GQ" }, { name: "Eritrea", code: "ER" }, { name: "Estonia", code: "EE" }, { name: "Eswatini", code: "SZ" },
+  { name: "Ethiopia", code: "ET" }, { name: "Fiji", code: "FJ" }, { name: "Finland", code: "FI" }, { name: "France", code: "FR" }, { name: "Gabon", code: "GA" },
+  { name: "Gambia", code: "GM" }, { name: "Georgia", code: "GE" }, { name: "Germany", code: "DE" }, { name: "Ghana", code: "GH" }, { name: "Greece", code: "GR" },
+  { name: "Grenada", code: "GD" }, { name: "Guatemala", code: "GT" }, { name: "Guinea", code: "GN" }, { name: "Guinea-Bissau", code: "GW" }, { name: "Guyana", code: "GY" },
+  { name: "Haiti", code: "HT" }, { name: "Honduras", code: "HN" }, { name: "Hungary", code: "HU" }, { name: "Iceland", code: "IS" }, { name: "India", code: "IN" },
+  { name: "Indonesia", code: "ID" }, { name: "Iran", code: "IR" }, { name: "Iraq", code: "IQ" }, { name: "Ireland", code: "IE" }, { name: "Israel", code: "IL" },
+  { name: "Italy", code: "IT" }, { name: "Jamaica", code: "JM" }, { name: "Japan", code: "JP" }, { name: "Jordan", code: "JO" }, { name: "Kazakhstan", code: "KZ" },
+  { name: "Kenya", code: "KE" }, { name: "Kiribati", code: "KI" }, { name: "Korea, North", code: "KP" }, { name: "Korea, South", code: "KR" }, { name: "Kuwait", code: "KW" },
+  { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
+  { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
+  { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
+  { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
+  { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
+  { name: "Nigeria", code: "NG" }, { name: "North Macedonia", code: "MK" }, { name: "Norway", code: "NO" }, { name: "Oman", code: "OM" }, { name: "Pakistan", code: "PK" },
+  { name: "Palau", code: "PW" }, { name: "Panama", code: "PA" }, { name: "Papua New Guinea", code: "PG" }, { name: "Paraguay", code: "PY" }, { name: "Peru", code: "PE" },
+  { name: "Philippines", code: "PH" }, { name: "Poland", code: "PL" }, { name: "Portugal", code: "PT" }, { name: "Qatar", code: "QA" }, { name: "Romania", code: "RO" },
+  { name: "Russia", code: "RU" }, { name: "Rwanda", code: "RW" }, { name: "Saint Kitts and Nevis", code: "KN" }, { name: "Saint Lucia", code: "LC" }, { name: "Saint Vincent and the Grenadines", code: "VC" },
+  { name: "Samoa", code: "WS" }, { name: "San Marino", code: "SM" }, { name: "Sao Tome and Principe", code: "ST" }, { name: "Saudi Arabia", code: "SA" }, { name: "Senegal", code: "SN" },
+  { name: "Serbia", code: "RS" }, { name: "Seychelles", code: "SC" }, { name: "Sierra Leone", code: "SL" }, { name: "Singapore", code: "SG" }, { name: "Slovakia", code: "SK" },
+  { name: "Slovenia", code: "SI" }, { name: "Solomon Islands", code: "SB" }, { name: "Somalia", code: "SO" }, { name: "South Africa", code: "ZA" }, { name: "South Sudan", code: "SS" },
+  { name: "Spain", code: "ES" }, { name: "Sri Lanka", code: "LK" }, { name: "Sudan", code: "SD" }, { name: "Suriname", code: "SR" }, { name: "Sweden", code: "SE" },
+  { name: "Switzerland", code: "CH" }, { name: "Syria", code: "SY" }, { name: "Taiwan", code: "TW" }, { name: "Tajikistan", code: "TJ" }, { name: "Tanzania", code: "TZ" },
+  { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
+  { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" }, { name: "Tuvalu", code: "TV" }, { name: "Uganda", code: "UG" },
+  { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
+  { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
+  { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
+].map(c => ({ ...c, flag: getFlagEmoji(c.code) }));
 
 // Memoized StatCard to prevent re-renders on table updates
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -61,7 +118,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
 });
 
 // Memoized DataTable to prevent lag during tab switching
-const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any) => React.ReactNode }) {
+const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any, index: number) => React.ReactNode }) {
   if (loading) {
     return (
       <Card className="bg-card/40 border-border/50">
@@ -89,7 +146,7 @@ const DataTable = memo(function DataTable({ loading, data, columns, renderRow }:
             <tr>{columns.map(c => <th key={c} className="p-4">{c}</th>)}</tr>
           </thead>
           <tbody className="divide-y divide-border/50">
-            {data.map(item => renderRow(item))}
+            {data.map((item, index) => renderRow(item, index))}
           </tbody>
         </table>
       </CardContent>
@@ -140,11 +197,11 @@ export default function AdminPage() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   
   const [stats, setStats] = useState({ 
-    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0 
+    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
   });
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -163,6 +220,18 @@ export default function AdminPage() {
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+
+  // KYC Rejection States
+  const [isKycRejectModalOpen, setIsKycRejectModalOpen] = useState(false);
+  const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
+  const [kycRejectReason, setKycRejectReason] = useState('');
+
+  // Featured Payout States
+  const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
+  const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
+  const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
+  const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
+  const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
@@ -198,11 +267,12 @@ export default function AdminPage() {
         fetchCount(collection(db, 'demoAccounts')),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['pending', 'manual_review', 'waiting']))),
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
         getAggregateFromServer(
           query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])),
           { totalVolume: sum('amountPaid') }
-        )
+        ),
+        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
       const statsPayload: any = {};
@@ -214,6 +284,7 @@ export default function AdminPage() {
         if (i === 3) statsPayload.phasePassersCount = val;
         if (i === 4) statsPayload.pendingOrdersCount = val;
         if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
+        if (i === 6) statsPayload.totalKycCount = val;
       });
 
       setStats(prev => ({ ...prev, ...statsPayload }));
@@ -290,7 +361,12 @@ export default function AdminPage() {
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)), (snap) => {
+        unsub = onSnapshot(query(
+          collection(db, 'orders'), 
+          where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']),
+          orderBy('submittedAt', 'desc'), 
+          limit(100)
+        ), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -301,6 +377,12 @@ export default function AdminPage() {
           setIsLoading(false);
         });
         break;
+      case 'trades-payouts':
+        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(50)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
       case 'referral-audit':
         unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
@@ -308,7 +390,7 @@ export default function AdminPage() {
         });
         break;
       case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -336,7 +418,7 @@ export default function AdminPage() {
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
-    else setShowAdminModal(true);
+    else setShowAdminModal(false);
   }, []);
 
   const handleAdminAuth = (e: React.FormEvent) => {
@@ -362,6 +444,68 @@ export default function AdminPage() {
       toast({ variant: "destructive", title: "Error", description: e.message || "An unexpected error occurred." });
     } finally {
       setApprovingOrderId(null);
+    }
+  };
+
+  const sortedFeaturedPayouts = useMemo(() => {
+    return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
+  }, [tabData.featuredPayouts]);
+
+  const filteredCountries = useMemo(() => {
+    return COUNTRIES.filter(c => 
+      c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
+    ).slice(0, 100);
+  }, [countrySearchTerm]);
+
+  const handleSaveFeaturedPayout = async () => {
+    if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) {
+      toast({ variant: "destructive", title: "Missing Fields" });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
+      
+      if (payoutProofFile) {
+        const storageRef = ref(storage, `featured-payout-proofs/${Date.now()}_${payoutProofFile.name}`);
+        const snap = await uploadBytes(storageRef, payoutProofFile);
+        proofUrl = await getDownloadURL(snap.ref);
+      }
+
+      const data = {
+        name: payoutForm.name,
+        country: payoutForm.country,
+        countryFlag: payoutForm.countryFlag,
+        paidOut: parseFloat(payoutForm.paidOut),
+        payoutsCount: parseInt(payoutForm.payoutsCount || '1'),
+        proofUrl,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (payoutForm.id) {
+        await setDoc(doc(db, 'featured_payouts', payoutForm.id), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'featured_payouts'), { ...data, createdAt: serverTimestamp() });
+      }
+
+      toast({ title: "Success", description: "Featured payout saved." });
+      setIsFeaturedPayoutModalOpen(false);
+      setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
+      setPayoutProofFile(null);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Save Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteFeaturedPayout = async (id: string) => {
+    if (!confirm("Are you sure?")) return;
+    try {
+      await deleteDoc(doc(db, 'featured_payouts', id));
+      toast({ title: "Deleted" });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Delete Failed", description: e.message });
     }
   };
 
@@ -452,6 +596,30 @@ export default function AdminPage() {
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Rejection Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRejectKyc = async () => {
+    if (!kycRejectingUserId || !kycRejectReason.trim()) {
+      toast({ variant: "destructive", title: "Reason Required" });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason.trim());
+      if (res.success) {
+        toast({ title: "KYC Rejected", description: "Trader has been notified with the reason." });
+        setIsKycRejectModalOpen(false);
+        setKycRejectingUserId(null);
+        setKycRejectReason('');
+        refreshStats();
+      } else {
+        throw new Error(res.error || "Rejection failed");
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed", description: e.message });
     } finally {
       setActionLoading(false);
     }
@@ -555,7 +723,7 @@ export default function AdminPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map((tab) => (
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map((tab) => (
                 <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">
                   {tab}
                 </TabsTrigger>
@@ -565,13 +733,14 @@ export default function AdminPage() {
           </ScrollArea>
 
           <TabsContent value="overview" className="space-y-8">
-             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
                 <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
                 <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
                 <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
                 <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
                 <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
                 <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
+                <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
              </div>
              
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -603,6 +772,32 @@ export default function AdminPage() {
                     <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
                     <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
                     <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
+                  </tr>
+                )}
+             />
+          </TabsContent>
+
+          <TabsContent value="trades-payouts" className="space-y-6">
+             <div className="flex justify-between items-center">
+                <TabHeader title="Trades Payout Manager" count={tabData.featuredPayouts?.length} />
+                <Button className="h-10 bg-primary text-black font-black" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Featured Payout</Button>
+             </div>
+             <DataTable loading={isLoading} data={sortedFeaturedPayouts} columns={['Rank', 'Name / Country', 'Paid Out', 'Count', 'Proof', 'Actions']} renderRow={(p, idx) => (
+                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-bold text-xs">#{idx + 1}</td>
+                    <td className="p-4">
+                      <p className="font-bold text-xs text-white uppercase">{p.name}</p>
+                      <p className="text-[10px] text-zinc-500 flex items-center gap-1.5">{p.countryFlag} {p.country}</p>
+                    </td>
+                    <td className="p-4 font-mono text-emerald-500 font-bold">${(p.paidOut || 0).toLocaleString()}</td>
+                    <td className="p-4 text-center font-bold text-zinc-400">{p.payoutsCount}</td>
+                    <td className="p-4 text-center">
+                      {p.proofUrl && <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View</a>}
+                    </td>
+                    <td className="p-4 text-right space-x-2">
+                       <Button size="sm" variant="ghost" onClick={() => { setPayoutForm({ id: p.id, name: p.name, country: p.country, countryFlag: p.countryFlag, paidOut: p.paidOut.toString(), payoutsCount: p.payoutsCount.toString() }); setIsFeaturedPayoutModalOpen(true); }}><Settings2 className="w-4 h-4" /></Button>
+                       <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteFeaturedPayout(p.id)}><Trash2 className="w-4 h-4" /></Button>
+                    </td>
                   </tr>
                 )}
              />
@@ -721,7 +916,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="kyc-hub" className="space-y-6">
-             <TabHeader title="Compliance: Identity Review" count={tabData.users?.length} />
+             <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
              <DataTable loading={isLoading} data={tabData.users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{u.email}</td>
@@ -731,7 +926,7 @@ export default function AdminPage() {
                     <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
                     <td className="p-4 text-right space-x-2">
                        <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updateKycStatusAction(u.id, 'verified')}>Approve</Button>
-                       <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => updateKycStatusAction(u.id, 'rejected', 'Documents unclear.')}>Reject</Button>
+                       <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setKycRejectingUserId(u.id); setKycRejectReason(''); setIsKycRejectModalOpen(true); }}>Reject</Button>
                     </td>
                   </tr>
                 )}
@@ -752,6 +947,79 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+          <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+             <div className="space-y-2">
+                <Label>Trader Name</Label>
+                <Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" />
+             </div>
+             
+             <div className="space-y-2">
+                <Label>Country</Label>
+                <Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800 font-normal">
+                      {payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent 
+                    className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" 
+                    align="start"
+                    onOpenAutoFocus={(e) => e.preventDefault()}
+                  >
+                    <div className="p-2 border-b border-zinc-800">
+                       <Input 
+                        placeholder="Search country..." 
+                        value={countrySearchTerm} 
+                        onChange={(e) => setCountrySearchTerm(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        className="h-8 bg-zinc-800 border-zinc-700"
+                       />
+                    </div>
+                    <ScrollArea className="h-72">
+                       <div className="p-1 flex flex-col">
+                          {filteredCountries.map((c) => (
+                            <button
+                              key={c.code}
+                              type="button"
+                              onClick={() => {
+                                setPayoutForm({...payoutForm, country: c.name, countryFlag: c.flag});
+                                setCountrySearchTerm('');
+                                setIsCountryPopoverOpen(false);
+                              }}
+                              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left"
+                            >
+                              <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
+                              <span className="text-base">{c.flag}</span>
+                              <span className="text-zinc-300">{c.name}</span>
+                            </button>
+                          ))}
+                       </div>
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
+             </div>
+
+             <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+                <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             </div>
+
+             <div className="space-y-2"><Label>Proof Screenshot</Label><Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 border-zinc-800 text-xs" /></div>
+          </div>
+          <DialogFooter>
+             <Button variant="ghost" onClick={() => setIsFeaturedPayoutModalOpen(false)}>Cancel</Button>
+             <Button className="bg-primary text-black font-black" onClick={handleSaveFeaturedPayout} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="animate-spin" /> : <Save className="w-4 h-4 mr-2" />} SAVE SHOWCASE
+             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
@@ -912,6 +1180,32 @@ export default function AdminPage() {
             <Button variant="outline" className="flex-1" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectOrder} disabled={actionLoading}>
               {actionLoading ? <Loader2 className="animate-spin" /> : "Send Rejection"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isKycRejectModalOpen} onOpenChange={setIsKycRejectModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader>
+            <DialogTitle>Reject KYC Application</DialogTitle>
+            <DialogDescription>Please provide a specific reason why these documents are being rejected.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Rejection Reason</Label>
+              <Textarea
+                value={kycRejectReason}
+                onChange={e => setKycRejectReason(e.target.value)}
+                placeholder="e.g. ID photo is blurry, expired document, or selfie mismatch..."
+                className="bg-zinc-900 border-zinc-800 min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="flex-1" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
+            <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectKyc} disabled={actionLoading}>
+              {actionLoading ? <Loader2 className="animate-spin" /> : "Reject Application"}
             </Button>
           </DialogFooter>
         </DialogContent>
