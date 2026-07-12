@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -95,7 +95,94 @@ const COUNTRIES = [
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ].map(c => ({ ...c, flag: getFlagEmoji(c.code) }));
 
-// Memoized StatCard to prevent re-renders on table updates
+// --- Modular Tab Components ---
+
+const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => {
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+        <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
+        <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
+        <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
+        <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
+        <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
+        <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
+        <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => onActiveTabChange('order-review')} />
+        <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => onActiveTabChange('user-directory')} />
+      </div>
+    </div>
+  );
+});
+
+const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isLoading: boolean, onInspect: (userId: string) => void }) => (
+  <div className="space-y-6">
+    <TabHeader title="Elite Performance: Phase Passers" count={data.length} />
+    <DataTable loading={isLoading} data={data} columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']} renderRow={(acc) => (
+      <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+        <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
+        <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
+        <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
+        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
+        <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
+      </tr>
+    )} />
+  </div>
+));
+
+const PayoutHubTab = memo(({ data, isLoading }: { data: any[], isLoading: boolean }) => (
+  <div className="space-y-6">
+    <TabHeader title="Withdrawal Queue" count={data.length} />
+    <DataTable loading={isLoading} data={data} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
+      <tr key={p.id} className="hover:bg-white/5 transition-colors">
+        <td className="p-4 font-bold text-xs">{p.email}</td>
+        <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
+        <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
+        <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
+        <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
+      </tr>
+    )} />
+  </div>
+));
+
+const OrderReviewTab = memo(({ data, isLoading, onApprove, onReject, onInspect, searchTerm, onSearchChange }: { 
+  data: any[], isLoading: boolean, onApprove: (id: string) => void, onReject: (id: string) => void, onInspect: (userId: string) => void, searchTerm: string, onSearchChange: (v: string) => void 
+}) => (
+  <div className="space-y-6">
+    <div className="flex justify-between items-center">
+      <TabHeader title="Payment Verification Pipeline" onSearch={onSearchChange} />
+      <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
+    </div>
+    <DataTable loading={isLoading} data={data} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'TXID', 'Proof', 'Status', 'Actions']} renderRow={(o) => (
+      <tr key={o.id} className="hover:bg-white/5 transition-colors">
+        <td className="p-4 font-mono text-[10px]">{o.id}</td>
+        <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
+        <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
+        <td className="p-4 font-mono text-[9px] text-zinc-400 max-w-[140px] truncate">{o.txHash || '—'}</td>
+        <td className="p-4 text-center">{o.proofScreenshotUrl ? <a href={o.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-[9px] font-black uppercase">View</a> : '—'}</td>
+        <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' || o.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
+        <td className="p-4 text-right space-x-2">
+          {(o.status === 'completed' || o.status === 'approved') ? (
+            <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>Approved ✓</Button>
+          ) : o.status === 'rejected' ? (
+            <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive cursor-default" disabled>Rejected</Button>
+          ) : (
+            <>
+              <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => onApprove(o.id)}>Approve</Button>
+              <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(o.id)}>Reject</Button>
+            </>
+          )}
+        </td>
+      </tr>
+    )} />
+  </div>
+));
+
+// --- Shared Memoized Table Elements ---
+
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
@@ -118,7 +205,6 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
   );
 });
 
-// Memoized DataTable to prevent lag during tab switching
 const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any, index: number) => React.ReactNode }) {
   if (loading) {
     return (
@@ -187,6 +273,8 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
   );
 });
 
+// --- Main Page Component ---
+
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -196,11 +284,12 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [countrySearchTerm, setCountrySearchTerm] = useState('');
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
   });
+
+  const [lastRefreshTime, setLastRefreshTime] = useState(0);
 
   const [tabData, setTabData] = useState<any>({
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
@@ -234,6 +323,7 @@ export default function AdminPage() {
   const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
+  const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
@@ -255,9 +345,15 @@ export default function AdminPage() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  const refreshStats = useCallback(async () => {
+  const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     
+    // Step 2: Debounce/Cache logic (Stale-While-Revalidate)
+    const now = Date.now();
+    if (!force && now - lastRefreshTime < 60000 && stats.totalUsersCount > 0) {
+      return;
+    }
+
     try {
       const fetchCount = async (q: any) => {
         try { return (await getCountFromServer(q)).data().count; } 
@@ -290,10 +386,11 @@ export default function AdminPage() {
       });
 
       setStats(prev => ({ ...prev, ...statsPayload }));
+      setLastRefreshTime(now);
     } catch (err: any) {
       console.error('[Admin-Stats] Refresh fault:', err.message);
     }
-  }, [isAuthenticated, isAuthorized, authLoading]);
+  }, [isAuthenticated, isAuthorized, authLoading, lastRefreshTime, stats.totalUsersCount]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -438,7 +535,7 @@ export default function AdminPage() {
       const res = await approveManualOrderAction(orderId);
       if (res.success) {
         toast({ title: "Order Approved", description: "Account has been provisioned." });
-        refreshStats();
+        refreshStats(true);
       } else {
         toast({ variant: "destructive", title: "Approval Failed", description: res.error || "Could not approve order." });
       }
@@ -455,7 +552,7 @@ export default function AdminPage() {
       const res = await updateKycStatusAction(userId, 'verified');
       if (res.success) {
         toast({ title: "KYC Verified", description: "The trader's identity has been approved." });
-        refreshStats();
+        refreshStats(true);
       } else {
         toast({ variant: "destructive", title: "Approval Failed", description: res.error || "Could not verify KYC." });
       }
@@ -541,7 +638,7 @@ export default function AdminPage() {
       const res = await resetAllHistoryAction();
       if (res.success) {
         toast({ title: `Reset Complete: ${res.count} trades archived.` });
-        refreshStats();
+        refreshStats(true);
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
@@ -591,7 +688,7 @@ export default function AdminPage() {
         toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
         setIsGiftModalOpen(false);
         setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-        refreshStats();
+        refreshStats(true);
       } else {
         throw new Error(res.error);
       }
@@ -615,7 +712,7 @@ export default function AdminPage() {
         setIsRejectModalOpen(false);
         setRejectingOrderId(null);
         setRejectReason('');
-        refreshStats();
+        refreshStats(true);
       } else {
         throw new Error(res.error || "Rejection failed");
       }
@@ -639,7 +736,7 @@ export default function AdminPage() {
         setIsKycRejectModalOpen(false);
         setKycRejectingUserId(null);
         setKycRejectReason('');
-        refreshStats();
+        refreshStats(true);
       } else {
         throw new Error(res.error || "Rejection failed");
       }
@@ -735,7 +832,7 @@ export default function AdminPage() {
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
+                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => refreshStats(true)} disabled={isLoading}>
                   <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                 </Button>
                 <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" asChild>
@@ -758,48 +855,15 @@ export default function AdminPage() {
           </ScrollArea>
 
           <TabsContent value="overview" className="space-y-8">
-             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
-                <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
-                <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
-                <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
-                <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
-                <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
-                <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
-                <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
-             </div>
-             
-             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => setActiveTab('order-review')} />
-                <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => setActiveTab('user-directory')} />
-             </div>
+             <OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} />
           </TabsContent>
 
           <TabsContent value="phase-passers" className="space-y-6">
-             <TabHeader title="Elite Performance: Phase Passers" count={stats.phasePassersCount} />
-             <DataTable loading={isLoading} data={tabData.passers} columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']} renderRow={(acc) => (
-                  <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
-                    <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
-                    <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
-                    <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
-                    <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
-                  </tr>
-                )}
-             />
+             <PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} />
           </TabsContent>
 
           <TabsContent value="payout-hub" className="space-y-6">
-             <TabHeader title="Withdrawal Queue" count={tabData.payouts?.length} />
-             <DataTable loading={isLoading} data={tabData.payouts} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
-                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-xs">{p.email}</td>
-                    <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
-                    <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
-                    <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
-                    <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
-                  </tr>
-                )}
-             />
+             <PayoutHubTab data={tabData.payouts} isLoading={isLoading} />
           </TabsContent>
 
           <TabsContent value="trades-payouts" className="space-y-6">
@@ -858,43 +922,14 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="order-review" className="space-y-6">
-             <div className="flex justify-between items-center">
-                <TabHeader title="Payment Verification Pipeline" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
-                <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
-             </div>
-             <DataTable loading={isLoading} data={filteredOrders} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'TXID', 'Proof', 'Status', 'Actions']} renderRow={(o) => (
-                  <tr key={o.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-mono text-[10px]">{o.id}</td>
-                    <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
-                    <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
-                    <td className="p-4 font-mono text-[9px] text-zinc-400 max-w-[140px] truncate">{o.txHash || '—'}</td>
-                    <td className="p-4 text-center">
-                      {o.proofScreenshotUrl ? (
-                        <a href={o.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-[9px] font-black uppercase">View</a>
-                      ) : '—'}
-                    </td>
-                    <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' || o.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
-                    <td className="p-4 text-right space-x-2">
-                      {(o.status === 'completed' || o.status === 'approved') ? (
-                        <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>Approved ✓</Button>
-                      ) : o.status === 'rejected' ? (
-                        <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive cursor-default" disabled>Rejected</Button>
-                      ) : (
-                        <>
-                          <Button 
-                            size="sm" 
-                            className="h-7 text-[8px] bg-primary text-black" 
-                            onClick={() => handleApproveOrder(o.id)}
-                            disabled={approvingOrderId === o.id}
-                          >
-                            {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
-                          </Button>
-                          <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                )}
+             <OrderReviewTab 
+                data={filteredOrders} 
+                isLoading={isLoading} 
+                onApprove={handleApproveOrder} 
+                onReject={(id) => { setRejectingOrderId(id); setRejectReason(''); setIsRejectModalOpen(true); }}
+                onInspect={handleViewUserByAccount}
+                searchTerm={searchTerm}
+                onSearchChange={setSearchTerm}
              />
           </TabsContent>
 
