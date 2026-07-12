@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -223,7 +223,7 @@ export default function AdminPage() {
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
   });
 
-  const [lastRefreshTime, setLastRefreshTime] = useState(0);
+  const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
@@ -280,7 +280,7 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     
     const now = Date.now();
-    if (!force && now - lastRefreshTime < 60000 && stats.totalUsersCount > 0) {
+    if (!force && now - lastRefreshTimeRef.current < 60000 && stats.totalUsersCount > 0) {
       return;
     }
 
@@ -316,11 +316,11 @@ export default function AdminPage() {
       });
 
       setStats(prev => ({ ...prev, ...statsPayload }));
-      setLastRefreshTime(now);
+      lastRefreshTimeRef.current = now;
     } catch (err: any) {
       console.error('[Admin-Stats] Refresh fault:', err.message);
     }
-  }, [isAuthenticated, isAuthorized, authLoading, lastRefreshTime, stats.totalUsersCount]);
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -1278,3 +1278,5 @@ export default function AdminPage() {
     </div>
   );
 }
+
+
