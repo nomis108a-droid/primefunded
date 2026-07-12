@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,158 +30,36 @@ import {
   updatePayoutStatusAction, 
   cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
-import { cn, sanitizeInput } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, limit, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  limit, 
+  where, 
+  getCountFromServer, 
+  onSnapshot, 
+  getAggregateFromServer, 
+  sum, 
+  getDoc, 
+  getDocs, 
+  addDoc, 
+  setDoc, 
+  deleteDoc, 
+  serverTimestamp,
+  doc 
+} from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import Link from 'next/link';
 
 /**
- * Converts ISO 3166-1 alpha-2 country code to flag emoji
+ * Shared Memoized Table Elements
  */
-function getFlagEmoji(countryCode: string) {
-  if (!countryCode || countryCode.length !== 2) return "🌐";
-  const codePoints = countryCode
-    .toUpperCase()
-    .split("")
-    .map(char => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
-
-// Static Country List
-const COUNTRIES = [
-  { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
-  { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
-  { name: "Bahamas", code: "BS" }, { name: "Bahrain", code: "BH" }, { name: "Bangladesh", code: "BD" }, { name: "Barbados", code: "BB" }, { name: "Belarus", code: "BY" },
-  { name: "Belgium", code: "BE" }, { name: "Belize", code: "BZ" }, { name: "Benin", code: "BJ" }, { name: "Bermuda", code: "BM" }, { name: "Bhutan", code: "BT" },
-  { name: "Bolivia", code: "BO" }, { name: "Bosnia and Herzegovina", code: "BA" }, { name: "Botswana", code: "BW" }, { name: "Brazil", code: "BR" }, { name: "Brunei", code: "BN" },
-  { name: "Bulgaria", code: "BG" }, { name: "Burkina Faso", code: "BF" }, { name: "Burundi", code: "BI" }, { name: "Cambodia", code: "KH" }, { name: "Cameroon", code: "CM" },
-  { name: "Canada", code: "CA" }, { name: "Cape Verde", code: "CV" }, { name: "Central African Republic", code: "CF" }, { name: "Chad", code: "TD" }, { name: "Chile", code: "CL" },
-  { name: "China", code: "CN" }, { name: "Colombia", code: "CO" }, { name: "Comoros", code: "KM" }, { name: "Congo", code: "CG" }, { name: "Costa Rica", code: "CR" },
-  { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" }, { name: "Cyprus", code: "CY" }, { name: "Czech Republic", code: "CZ" }, { name: "Denmark", code: "DK" },
-  { name: "Djibouti", code: "DJ" }, { name: "Dominica", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
-  { name: "El Salvador", code: "SV" }, { name: "Equatorial Guinea", code: "GQ" }, { name: "Eritrea", code: "ER" }, { name: "Estonia", code: "EE" }, { name: "Eswatini", code: "SZ" },
-  { name: "Ethiopia", code: "ET" }, { name: "Fiji", code: "FJ" }, { name: "Finland", code: "FI" }, { name: "France", code: "FR" }, { name: "Gabon", code: "GA" },
-  { name: "Gambia", code: "GM" }, { name: "Georgia", code: "GE" }, { name: "Germany", code: "DE" }, { name: "Ghana", code: "GH" }, { name: "Greece", code: "GR" },
-  { name: "Grenada", code: "GD" }, { name: "Guatemala", code: "GT" }, { name: "Guinea", code: "GN" }, { name: "Guinea-Bissau", code: "GW" }, { name: "Guyana", code: "GY" },
-  { name: "Haiti", code: "HT" }, { name: "Honduras", code: "HN" }, { name: "Hungary", code: "HU" }, { name: "Iceland", code: "IS" }, { name: "India", code: "IN" },
-  { name: "Indonesia", code: "ID" }, { name: "Iran", code: "IR" }, { name: "Iraq", code: "IQ" }, { name: "Ireland", code: "IE" }, { name: "Israel", code: "IL" },
-  { name: "Italy", code: "IT" }, { name: "Jamaica", code: "JM" }, { name: "Japan", code: "JP" }, { name: "Jordan", code: "JO" }, { name: "Kazakhstan", code: "KZ" },
-  { name: "Kenya", code: "KE" }, { name: "Kiribati", code: "KI" }, { name: "Korea, North", code: "KP" }, { name: "Korea, South", code: "KR" }, { name: "Kuwait", code: "KW" },
-  { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
-  { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
-  { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
-  { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
-  { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
-  { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
-  { name: "Nigeria", code: "NG" }, { name: "North Macedonia", code: "MK" }, { name: "Norway", code: "NO" }, { name: "Oman", code: "OM" }, { name: "Pakistan", code: "PK" },
-  { name: "Palau", code: "PW" }, { name: "Panama", code: "PA" }, { name: "Papua New Guinea", code: "PG" }, { name: "Paraguay", code: "PY" }, { name: "Peru", code: "PE" },
-  { name: "Philippines", code: "PH" }, { name: "Poland", code: "PL" }, { name: "Portugal", code: "PT" }, { name: "Qatar", code: "QA" }, { name: "Romania", code: "RO" },
-  { name: "Russia", code: "RU" }, { name: "Rwanda", code: "RW" }, { name: "Saint Kitts and Nevis", code: "KN" }, { name: "Saint Lucia", code: "LC" }, { name: "Saint Vincent and the Grenadines", code: "VC" },
-  { name: "Samoa", code: "WS" }, { name: "San Marino", code: "SM" }, { name: "Sao Tome and Principe", code: "ST" }, { name: "Saudi Arabia", code: "SA" }, { name: "Senegal", code: "SN" },
-  { name: "Serbia", code: "RS" }, { name: "Seychelles", code: "SC" }, { name: "Sierra Leone", code: "SL" }, { name: "Singapore", code: "SG" }, { name: "Slovakia", code: "SK" },
-  { name: "Slovenia", code: "SI" }, { name: "Solomon Islands", code: "SB" }, { name: "Somalia", code: "SO" }, { name: "South Africa", code: "ZA" }, { name: "South Sudan", code: "SS" },
-  { name: "Spain", code: "ES" }, { name: "Sri Lanka", code: "LK" }, { name: "Sudan", code: "SD" }, { name: "Suriname", code: "SR" }, { name: "Sweden", code: "SE" },
-  { name: "Switzerland", code: "CH" }, { name: "Syria", code: "SY" }, { name: "Taiwan", code: "TW" }, { name: "Tajikistan", code: "TJ" }, { name: "Tanzania", code: "TZ" },
-  { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
-  { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" }, { name: "Tuvalu", code: "TV" }, { name: "Uganda", code: "UG" },
-  { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
-  { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
-  { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
-].map(c => ({ ...c, flag: getFlagEmoji(c.code) }));
-
-// --- Modular Tab Components ---
-
-const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => {
-  return (
-    <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
-        <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
-        <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
-        <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
-        <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
-        <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
-        <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
-        <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => onActiveTabChange('order-review')} />
-        <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => onActiveTabChange('user-directory')} />
-      </div>
-    </div>
-  );
-});
-
-const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isLoading: boolean, onInspect: (userId: string) => void }) => (
-  <div className="space-y-6">
-    <TabHeader title="Elite Performance: Phase Passers" count={data.length} />
-    <DataTable loading={isLoading} data={data} columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']} renderRow={(acc) => (
-      <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-        <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
-        <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
-        <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
-        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
-        <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
-      </tr>
-    )} />
-  </div>
-));
-
-const PayoutHubTab = memo(({ data, isLoading }: { data: any[], isLoading: boolean }) => (
-  <div className="space-y-6">
-    <TabHeader title="Withdrawal Queue" count={data.length} />
-    <DataTable loading={isLoading} data={data} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
-      <tr key={p.id} className="hover:bg-white/5 transition-colors">
-        <td className="p-4 font-bold text-xs">{p.email}</td>
-        <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
-        <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
-        <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
-        <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
-      </tr>
-    )} />
-  </div>
-));
-
-const OrderReviewTab = memo(({ data, isLoading, onApprove, onReject, onInspect, searchTerm, onSearchChange }: { 
-  data: any[], isLoading: boolean, onApprove: (id: string) => void, onReject: (id: string) => void, onInspect: (userId: string) => void, searchTerm: string, onSearchChange: (v: string) => void 
-}) => (
-  <div className="space-y-6">
-    <div className="flex justify-between items-center">
-      <TabHeader title="Payment Verification Pipeline" onSearch={onSearchChange} />
-      <Button variant="outline" onClick={cleanupDuplicateOrdersAction} className="border-destructive/20 text-destructive hover:bg-destructive/5 h-10"><Trash2 className="w-4 h-4 mr-2" /> Clean Duplicates</Button>
-    </div>
-    <DataTable loading={isLoading} data={data} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'TXID', 'Proof', 'Status', 'Actions']} renderRow={(o) => (
-      <tr key={o.id} className="hover:bg-white/5 transition-colors">
-        <td className="p-4 font-mono text-[10px]">{o.id}</td>
-        <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
-        <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
-        <td className="p-4 font-mono text-[9px] text-zinc-400 max-w-[140px] truncate">{o.txHash || '—'}</td>
-        <td className="p-4 text-center">{o.proofScreenshotUrl ? <a href={o.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-[9px] font-black uppercase">View</a> : '—'}</td>
-        <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' || o.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
-        <td className="p-4 text-right space-x-2">
-          {(o.status === 'completed' || o.status === 'approved') ? (
-            <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>Approved ✓</Button>
-          ) : o.status === 'rejected' ? (
-            <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive cursor-default" disabled>Rejected</Button>
-          ) : (
-            <>
-              <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => onApprove(o.id)}>Approve</Button>
-              <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(o.id)}>Reject</Button>
-            </>
-          )}
-        </td>
-      </tr>
-    )} />
-  </div>
-));
-
-// --- Shared Memoized Table Elements ---
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -273,7 +151,63 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
   );
 });
 
-// --- Main Page Component ---
+/**
+ * Tab Content Components
+ */
+
+const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => {
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+        <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
+        <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
+        <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
+        <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
+        <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
+        <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
+        <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
+      </div>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => onActiveTabChange('order-review')} />
+        <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => onActiveTabChange('user-directory')} />
+      </div>
+    </div>
+  );
+});
+
+const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isLoading: boolean, onInspect: (userId: string) => void }) => (
+  <div className="space-y-6">
+    <TabHeader title="Elite Performance: Phase Passers" count={data.length} />
+    <DataTable loading={isLoading} data={data} columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']} renderRow={(acc) => (
+      <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+        <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
+        <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
+        <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
+        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
+        <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
+      </tr>
+    )} />
+  </div>
+));
+
+function TabHeader({ title, count, onSearch }: { title: string, count?: number, onSearch?: (v: string) => void }) {
+  return (
+    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+      <h2 className="text-xl font-headline font-bold uppercase tracking-tight">{title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count})</span>}</h2>
+      {onSearch && (
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search records..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Main Admin Terminal
+ */
 
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
@@ -313,12 +247,10 @@ export default function AdminPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
 
-  // KYC Rejection States
   const [isKycRejectModalOpen, setIsKycRejectModalOpen] = useState(false);
   const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
   const [kycRejectReason, setKycRejectReason] = useState('');
 
-  // Featured Payout States
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
   const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
@@ -337,7 +269,6 @@ export default function AdminPage() {
     return adminList.includes(lowerEmail);
   }, [user]);
 
-  // Debounce search term to prevent excessive reads
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
@@ -348,7 +279,6 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     
-    // Step 2: Debounce/Cache logic (Stale-While-Revalidate)
     const now = Date.now();
     if (!force && now - lastRefreshTime < 60000 && stats.totalUsersCount > 0) {
       return;
@@ -400,7 +330,6 @@ export default function AdminPage() {
 
     const term = debouncedSearchTerm.toLowerCase().trim();
 
-    // SERVER-SIDE SEARCH LOGIC for Users and Accounts
     if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
       const handleSearch = async () => {
         try {
@@ -433,7 +362,6 @@ export default function AdminPage() {
       return;
     }
 
-    // REAL-TIME SNAPSHOT LOGIC (Fallback when not searching)
     switch(activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
@@ -567,11 +495,20 @@ export default function AdminPage() {
     return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
   }, [tabData.featuredPayouts]);
 
+  const COUNTRIES = useMemo(() => [
+    { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
+    { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
+    { name: "India", code: "IN" }, { name: "United States", code: "US" }, { name: "United Kingdom", code: "GB" }
+  ].map(c => ({ 
+    ...c, 
+    flag: String.fromCodePoint(...c.code.toUpperCase().split('').map(char => 127397 + char.charCodeAt(0)))
+  })), []);
+
   const filteredCountries = useMemo(() => {
     return COUNTRIES.filter(c => 
       c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
     ).slice(0, 100);
-  }, [countrySearchTerm]);
+  }, [countrySearchTerm, COUNTRIES]);
 
   const handleCountrySelect = (name: string, flag: string) => {
     setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
@@ -797,7 +734,31 @@ export default function AdminPage() {
     return o.email?.toLowerCase().includes(term) || o.id.toLowerCase().includes(term);
   }), [tabData.orders, searchTerm]);
 
-  if (!isAuthenticated && !showAdminModal) return null;
+  if (!isAuthenticated && !showAdminModal) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <Card className="w-full max-w-md bg-zinc-950 border-zinc-800">
+           <CardHeader>
+              <CardTitle>Administrative Login</CardTitle>
+              <CardDescription>Enter your master key to access the terminal.</CardDescription>
+           </CardHeader>
+           <CardContent>
+              <form onSubmit={handleAdminAuth} className="space-y-4">
+                 <Input 
+                   type="password" 
+                   value={adminPasswordInput} 
+                   onChange={e => setAdminPasswordInput(e.target.value)} 
+                   placeholder="Master Key" 
+                   className="bg-zinc-900 border-zinc-800"
+                 />
+                 {adminError && <p className="text-xs text-destructive font-bold">{adminError}</p>}
+                 <Button type="submit" className="w-full font-black cyan-box-glow">UNLOCK TERMINAL</Button>
+              </form>
+           </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -863,7 +824,17 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="payout-hub" className="space-y-6">
-             <PayoutHubTab data={tabData.payouts} isLoading={isLoading} />
+             <TabHeader title="Withdrawal Queue" count={tabData.payouts?.length} />
+             <DataTable loading={isLoading} data={tabData.payouts} columns={['Trader', 'Method / Address', 'Amount', 'Status', 'Actions']} renderRow={(p) => (
+                  <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-bold text-xs">{p.email}</td>
+                    <td className="p-4"><p className="text-[10px] font-bold text-white">{p.method}</p><p className="text-[9px] text-muted-foreground font-mono truncate max-w-xs">{p.address}</p></td>
+                    <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(p.amount || 0).toLocaleString()}</td>
+                    <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
+                    <td className="p-4 text-right"><Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Paid</Button></td>
+                  </tr>
+                )}
+             />
           </TabsContent>
 
           <TabsContent value="trades-payouts" className="space-y-6">
@@ -922,14 +893,40 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="order-review" className="space-y-6">
-             <OrderReviewTab 
-                data={filteredOrders} 
-                isLoading={isLoading} 
-                onApprove={handleApproveOrder} 
-                onReject={(id) => { setRejectingOrderId(id); setRejectReason(''); setIsRejectModalOpen(true); }}
-                onInspect={handleViewUserByAccount}
-                searchTerm={searchTerm}
-                onSearchChange={setSearchTerm}
+             <TabHeader title="Payment Verification Pipeline" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
+             <DataTable loading={isLoading} data={filteredOrders} columns={['Order ID', 'Trader / Plan', 'Amount Paid', 'TXID', 'Proof', 'Status', 'Actions']} renderRow={(o) => (
+                  <tr key={o.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-mono text-[10px]">{o.id}</td>
+                    <td className="p-4"><p className="font-bold text-xs">{o.email}</p><p className="text-[10px] text-muted-foreground uppercase">{o.plan} - {o.accountSize}</p></td>
+                    <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
+                    <td className="p-4 font-mono text-[9px] text-zinc-400 max-w-[140px] truncate">{o.txHash || '—'}</td>
+                    <td className="p-4 text-center">
+                      {o.proofScreenshotUrl ? (
+                        <a href={o.proofScreenshotUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-[9px] font-black uppercase">View</a>
+                      ) : '—'}
+                    </td>
+                    <td className="p-4"><Badge className={cn("uppercase text-[8px]", o.status === 'completed' || o.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge></td>
+                    <td className="p-4 text-right space-x-2">
+                      {(o.status === 'completed' || o.status === 'approved') ? (
+                        <Button size="sm" variant="outline" className="h-7 text-[8px] border-emerald-500/30 text-emerald-500 cursor-default" disabled>Approved ✓</Button>
+                      ) : o.status === 'rejected' ? (
+                        <Button size="sm" variant="outline" className="h-7 text-[8px] border-destructive/30 text-destructive cursor-default" disabled>Rejected</Button>
+                      ) : (
+                        <>
+                          <Button 
+                            size="sm" 
+                            className="h-7 text-[8px] bg-primary text-black" 
+                            onClick={() => handleApproveOrder(o.id)}
+                            disabled={approvingOrderId === o.id}
+                          >
+                            {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+                          </Button>
+                          <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )}
              />
           </TabsContent>
 
@@ -1247,7 +1244,7 @@ export default function AdminPage() {
           <DialogFooter>
             <Button variant="outline" className="flex-1" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectOrder} disabled={actionLoading}>
-              {actionLoading ? <Loader2 className="animate-spin" /> : "Send Rejection"}
+              {actionLoading ? <Loader2 className="spin" /> : "Send Rejection"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1273,25 +1270,11 @@ export default function AdminPage() {
           <DialogFooter>
             <Button variant="outline" className="flex-1" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" className="flex-1 font-black" onClick={handleRejectKyc} disabled={actionLoading}>
-              {actionLoading ? <Loader2 className="animate-spin" /> : "Reject Application"}
+              {actionLoading ? <Loader2 className="spin" /> : "Reject Application"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function TabHeader({ title, count, onSearch }: { title: string, count?: number, onSearch?: (v: string) => void }) {
-  return (
-    <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-      <h2 className="text-xl font-headline font-bold uppercase tracking-tight">{title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count})</span>}</h2>
-      {onSearch && (
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search records..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" />
-        </div>
-      )}
     </div>
   );
 }
