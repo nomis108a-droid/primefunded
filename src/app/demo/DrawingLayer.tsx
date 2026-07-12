@@ -391,6 +391,8 @@ export const DrawingLayer = memo(function DrawingLayer({ chart, series, symbol, 
           </text>
         );
         break;
+      default:
+        return null;
     }
 
     return (
