@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback } from 'react';
@@ -29,7 +30,7 @@ import {
   updatePayoutStatusAction, 
   cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
-import { cn } from '@/lib/utils';
+import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
@@ -195,6 +196,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [countrySearchTerm, setCountrySearchTerm] = useState('');
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
@@ -232,7 +234,6 @@ export default function AdminPage() {
   const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
-  const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
@@ -474,6 +475,12 @@ export default function AdminPage() {
       c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
     ).slice(0, 100);
   }, [countrySearchTerm]);
+
+  const handleCountrySelect = (name: string, flag: string) => {
+    setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
+    setCountrySearchTerm('');
+    setIsCountryPopoverOpen(false);
+  };
 
   const handleSaveFeaturedPayout = async () => {
     if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) {
@@ -728,8 +735,8 @@ export default function AdminPage() {
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                   <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
-                <Button variant="outline" className="h-10 rounded-xl font-bold border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
-                  <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
+                <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" onClick={() => refreshStats()} disabled={isLoading}>
+                  <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                 </Button>
                 <Button variant="outline" className="h-10 w-10 p-0 rounded-xl border-white/10" asChild>
                   <Link href="/dashboard"><LogOut size={16} /></Link>
@@ -1012,16 +1019,17 @@ export default function AdminPage() {
                             <button
                               key={c.code}
                               type="button"
-                              onClick={() => {
-                                setPayoutForm({...payoutForm, country: c.name, countryFlag: c.flag});
-                                setCountrySearchTerm('');
-                                setIsCountryPopoverOpen(false);
+                              role="option"
+                              onPointerDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleCountrySelect(c.name, c.flag);
                               }}
-                              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left"
+                              className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md transition-colors text-left relative z-50 interactive-country"
                             >
                               <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
-                              <span className="text-base">{c.flag}</span>
-                              <span className="text-zinc-300">{c.name}</span>
+                              <span className="text-base pointer-events-none">{c.flag}</span>
+                              <span className="text-zinc-300 pointer-events-none">{c.name}</span>
                             </button>
                           ))}
                        </div>
