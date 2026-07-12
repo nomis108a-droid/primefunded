@@ -329,7 +329,14 @@ export async function updateKycStatusAction(userId: string, status: string, reas
     const db = getAdminDb();
     if (!db) return { success: false, error: "Database unavailable" };
     const updates: any = { kycStatus: status, kycVerified: status === 'verified', updatedAt: FieldValue.serverTimestamp() };
-    if (reason) updates.kycRejectionReason = reason;
+    
+    // Explicitly set/clear the rejection reason
+    if (reason) {
+      updates.kycRejectionReason = reason;
+    } else if (status === 'verified') {
+      updates.kycRejectionReason = null;
+    }
+    
     await db.collection('users').doc(userId).update(updates);
     
     await db.collection('users').doc(userId).collection('notifications').add({
