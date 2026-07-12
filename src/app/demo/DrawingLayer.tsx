@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { IChartApi, ISeriesApi } from 'lightweight-charts';
 import { cn } from '@/lib/utils';
 import { Trash2, GripVertical, Settings2, Lock, Unlock, Eye, EyeOff } from 'lucide-react';
@@ -29,7 +29,7 @@ interface DrawingLayerProps {
   hidden?: boolean;
 }
 
-export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool, locked = false, hidden = false }: DrawingLayerProps) {
+export const DrawingLayer = memo(function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool, locked = false, hidden = false }: DrawingLayerProps) {
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [tempDrawing, setTempDrawing] = useState<Drawing | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -399,7 +399,7 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
         {renderTools()}
       </g>
     );
-  };
+  });
 
   if (hidden) return null;
 
@@ -421,4 +421,4 @@ export function DrawingLayer({ chart, series, symbol, activeTool, setActiveTool,
       </g>
     </svg>
   );
-}
+});

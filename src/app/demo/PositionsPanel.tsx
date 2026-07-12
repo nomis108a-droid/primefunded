@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ interface PositionsPanelProps {
   defaultTab?: string;
 }
 
-export function PositionsPanel({ 
+export const PositionsPanel = memo(function PositionsPanel({ 
   openTrades, 
   closedTrades, 
   alerts, 
@@ -299,4 +299,4 @@ export function PositionsPanel({
       </div>
     </div>
   );
-}
+});

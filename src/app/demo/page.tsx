@@ -360,6 +360,7 @@ export default function DemoPage() {
   const activeAccId = currentAccountId || selectedAccount?.id;
   const trades = useMemo(() => allUserTrades.filter(t => t.accountId === activeAccId), [allUserTrades, activeAccId]);
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
+  const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
   const getPrecision = (s: string) => s.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(s.toUpperCase()) ? 3 : 5;
 
@@ -609,6 +610,17 @@ export default function DemoPage() {
     mainSeriesRef.current.setMarkers(markers as any);
   }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
 
+  const closeTrade = useCallback(async (tradeId: string) => {
+    if (actionLoading || !user) return;
+    setActionLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
+      if (res.ok) toast({ title: "✓ Position Closed" });
+      else { const data = await res.json(); throw new Error(data.error || "Close failed"); }
+    } catch(e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setActionLoading(false); }
+  }, [actionLoading, user, toast]);
+
   async function placeTrade(type: 'buy' | 'sell') {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
     
@@ -648,17 +660,6 @@ export default function DemoPage() {
     .catch(() => { toast({ title: "Network Error", variant: "destructive" }); })
     .finally(() => { setActionLoading(false); });
   }
-
-  const closeTrade = async (tradeId: string) => {
-    if (actionLoading || !user) return;
-    setActionLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch(`/api/terminal/trades/${tradeId}/close`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
-      if (res.ok) toast({ title: "✓ Position Closed" });
-      else { const data = await res.json(); throw new Error(data.error || "Close failed"); }
-    } catch(e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setActionLoading(false); }
-  };
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
 
@@ -732,7 +733,7 @@ export default function DemoPage() {
             {isChartReady && chartInstanceRef.current && mainSeriesRef.current && ( <DrawingLayer chart={chartInstanceRef.current} series={mainSeriesRef.current} symbol={selectedSymbol} activeTool={activeTool} setActiveTool={setActiveTool} /> )}
             {isChartLoading && ( <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-sm"><Loader2 className="animate-spin text-primary w-8 h-8" /><p className="text-[10px] font-black mt-4 uppercase tracking-[0.2em] text-zinc-400">Syncing Liquidity Feed...</p></div> )}
           </div>
-          <PositionsPanel openTrades={openTrades} closedTrades={trades.filter(t => t.status === 'closed')} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
+          <PositionsPanel openTrades={openTrades} closedTrades={closedTrades} alerts={[]} livePrices={fusedPrices} closeTrade={closeTrade} deleteAlert={async () => {}} user={user} alertsLoading={false} panelOpen={bottomPanelOpen} setPanelOpen={setBottomPanelOpen} />
         </div>
 
         <aside className="w-80 bg-zinc-950 p-6 hidden lg:flex flex-col shrink-0 z-40 overflow-y-auto custom-scrollbar">
