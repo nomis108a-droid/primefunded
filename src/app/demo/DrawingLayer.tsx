@@ -399,7 +399,7 @@ export const DrawingLayer = memo(function DrawingLayer({ chart, series, symbol, 
         {renderTools()}
       </g>
     );
-  });
+  };
 
   if (hidden) return null;
 

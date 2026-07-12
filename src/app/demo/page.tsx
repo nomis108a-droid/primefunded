@@ -359,6 +359,7 @@ export default function DemoPage() {
   
   const activeAccId = currentAccountId || selectedAccount?.id;
   const trades = useMemo(() => allUserTrades.filter(t => t.accountId === activeAccId), [allUserTrades, activeAccId]);
+  
   const openTrades = useMemo(() => trades.filter(t => t.status === 'open'), [trades]);
   const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
@@ -621,7 +622,7 @@ export default function DemoPage() {
     } catch(e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); } finally { setActionLoading(false); }
   }, [actionLoading, user, toast]);
 
-  async function placeTrade(type: 'buy' | 'sell') {
+  const placeTrade = useCallback(async (type: 'buy' | 'sell') => {
     if (actionLoading || !user || !selectedAccount || !activePrice) return;
     
     const isBlown = selectedAccount.status === 'blown' || selectedAccount.status === 'breach' || selectedAccount.status === 'terminated';
@@ -634,32 +635,33 @@ export default function DemoPage() {
 
     setActionLoading(true);
     const witness = type === 'buy' ? activePrice.ask : activePrice.bid;
-    const token = await user.getIdToken();
-    
-    fetch('/api/terminal/trades', { 
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, 
-      body: JSON.stringify({ 
-        accountId: selectedAccount.id, 
-        symbol: selectedSymbol, 
-        type, 
-        lots: parseFloat(lotsInput), 
-        sl: sl ? parseFloat(sl) : null, 
-        tp: tp ? parseFloat(tp) : null, 
-        witnessPrice: witness 
-      }) 
-    })
-    .then(async res => { 
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/terminal/trades', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, 
+        body: JSON.stringify({ 
+          accountId: selectedAccount.id, 
+          symbol: selectedSymbol, 
+          type, 
+          lots: parseFloat(lotsInput), 
+          sl: sl ? parseFloat(sl) : null, 
+          tp: tp ? parseFloat(tp) : null, 
+          witnessPrice: witness 
+        }) 
+      });
       const data = await res.json(); 
       if (!res.ok) toast({ title: "Order Rejected", description: data.error, variant: "destructive" }); 
       else { 
         toast({ title: "✓ Position Opened" }); 
         setIsOrderSheetOpen(false); 
       } 
-    })
-    .catch(() => { toast({ title: "Network Error", variant: "destructive" }); })
-    .finally(() => { setActionLoading(false); });
-  }
+    } catch (err) {
+      toast({ title: "Network Error", variant: "destructive" });
+    } finally {
+      setActionLoading(false);
+    }
+  }, [actionLoading, user, selectedAccount, activePrice, selectedSymbol, lotsInput, sl, tp, toast]);
 
   if (authLoading) return <div className="fixed inset-0 bg-background flex flex-col items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-primary mb-4" /></div>;
 
