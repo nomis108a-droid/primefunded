@@ -74,7 +74,6 @@ service cloud.firestore {
     }
 
     // Featured Payouts (Public Leaderboard)
-    // Rules re-triggered for public read synchronization
     match /featured_payouts/{id} {
       allow read: if true;
       allow write: if isAdmin();

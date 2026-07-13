@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
-  resetDemoAccountAction, 
   resetSingleAccountAction, 
   sendGlobalBroadcastAction, 
   approveManualOrderAction, 
@@ -39,15 +38,6 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import Link from 'next/link';
-
-/**
- * ISO 3166-1 alpha-2 country code to flag emoji
- */
-function getFlagEmoji(countryCode: string) {
-  if (!countryCode || countryCode.length !== 2) return "🌐";
-  const codePoints = countryCode.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
-  return String.fromCodePoint(...codePoints);
-}
 
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
@@ -89,10 +79,10 @@ const COUNTRIES = [
   { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
   { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
-].map(c => ({ ...c, flag: getFlagEmoji(c.code) }));
+].map(c => ({ ...c, flag: String.fromCodePoint(...c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0))) }));
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
-  const colors: any = {
+  const colorMap: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
     green: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
     amber: 'text-amber-500 bg-amber-500/10 border-amber-500/20',
@@ -103,7 +93,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
     <Card className="border-border/50 bg-card/30 hover:border-primary/20 transition-all duration-300 group">
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <div className={cn("p-2 rounded-lg border", colors[color])}>{icon}</div>
+          <div className={cn("p-2 rounded-lg border", colorMap[color])}>{icon}</div>
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">LIVE</Badge>
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
@@ -226,17 +216,17 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
            <button key={status} onClick={() => setKycFilter(status)} className={cn("px-6 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", kycFilter === status ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>{status}</button>
          ))}
        </div>
-       <DataTable loading={isLoading} data={filteredUsers} columns={['Trader', 'Submission Date', 'Front', 'Back', 'Selfie', 'Actions']} renderRow={(u) => (
+       <DataTable loading={isLoading} data={filteredUsers} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
             <tr key={u.id} className="hover:bg-white/5 transition-colors">
               <td className="p-4 font-bold text-xs">{u.email}</td>
               <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
-              <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black">View</a>}</td>
-              <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black">View</a>}</td>
-              <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black">View</a>}</td>
+              <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Front</a>}</td>
+              <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
+              <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
               <td className="p-4 text-right space-x-2">
                 {u.kycStatus === 'pending' ? (
                   <>
-                    <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="animate-spin" /> : "Approve"}</Button>
+                    <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
                     <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
                   </>
                 ) : <Badge className="bg-emerald-500/20 text-emerald-500 border-none text-[8px] uppercase">{u.kycStatus}</Badge>}
@@ -380,8 +370,8 @@ export default function AdminPage() {
     const targetQ = qMap[activeTab];
     if (targetQ) {
       unsub = onSnapshot(targetQ, (snap) => {
-        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers' };
-        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab] || activeTab.replace('-', '')]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
+        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
       });
     } else {
@@ -472,6 +462,38 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   }, [refreshStats, toast]);
 
+  const handleGiftAccount = async () => {
+    if (!giftForm.traderId && !giftForm.email) {
+      toast({ variant: "destructive", title: "Input Required", description: "Please enter a Trader ID or Email." });
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const res = await giftAccountAction(
+        giftForm.traderId,
+        giftForm.email,
+        `Gifted ${giftForm.plan.toUpperCase()} — $${giftForm.size / 1000}k`,
+        giftForm.size,
+        giftForm.plan,
+        'evaluation'
+      );
+
+      if (res.success) {
+        toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
+        setIsGiftModalOpen(false);
+        setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+        refreshStats(true);
+      } else {
+        throw new Error(res.error);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Grant Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   if (!isAuthenticated && !showAdminModal) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
@@ -509,11 +531,9 @@ export default function AdminPage() {
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
-          {/* Implement other Tab contents based on existing logic if needed */}
         </Tabs>
       </main>
 
-      {/* Featured Payout Modal */}
       <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
@@ -536,7 +556,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Gift Modal */}
       <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
@@ -562,6 +581,20 @@ export default function AdminPage() {
             </div>
           </div>
           <DialogFooter><Button className="w-full bg-primary text-black font-black" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "GRANT ACCOUNT"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isKycRejectModalOpen} onOpenChange={setIsKycRejectModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader><DialogTitle>Reject KYC</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <Label>Rejection Reason</Label>
+            <Textarea value={kycRejectReason} onChange={e => setKycRejectReason(e.target.value)} placeholder="e.g. Blurry ID photo..." className="bg-zinc-900 border-zinc-800" />
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
+             <Button variant="destructive" onClick={() => { if(kycRejectingUserId) { updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason); setIsKycRejectModalOpen(false); } }}>Reject</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
