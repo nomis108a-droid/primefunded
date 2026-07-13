@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -39,6 +38,7 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import Link from 'next/link';
 
+// Static Country List for Selectors
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
@@ -74,15 +74,18 @@ const COUNTRIES = [
   { name: "Slovenia", code: "SI" }, { name: "Solomon Islands", code: "SB" }, { name: "Somalia", code: "SO" }, { name: "South Africa", code: "ZA" }, { name: "South Sudan", code: "SS" },
   { name: "Spain", code: "ES" }, { name: "Sri Lanka", code: "LK" }, { name: "Sudan", code: "SD" }, { name: "Suriname", code: "SR" }, { name: "Sweden", code: "SE" },
   { name: "Switzerland", code: "CH" }, { name: "Syria", code: "SY" }, { name: "Taiwan", code: "TW" }, { name: "Tajikistan", code: "TJ" }, { name: "Tanzania", code: "TZ" },
-  { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
+  { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
   { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" }, { name: "Tuvalu", code: "TV" }, { name: "Uganda", code: "UG" },
   { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
   { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
-].map(c => ({ ...c, flag: String.fromCodePoint(...c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0))) }));
+].map(c => ({ 
+  ...c, 
+  flag: String.fromCodePoint(...c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0))) 
+}));
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
-  const colorMap: any = {
+  const colors: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
     green: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
     amber: 'text-amber-500 bg-amber-500/10 border-amber-500/20',
@@ -93,7 +96,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
     <Card className="border-border/50 bg-card/30 hover:border-primary/20 transition-all duration-300 group">
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <div className={cn("p-2 rounded-lg border", colorMap[color])}>{icon}</div>
+          <div className={cn("p-2 rounded-lg border", colors[color])}>{icon}</div>
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">LIVE</Badge>
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
@@ -171,6 +174,7 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
   );
 });
 
+// Modularized Tab Components for Performance
 const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => (
   <div className="space-y-8">
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
@@ -197,7 +201,7 @@ const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isL
         <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
         <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
         <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
-        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
+        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
         <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
       </tr>
     )} />
@@ -305,6 +309,7 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
+    // Throttle check using Ref instead of state to break circular dependency loop
     if (!force && now - lastRefreshTimeRef.current < 60000 && stats.totalUsersCount > 0) return;
 
     try {
