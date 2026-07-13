@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -206,7 +207,7 @@ const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isL
         <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
         <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
         <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
-        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
+        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
         <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
       </tr>
     )} />
@@ -343,7 +344,7 @@ export default function AdminPage() {
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
     } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
-  }, [isAuthenticated, isAuthorized, authLoading]);
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -457,6 +458,20 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   }, []);
 
+  const handleResetHistory = useCallback(async () => {
+    if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetAllHistoryAction();
+      if (res.success) {
+        toast({ title: `Reset Complete: ${res.count} trades archived.` });
+        refreshStats(true);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
+    } finally { setActionLoading(false); }
+  }, [refreshStats, toast]);
+
   if (!isAuthenticated && !showAdminModal) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
@@ -494,15 +509,16 @@ export default function AdminPage() {
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
-          {/* ... other TabsContent omitted for brevity ... */}
+          {/* Implement other Tab contents based on existing logic if needed */}
         </Tabs>
       </main>
 
+      {/* Featured Payout Modal */}
       <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900" /></div>
+             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
              <div className="space-y-2"><Label>Country</Label><Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
                   <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800">{payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" align="start">
@@ -510,8 +526,42 @@ export default function AdminPage() {
                     <ScrollArea className="h-72"><div className="p-1 flex flex-col">{filteredCountries.map(c => (<button key={c.code} type="button" onPointerDown={e => { e.preventDefault(); handleCountrySelect(c.name, c.flag); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left"><CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} /><span>{c.flag}</span><span className="text-zinc-300">{c.name}</span></button>))}</div></ScrollArea>
                   </PopoverContent></Popover>
              </div>
+             <div className="grid grid-cols-2 gap-4">
+               <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+               <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             </div>
+             <div className="space-y-2"><Label>Proof Screenshot</Label><Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 border-zinc-800 text-xs" /></div>
           </div>
           <DialogFooter><Button variant="ghost" onClick={() => setIsFeaturedPayoutModalOpen(false)}>Cancel</Button><Button className="bg-primary text-black font-black" onClick={handleSaveFeaturedPayout} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : <Save className="w-4 h-4 mr-2" />} SAVE</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Gift Modal */}
+      <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                  {[5, 10, 25, 50, 100, 200, 300].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
+                </SelectContent>
+              </Select></div>
+              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="1-Step Pro" /></SelectTrigger>
+                <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                  <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
+                  <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
+                  <SelectItem value="3-step-classic">3-Step Classic</SelectItem>
+                  <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                  <SelectItem value="instant-pro">Instant Pro</SelectItem>
+                </SelectContent>
+              </Select></div>
+            </div>
+          </div>
+          <DialogFooter><Button className="w-full bg-primary text-black font-black" onClick={handleGiftAccount} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : "GRANT ACCOUNT"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
