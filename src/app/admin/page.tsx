@@ -252,32 +252,62 @@ const KycHubTab = memo(({
   onReject: (id: string) => void,
   approvingUserId: string | null,
   stats: any
-}) => (
-  <div className="space-y-6">
-     <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
-     <DataTable loading={isLoading} data={users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
-          <tr key={u.id} className="hover:bg-white/5 transition-colors">
-            <td className="p-4 font-bold text-xs">{u.email}</td>
-            <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
-            <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Front</a>}</td>
-            <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
-            <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
-            <td className="p-4 text-right space-x-2">
-               <Button 
-                 size="sm" 
-                 className="h-7 text-[8px] bg-emerald-600" 
-                 onClick={() => onApprove(u.id)}
-                 disabled={approvingUserId === u.id}
-               >
-                 {approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
-               </Button>
-               <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
-            </td>
-          </tr>
-        )}
-     />
-  </div>
-));
+}) => {
+  const [kycFilter, setKycFilter] = useState('pending');
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => u.kycStatus === kycFilter);
+  }, [users, kycFilter]);
+
+  return (
+    <div className="space-y-6">
+       <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
+       
+       <div className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5">
+         {['pending', 'verified', 'rejected'].map((status) => (
+           <button
+             key={status}
+             onClick={() => setKycFilter(status)}
+             className={cn(
+               "px-6 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+               kycFilter === status ? "bg-primary text-black" : "text-muted-foreground hover:text-white"
+             )}
+           >
+             {status}
+           </button>
+         ))}
+       </div>
+
+       <DataTable loading={isLoading} data={filteredUsers} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
+            <tr key={u.id} className="hover:bg-white/5 transition-colors">
+              <td className="p-4 font-bold text-xs">{u.email}</td>
+              <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
+              <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Front</a>}</td>
+              <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
+              <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
+              <td className="p-4 text-right space-x-2">
+                {u.kycStatus === 'pending' && (
+                  <>
+                    <Button 
+                      size="sm" 
+                      className="h-7 text-[8px] bg-emerald-600" 
+                      onClick={() => onApprove(u.id)}
+                      disabled={approvingUserId === u.id}
+                    >
+                      {approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+                    </Button>
+                    <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
+                  </>
+                )}
+                {u.kycStatus === 'verified' && <Badge className="bg-emerald-500/20 text-emerald-500 border-none uppercase text-[8px] font-black">Verified ✓</Badge>}
+                {u.kycStatus === 'rejected' && <Badge className="bg-destructive/20 text-destructive border-none uppercase text-[8px] font-black">Rejected</Badge>}
+              </td>
+            </tr>
+          )}
+       />
+    </div>
+  );
+});
 
 function TabHeader({ title, count, onSearch }: { title: string, count?: number, onSearch?: (v: string) => void }) {
   return (
@@ -409,7 +439,7 @@ export default function AdminPage() {
     } catch (err: any) {
       console.error('[Admin-Stats] Refresh fault:', err.message);
     }
-  }, [isAuthenticated, isAuthorized, authLoading]);
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
