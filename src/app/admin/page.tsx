@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -872,6 +873,9 @@ export default function AdminPage() {
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+          <DialogDescription className="sr-only">
+            Inspection details for trader account performance and node status.
+          </DialogDescription>
           {/* Header Section from Image 3 */}
           <div className="p-6 border-b border-white/5 bg-zinc-900/20 shrink-0 flex items-center justify-between">
             <div className="flex items-center gap-5">
@@ -879,7 +883,7 @@ export default function AdminPage() {
                 <AvatarFallback className="bg-primary/10 text-primary font-black text-xl">PF</AvatarFallback>
               </Avatar>
               <div>
-                <h2 className="text-2xl font-headline font-bold text-white uppercase tracking-tight">{selectedUser?.name || 'Trader'}</h2>
+                <DialogTitle className="text-2xl font-headline font-bold text-white uppercase tracking-tight">{selectedUser?.name || 'Trader'}</DialogTitle>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
                   Trader GUID: <span className="text-zinc-300 font-mono">{selectedUser?.id}</span>
                 </p>
