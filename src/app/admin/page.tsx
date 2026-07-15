@@ -297,7 +297,8 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
-    if (!force && now - lastRefreshTimeRef.current < 60000 && stats.totalUsersCount > 0) return;
+    // Reduced cooldown to 10s for polling
+    if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
 
     try {
       const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
@@ -327,6 +328,15 @@ export default function AdminPage() {
       lastRefreshTimeRef.current = now;
     } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
   }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
+
+  // AUTOMATIC STATS UPDATE: Poll every 10 seconds
+  useEffect(() => {
+    if (isAuthenticated && isAuthorized && !authLoading) {
+      refreshStats(true);
+      const timer = setInterval(() => refreshStats(true), 10000);
+      return () => clearInterval(timer);
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -426,6 +436,7 @@ export default function AdminPage() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Failed", description: e.message });
     } finally {
+      setActionLoading(true); // actually resetting action loading
       setActionLoading(false);
     }
   };
@@ -563,11 +574,11 @@ export default function AdminPage() {
     if (!selectedUser?.id || !isUserManagementOpen) return;
     
     setTradesLoading(true);
+    // COMPLETE HISTORY: Removed limit(1000) to ensure full ledger is retrieved
     const qT = query(
       collection(db, 'demoTrades'), 
       where('userId', '==', selectedUser.id), 
-      orderBy('openedAt', 'desc'), 
-      limit(1000)
+      orderBy('openedAt', 'desc')
     );
     
     const unsubT = onSnapshot(qT, (snap) => {
