@@ -542,7 +542,7 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center gap-4">
              <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3"><div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div><div><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p><p className="text-xs font-mono font-bold text-white">{instanceId}</p></div></div>
              <div className="flex gap-2">
-                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={handleResetHistory} disabled={actionLoading}><RotateCcw className="w-4 h-4 mr-2" /> Reset Logic</Button>
+                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={handleResetHistory} disabled={actionLoading}><RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset</Button>
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}><Gift className="w-4 h-4 mr-2" /> Gift Account</Button>
                 <Button variant="outline" className="h-10 w-10 p-0" onClick={() => refreshStats(true)} disabled={isLoading}><RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} /></Button>
                 <Button variant="outline" className="h-10 w-10 p-0" asChild><Link href="/dashboard"><LogOut size={16} /></Link></Button>
@@ -674,15 +674,15 @@ export default function AdminPage() {
 
           <TabsContent value="user-directory">
             <div className="space-y-6">
-              <TabHeader title="Management: User Directory" count={stats.totalUsersCount} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={paginatedUsers} columns={['Name', 'Email', 'ID', 'Tier', 'Joined', 'Actions']} renderRow={(u) => (
+              <TabHeader title="Identity: User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
+              <DataTable loading={isLoading} data={tabData.users} columns={['Name', 'Email', 'Country', 'KYC', 'Joined', 'Actions']} renderRow={(u) => (
                 <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-bold text-sm text-white">{u.name}</td>
+                  <td className="p-4 font-bold text-xs">{u.name || 'Trader'}</td>
                   <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
-                  <td className="p-4 font-mono text-[10px] text-zinc-500">{u.traderId}</td>
-                  <td className="p-4"><Badge variant="outline" className="text-[9px] uppercase font-black">{u.tier || 'Bronze'}</Badge></td>
+                  <td className="p-4 text-xs text-muted-foreground">{u.country || '—'}</td>
+                  <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase border-none", u.kycVerified || u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'rejected' ? "bg-destructive/20 text-destructive" : u.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" : "bg-zinc-700/50 text-zinc-500")}>{u.kycVerified ? 'verified' : u.kycStatus || 'not submitted'}</Badge></td>
                   <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                  <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}>Manage</Button></td>
+                  <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
                 </tr>
               )} />
             </div>
@@ -765,7 +765,21 @@ export default function AdminPage() {
           </div>
           <DialogFooter>
              <Button variant="outline" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
-             <Button variant="destructive" onClick={() => { if(kycRejectingUserId) { updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason); setIsKycRejectModalOpen(false); } }}>Reject</Button>
+             <Button variant="destructive" onClick={handleRejectKyc}>Reject</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+          <DialogHeader><DialogTitle>Reject Order</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <Label>Rejection Reason</Label>
+            <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. Proof mismatch..." className="bg-zinc-900 border-zinc-800" />
+          </div>
+          <DialogFooter>
+             <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
+             <Button variant="destructive" onClick={handleRejectOrder}>Reject Order</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
