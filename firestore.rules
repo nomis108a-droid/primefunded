@@ -31,7 +31,7 @@ service cloud.firestore {
 
     // Orders Collection
     match /orders/{id} {
-      allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
+      allow read: if isAdmin() || (request.auth != null && (resource == null || request.auth.uid == resource.data.userId));
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow update: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
       allow delete: if isAdmin();
@@ -102,6 +102,10 @@ service cloud.firestore {
     match /broadcasts/{id} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /breaches/{id} {
+      allow read, write: if isAdmin();
     }
 
     match /_system/{document=**} {
