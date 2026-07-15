@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
 } from 'lucide-react';
@@ -37,8 +38,9 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import Link from 'next/link';
+import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
-// Static Country List for Selectors
+// Static Country List
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
@@ -49,7 +51,7 @@ const COUNTRIES = [
   { name: "Canada", code: "CA" }, { name: "Cape Verde", code: "CV" }, { name: "Central African Republic", code: "CF" }, { name: "Chad", code: "TD" }, { name: "Chile", code: "CL" },
   { name: "China", code: "CN" }, { name: "Colombia", code: "CO" }, { name: "Comoros", code: "KM" }, { name: "Congo", code: "CG" }, { name: "Costa Rica", code: "CR" },
   { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" }, { name: "Cyprus", code: "CY" }, { name: "Czech Republic", code: "CZ" }, { name: "Denmark", code: "DK" },
-  { name: "Djibouti", code: "DJ" }, { name: "Dominca", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
+  { name: "Djibouti", code: "DJ" }, { name: "Dominica", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
   { name: "El Salvador", code: "SV" }, { name: "Equatorial Guinea", code: "GQ" }, { name: "Eritrea", code: "ER" }, { name: "Estonia", code: "EE" }, { name: "Eswatini", code: "SZ" },
   { name: "Ethiopia", code: "ET" }, { name: "Fiji", code: "FJ" }, { name: "Finland", code: "FI" }, { name: "France", code: "FR" }, { name: "Gabon", code: "GA" },
   { name: "Gambia", code: "GM" }, { name: "Georgia", code: "GE" }, { name: "Germany", code: "DE" }, { name: "Ghana", code: "GH" }, { name: "Greece", code: "GR" },
@@ -61,14 +63,14 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritius", code: "MU" },
-  { name: "Mexico", code: "MX" }, { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" },
-  { name: "Montenegro", code: "ME" }, { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" },
-  { name: "Nauru", code: "NR" }, { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" },
-  { name: "Niger", code: "NE" }, { name: "Nigeria", code: "NG" }, { name: "North Macedonia", code: "MK" }, { name: "Norway", code: "NO" }, { name: "Oman", code: "OM" },
-  { name: "Pakistan", code: "PK" }, { name: "Palau", code: "PW" }, { name: "Panama", code: "PA" }, { name: "Papua New Guinea", code: "PG" }, { name: "Paraguay", code: "PY" },
-  { name: "Peru", code: "PE" }, { name: "Philippines", code: "PH" }, { name: "Poland", code: "PL" }, { name: "Portugal", code: "PT" }, { name: "Qatar", code: "QA" },
-  { name: "Romania", code: "RO" }, { name: "Russia", code: "RU" }, { name: "Rwanda", code: "RW" }, { name: "Saint Kitts and Nevis", code: "KN" }, { name: "Saint Lucia", code: "LC" }, { name: "Saint Vincent and the Grenadines", code: "VC" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
+  { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
+  { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
+  { name: "Nigeria", code: "NG" }, { name: "North Macedonia", code: "MK" }, { name: "Norway", code: "NO" }, { name: "Oman", code: "OM" }, { name: "Pakistan", code: "PK" },
+  { name: "Palau", code: "PW" }, { name: "Panama", code: "PA" }, { name: "Papua New Guinea", code: "PG" }, { name: "Paraguay", code: "PY" }, { name: "Peru", code: "PE" },
+  { name: "Philippines", code: "PH" }, { name: "Poland", code: "PL" }, { name: "Portugal", code: "PT" }, { name: "Qatar", code: "QA" }, { name: "Romania", code: "RO" },
+  { name: "Russia", code: "RU" }, { name: "Rwanda", code: "RW" }, { name: "Saint Kitts and Nevis", code: "KN" }, { name: "Saint Lucia", code: "LC" }, { name: "Saint Vincent and the Grenadines", code: "VC" },
   { name: "Samoa", code: "WS" }, { name: "San Marino", code: "SM" }, { name: "Sao Tome and Principe", code: "ST" }, { name: "Saudi Arabia", code: "SA" }, { name: "Senegal", code: "SN" },
   { name: "Serbia", code: "RS" }, { name: "Seychelles", code: "SC" }, { name: "Sierra Leone", code: "SL" }, { name: "Singapore", code: "SG" }, { name: "Slovakia", code: "SK" },
   { name: "Slovenia", code: "SI" }, { name: "Solomon Islands", code: "SB" }, { name: "Somalia", code: "SO" }, { name: "South Africa", code: "ZA" }, { name: "South Sudan", code: "SS" },
@@ -79,10 +81,10 @@ const COUNTRIES = [
   { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
   { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
-].map(c => ({ 
-  ...c, 
-  flag: String.fromCodePoint(...c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0))) 
-}));
+].map(c => {
+  const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
+  return { ...c, flag: String.fromCodePoint(...codePoints) };
+});
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colors: any = {
@@ -174,7 +176,6 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
   );
 });
 
-// Modularized Tab Components for Performance
 const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => (
   <div className="space-y-8">
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
@@ -643,21 +644,56 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes">
             <div className="space-y-6">
-              <TabHeader title="Infrastructure: Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['Trader ID', 'Account', 'Plan', 'Balance', 'Equity', 'P&L', 'Status']} renderRow={(acc) => {
-                const pnl = (acc.balance || 0) - (acc.startBalance || 0);
-                return (
-                  <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-mono text-[10px] text-primary">{acc.userId?.slice(0, 12)}</td>
-                    <td className="p-4"><div><p className="font-bold text-xs">{acc.label || acc.id?.slice(0, 10)}</p><p className="text-[9px] text-zinc-500 font-mono">{acc.id?.slice(0, 8)}</p></div></td>
-                    <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase border-white/10">{acc.planType || acc.plan || '—'}</Badge></td>
-                    <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
-                    <td className="p-4 font-mono text-xs">${(acc.equity || 0).toLocaleString()}</td>
-                    <td className={cn("p-4 font-mono text-xs font-bold", pnl >= 0 ? "text-emerald-500" : "text-destructive")}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString()}</td>
-                    <td className="p-4 text-right"><Badge className={cn("text-[8px] font-black uppercase border-none", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : acc.status === 'passed' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td>
+              <TabHeader title="CHALLENGE NODE REGISTRY" count={stats.totalNodesCount} onSearch={setSearchTerm} />
+              <DataTable 
+                loading={isLoading} 
+                data={tabData.demoAccounts} 
+                columns={['ACCOUNT ID', 'PLAN / PHASE', 'BALANCE', 'EQUITY', 'STATUS', 'ACTIONS']} 
+                renderRow={(acc) => (
+                  <tr key={acc.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
+                    <td className="p-4">
+                      <button 
+                        onClick={() => handleViewUserByAccount(acc.userId)}
+                        className="text-primary hover:underline font-mono text-[11px] font-bold text-left block"
+                      >
+                        {acc.id}
+                      </button>
+                      <span className="text-[10px] text-zinc-500 font-medium">{acc.email}</span>
+                    </td>
+                    <td className="p-4">
+                      <span className="text-[10px] font-black uppercase tracking-tight text-zinc-300">
+                        {acc.planType || acc.plan} - {acc.phase}
+                      </span>
+                    </td>
+                    <td className="p-4 font-mono text-xs font-bold text-zinc-300">
+                      ${(acc.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                    </td>
+                    <td className="p-4 font-mono text-xs font-bold text-zinc-300">
+                      ${(acc.equity || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}
+                    </td>
+                    <td className="p-4">
+                      <Badge className={cn(
+                        "text-[8px] font-black uppercase px-2 h-5 border-none",
+                        (acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated') 
+                          ? "bg-red-500/20 text-red-500" 
+                          : "bg-emerald-500/20 text-emerald-500"
+                      )}>
+                        {acc.status}
+                      </Badge>
+                    </td>
+                    <td className="p-4 text-right">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-8 text-[10px] font-black uppercase border-white/10 hover:bg-white/5"
+                        onClick={() => handleViewUserByAccount(acc.userId)}
+                      >
+                        <Eye className="w-3.5 h-3.5 mr-2" /> Inspect
+                      </Button>
+                    </td>
                   </tr>
-                );
-              }} />
+                )} 
+              />
             </div>
           </TabsContent>
 
@@ -835,111 +871,167 @@ export default function AdminPage() {
       </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
-        <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="p-6 border-b border-white/5 shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary"><User size={24} /></div>
-                <div><DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">{selectedUser?.name}</DialogTitle><p className="text-xs text-muted-foreground">Trader GUID: {selectedUser?.id}</p></div>
-              </div>
-              <div className="flex items-center gap-2">
-                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-black">{selectedUser?.tier || 'Bronze'}</Badge>
-                 <Badge variant="outline" className={cn("text-[10px] uppercase font-black", selectedUser?.kycVerified ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20")}>KYC: {selectedUser?.kycStatus || 'None'}</Badge>
+        <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
+          {/* Header Section from Image 3 */}
+          <div className="p-6 border-b border-white/5 bg-zinc-900/20 shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-5">
+              <Avatar className="w-14 h-14 border-2 border-primary/20 p-1 bg-primary/5">
+                <AvatarFallback className="bg-primary/10 text-primary font-black text-xl">PF</AvatarFallback>
+              </Avatar>
+              <div>
+                <h2 className="text-2xl font-headline font-bold text-white uppercase tracking-tight">{selectedUser?.name || 'Trader'}</h2>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
+                  Trader GUID: <span className="text-zinc-300 font-mono">{selectedUser?.id}</span>
+                </p>
               </div>
             </div>
-          </DialogHeader>
+            <div className="flex items-center gap-3">
+              <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 h-7 rounded-lg">
+                {selectedUser?.tier || 'Bronze'}
+              </Badge>
+              <Badge variant="outline" className={cn(
+                "text-[10px] font-black uppercase px-4 h-7 rounded-lg",
+                selectedUser?.kycVerified ? "border-emerald-500/30 text-emerald-500 bg-emerald-500/5" : "border-destructive/30 text-destructive bg-destructive/5"
+              )}>
+                KYC: {selectedUser?.kycStatus || 'None'}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Tabs Section */}
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
             <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
-              <TabsList className="bg-transparent h-12 justify-start p-0 gap-8">
+              <TabsList className="bg-transparent h-14 justify-start p-0 gap-10">
                 {['Overview', 'Trading Nodes', 'Trade History', 'Breach Logs'].map(tab => (
-                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(/ /g, '-').replace('-history', '-ledger')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+                  <TabsTrigger 
+                    key={tab} 
+                    value={tab.toLowerCase().replace(/ /g, '-')} 
+                    className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[11px] font-black uppercase tracking-widest text-muted-foreground transition-all"
+                  >
+                    {tab}
+                  </TabsTrigger>
                 ))}
               </TabsList>
             </div>
-            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-               <TabsContent value="overview" className="m-0 space-y-6">
-                  <div className="grid grid-cols-3 gap-4">
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Registered Email</p><p className="text-sm font-bold text-white">{selectedUser?.email}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Joined</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : '—'}</p></div>
-                  </div>
-               </TabsContent>
-               <TabsContent value="trading-nodes" className="m-0 space-y-4">
-                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => {
-                    const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
-                    return (
-                      <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade-ledger'); }}>
-                        <CardHeader className="p-4 flex flex-row items-center justify-between">
-                           <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
-                           <div className="flex items-center gap-2">
-                              <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
-                              <Button variant="outline" size="sm" className="h-7 text-[8px] border-destructive/30 text-destructive hover:bg-destructive/10 font-black" onClick={(e) => { e.stopPropagation(); handleResetSingleAccount(acc.id); }}>
-                                <RefreshCw className="w-3 h-3 mr-1" /> RESET BALANCE
-                              </Button>
+
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-zinc-950/50">
+              <TabsContent value="overview" className="m-0 space-y-8">
+                 <div className="grid grid-cols-3 gap-6">
+                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Email Address</p>
+                      <p className="text-sm font-bold text-white">{selectedUser?.email}</p>
+                    </div>
+                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Phone Identity</p>
+                      <p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p>
+                    </div>
+                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Join Date</p>
+                      <p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : '—'}</p>
+                    </div>
+                 </div>
+              </TabsContent>
+
+              <TabsContent value="trading-nodes" className="m-0 space-y-6">
+                {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => {
+                  const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
+                  return (
+                    <Card key={acc.id} className="bg-zinc-900/40 border-zinc-800/60 overflow-hidden group shadow-xl">
+                      <CardHeader className="p-6 flex flex-row items-center justify-between border-b border-white/5 bg-zinc-900/20">
+                        <div className="space-y-1">
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">{acc.planType || acc.plan}</p>
+                          <CardTitle className="text-base font-bold text-white">{acc.label}</CardTitle>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Badge className={cn(
+                            "text-[9px] font-black uppercase px-3 h-6 border-none",
+                            acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500"
+                          )}>
+                            {acc.status}
+                          </Badge>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-8 text-[9px] font-black uppercase border-red-500/30 text-red-500 hover:bg-red-500/10" 
+                            onClick={(e) => { e.stopPropagation(); handleResetSingleAccount(acc.id); }}
+                          >
+                            <RefreshCw className="w-3 h-3 mr-2" /> RESET BALANCE
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-6 space-y-6">
+                         <div className="grid grid-cols-2 gap-8">
+                            <div className="space-y-1">
+                              <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Node Balance</p>
+                              <p className="text-xl font-mono font-black text-white">${(acc.balance || 0).toLocaleString()}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Account Equity</p>
+                              <p className="text-xl font-mono font-black text-white">${(acc.equity || 0).toLocaleString()}</p>
+                            </div>
+                         </div>
+                         {isLiquidated && (
+                           <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
+                              <p className="text-[9px] font-black uppercase text-red-500 tracking-[0.2em] mb-2">Termination Reason</p>
+                              <p className="text-[11px] font-medium text-red-400 italic leading-relaxed">
+                                "{acc.breachReason || 'Risk management violation detected. Account access restricted.'}"
+                              </p>
                            </div>
-                        </CardHeader>
-                        <CardContent className="px-4 pb-4 space-y-4">
-                           <div className="grid grid-cols-2 gap-2">
-                              <div><p className="text-[7px] font-black uppercase text-zinc-600">Balance</p><p className="text-[11px] font-mono font-bold">${(acc.balance || 0).toLocaleString()}</p></div>
-                              <div><p className="text-[7px] font-black uppercase text-zinc-600">Equity</p><p className="text-[11px] font-mono font-bold">${(acc.equity || 0).toLocaleString()}</p></div>
-                           </div>
-                           {isLiquidated && (
-                             <div className="pt-2 border-t border-white/5">
-                                <p className="text-[7px] font-black uppercase text-destructive tracking-widest mb-1">Termination Reason</p>
-                                <p className="text-[10px] font-medium text-red-400 italic">"{acc.breachReason || 'No reason recorded.'}"</p>
-                             </div>
-                           )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-               </TabsContent>
-               <TabsContent value="trade-ledger" className="m-0">
-                  <div className="flex justify-between items-center mb-4">
-                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Execution Ledger {nodeFilterId && <span className="text-primary">— Filtering by Node: {nodeFilterId.slice(0,8)}</span>}</p>
-                     {nodeFilterId && <Button variant="ghost" className="h-6 text-[8px] font-black" onClick={() => setNodeFilterId(null)}>CLEAR FILTER</Button>}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
-                        <tr>
-                          <th className="py-2 px-1">Symbol</th>
-                          <th className="py-2 px-1">Type</th>
-                          <th className="py-2 px-1">Lots</th>
-                          <th className="py-2 px-1 text-right">Open</th>
-                          <th className="py-2 px-1 text-right">Close</th>
-                          <th className="py-2 px-1 text-center">Dur.</th>
-                          <th className="py-2 px-1 text-right">Comm.</th>
-                          <th className="py-2 px-1 text-right">PnL</th>
-                          <th className="py-2 px-1 text-right">Time</th>
+                         )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </TabsContent>
+
+              <TabsContent value="trade-history" className="m-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="text-[10px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
+                      <tr>
+                        <th className="py-4 px-2">Symbol</th>
+                        <th className="py-4 px-2">Type</th>
+                        <th className="py-4 px-2">Lots</th>
+                        <th className="py-4 px-2 text-right">Open</th>
+                        <th className="py-4 px-2 text-right">Close</th>
+                        <th className="py-4 px-2 text-right">PnL</th>
+                        <th className="py-4 px-2 text-right">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {userTrades.map(t => (
+                        <tr key={t.id} className="hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 font-bold text-white">{t.symbol}</td>
+                          <td className="py-3 px-2 uppercase font-black text-[10px] text-zinc-500">{t.type}</td>
+                          <td className="py-3 px-2 font-mono">{t.lots}</td>
+                          <td className="py-3 px-2 text-right font-mono text-zinc-500">${t.openPrice}</td>
+                          <td className="py-3 px-2 text-right font-mono text-zinc-500">${t.closePrice || '—'}</td>
+                          <td className={cn("py-3 px-2 text-right font-bold font-mono", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
+                            ${(t.pnl || 0).toLocaleString()}
+                          </td>
+                          <td className="py-3 px-2 text-right text-zinc-500 text-[10px]">
+                            {t.closedAt ? format(getTradeDate(t.closedAt)!, 'HH:mm') : 'OPEN'}
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
-                          const openDate = getTradeDate(t.openedAt);
-                          const closeDate = getTradeDate(t.closedAt);
-                          const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt || new Date());
-                          
-                          return (
-                            <tr key={t.id} className="hover:bg-white/5">
-                              <td className="py-2 px-1 font-bold">{t.symbol}</td>
-                              <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
-                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots?.toFixed(2) || '0.00'}</td>
-                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</td>
-                              <td className="py-2 px-1 text-right font-mono text-zinc-500">{t.status === 'open' ? '—' : `$${Number(t.closePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}`}</td>
-                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{formatDuration(durationSec)}</td>
-                              <td className="py-2 px-1 text-right font-mono text-destructive/70">{t.commission ? `$${Number(t.commission).toFixed(2)}` : '—'}</td>
-                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(Number(t.pnl) || 0).toLocaleString()}</td>
-                              <td className="py-2 px-1 text-right text-zinc-500 text-[10px]">{closeDate ? format(closeDate, 'HH:mm') : '—'}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-               </TabsContent>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="breach-logs" className="m-0">
+                 <div className="p-20 text-center flex flex-col items-center justify-center opacity-20">
+                   <Skull className="w-12 h-12 mb-4" />
+                   <p className="text-[10px] font-black uppercase tracking-widest">No breach events recorded.</p>
+                 </div>
+              </TabsContent>
             </div>
-            <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/50"><Button variant="outline" className="font-bold rounded-xl h-12 flex-1" onClick={() => setIsUserManagementOpen(false)}>Close Inspection</Button></DialogFooter>
+
+            <div className="p-8 border-t border-white/5 bg-zinc-900/30 flex justify-center">
+              <Button variant="outline" className="font-black h-14 px-16 rounded-2xl uppercase tracking-[0.2em] border-white/10 hover:bg-white/5 text-sm" onClick={() => setIsUserManagementOpen(false)}>
+                Close Inspection
+              </Button>
+            </div>
           </Tabs>
         </DialogContent>
       </Dialog>
