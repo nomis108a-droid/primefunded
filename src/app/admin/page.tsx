@@ -529,7 +529,7 @@ export default function AdminPage() {
 
   const handleRejectOrder = async () => {
     if (!rejectingOrderId || !rejectReason.trim()) {
-      toast({ variant: "destructive", title: "Reason Required" });
+      toast({ variant: "destructive", title: "Reason Required", description: "Please enter a rejection message." });
       return;
     }
     setActionLoading(true);
@@ -567,7 +567,7 @@ export default function AdminPage() {
       collection(db, 'demoTrades'), 
       where('userId', '==', selectedUser.id), 
       orderBy('openedAt', 'desc'), 
-      limit(100)
+      limit(1000)
     );
     
     const unsubT = onSnapshot(qT, (snap) => {
