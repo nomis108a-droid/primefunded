@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -74,9 +75,9 @@ const COUNTRIES = [
   { name: "Slovenia", code: "SI" }, { name: "Solomon Islands", code: "SB" }, { name: "Somalia", code: "SO" }, { name: "South Africa", code: "ZA" }, { name: "South Sudan", code: "SS" },
   { name: "Spain", code: "ES" }, { name: "Sri Lanka", code: "LK" }, { name: "Sudan", code: "SD" }, { name: "Suriname", code: "SR" }, { name: "Sweden", code: "SE" },
   { name: "Switzerland", code: "CH" }, { name: "Syria", code: "SY" }, { name: "Taiwan", code: "TW" }, { name: "Tajikistan", code: "TJ" }, { name: "Tanzania", code: "TZ" },
-  { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" },
-  { name: "Trinidad and Tobago", code: "TT" }, { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" }, { name: "Tuvalu", code: "TV" },
-  { name: "Uganda", code: "UG" }, { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" },
+  { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
+  { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" }, { name: "Tuvalu", code: "TV" }, { name: "Uganda", code: "UG" },
+  { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" },
   { name: "Uruguay", code: "UY" }, { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" },
   { name: "Vietnam", code: "VN" }, { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ].map(c => ({ 
@@ -405,7 +406,7 @@ export default function AdminPage() {
     setApprovingOrderId(orderId);
     try {
       const res = await approveManualOrderAction(orderId);
-      if (res.success) { toast({ title: "Order Approved" }); refreshStats(true); }
+      if (res.success) { toast({ title: "Order Approved" }); refreshStats(forceUpdate => !forceUpdate); }
       else toast({ variant: "destructive", title: "Approval Failed", description: res.error });
     } finally { setApprovingOrderId(null); }
   }, [refreshStats, toast]);
@@ -414,7 +415,7 @@ export default function AdminPage() {
     setApprovingKycUserId(userId);
     try {
       const res = await updateKycStatusAction(userId, 'verified');
-      if (res.success) { toast({ title: "KYC Verified" }); refreshStats(true); }
+      if (res.success) { toast({ title: "KYC Verified" }); refreshStats(forceUpdate => !forceUpdate); }
       else toast({ variant: "destructive", title: "Failed", description: res.error });
     } finally { setApprovingKycUserId(null); }
   }, [refreshStats, toast]);
@@ -460,7 +461,7 @@ export default function AdminPage() {
       const res = await resetAllHistoryAction();
       if (res.success) {
         toast({ title: `Reset Complete: ${res.count} trades archived.` });
-        refreshStats(true);
+        refreshStats(forceUpdate => !forceUpdate);
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
@@ -488,7 +489,7 @@ export default function AdminPage() {
         toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
         setIsGiftModalOpen(false);
         setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-        refreshStats(true);
+        refreshStats(forceUpdate => !forceUpdate);
       } else {
         throw new Error(res.error);
       }
@@ -597,16 +598,20 @@ export default function AdminPage() {
           <TabsContent value="trading-nodes">
             <div className="space-y-6">
               <TabHeader title="Infrastructure: Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['Account ID', 'Trader', 'Plan / Phase', 'Balance', 'Status', 'Actions']} renderRow={(acc) => (
-                <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-mono text-[10px] text-primary">{acc.id}</td>
-                  <td className="p-4 font-bold text-xs">{acc.email}</td>
-                  <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
-                  <td className="p-4 font-mono text-white text-right">${(acc.balance || 0).toLocaleString()}</td>
-                  <td className="p-4"><Badge className={cn("text-[8px] uppercase font-black", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td>
-                  <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(acc.userId)}>Inspect</Button></td>
-                </tr>
-              )} />
+              <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['Trader ID', 'Account', 'Plan', 'Balance', 'Equity', 'P&L', 'Status']} renderRow={(acc) => {
+                const pnl = (acc.balance || 0) - (acc.startBalance || 0);
+                return (
+                  <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-mono text-[10px] text-primary">{acc.userId?.slice(0, 12)}</td>
+                    <td className="p-4"><div><p className="font-bold text-xs">{acc.label || acc.id?.slice(0, 10)}</p><p className="text-[9px] text-zinc-500 font-mono">{acc.id?.slice(0, 8)}</p></div></td>
+                    <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase border-white/10">{acc.planType || acc.plan || '—'}</Badge></td>
+                    <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
+                    <td className="p-4 font-mono text-xs">${(acc.equity || 0).toLocaleString()}</td>
+                    <td className={cn("p-4 font-mono text-xs font-bold", pnl >= 0 ? "text-emerald-500" : "text-destructive")}>{pnl >= 0 ? '+' : ''}{pnl.toLocaleString()}</td>
+                    <td className="p-4 text-right"><Badge className={cn("text-[8px] font-black uppercase border-none", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : acc.status === 'passed' ? "bg-amber-500/20 text-amber-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge></td>
+                  </tr>
+                );
+              }} />
             </div>
           </TabsContent>
 
