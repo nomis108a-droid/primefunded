@@ -554,7 +554,6 @@ export default function AdminPage() {
           <ScrollArea className="w-full"><TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">{['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (<TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>))}</TabsList><ScrollBar orientation="horizontal" /></ScrollArea>
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
-          <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
           
           <TabsContent value="payout-hub">
             <div className="space-y-6">
@@ -575,16 +574,20 @@ export default function AdminPage() {
 
           <TabsContent value="trades-payouts">
             <div className="space-y-6">
-              <TabHeader title="Social: Trades Payouts" count={tabData.featuredPayouts.length} />
-              <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Name', 'Country', 'Paid Out', 'Count', 'Actions']} renderRow={(p) => (
+              <div className="flex justify-between items-center">
+                <TabHeader title="Showcase: Trades Payouts" count={tabData.featuredPayouts.length} />
+                <Button size="sm" className="font-bold" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setPayoutProofFile(null); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Entry</Button>
+              </div>
+              <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Trader', 'Country', 'Paid Out', 'Payouts', 'Proof', 'Actions']} renderRow={(p) => (
                 <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-bold text-xs uppercase">{p.name}</td>
-                  <td className="p-4 text-xs text-zinc-400">{p.countryFlag} {p.country}</td>
-                  <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.paidOut || 0).toLocaleString()}</td>
-                  <td className="p-4 text-center font-bold text-zinc-500">{p.payoutsCount}</td>
+                  <td className="p-4 font-bold text-xs">{p.name}</td>
+                  <td className="p-4 text-xs text-muted-foreground">{p.countryFlag} {p.country}</td>
+                  <td className="p-4 font-mono text-emerald-500 font-bold">${(p.paidOut || 0).toLocaleString()}</td>
+                  <td className="p-4 text-xs text-muted-foreground">{p.payoutsCount || 1}</td>
+                  <td className="p-4 text-center">{p.proofUrl ? <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Proof</a> : <span className="text-zinc-600 text-[9px]">None</span>}</td>
                   <td className="p-4 text-right space-x-2">
-                    <Button size="sm" variant="ghost" onClick={() => { setPayoutForm({ id: p.id, name: p.name, country: p.country, countryFlag: p.countryFlag, paidOut: p.paidOut.toString(), payoutsCount: p.payoutsCount.toString() }); setIsFeaturedPayoutModalOpen(true); }}><Settings2 className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10 h-8" onClick={() => handleDeleteFeaturedPayout(p.id)}><Trash2 className="w-3 h-3" /></Button>
+                    <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: p.id, name: p.name || '', country: p.country || '', countryFlag: p.countryFlag || '', paidOut: String(p.paidOut || ''), payoutsCount: String(p.payoutsCount || '') }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
+                    <Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if (confirm('Delete this featured payout?')) { await deleteDoc(doc(db, 'featured_payouts', p.id)); } }}>Del</Button>
                   </td>
                 </tr>
               )} />
@@ -673,6 +676,8 @@ export default function AdminPage() {
             </div>
           </TabsContent>
 
+          <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
+          
           <TabsContent value="broadcasts">
             <div className="space-y-6">
               <TabHeader title="Communications: Broadcasts" count={tabData.broadcasts.length} />
