@@ -419,13 +419,35 @@ export default function AdminPage() {
     } finally { setApprovingKycUserId(null); }
   }, [refreshStats, toast]);
 
+  const handleRejectKyc = async () => {
+    if (!kycRejectingUserId || !kycRejectReason.trim()) {
+      toast({ variant: "destructive", title: "Reason Required" });
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason.trim());
+      if (res.success) {
+        toast({ title: "KYC Rejected", description: "Trader has been notified with the reason." });
+        setIsKycRejectModalOpen(false);
+        setKycRejectingUserId(null);
+        setKycRejectReason('');
+        refreshStats(true);
+      } else {
+        throw new Error(res.error || "Rejection failed");
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleCountrySelect = useCallback((name: string, flag: string) => {
     setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
     setCountrySearchTerm('');
     setIsCountryPopoverOpen(false);
   }, []);
-
-  const filteredCountries = useMemo(() => COUNTRIES.filter(c => c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())).slice(0, 100), [countrySearchTerm]);
 
   const handleSaveFeaturedPayout = async () => {
     if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
@@ -467,6 +489,25 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   }, [refreshStats, toast]);
 
+  const handleResetSingleAccount = async (accountId: string) => {
+    if (!confirm('WARNING: This will reset the account balance and history for this account only. Continue?')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetSingleAccountAction(accountId);
+      if (res.success) {
+        toast({ title: "Account Restored" });
+        if (selectedUser) {
+           const snap = await getDoc(doc(db, 'users', selectedUser.id));
+           if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
+        }
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleGiftAccount = async () => {
     if (!giftForm.traderId && !giftForm.email) {
       toast({ variant: "destructive", title: "Input Required", description: "Please enter a Trader ID or Email." });
@@ -499,24 +540,37 @@ export default function AdminPage() {
     }
   };
 
-  const handleDeleteFeaturedPayout = async (id: string) => {
-    if (!confirm("Are you sure?")) return;
+  const handleRejectOrder = async () => {
+    if (!rejectingOrderId || !rejectReason.trim()) {
+      toast({ variant: "destructive", title: "Reason Required" });
+      return;
+    }
+    setActionLoading(true);
     try {
-      await deleteDoc(doc(db, 'featured_payouts', id));
-      toast({ title: "Deleted" });
+      const res = await updateOrderStatusAction(rejectingOrderId, 'rejected', rejectReason.trim());
+      if (res.success) {
+        toast({ title: "Order Rejected" });
+        setIsRejectModalOpen(false);
+        setRejectingOrderId(null);
+        setRejectReason('');
+        refreshStats(true);
+      }
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Delete Failed", description: e.message });
+      toast({ variant: "destructive", title: "Rejection Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const paginatedUsers = useMemo(() => {
-    const filtered = (tabData.users || []).filter((u: any) => {
-      const term = searchTerm.toLowerCase();
-      return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
-    });
-    const start = (userPage - 1) * usersPerPage;
-    return filtered.slice(start, start + usersPerPage);
-  }, [tabData.users, searchTerm, userPage]);
+  const filteredFeaturedPayouts = useMemo(() => {
+    return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
+  }, [tabData.featuredPayouts]);
+
+  const filteredCountries = useMemo(() => {
+    return COUNTRIES.filter(c => 
+      c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
+    ).slice(0, 100);
+  }, [countrySearchTerm]);
 
   if (!isAuthenticated && !showAdminModal) {
     return (
@@ -551,7 +605,14 @@ export default function AdminPage() {
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
-          <ScrollArea className="w-full"><TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">{['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (<TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>))}</TabsList><ScrollBar orientation="horizontal" /></ScrollArea>
+          <ScrollArea className="w-full">
+            <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
+                <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+              ))}
+            </TabsList>
+            <ScrollBar orientation="horizontal" />
+          </ScrollArea>
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
@@ -579,7 +640,7 @@ export default function AdminPage() {
                 <TabHeader title="Showcase: Trades Payouts" count={tabData.featuredPayouts.length} />
                 <Button size="sm" className="font-bold" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setPayoutProofFile(null); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Entry</Button>
               </div>
-              <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Trader', 'Country', 'Paid Out', 'Payouts', 'Proof', 'Actions']} renderRow={(p) => (
+              <DataTable loading={isLoading} data={filteredFeaturedPayouts} columns={['Trader', 'Country', 'Paid Out', 'Payouts', 'Proof', 'Actions']} renderRow={(p) => (
                 <tr key={p.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{p.name}</td>
                   <td className="p-4 text-xs text-muted-foreground">{p.countryFlag} {p.country}</td>
@@ -633,7 +694,7 @@ export default function AdminPage() {
 
           <TabsContent value="order-review">
             <div className="space-y-6">
-              <TabHeader title="Commerce: Order Review" count={tabData.orders.length} />
+              <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
               <DataTable loading={isLoading} data={tabData.orders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
                 <tr key={o.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{o.email}</td>
@@ -649,6 +710,9 @@ export default function AdminPage() {
                       <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>
                         {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
                       </Button>
+                    )}
+                    {o.status === 'manual_review' && (
+                      <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
                     )}
                     {o.proofScreenshotUrl && <a href={o.proofScreenshotUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">Proof</a>}
                   </td>
@@ -711,12 +775,15 @@ export default function AdminPage() {
           <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
              <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-             <div className="space-y-2"><Label>Country</Label><Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
+             <div className="space-y-2">
+                <Label>Country</Label>
+                <Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
                   <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800">{payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" align="start">
                     <div className="p-2 border-b border-zinc-800"><Input placeholder="Search country..." value={countrySearchTerm} onChange={e => setCountrySearchTerm(e.target.value)} className="h-8" /></div>
                     <ScrollArea className="h-72"><div className="p-1 flex flex-col">{filteredCountries.map(c => (<button key={c.code} type="button" onPointerDown={e => { e.preventDefault(); handleCountrySelect(c.name, c.flag); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left"><CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} /><span>{c.flag}</span><span className="text-zinc-300">{c.name}</span></button>))}</div></ScrollArea>
-                  </PopoverContent></Popover>
+                  </PopoverContent>
+                </Popover>
              </div>
              <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
