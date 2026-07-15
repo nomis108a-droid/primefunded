@@ -642,7 +642,8 @@ export default function AdminPage() {
                   <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (o.status === 'completed' || o.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
                   <td className="p-4 text-right space-x-2">
                     {o.status === 'manual_review' && (
-                      <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>{approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+                      <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>{approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+                    </Button>
                     )}
                     <Button size="sm" variant="outline" className="h-7 text-[8px] border-white/10" onClick={() => handleViewUserByAccount(o.userId)}>View User</Button>
                   </td>
