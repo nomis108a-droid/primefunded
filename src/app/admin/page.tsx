@@ -406,7 +406,7 @@ export default function AdminPage() {
     setApprovingOrderId(orderId);
     try {
       const res = await approveManualOrderAction(orderId);
-      if (res.success) { toast({ title: "Order Approved" }); refreshStats(forceUpdate => !forceUpdate); }
+      if (res.success) { toast({ title: "Order Approved" }); refreshStats(true); }
       else toast({ variant: "destructive", title: "Approval Failed", description: res.error });
     } finally { setApprovingOrderId(null); }
   }, [refreshStats, toast]);
@@ -415,7 +415,7 @@ export default function AdminPage() {
     setApprovingKycUserId(userId);
     try {
       const res = await updateKycStatusAction(userId, 'verified');
-      if (res.success) { toast({ title: "KYC Verified" }); refreshStats(forceUpdate => !forceUpdate); }
+      if (res.success) { toast({ title: "KYC Verified" }); refreshStats(true); }
       else toast({ variant: "destructive", title: "Failed", description: res.error });
     } finally { setApprovingKycUserId(null); }
   }, [refreshStats, toast]);
@@ -461,7 +461,7 @@ export default function AdminPage() {
       const res = await resetAllHistoryAction();
       if (res.success) {
         toast({ title: `Reset Complete: ${res.count} trades archived.` });
-        refreshStats(forceUpdate => !forceUpdate);
+        refreshStats(true);
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
@@ -489,7 +489,7 @@ export default function AdminPage() {
         toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
         setIsGiftModalOpen(false);
         setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-        refreshStats(forceUpdate => !forceUpdate);
+        refreshStats(true);
       } else {
         throw new Error(res.error);
       }
@@ -617,14 +617,15 @@ export default function AdminPage() {
 
           <TabsContent value="breaches">
             <div className="space-y-6">
-              <TabHeader title="Risk: Breaches" count={tabData.breaches.length} />
-              <DataTable loading={isLoading} data={tabData.breaches} columns={['Date', 'Account ID', 'Reason', 'Trader', 'Actions']} renderRow={(acc) => (
+              <TabHeader title="Risk: Breach Incidents" count={tabData.breaches.length} />
+              <DataTable loading={isLoading} data={tabData.breaches} columns={['Trader ID', 'Account', 'Plan', 'Breach Reason', 'Balance', 'Status']} renderRow={(acc) => (
                 <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 text-xs text-muted-foreground">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                  <td className="p-4 font-mono text-[10px] text-destructive">{acc.id}</td>
-                  <td className="p-4 text-[10px] text-zinc-400 max-w-xs truncate">{acc.breachReason || 'Risk breach.'}</td>
-                  <td className="p-4 text-xs font-bold">{acc.email}</td>
-                  <td className="p-4 text-right"><Button variant="ghost" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3 h-3" /></Button></td>
+                  <td className="p-4 font-mono text-[10px] text-primary">{acc.userId?.slice(0, 12)}</td>
+                  <td className="p-4 text-xs font-bold">{acc.label || acc.id?.slice(0, 10)}</td>
+                  <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase border-white/10">{acc.planType || acc.plan || '—'}</Badge></td>
+                  <td className="p-4 text-xs text-destructive max-w-[200px] truncate">{acc.breachReason || 'Risk limit exceeded'}</td>
+                  <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
+                  <td className="p-4 text-right"><Badge className="text-[8px] font-black uppercase bg-destructive/20 text-destructive border-none">{acc.status}</Badge></td>
                 </tr>
               )} />
             </div>
@@ -632,7 +633,7 @@ export default function AdminPage() {
 
           <TabsContent value="order-review">
             <div className="space-y-6">
-              <TabHeader title="Operations: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
+              <TabHeader title="Operations: Order Review" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
               <DataTable loading={isLoading} data={tabData.orders} columns={['Trader', 'Plan', 'Paid', 'Status', 'Actions']} renderRow={(o) => (
                 <tr key={o.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{o.email}</td>
