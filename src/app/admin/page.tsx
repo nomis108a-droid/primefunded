@@ -88,7 +88,7 @@ const COUNTRIES = [
 });
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
-  const colors: any = {
+  const colorMap: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
     green: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20',
     amber: 'text-amber-500 bg-amber-500/10 border-amber-500/20',
@@ -99,7 +99,7 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
     <Card className="border-border/50 bg-card/30 hover:border-primary/20 transition-all duration-300 group">
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <div className={cn("p-2 rounded-lg border", colors[color])}>{icon}</div>
+          <div className={cn("p-2 rounded-lg border", colorMap[color])}>{icon}</div>
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">LIVE</Badge>
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
@@ -260,6 +260,7 @@ export default function AdminPage() {
   const [inspectionTab, setInspectionTab] = useState('overview');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   const [userTrades, setUserTrades] = useState<any[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -557,6 +558,30 @@ export default function AdminPage() {
       c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
     ).slice(0, 100);
   }, [countrySearchTerm]);
+
+  useEffect(() => {
+    if (!selectedUser?.id || !isUserManagementOpen) return;
+    
+    setTradesLoading(true);
+    const qT = query(
+      collection(db, 'demoTrades'), 
+      where('userId', '==', selectedUser.id), 
+      orderBy('openedAt', 'desc'), 
+      limit(100)
+    );
+    
+    const unsubT = onSnapshot(qT, (snap) => {
+      setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setTradesLoading(false);
+    }, (err) => {
+      setTradesLoading(false);
+    });
+    
+    return () => {
+      unsubT();
+      setTradesLoading(false);
+    };
+  }, [selectedUser?.id, isUserManagementOpen]);
 
   if (!isAuthenticated && !showAdminModal) {
     return (
@@ -972,6 +997,14 @@ export default function AdminPage() {
                               <p className="text-xl font-mono font-black text-white">${(acc.equity || 0).toLocaleString()}</p>
                             </div>
                          </div>
+                         <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="w-full text-[10px] font-black uppercase tracking-widest mt-2" 
+                            onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade-history'); }}
+                          >
+                            View Node Execution History <History className="w-3 h-3 ml-2" />
+                         </Button>
                          {isLiquidated && (
                            <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
                               <p className="text-[9px] font-black uppercase text-red-500 tracking-[0.2em] mb-2">Termination Reason</p>
@@ -987,38 +1020,63 @@ export default function AdminPage() {
               </TabsContent>
 
               <TabsContent value="trade-history" className="m-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left">
-                    <thead className="text-[10px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
-                      <tr>
-                        <th className="py-4 px-2">Symbol</th>
-                        <th className="py-4 px-2">Type</th>
-                        <th className="py-4 px-2">Lots</th>
-                        <th className="py-4 px-2 text-right">Open</th>
-                        <th className="py-4 px-2 text-right">Close</th>
-                        <th className="py-4 px-2 text-right">PnL</th>
-                        <th className="py-4 px-2 text-right">Time</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {userTrades.map(t => (
-                        <tr key={t.id} className="hover:bg-white/5 transition-colors">
-                          <td className="py-3 px-2 font-bold text-white">{t.symbol}</td>
-                          <td className="py-3 px-2 uppercase font-black text-[10px] text-zinc-500">{t.type}</td>
-                          <td className="py-3 px-2 font-mono">{t.lots}</td>
-                          <td className="py-3 px-2 text-right font-mono text-zinc-500">${t.openPrice}</td>
-                          <td className="py-3 px-2 text-right font-mono text-zinc-500">${t.closePrice || '—'}</td>
-                          <td className={cn("py-3 px-2 text-right font-bold font-mono", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
-                            ${(t.pnl || 0).toLocaleString()}
-                          </td>
-                          <td className="py-3 px-2 text-right text-zinc-500 text-[10px]">
-                            {t.closedAt ? format(getTradeDate(t.closedAt)!, 'HH:mm') : 'OPEN'}
-                          </td>
+                {tradesLoading ? (
+                  <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Retrieving ledger data...</p>
+                  </div>
+                ) : userTrades.length === 0 ? (
+                  <div className="py-20 text-center flex flex-col items-center justify-center opacity-20">
+                    <History className="w-12 h-12 mb-4" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">No trade records found for this node.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <div className="flex justify-between items-center mb-4 bg-secondary/30 p-3 rounded-lg border border-white/5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Execution Ledger {nodeFilterId && <span className="text-primary ml-2">— Filtering Node: {nodeFilterId.slice(0, 8)}</span>}</p>
+                      {nodeFilterId && <Button variant="ghost" className="h-6 text-[8px] font-black text-primary hover:text-white" onClick={() => setNodeFilterId(null)}>Clear Filter</Button>}
+                    </div>
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-[10px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
+                        <tr>
+                          <th className="py-4 px-2">Symbol</th>
+                          <th className="py-4 px-2">Type</th>
+                          <th className="py-4 px-2">Lots</th>
+                          <th className="py-4 px-2 text-right">Open</th>
+                          <th className="py-4 px-2 text-right">Close</th>
+                          <th className="py-4 px-2 text-right">PnL</th>
+                          <th className="py-4 px-2 text-center">Status</th>
+                          <th className="py-4 px-2 text-right">Date</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
+                          const openDate = getTradeDate(t.openedAt);
+                          return (
+                            <tr key={t.id} className="hover:bg-white/5 transition-colors">
+                              <td className="py-3 px-2 font-bold text-white">{t.symbol}</td>
+                              <td className="py-3 px-2 uppercase font-black text-[10px] text-zinc-500">{t.type}</td>
+                              <td className="py-3 px-2 font-mono">{t.lots}</td>
+                              <td className="py-3 px-2 text-right font-mono text-zinc-500">${t.openPrice}</td>
+                              <td className="py-3 px-2 text-right font-mono text-zinc-500">${t.closePrice || '—'}</td>
+                              <td className={cn("py-3 px-2 text-right font-bold font-mono", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-red-500")}>
+                                ${(t.pnl || 0).toLocaleString()}
+                              </td>
+                              <td className="py-3 px-2 text-center">
+                                <Badge className={cn("text-[8px] uppercase px-1.5", t.status === 'open' ? 'bg-primary/20 text-primary' : 'bg-zinc-800 text-zinc-500')}>
+                                  {t.status}
+                                </Badge>
+                              </td>
+                              <td className="py-3 px-2 text-right text-zinc-500 text-[10px]">
+                                {openDate ? format(openDate, 'MMM d, HH:mm') : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </TabsContent>
               
               <TabsContent value="breach-logs" className="m-0">
