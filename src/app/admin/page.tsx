@@ -29,7 +29,7 @@ import {
   updatePayoutStatusAction, 
   cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
-import { cn } from '@/lib/utils';
+import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
@@ -50,7 +50,7 @@ const COUNTRIES = [
   { name: "Canada", code: "CA" }, { name: "Cape Verde", code: "CV" }, { name: "Central African Republic", code: "CF" }, { name: "Chad", code: "TD" }, { name: "Chile", code: "CL" },
   { name: "China", code: "CN" }, { name: "Colombia", code: "CO" }, { name: "Comoros", code: "KM" }, { name: "Congo", code: "CG" }, { name: "Costa Rica", code: "CR" },
   { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" }, { name: "Cyprus", code: "CY" }, { name: "Czech Republic", code: "CZ" }, { name: "Denmark", code: "DK" },
-  { name: "Djibouti", code: "DJ" }, { name: "Dominica", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
+  { name: "Djibouti", code: "DJ" }, { name: "Dominca", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
   { name: "El Salvador", code: "SV" }, { name: "Equatorial Guinea", code: "GQ" }, { name: "Eritrea", code: "ER" }, { name: "Estonia", code: "EE" }, { name: "Eswatini", code: "SZ" },
   { name: "Ethiopia", code: "ET" }, { name: "Fiji", code: "FJ" }, { name: "Finland", code: "FI" }, { name: "France", code: "FR" }, { name: "Gabon", code: "GA" },
   { name: "Gambia", code: "GM" }, { name: "Georgia", code: "GE" }, { name: "Germany", code: "DE" }, { name: "Ghana", code: "GH" }, { name: "Greece", code: "GR" },
@@ -77,9 +77,9 @@ const COUNTRIES = [
   { name: "Switzerland", code: "CH" }, { name: "Syria", code: "SY" }, { name: "Taiwan", code: "TW" }, { name: "Tajikistan", code: "TJ" }, { name: "Tanzania", code: "TZ" },
   { name: "Thailand", code: "TH" }, { name: "Timor-Leste", code: "TL" }, { name: "Togo", code: "TG" }, { name: "Tonga", code: "TO" }, { name: "Trinidad and Tobago", code: "TT" },
   { name: "Tunisia", code: "TN" }, { name: "Turkey", code: "TR" }, { name: "Turkmenistan", code: "TM" }, { name: "Tuvalu", code: "TV" }, { name: "Uganda", code: "UG" },
-  { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" },
-  { name: "Uruguay", code: "UY" }, { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" },
-  { name: "Vietnam", code: "VN" }, { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
+  { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
+  { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
+  { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ].map(c => ({ 
   ...c, 
   flag: String.fromCodePoint(...c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0))) 
@@ -310,7 +310,6 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
-    // Throttle check using Ref instead of state to break circular dependency loop
     if (!force && now - lastRefreshTimeRef.current < 60000 && stats.totalUsersCount > 0) return;
 
     try {
@@ -553,6 +552,7 @@ export default function AdminPage() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full"><TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">{['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (<TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>))}</TabsList><ScrollBar orientation="horizontal" /></ScrollArea>
+          
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           
@@ -633,19 +633,24 @@ export default function AdminPage() {
 
           <TabsContent value="order-review">
             <div className="space-y-6">
-              <TabHeader title="Operations: Order Review" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={tabData.orders} columns={['Trader', 'Plan', 'Paid', 'Status', 'Actions']} renderRow={(o) => (
+              <TabHeader title="Commerce: Order Review" count={tabData.orders.length} />
+              <DataTable loading={isLoading} data={tabData.orders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
                 <tr key={o.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{o.email}</td>
-                  <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{o.plan} - {o.accountSize}</td>
-                  <td className="p-4 font-mono text-white text-right">${o.amountPaid}</td>
-                  <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (o.status === 'completed' || o.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
+                  <td className="p-4 text-xs text-muted-foreground">{o.plan}</td>
+                  <td className="p-4 text-xs">{o.accountSize}</td>
+                  <td className="p-4 font-mono text-xs">${parseFloat(o.amountPaid || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="p-4 text-[10px] text-muted-foreground uppercase">{o.network || o.coin || '—'}</td>
+                  <td className="p-4 text-right">
+                    <Badge className={cn("text-[8px] font-black uppercase border-none", (o.status === 'completed' || o.status === 'approved') ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge>
+                  </td>
                   <td className="p-4 text-right space-x-2">
                     {o.status === 'manual_review' && (
-                      <Button size="sm" className="h-7 text-[8px] bg-primary text-black" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>{approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
-                    </Button>
+                      <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>
+                        {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+                      </Button>
                     )}
-                    <Button size="sm" variant="outline" className="h-7 text-[8px] border-white/10" onClick={() => handleViewUserByAccount(o.userId)}>View User</Button>
+                    {o.proofScreenshotUrl && <a href={o.proofScreenshotUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">Proof</a>}
                   </td>
                 </tr>
               )} />
@@ -654,14 +659,14 @@ export default function AdminPage() {
 
           <TabsContent value="referral-audit">
             <div className="space-y-6">
-              <TabHeader title="Marketing: Referral Audit" count={tabData.referrals.length} />
-              <DataTable loading={isLoading} data={tabData.referrals} columns={['Referrer', 'Referred', 'Commission', 'Date', 'Status']} renderRow={(r) => (
+              <TabHeader title="Growth: Referral Audit" count={tabData.referrals.length} />
+              <DataTable loading={isLoading} data={tabData.referrals} columns={['Referred User', 'Referrer ID', 'Amount', 'Date', 'Status']} renderRow={(r) => (
                 <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-mono text-[10px] text-primary">{r.referrerId}</td>
-                  <td className="p-4 text-xs font-bold">{r.referredUserEmail}</td>
-                  <td className="p-4 font-mono text-emerald-500 font-bold text-right">${(r.amount || 0).toFixed(2)}</td>
+                  <td className="p-4 font-bold text-xs">{r.referredUserEmail || 'Anonymous'}</td>
+                  <td className="p-4 font-mono text-[10px] text-zinc-400">{r.referrerId?.slice(0, 12)}</td>
+                  <td className="p-4 font-mono text-emerald-500 text-xs">${(r.amount || 0).toFixed(2)}</td>
                   <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                  <td className="p-4"><Badge variant="outline" className="text-[8px] uppercase">{r.status}</Badge></td>
+                  <td className="p-4 text-right"><Badge className={cn("text-[8px] font-black uppercase border-none", r.status === 'funded' ? "bg-emerald-500/20 text-emerald-500" : r.status === 'paid' ? "bg-blue-500/20 text-blue-500" : "bg-zinc-700/50 text-zinc-400")}>{r.status || 'pending'}</Badge></td>
                 </tr>
               )} />
             </div>
@@ -764,6 +769,116 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
+        <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0">
+          <DialogHeader className="p-6 border-b border-white/5 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary"><User size={24} /></div>
+                <div><DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">{selectedUser?.name}</DialogTitle><p className="text-xs text-muted-foreground">Trader GUID: {selectedUser?.id}</p></div>
+              </div>
+              <div className="flex items-center gap-2">
+                 <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-black">{selectedUser?.tier || 'Bronze'}</Badge>
+                 <Badge variant="outline" className={cn("text-[10px] uppercase font-black", selectedUser?.kycVerified ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : "bg-destructive/10 text-destructive border-destructive/20")}>KYC: {selectedUser?.kycStatus || 'None'}</Badge>
+              </div>
+            </div>
+          </DialogHeader>
+          <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
+            <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
+              <TabsList className="bg-transparent h-12 justify-start p-0 gap-8">
+                {['Overview', 'Trading Nodes', 'Trade History', 'Breach Logs'].map(tab => (
+                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(/ /g, '-').replace('-history', '-ledger')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[10px] font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+               <TabsContent value="overview" className="m-0 space-y-6">
+                  <div className="grid grid-cols-3 gap-4">
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Registered Email</p><p className="text-sm font-bold text-white">{selectedUser?.email}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Joined</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : '—'}</p></div>
+                  </div>
+               </TabsContent>
+               <TabsContent value="trading-nodes" className="m-0 space-y-4">
+                  {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => {
+                    const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
+                    return (
+                      <Card key={acc.id} className="bg-zinc-900/50 border-zinc-800 hover:border-primary/40 transition-all cursor-pointer group" onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade-ledger'); }}>
+                        <CardHeader className="p-4 flex flex-row items-center justify-between">
+                           <div><p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{acc.plan}</p><CardTitle className="text-sm font-bold text-white group-hover:text-primary">{acc.label}</CardTitle></div>
+                           <div className="flex items-center gap-2">
+                              <Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-destructive/20 text-destructive")}>{acc.status}</Badge>
+                              <Button variant="outline" size="sm" className="h-7 text-[8px] border-destructive/30 text-destructive hover:bg-destructive/10 font-black" onClick={(e) => { e.stopPropagation(); handleResetSingleAccount(acc.id); }}>
+                                <RefreshCw className="w-3 h-3 mr-1" /> RESET BALANCE
+                              </Button>
+                           </div>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-4 space-y-4">
+                           <div className="grid grid-cols-2 gap-2">
+                              <div><p className="text-[7px] font-black uppercase text-zinc-600">Balance</p><p className="text-[11px] font-mono font-bold">${(acc.balance || 0).toLocaleString()}</p></div>
+                              <div><p className="text-[7px] font-black uppercase text-zinc-600">Equity</p><p className="text-[11px] font-mono font-bold">${(acc.equity || 0).toLocaleString()}</p></div>
+                           </div>
+                           {isLiquidated && (
+                             <div className="pt-2 border-t border-white/5">
+                                <p className="text-[7px] font-black uppercase text-destructive tracking-widest mb-1">Termination Reason</p>
+                                <p className="text-[10px] font-medium text-red-400 italic">"{acc.breachReason || 'No reason recorded.'}"</p>
+                             </div>
+                           )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+               </TabsContent>
+               <TabsContent value="trade-ledger" className="m-0">
+                  <div className="flex justify-between items-center mb-4">
+                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Execution Ledger {nodeFilterId && <span className="text-primary">— Filtering by Node: {nodeFilterId.slice(0,8)}</span>}</p>
+                     {nodeFilterId && <Button variant="ghost" className="h-6 text-[8px] font-black" onClick={() => setNodeFilterId(null)}>CLEAR FILTER</Button>}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-[9px] uppercase font-black text-zinc-600 tracking-widest border-b border-white/5">
+                        <tr>
+                          <th className="py-2 px-1">Symbol</th>
+                          <th className="py-2 px-1">Type</th>
+                          <th className="py-2 px-1">Lots</th>
+                          <th className="py-2 px-1 text-right">Open</th>
+                          <th className="py-2 px-1 text-right">Close</th>
+                          <th className="py-2 px-1 text-center">Dur.</th>
+                          <th className="py-2 px-1 text-right">Comm.</th>
+                          <th className="py-2 px-1 text-right">PnL</th>
+                          <th className="py-2 px-1 text-right">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {userTrades.filter(t => !nodeFilterId || t.accountId === nodeFilterId).map(t => {
+                          const openDate = getTradeDate(t.openedAt);
+                          const closeDate = getTradeDate(t.closedAt);
+                          const durationSec = calculateHoldingTimeSeconds(t.openedAt, t.closedAt || new Date());
+                          
+                          return (
+                            <tr key={t.id} className="hover:bg-white/5">
+                              <td className="py-2 px-1 font-bold">{t.symbol}</td>
+                              <td className="py-2 px-1 uppercase font-medium">{t.type}</td>
+                              <td className="py-2 px-1 font-mono text-zinc-400">{t.lots?.toFixed(2) || '0.00'}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">${Number(t.openPrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</td>
+                              <td className="py-2 px-1 text-right font-mono text-zinc-500">{t.status === 'open' ? '—' : `$${Number(t.closePrice || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}`}</td>
+                              <td className="py-2 px-1 text-center text-[9px] text-zinc-500">{formatDuration(durationSec)}</td>
+                              <td className="py-2 px-1 text-right font-mono text-destructive/70">{t.commission ? `$${Number(t.commission).toFixed(2)}` : '—'}</td>
+                              <td className={cn("py-2 px-1 text-right font-bold", (t.pnl || 0) >= 0 ? "text-emerald-500" : "text-destructive")}>${(Number(t.pnl) || 0).toLocaleString()}</td>
+                              <td className="py-2 px-1 text-right text-zinc-500 text-[10px]">{closeDate ? format(closeDate, 'HH:mm') : '—'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+               </TabsContent>
+            </div>
+            <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/50"><Button variant="outline" className="font-bold rounded-xl h-12 flex-1" onClick={() => setIsUserManagementOpen(false)}>Close Inspection</Button></DialogFooter>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -772,7 +887,12 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
   return (
     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
       <h2 className="text-xl font-headline font-bold uppercase tracking-tight">{title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count})</span>}</h2>
-      {onSearch && (<div className="relative w-full md:w-96"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" /><Input placeholder="Search records..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" /></div>)}
+      {onSearch && (
+        <div className="relative w-full md:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input placeholder="Search records..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" />
+        </div>
+      )}
     </div>
   );
 }
