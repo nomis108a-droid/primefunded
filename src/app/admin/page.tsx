@@ -873,34 +873,32 @@ export default function AdminPage() {
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-          <DialogDescription className="sr-only">
-            Inspection details for trader account performance and node status.
-          </DialogDescription>
-          {/* Header Section from Image 3 */}
-          <div className="p-6 border-b border-white/5 bg-zinc-900/20 shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-5">
-              <Avatar className="w-14 h-14 border-2 border-primary/20 p-1 bg-primary/5">
-                <AvatarFallback className="bg-primary/10 text-primary font-black text-xl">PF</AvatarFallback>
-              </Avatar>
-              <div>
-                <DialogTitle className="text-2xl font-headline font-bold text-white uppercase tracking-tight">{selectedUser?.name || 'Trader'}</DialogTitle>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
-                  Trader GUID: <span className="text-zinc-300 font-mono">{selectedUser?.id}</span>
-                </p>
+          <DialogHeader className="p-6 border-b border-white/5 bg-zinc-900/20 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-5">
+                <Avatar className="w-14 h-14 border-2 border-primary/20 p-1 bg-primary/5">
+                  <AvatarFallback className="bg-primary/10 text-primary font-black text-xl">PF</AvatarFallback>
+                </Avatar>
+                <div>
+                  <DialogTitle className="text-2xl font-headline font-bold text-white uppercase tracking-tight">{selectedUser?.name || 'Trader'}</DialogTitle>
+                  <DialogDescription className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
+                    Trader GUID: <span className="text-zinc-300 font-mono">{selectedUser?.id}</span>
+                  </DialogDescription>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 h-7 rounded-lg">
+                  {selectedUser?.tier || 'Bronze'}
+                </Badge>
+                <Badge variant="outline" className={cn(
+                  "text-[10px] font-black uppercase px-4 h-7 rounded-lg",
+                  selectedUser?.kycVerified ? "border-emerald-500/30 text-emerald-500 bg-emerald-500/5" : "border-destructive/30 text-destructive bg-destructive/5"
+                )}>
+                  KYC: {selectedUser?.kycStatus || 'None'}
+                </Badge>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 h-7 rounded-lg">
-                {selectedUser?.tier || 'Bronze'}
-              </Badge>
-              <Badge variant="outline" className={cn(
-                "text-[10px] font-black uppercase px-4 h-7 rounded-lg",
-                selectedUser?.kycVerified ? "border-emerald-500/30 text-emerald-500 bg-emerald-500/5" : "border-destructive/30 text-destructive bg-destructive/5"
-              )}>
-                KYC: {selectedUser?.kycStatus || 'None'}
-              </Badge>
-            </div>
-          </div>
+          </DialogHeader>
 
           {/* Tabs Section */}
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
