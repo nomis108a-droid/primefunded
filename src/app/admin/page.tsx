@@ -83,7 +83,7 @@ const COUNTRIES = [
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ].map(c => {
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
-  return { ...c, flag: String.fromPoint(...codePoints) };
+  return { ...c, flag: String.fromCodePoint(...codePoints) };
 });
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -563,13 +563,13 @@ export default function AdminPage() {
   }, [tabData.featuredPayouts]);
 
   const filteredCountries = useMemo(() => {
-    const term = countrySearchTerm.toLowerCase().trim();
+    const term = payoutForm.country.toLowerCase().trim();
     if (!term) return COUNTRIES.slice(0, 100);
     return COUNTRIES.filter(c => 
       c.name.toLowerCase().includes(term) || 
       c.code.toLowerCase().includes(term)
     );
-  }, [countrySearchTerm]);
+  }, [payoutForm.country]);
 
   useEffect(() => {
     if (!selectedUser?.id || !isUserManagementOpen) {
@@ -889,7 +889,9 @@ export default function AdminPage() {
                     placeholder="Search country..." 
                     value={payoutForm.country} 
                     onChange={e => {
-                      setPayoutForm({...payoutForm, country: e.target.value});
+                      const val = e.target.value;
+                      setPayoutForm({...payoutForm, country: val});
+                      setCountrySearchTerm(val);
                       setIsCountryAutocompleteOpen(true);
                     }}
                     onFocus={() => setIsCountryAutocompleteOpen(true)}
@@ -912,6 +914,7 @@ export default function AdminPage() {
                               e.preventDefault(); 
                               e.stopPropagation();
                               setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
+                              setCountrySearchTerm(c.name);
                               setIsCountryAutocompleteOpen(false);
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/5 rounded-md text-left transition-colors group"

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -13,7 +12,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
@@ -38,6 +36,7 @@ import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot,
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
@@ -231,6 +230,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
 
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
@@ -260,7 +260,6 @@ export default function AdminPage() {
   const [inspectionTab, setInspectionTab] = useState('overview');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
-  // Inspected User Detailed Data
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [userNodes, setUserNodes] = useState<any[]>([]);
   const [userBreaches, setUserBreaches] = useState<any[]>([]);
@@ -279,7 +278,7 @@ export default function AdminPage() {
   const [kycRejectReason, setKycRejectReason] = useState('');
 
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
-  const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
+  const [isCountryAutocompleteOpen, setIsCountryAutocompleteOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
@@ -348,7 +347,6 @@ export default function AdminPage() {
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
 
-    // SERVER-SIDE SEARCH LOGIC (Uncapped & Real-time)
     if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
@@ -359,7 +357,6 @@ export default function AdminPage() {
       return () => unsub();
     }
 
-    // REAL-TIME SNAPSHOT LOGIC (Uncapped Default View)
     const qMap: any = {
       'overview': null,
       'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
@@ -416,7 +413,10 @@ export default function AdminPage() {
     setApprovingKycUserId(userId);
     try {
       const res = await updateKycStatusAction(userId, 'verified');
-      if (res.success) { toast({ title: "KYC Verified" }); refreshStats(true); }
+      if (res.success) { 
+        toast({ title: "KYC Verified", description: "Trader identity has been approved." }); 
+        refreshStats(true); 
+      }
       else toast({ variant: "destructive", title: "Failed", description: res.error });
     } finally { setApprovingKycUserId(null); }
   }, [refreshStats, toast]);
@@ -443,12 +443,6 @@ export default function AdminPage() {
     } finally {
       setActionLoading(false);
     }
-  };
-
-  const handleCountrySelect = (name: string, flag: string) => {
-    setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
-    setCountrySearchTerm('');
-    setIsCountryPopoverOpen(false);
   };
 
   const handleSaveFeaturedPayout = async () => {
@@ -544,7 +538,7 @@ export default function AdminPage() {
 
   const handleRejectOrder = async () => {
     if (!rejectingOrderId || !rejectReason.trim()) {
-      toast({ variant: "destructive", title: "Reason Required", description: "Please enter a rejection message." });
+      toast({ variant: "destructive", title: "Reason Required" });
       return;
     }
     setActionLoading(true);
@@ -569,15 +563,14 @@ export default function AdminPage() {
   }, [tabData.featuredPayouts]);
 
   const filteredCountries = useMemo(() => {
-    const term = countrySearchTerm.toLowerCase().trim();
+    const term = payoutForm.country.toLowerCase().trim();
     if (!term) return COUNTRIES.slice(0, 100);
     return COUNTRIES.filter(c => 
       c.name.toLowerCase().includes(term) || 
       c.code.toLowerCase().includes(term)
     );
-  }, [countrySearchTerm]);
+  }, [payoutForm.country]);
 
-  // INSIGHT: Inspected User Dedicated Listeners
   useEffect(() => {
     if (!selectedUser?.id || !isUserManagementOpen) {
       setUserTrades([]);
@@ -657,8 +650,15 @@ export default function AdminPage() {
              <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3"><div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div><div><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p><p className="text-xs font-mono font-bold text-white">{instanceId}</p></div></div>
              <div className="flex gap-2">
                 <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={handleResetHistory} disabled={actionLoading}><RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset</Button>
-                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}><Gift className="w-4 h-4 mr-2" /> Gift Account</Button>
-                <Button variant="outline" className="h-10 w-10 p-0" onClick={() => refreshStats(true)} disabled={isLoading}><RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} /></Button>
+                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => router.push('/admin/price-tracker')} disabled={actionLoading}>
+                   <RefreshCw className="w-4 h-4 mr-2" /> Price Synchronizer
+                </Button>
+                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
+                   <Gift className="w-4 h-4 mr-2" /> Gift Account
+                </Button>
+                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}>
+                   <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
+                </Button>
                 <Button variant="outline" className="h-10 w-10 p-0" asChild><Link href="/dashboard"><LogOut size={16} /></Link></Button>
              </div>
           </div>
@@ -882,13 +882,29 @@ export default function AdminPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
              <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-             <div className="space-y-2">
+             <div className="space-y-2 relative">
                 <Label>Country</Label>
-                <Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
-                  <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800">{payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
-                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" align="start">
-                    <div className="p-2 border-b border-zinc-800"><Input placeholder="Search country..." value={countrySearchTerm} onChange={e => setCountrySearchTerm(e.target.value)} className="h-8" /></div>
-                    <ScrollArea className="h-72">
+                <div className="relative">
+                  <Input 
+                    placeholder="Search country..." 
+                    value={payoutForm.country} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      setPayoutForm({...payoutForm, country: val});
+                      setCountrySearchTerm(val);
+                      setIsCountryAutocompleteOpen(true);
+                    }}
+                    onFocus={() => setIsCountryAutocompleteOpen(true)}
+                    className="bg-zinc-900 border-zinc-800 h-10 w-full"
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                  </div>
+                </div>
+
+                {isCountryAutocompleteOpen && filteredCountries.length > 0 && (
+                  <Card className="absolute top-full left-0 w-full mt-1 bg-zinc-900 border-zinc-800 z-[120] shadow-2xl max-h-60 overflow-hidden flex flex-col">
+                    <ScrollArea className="flex-1">
                       <div className="p-1 flex flex-col">
                         {filteredCountries.map(c => (
                           <button 
@@ -898,20 +914,20 @@ export default function AdminPage() {
                               e.preventDefault(); 
                               e.stopPropagation();
                               setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
-                              setCountrySearchTerm('');
-                              setIsCountryPopoverOpen(false);
+                              setCountrySearchTerm(c.name);
+                              setIsCountryAutocompleteOpen(false);
                             }}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left transition-colors"
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/5 rounded-md text-left transition-colors group"
                           >
-                            <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
-                            <span>{c.flag}</span>
-                            <span className="text-zinc-300">{c.name}</span>
+                            <span className="text-base">{c.flag}</span>
+                            <span className="text-zinc-300 group-hover:text-white">{c.name}</span>
+                            {payoutForm.country === c.name && <CheckIcon className="h-3 w-3 text-primary ml-auto" />}
                           </button>
                         ))}
                       </div>
                     </ScrollArea>
-                  </PopoverContent>
-                </Popover>
+                  </Card>
+                )}
              </div>
              <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
@@ -1009,7 +1025,6 @@ export default function AdminPage() {
             </div>
           </DialogHeader>
 
-          {/* Tabs Section */}
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
             <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
               <TabsList className="bg-transparent h-14 justify-start p-0 gap-10">
