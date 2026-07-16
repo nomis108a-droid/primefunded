@@ -51,7 +51,7 @@ const COUNTRIES = [
   { name: "Bulgaria", code: "BG" }, { name: "Burkina Faso", code: "BF" }, { name: "Burundi", code: "BI" }, { name: "Cambodia", code: "KH" }, { name: "Cameroon", code: "CM" },
   { name: "Canada", code: "CA" }, { name: "Cape Verde", code: "CV" }, { name: "Central African Republic", code: "CF" }, { name: "Chad", code: "TD" }, { name: "Chile", code: "CL" },
   { name: "China", code: "CN" }, { name: "Colombia", code: "CO" }, { name: "Comoros", code: "KM" }, { name: "Congo", code: "CG" }, { name: "Costa Rica", code: "CR" },
-  { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" }, { name: "CY", code: "CY" }, { name: "Czech Republic", code: "CZ" }, { name: "Denmark", code: "DK" },
+  { name: "Croatia", code: "HR" }, { name: "Cuba", code: "CU" }, { name: "Cyprus", code: "CY" }, { name: "Czech Republic", code: "CZ" }, { name: "Denmark", code: "DK" },
   { name: "Djibouti", code: "DJ" }, { name: "Dominica", code: "DM" }, { name: "Dominican Republic", code: "DO" }, { name: "Ecuador", code: "EC" }, { name: "Egypt", code: "EG" },
   { name: "El Salvador", code: "SV" }, { name: "Equatorial Guinea", code: "GQ" }, { name: "Eritrea", code: "ER" }, { name: "Estonia", code: "EE" }, { name: "Eswatini", code: "SZ" },
   { name: "Ethiopia", code: "ET" }, { name: "Fiji", code: "FJ" }, { name: "Finland", code: "FI" }, { name: "France", code: "FR" }, { name: "Gabon", code: "GA" },
@@ -569,9 +569,12 @@ export default function AdminPage() {
   }, [tabData.featuredPayouts]);
 
   const filteredCountries = useMemo(() => {
+    const term = countrySearchTerm.toLowerCase().trim();
+    if (!term) return COUNTRIES.slice(0, 100);
     return COUNTRIES.filter(c => 
-      c.name.toLowerCase().includes(countrySearchTerm.toLowerCase())
-    ).slice(0, 100);
+      c.name.toLowerCase().includes(term) || 
+      c.code.toLowerCase().includes(term)
+    );
   }, [countrySearchTerm]);
 
   // INSIGHT: Inspected User Dedicated Listeners
@@ -882,7 +885,26 @@ export default function AdminPage() {
                   <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800">{payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
                   <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" align="start">
                     <div className="p-2 border-b border-zinc-800"><Input placeholder="Search country..." value={countrySearchTerm} onChange={e => setCountrySearchTerm(e.target.value)} className="h-8" /></div>
-                    <ScrollArea className="h-72"><div className="p-1 flex flex-col">{filteredCountries.map(c => (<button key={c.code} type="button" onPointerDown={e => { e.preventDefault(); handleCountrySelect(c.name, c.flag); }} className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left"><CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} /><span>{c.flag}</span><span className="text-zinc-300">{c.name}</span></button>))}</div></ScrollArea>
+                    <ScrollArea className="h-72">
+                      <div className="p-1 flex flex-col">
+                        {filteredCountries.map(c => (
+                          <button 
+                            key={c.code} 
+                            type="button" 
+                            onClick={() => {
+                              setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
+                              setCountrySearchTerm('');
+                              setIsCountryPopoverOpen(false);
+                            }} 
+                            className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left transition-colors"
+                          >
+                            <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
+                            <span>{c.flag}</span>
+                            <span className="text-zinc-300">{c.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </ScrollArea>
                   </PopoverContent>
                 </Popover>
              </div>
