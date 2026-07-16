@@ -1,3 +1,4 @@
+
 {
   "indexes": [
     {
@@ -86,6 +87,14 @@
     {
       "collectionGroup": "breaches",
       "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "breachedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "breaches",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "breachedAt", "order": "DESCENDING" }
