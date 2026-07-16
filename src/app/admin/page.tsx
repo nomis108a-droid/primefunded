@@ -587,7 +587,7 @@ export default function AdminPage() {
     setNodesLoading(true);
     setBreachesLoading(true);
 
-    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'));
+    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'), limit(1000));
     const unsubT = onSnapshot(qT, (snap) => {
       setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTradesLoading(false);
@@ -716,7 +716,7 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes">
             <div className="space-y-6">
-              <TabHeader title="CHALLENGE NODE REGISTRY" count={stats.totalNodesCount} onSearch={setSearchTerm} />
+              <TabHeader title="CHALLENGE NODE REGISTRY" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
               <DataTable 
                 loading={isLoading} 
                 data={tabData.demoAccounts} 
@@ -1022,7 +1022,7 @@ export default function AdminPage() {
                       <p className={cn("text-sm font-bold uppercase", selectedUser?.status === 'active' ? "text-emerald-500" : "text-destructive")}>{selectedUser?.status || 'active'}</p>
                     </div>
                     <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
-                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Global Liquidity (Profile)</p>
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity (Profile)</p>
                       <p className="text-sm font-mono font-bold text-white">${(selectedUser?.balance || 0).toLocaleString()}</p>
                     </div>
                  </div>

@@ -90,6 +90,14 @@
       "fields": [
         { "fieldPath": "sentAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "breaches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "breachedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
