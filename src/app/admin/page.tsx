@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -876,7 +876,10 @@ export default function AdminPage() {
 
       <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
-          <DialogHeader><DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle>
+            <DialogDescription className="visually-hidden">Configure featured payout entry for public leaderboard.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-4">
              <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
              <div className="space-y-2">
@@ -891,7 +894,13 @@ export default function AdminPage() {
                           <button 
                             key={c.code} 
                             type="button" 
-                            onPointerDown={e => { e.preventDefault(); handleCountrySelect(c.name, c.flag); }}
+                            onPointerDown={e => { 
+                              e.preventDefault(); 
+                              e.stopPropagation();
+                              setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
+                              setCountrySearchTerm('');
+                              setIsCountryPopoverOpen(false);
+                            }}
                             className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left transition-colors"
                           >
                             <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
