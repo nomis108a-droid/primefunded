@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, memo } from 'react';
@@ -100,29 +101,43 @@ export default function AdminPriceTracker() {
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen bg-[#0a0a0a]">
       <Navigation />
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
-        <header className="mb-10 flex justify-between items-end">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <Zap className="w-6 h-6 text-primary fill-primary" />
-              <h1 className="text-3xl font-headline font-bold text-white uppercase tracking-tight">System Heartbeat</h1>
+        <header className="mb-12 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-[0_0_20px_rgba(17,179,245,0.2)]">
+                <Zap size={22} className="fill-current" />
+              </div>
+              <h1 className="text-4xl font-headline font-bold text-white tracking-tight uppercase italic">SYSTEM HEARTBEAT</h1>
             </div>
-            <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest border-primary/30 text-primary">Institutional Liquidity Monitor</Badge>
+            <div className="relative inline-block pb-2">
+              <p className="text-[11px] font-black uppercase tracking-[0.3em] text-primary/80">Institutional Liquidity Monitor</p>
+              <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary/40" />
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-[10px] font-black uppercase text-emerald-500 flex items-center gap-2 justify-end"><ShieldCheck className="w-3 h-3" /> System Status: HEALTHY</p>
-              <p className="text-[8px] text-zinc-500 uppercase font-bold tracking-widest">Background Sync Nodes: ACTIVE</p>
+          
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest mb-1">DATA FLOW</p>
+                <p className="text-xs font-bold text-white flex items-center gap-2">
+                  BACKGROUND SYNC NODES: <span className="text-emerald-500">ACTIVE</span>
+                </p>
+              </div>
+              <Badge variant="outline" className="h-10 px-6 bg-emerald-500/10 border-emerald-500/30 text-emerald-500 flex items-center gap-2 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                <ShieldCheck className="w-4 h-4" />
+                <span className="text-[10px] font-black uppercase tracking-widest">SYSTEM STATUS: HEALTHY</span>
+              </Badge>
             </div>
-            <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-9 px-4 rounded-xl font-bold">
+            <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest border-white/10 hover:bg-white/5">
               <RefreshCw className={cn("w-4 h-4 mr-2", isSyncing && "animate-spin")} /> Refresh UI
             </Button>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-20">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 mb-20">
           {SYMBOLS.map(sym => {
             const data = prices[sym];
             const hist = history[sym] || [];
@@ -130,16 +145,36 @@ export default function AdminPriceTracker() {
             const formatValue = (v: number) => v ? v.toLocaleString(undefined, { minimumFractionDigits: isForex ? 5 : 2 }) : '---';
 
             return (
-              <Card key={sym} className="bg-card/30 border-border/50 p-4 hover:border-primary/30 transition-all group">
-                <div className="flex flex-col gap-1">
-                  <div className="flex justify-between items-end mb-1">
-                    <span className="font-bold text-white text-xs group-hover:text-primary transition-colors">{sym}</span>
-                    <span className="font-mono text-[10px] text-primary tabular-nums">{formatValue(data?.price)}</span>
+              <Card key={sym} className="bg-zinc-900/40 border-zinc-800/60 p-6 hover:border-primary/40 transition-all group relative overflow-hidden shadow-xl">
+                <div className="absolute top-0 right-0 w-16 h-16 bg-primary/5 blur-2xl -mr-8 -mt-8 rounded-full group-hover:bg-primary/10 transition-colors" />
+                
+                <div className="flex flex-col gap-4">
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1">
+                      <span className="font-headline font-black text-lg text-white group-hover:text-primary transition-colors tracking-tight">{sym}</span>
+                      <p className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Live Execution</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-base font-black text-primary tabular-nums drop-shadow-[0_0_8px_rgba(17,179,245,0.3)]">{formatValue(data?.price)}</span>
+                      {data?.updatedAt && (
+                        <p className="text-[7px] text-zinc-600 font-bold uppercase mt-1">Tick: {new Date(data.updatedAt).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
+                      )}
+                    </div>
                   </div>
-                  <MiniChart history={hist} />
-                  <div className="flex justify-between mt-2 pt-2 border-t border-white/5">
-                     <div className="flex flex-col"><span className="text-[7px] text-zinc-600 font-black uppercase">Bid</span><span className="text-[9px] font-mono text-zinc-400">{formatValue(data?.bid)}</span></div>
-                     <div className="flex flex-col items-end"><span className="text-[7px] text-zinc-600 font-black uppercase">Ask</span><span className="text-[9px] font-mono text-zinc-400">{formatValue(data?.ask)}</span></div>
+
+                  <div className="relative">
+                    <MiniChart history={hist} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                     <div className="space-y-1">
+                        <span className="text-[8px] text-zinc-600 font-black uppercase tracking-widest">Bid Price</span>
+                        <p className="text-[11px] font-mono font-bold text-zinc-400 tabular-nums">{formatValue(data?.bid)}</p>
+                     </div>
+                     <div className="space-y-1 text-right">
+                        <span className="text-[8px] text-zinc-600 font-black uppercase tracking-widest">Ask Price</span>
+                        <p className="text-[11px] font-mono font-bold text-zinc-400 tabular-nums">{formatValue(data?.ask)}</p>
+                     </div>
                   </div>
                 </div>
               </Card>
