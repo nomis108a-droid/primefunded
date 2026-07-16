@@ -222,7 +222,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveKyc(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -281,7 +281,7 @@ export default function AdminPage() {
   const [kycRejectReason, setKycRejectReason] = useState('');
 
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
-  const [isCountryPopoverOpen, setIsCountryPopoverOpen] = useState(false);
+  const [isCountryAutocompleteOpen, setIsCountryAutocompleteOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
@@ -447,12 +447,6 @@ export default function AdminPage() {
     }
   };
 
-  const handleCountrySelect = (name: string, flag: string) => {
-    setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
-    setCountrySearchTerm('');
-    setIsCountryPopoverOpen(false);
-  };
-
   const handleSaveFeaturedPayout = async () => {
     if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
     setActionLoading(true);
@@ -571,15 +565,15 @@ export default function AdminPage() {
   }, [tabData.featuredPayouts]);
 
   const filteredCountries = useMemo(() => {
-    const term = countrySearchTerm.toLowerCase().trim();
+    const term = (payoutForm.country || '').toLowerCase().trim();
     if (!term) return COUNTRIES.slice(0, 100);
     return COUNTRIES.filter(c => 
       c.name.toLowerCase().includes(term) || 
       c.code.toLowerCase().includes(term)
     );
-  }, [countrySearchTerm]);
+  }, [payoutForm.country]);
 
-  // INSIGHT: Inspected User Detailed Data
+  // INSIGHT: Inspected User Dedicated Listeners
   useEffect(() => {
     if (!selectedUser?.id || !isUserManagementOpen) {
       setUserTrades([]);
@@ -664,9 +658,7 @@ export default function AdminPage() {
                    Price Synchronizer
                 </Button>
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}><Gift className="w-4 h-4 mr-2" /> Gift Account</Button>
-                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}>
-                   <Network className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
-                </Button>
+                <Button variant="outline" className="h-10 w-10 p-0" onClick={() => refreshStats(true)} disabled={isLoading}><RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} /></Button>
                 <Button variant="outline" className="h-10 w-10 p-0" asChild><Link href="/dashboard"><LogOut size={16} /></Link></Button>
              </div>
           </div>
@@ -675,7 +667,7 @@ export default function AdminPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory'].map(tab => (
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
                 <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
               ))}
             </TabsList>
@@ -865,6 +857,20 @@ export default function AdminPage() {
               )}
             </div>
           </TabsContent>
+
+          <TabsContent value="broadcasts">
+            <div className="space-y-6">
+              <TabHeader title="Communications: Broadcasts" count={tabData.broadcasts.length} />
+              <DataTable loading={isLoading} data={tabData.broadcasts} columns={['Sent At', 'Title', 'Message', 'Type']} renderRow={(b) => (
+                <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                  <td className="p-4 font-bold text-xs text-white">{b.title}</td>
+                  <td className="p-4 text-[10px] text-zinc-400 max-w-xs truncate">{b.message}</td>
+                  <td className="p-4"><Badge className="bg-primary/20 text-primary text-[8px] uppercase">{b.type}</Badge></td>
+                </tr>
+              )} />
+            </div>
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -876,13 +882,27 @@ export default function AdminPage() {
           </DialogHeader>
           <div className="space-y-4 py-4">
              <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-             <div className="space-y-2">
+             <div className="space-y-2 relative">
                 <Label>Country</Label>
-                <Popover open={isCountryPopoverOpen} onOpenChange={setIsCountryPopoverOpen}>
-                  <PopoverTrigger asChild><Button variant="outline" className="w-full justify-between bg-zinc-900 border-zinc-800">{payoutForm.country ? `${payoutForm.countryFlag} ${payoutForm.country}` : "Select country..."}<ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" /></Button></PopoverTrigger>
-                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-zinc-900 border-zinc-800 z-[110]" align="start">
-                    <div className="p-2 border-b border-zinc-800"><Input placeholder="Search country..." value={countrySearchTerm} onChange={e => setCountrySearchTerm(e.target.value)} className="h-8" /></div>
-                    <ScrollArea className="h-72">
+                <div className="relative">
+                  <Input 
+                    placeholder="Search country..." 
+                    value={payoutForm.country} 
+                    onChange={e => {
+                      setPayoutForm({...payoutForm, country: e.target.value});
+                      setIsCountryAutocompleteOpen(true);
+                    }}
+                    onFocus={() => setIsCountryAutocompleteOpen(true)}
+                    className="bg-zinc-900 border-zinc-800 h-10 w-full"
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <ChevronsUpDown className="h-4 w-4 opacity-50" />
+                  </div>
+                </div>
+
+                {isCountryAutocompleteOpen && filteredCountries.length > 0 && (
+                  <Card className="absolute top-full left-0 w-full mt-1 bg-zinc-900 border-zinc-800 z-[120] shadow-2xl max-h-60 overflow-hidden flex flex-col">
+                    <ScrollArea className="flex-1">
                       <div className="p-1 flex flex-col">
                         {filteredCountries.map(c => (
                           <button 
@@ -892,20 +912,19 @@ export default function AdminPage() {
                               e.preventDefault(); 
                               e.stopPropagation();
                               setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
-                              setCountrySearchTerm('');
-                              setIsCountryPopoverOpen(false);
+                              setIsCountryAutocompleteOpen(false);
                             }}
-                            className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left transition-colors"
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/5 rounded-md text-left transition-colors group"
                           >
-                            <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
-                            <span>{c.flag}</span>
-                            <span className="text-zinc-300">{c.name}</span>
+                            <span className="text-base">{c.flag}</span>
+                            <span className="text-zinc-300 group-hover:text-white">{c.name}</span>
+                            {payoutForm.country === c.name && <CheckIcon className="h-3 w-3 text-primary ml-auto" />}
                           </button>
                         ))}
                       </div>
                     </ScrollArea>
-                  </PopoverContent>
-                </Popover>
+                  </Card>
+                )}
              </div>
              <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
