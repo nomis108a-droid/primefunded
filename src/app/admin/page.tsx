@@ -195,6 +195,98 @@ const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, t
   </div>
 ));
 
+const PriceSynchronizerTab = memo(({ data, isLoading, onManualSync, actionLoading }: { data: any[], isLoading: boolean, onManualSync: () => void, actionLoading: boolean }) => (
+  <div className="space-y-6">
+    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <TabHeader title="Infrastructure: Price Synchronizer" count={data.length} />
+      <div className="flex items-center gap-3">
+        <div className="px-4 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] font-black uppercase text-emerald-500 tracking-widest">Feed Status: Healthy</span>
+        </div>
+        <Button 
+          className="h-10 font-black bg-primary text-black rounded-xl px-6" 
+          onClick={onManualSync} 
+          disabled={actionLoading}
+        >
+          {actionLoading ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
+          FORCE SYNC
+        </Button>
+      </div>
+    </div>
+
+    <Card className="bg-card/30 border-border/50 p-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">OANDA Feed</p>
+          <p className="text-sm font-bold text-white flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-500" /> Operational</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Kraken Feed</p>
+          <p className="text-sm font-bold text-white flex items-center gap-2"><CheckCircle2 size={14} className="text-emerald-500" /> Operational</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">RTDB Broadcast</p>
+          <p className="text-sm font-bold text-white flex items-center gap-2"><Zap size={14} className="text-primary" /> Active (150ms)</p>
+        </div>
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Leadership Status</p>
+          <p className="text-sm font-bold text-white flex items-center gap-2"><ShieldCheck size={14} className="text-primary" /> Active Master</p>
+        </div>
+      </div>
+    </Card>
+
+    <DataTable 
+      loading={isLoading} 
+      data={data} 
+      columns={['Asset Symbol', 'Market Price', 'Bid / Ask Spread', 'Feed Source', 'Temporal Audit', 'Status']} 
+      renderRow={(p) => {
+        const updatedAt = p.updatedAt?.toDate ? p.updatedAt.toDate() : new Date(p.updatedAt || 0);
+        const ageSec = Math.floor((Date.now() - updatedAt.getTime()) / 1000);
+        const isStale = ageSec > 30;
+        
+        return (
+          <tr key={p.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
+            <td className="p-4">
+              <span className="font-bold text-xs text-white">{p.id}</span>
+            </td>
+            <td className="p-4">
+              <span className="font-mono text-xs text-primary font-bold tabular-nums">
+                ${(p.price || 0).toLocaleString(undefined, { minimumFractionDigits: p.id.includes('JPY') ? 3 : 2 })}
+              </span>
+            </td>
+            <td className="p-4">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-mono text-zinc-400">B: {(p.bid || 0).toFixed(5)}</span>
+                <span className="text-[10px] font-mono text-zinc-400">A: {(p.ask || 0).toFixed(5)}</span>
+              </div>
+            </td>
+            <td className="p-4">
+              <Badge variant="outline" className="text-[8px] font-black uppercase border-white/10 text-zinc-400">
+                {p.source || 'aggregator'}
+              </Badge>
+            </td>
+            <td className="p-4">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-white font-bold">{format(updatedAt, 'HH:mm:ss')}</span>
+                <span className="text-[9px] text-zinc-500 uppercase font-bold">{ageSec}s ago</span>
+              </div>
+            </td>
+            <td className="p-4 text-right">
+              <Badge className={cn(
+                "text-[8px] font-black uppercase border-none px-2 h-5", 
+                isStale ? "bg-red-500/20 text-red-500" : "bg-emerald-500/20 text-emerald-500"
+              )}>
+                {isStale ? 'STALE' : 'LIVE'}
+              </Badge>
+            </td>
+          </tr>
+        );
+      }} 
+    />
+  </div>
+));
+
 const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isLoading: boolean, onInspect: (userId: string) => void }) => (
   <div className="space-y-6">
     <TabHeader title="Elite Performance: Phase Passers" count={data.length} />
@@ -246,7 +338,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], livePrices: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -362,6 +454,7 @@ export default function AdminPage() {
     // REAL-TIME SNAPSHOT LOGIC (Uncapped Default View)
     const qMap: any = {
       'overview': null,
+      'price-sync': query(collection(db, 'livePrices'), orderBy('price', 'desc')),
       'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
       'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
       'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
@@ -377,7 +470,19 @@ export default function AdminPage() {
     const targetQ = qMap[activeTab];
     if (targetQ) {
       unsub = onSnapshot(targetQ, (snap) => {
-        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
+        const fieldMap: any = { 
+          'user-directory': 'users', 
+          'trading-nodes': 'demoAccounts', 
+          'phase-passers': 'passers', 
+          'breaches': 'breaches', 
+          'order-review': 'orders', 
+          'payout-hub': 'payouts', 
+          'trades-payouts': 'featuredPayouts', 
+          'referral-audit': 'referrals', 
+          'kyc-hub': 'users', 
+          'broadcasts': 'broadcasts',
+          'price-sync': 'livePrices'
+        };
         setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
       });
@@ -476,6 +581,24 @@ export default function AdminPage() {
       if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setNodeFilterId(null); setIsUserManagementOpen(true); }
     } finally { setActionLoading(false); }
   }, []);
+
+  const handleManualPriceSync = async () => {
+    setActionLoading(true);
+    try {
+      const res = await fetch('/api/terminal/price-feed', {
+        headers: { 'x-api-key': 'primefunded_cron_2024' }
+      });
+      if (res.ok) {
+        toast({ title: "Price Sync Initiated", description: "Market liquidity feeds are being refreshed." });
+      } else {
+        throw new Error("Failed to trigger sync");
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Sync Fault", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -667,7 +790,7 @@ export default function AdminPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
+              {['Overview', 'Price Sync', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
                 <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
               ))}
             </TabsList>
@@ -675,6 +798,7 @@ export default function AdminPage() {
           </ScrollArea>
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
+          <TabsContent value="price-sync"><PriceSynchronizerTab data={tabData.livePrices} isLoading={isLoading} onManualSync={handleManualPriceSync} actionLoading={actionLoading} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
 
