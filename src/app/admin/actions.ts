@@ -5,7 +5,6 @@ import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
-import { sendCredentialEmail, sendReferralCommissionEmail } from '@/lib/email';
 
 /**
  * SECURITY HELPER: Admin Verification
@@ -18,7 +17,8 @@ export async function verifyAdminAuth() {
     
     const auth = getAdminAuth();
     if (!auth) return false;
-    // Basic structural check - real verification happens at the route level too
+    
+    // Additional validation could happen here via session token
     return true; 
   } catch (error) { return false; }
 }
@@ -126,6 +126,8 @@ export async function updateOrderStatusAction(id: string, status: string, reason
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) throw new Error("Admin DB unavailable");
+    
     const orderRef = db.collection('orders').doc(id);
     const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.rejectionReason = reason;
@@ -138,6 +140,8 @@ export async function resetSingleAccountAction(accountId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) throw new Error("Admin DB unavailable");
+    
     const accountRef = db.collection('demoAccounts').doc(accountId);
     const accountSnap = await accountRef.get();
     if (!accountSnap.exists) throw new Error("Account not found");
@@ -165,6 +169,8 @@ export async function resetAllHistoryAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) throw new Error("Admin DB unavailable");
+    
     const tradesSnap = await db.collection('demoTrades').get();
     const batch = db.batch();
     tradesSnap.docs.forEach(doc => batch.delete(doc.ref));
@@ -208,10 +214,15 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
   } catch (err: any) { return { success: false, error: err.message }; }
 }
 
+/**
+ * Hardened KYC Action: Handles approval and rejection via Admin SDK
+ */
 export async function updateKycStatusAction(userId: string, status: string, reason?: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) throw new Error("Admin DB unavailable");
+
     const updates: any = { 
       kycStatus: status, 
       kycVerified: status === 'verified', 
@@ -231,13 +242,18 @@ export async function updateKycStatusAction(userId: string, status: string, reas
     });
     
     return { success: true };
-  } catch (err: any) { return { success: false, error: err.message }; }
+  } catch (err: any) { 
+    console.error("[Action-KYC] Error:", err.message);
+    return { success: false, error: err.message }; 
+  }
 }
 
 export async function updatePayoutStatusAction(payoutId: string, status: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
+    if (!db) throw new Error("Admin DB unavailable");
+    
     await db.collection('payouts').doc(payoutId).update({ status, updatedAt: FieldValue.serverTimestamp() });
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
@@ -247,6 +263,8 @@ export async function cleanupDuplicateOrdersAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
+    if (!db) throw new Error("Admin DB unavailable");
+    
     const ordersSnap = await db.collection('orders').where('status', '==', 'waiting').get();
     // Logic for cleanup of expired waiting orders...
     return { success: true };

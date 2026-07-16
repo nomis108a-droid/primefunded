@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -13,7 +12,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
@@ -85,7 +83,7 @@ const COUNTRIES = [
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ].map(c => {
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
-  return { ...c, flag: String.fromCodePoint(...codePoints) };
+  return { ...c, flag: String.fromPoint(...codePoints) };
 });
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -262,7 +260,6 @@ export default function AdminPage() {
   const [inspectionTab, setInspectionTab] = useState('overview');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
-  // Inspected User Detailed Data
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [userNodes, setUserNodes] = useState<any[]>([]);
   const [userBreaches, setUserBreaches] = useState<any[]>([]);
@@ -350,7 +347,6 @@ export default function AdminPage() {
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
 
-    // SERVER-SIDE SEARCH LOGIC (Uncapped & Real-time)
     if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
@@ -361,7 +357,6 @@ export default function AdminPage() {
       return () => unsub();
     }
 
-    // REAL-TIME SNAPSHOT LOGIC (Uncapped Default View)
     const qMap: any = {
       'overview': null,
       'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
@@ -418,7 +413,10 @@ export default function AdminPage() {
     setApprovingKycUserId(userId);
     try {
       const res = await updateKycStatusAction(userId, 'verified');
-      if (res.success) { toast({ title: "KYC Verified" }); refreshStats(true); }
+      if (res.success) { 
+        toast({ title: "KYC Verified", description: "Trader identity has been approved." }); 
+        refreshStats(true); 
+      }
       else toast({ variant: "destructive", title: "Failed", description: res.error });
     } finally { setApprovingKycUserId(null); }
   }, [refreshStats, toast]);
@@ -540,7 +538,7 @@ export default function AdminPage() {
 
   const handleRejectOrder = async () => {
     if (!rejectingOrderId || !rejectReason.trim()) {
-      toast({ variant: "destructive", title: "Reason Required", description: "Please enter a rejection message." });
+      toast({ variant: "destructive", title: "Reason Required" });
       return;
     }
     setActionLoading(true);
@@ -573,7 +571,6 @@ export default function AdminPage() {
     );
   }, [countrySearchTerm]);
 
-  // INSIGHT: Inspected User Dedicated Listeners
   useEffect(() => {
     if (!selectedUser?.id || !isUserManagementOpen) {
       setUserTrades([]);
@@ -654,11 +651,14 @@ export default function AdminPage() {
              <div className="flex gap-2">
                 <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={handleResetHistory} disabled={actionLoading}><RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset</Button>
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => router.push('/admin/price-tracker')} disabled={actionLoading}>
-                   <RefreshCw className="w-4 h-4 mr-2" />
-                   Price Synchronizer
+                   <RefreshCw className="w-4 h-4 mr-2" /> Price Synchronizer
                 </Button>
-                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}><Gift className="w-4 h-4 mr-2" /> Gift Account</Button>
-                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}><Network className="w-4 h-4 mr-2" /> Sync Network</Button>
+                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
+                   <Gift className="w-4 h-4 mr-2" /> Gift Account
+                </Button>
+                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}>
+                   <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
+                </Button>
                 <Button variant="outline" className="h-10 w-10 p-0" asChild><Link href="/dashboard"><LogOut size={16} /></Link></Button>
              </div>
           </div>
@@ -1022,7 +1022,6 @@ export default function AdminPage() {
             </div>
           </DialogHeader>
 
-          {/* Tabs Section */}
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
             <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
               <TabsList className="bg-transparent h-14 justify-start p-0 gap-10">
