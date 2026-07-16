@@ -891,11 +891,10 @@ export default function AdminPage() {
                           <button 
                             key={c.code} 
                             type="button" 
-                            onClick={() => {
-                              setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
-                              setCountrySearchTerm('');
-                              setIsCountryPopoverOpen(false);
-                            }} 
+                            onPointerDown={(e) => {
+                              e.preventDefault();
+                              handleCountrySelect(c.name, c.flag);
+                            }}
                             className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left transition-colors"
                           >
                             <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
