@@ -259,8 +259,14 @@ export default function AdminPage() {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [inspectionTab, setInspectionTab] = useState('overview');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
+  
+  // Inspected User Detailed Data
   const [userTrades, setUserTrades] = useState<any[]>([]);
+  const [userNodes, setUserNodes] = useState<any[]>([]);
+  const [userBreaches, setUserBreaches] = useState<any[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
+  const [nodesLoading, setNodesLoading] = useState(false);
+  const [breachesLoading, setBreachesLoading] = useState(false);
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -357,7 +363,7 @@ export default function AdminPage() {
     const qMap: any = {
       'overview': null,
       'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
-      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), // Trading nodes keep limit for safety unless requested
+      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
       'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
       'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
       'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc')),
@@ -568,26 +574,41 @@ export default function AdminPage() {
     ).slice(0, 100);
   }, [countrySearchTerm]);
 
+  // INSIGHT: Inspected User Dedicated Listeners
   useEffect(() => {
-    if (!selectedUser?.id || !isUserManagementOpen) return;
+    if (!selectedUser?.id || !isUserManagementOpen) {
+      setUserTrades([]);
+      setUserNodes([]);
+      setUserBreaches([]);
+      return;
+    }
     
     setTradesLoading(true);
-    const qT = query(
-      collection(db, 'demoTrades'), 
-      where('userId', '==', selectedUser.id), 
-      orderBy('openedAt', 'desc')
-    );
-    
+    setNodesLoading(true);
+    setBreachesLoading(true);
+
+    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'));
     const unsubT = onSnapshot(qT, (snap) => {
       setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTradesLoading(false);
-    }, (err) => {
-      setTradesLoading(false);
+    });
+
+    const qN = query(collection(db, 'demoAccounts'), where('userId', '==', selectedUser.id), orderBy('createdAt', 'desc'));
+    const unsubN = onSnapshot(qN, (snap) => {
+      setUserNodes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setNodesLoading(false);
+    });
+
+    const qB = query(collection(db, 'breaches'), where('userId', '==', selectedUser.id), orderBy('breachedAt', 'desc'));
+    const unsubB = onSnapshot(qB, (snap) => {
+      setUserBreaches(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setBreachesLoading(false);
     });
     
     return () => {
       unsubT();
-      setTradesLoading(false);
+      unsubN();
+      unsubB();
     };
   }, [selectedUser?.id, isUserManagementOpen]);
 
@@ -937,6 +958,7 @@ export default function AdminPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-5">
                 <Avatar className="w-14 h-14 border-2 border-primary/20 p-1 bg-primary/5">
+                  {selectedUser?.photoURL ? <AvatarImage src={selectedUser.photoURL} /> : null}
                   <AvatarFallback className="bg-primary/10 text-primary font-black text-xl">PF</AvatarFallback>
                 </Avatar>
                 <div>
@@ -978,7 +1000,7 @@ export default function AdminPage() {
 
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-zinc-950/50">
               <TabsContent value="overview" className="m-0 space-y-8">
-                 <div className="grid grid-cols-3 gap-6">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
                       <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Email Address</p>
                       <p className="text-sm font-bold text-white">{selectedUser?.email}</p>
@@ -988,70 +1010,94 @@ export default function AdminPage() {
                       <p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p>
                     </div>
                     <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Country</p>
+                      <p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p>
+                    </div>
+                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
                       <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Join Date</p>
                       <p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'PPP') : '—'}</p>
+                    </div>
+                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Account Status</p>
+                      <p className={cn("text-sm font-bold uppercase", selectedUser?.status === 'active' ? "text-emerald-500" : "text-destructive")}>{selectedUser?.status || 'active'}</p>
+                    </div>
+                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2">
+                      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Global Liquidity (Profile)</p>
+                      <p className="text-sm font-mono font-bold text-white">${(selectedUser?.balance || 0).toLocaleString()}</p>
                     </div>
                  </div>
               </TabsContent>
 
               <TabsContent value="trading-nodes" className="m-0 space-y-6">
-                {(tabData.demoAccounts || []).filter((n: any) => n.userId === selectedUser?.id).map((acc: any) => {
-                  const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
-                  return (
-                    <Card key={acc.id} className="bg-zinc-900/40 border-zinc-800/60 overflow-hidden group shadow-xl">
-                      <CardHeader className="p-6 flex flex-row items-center justify-between border-b border-white/5 bg-zinc-900/20">
-                        <div className="space-y-1">
-                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">{acc.planType || acc.plan}</p>
-                          <CardTitle className="text-base font-bold text-white">{acc.label}</CardTitle>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <Badge className={cn(
-                            "text-[9px] font-black uppercase px-3 h-6 border-none",
-                            acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500"
-                          )}>
-                            {acc.status}
-                          </Badge>
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="h-8 text-[9px] font-black uppercase border-red-500/30 text-red-500 hover:bg-red-500/10" 
-                            onClick={(e) => { e.stopPropagation(); handleResetSingleAccount(acc.id); }}
-                          >
-                            <RefreshCw className="w-3 h-3 mr-2" /> RESET BALANCE
-                          </Button>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="p-6 space-y-6">
-                         <div className="grid grid-cols-2 gap-8">
-                            <div className="space-y-1">
-                              <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Node Balance</p>
-                              <p className="text-xl font-mono font-black text-white">${(acc.balance || 0).toLocaleString()}</p>
-                            </div>
-                            <div className="space-y-1">
-                              <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Account Equity</p>
-                              <p className="text-xl font-mono font-black text-white">${(acc.equity || 0).toLocaleString()}</p>
-                            </div>
-                         </div>
-                         <Button 
-                            variant="outline" 
-                            size="sm" 
-                            className="w-full text-[10px] font-black uppercase tracking-widest mt-2" 
-                            onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade-history'); }}
-                          >
-                            View Node Execution History <History className="w-3 h-3 ml-2" />
-                         </Button>
-                         {isLiquidated && (
-                           <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
-                              <p className="text-[9px] font-black uppercase text-red-500 tracking-[0.2em] mb-2">Termination Reason</p>
-                              <p className="text-[11px] font-medium text-red-400 italic leading-relaxed">
-                                "{acc.breachReason || 'Risk management violation detected. Account access restricted.'}"
-                              </p>
+                {nodesLoading ? (
+                  <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Mapping user nodes...</p>
+                  </div>
+                ) : userNodes.length === 0 ? (
+                  <div className="py-20 text-center flex flex-col items-center justify-center opacity-20">
+                    <Monitor className="w-12 h-12 mb-4" />
+                    <p className="text-[10px] font-black uppercase tracking-widest">No active trading nodes provisioned.</p>
+                  </div>
+                ) : (
+                  userNodes.map((acc: any) => {
+                    const isLiquidated = ['blown', 'breach', 'terminated'].includes(acc.status);
+                    return (
+                      <Card key={acc.id} className="bg-zinc-900/40 border-zinc-800/60 overflow-hidden group shadow-xl">
+                        <CardHeader className="p-6 flex flex-row items-center justify-between border-b border-white/5 bg-zinc-900/20">
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">{acc.planType || acc.plan}</p>
+                            <CardTitle className="text-base font-bold text-white">{acc.label}</CardTitle>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Badge className={cn(
+                              "text-[9px] font-black uppercase px-3 h-6 border-none",
+                              acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500"
+                            )}>
+                              {acc.status}
+                            </Badge>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-8 text-[9px] font-black uppercase border-red-500/30 text-red-500 hover:bg-red-500/10" 
+                              onClick={(e) => { e.stopPropagation(); handleResetSingleAccount(acc.id); }}
+                            >
+                              <RefreshCw className="w-3 h-3 mr-2" /> RESET BALANCE
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="p-6 space-y-6">
+                           <div className="grid grid-cols-2 gap-8">
+                              <div className="space-y-1">
+                                <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Node Balance</p>
+                                <p className="text-xl font-mono font-black text-white">${(acc.balance || 0).toLocaleString()}</p>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest">Account Equity</p>
+                                <p className="text-xl font-mono font-black text-white">${(acc.equity || 0).toLocaleString()}</p>
+                              </div>
                            </div>
-                         )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
+                           <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="w-full text-[10px] font-black uppercase tracking-widest mt-2" 
+                              onClick={() => { setNodeFilterId(acc.id); setInspectionTab('trade-history'); }}
+                            >
+                              View Node Execution History <History className="w-3 h-3 ml-2" />
+                           </Button>
+                           {isLiquidated && (
+                             <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
+                                <p className="text-[9px] font-black uppercase text-red-500 tracking-[0.2em] mb-2">Termination Reason</p>
+                                <p className="text-[11px] font-medium text-red-400 italic leading-relaxed">
+                                  "{acc.breachReason || 'Risk management violation detected. Account access restricted.'}"
+                                </p>
+                             </div>
+                           )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })
+                )}
               </TabsContent>
 
               <TabsContent value="trade-history" className="m-0">
@@ -1114,11 +1160,38 @@ export default function AdminPage() {
                 )}
               </TabsContent>
               
-              <TabsContent value="breach-logs" className="m-0">
-                 <div className="p-20 text-center flex flex-col items-center justify-center opacity-20">
-                   <Skull className="w-12 h-12 mb-4" />
-                   <p className="text-[10px] font-black uppercase tracking-widest">No breach events recorded.</p>
-                 </div>
+              <TabsContent value="breach-logs" className="m-0 space-y-6">
+                 {breachesLoading ? (
+                   <div className="py-20 flex flex-col items-center justify-center space-y-4">
+                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                     <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Audit in progress...</p>
+                   </div>
+                 ) : userBreaches.length === 0 ? (
+                   <div className="py-20 text-center flex flex-col items-center justify-center opacity-20">
+                     <Skull className="w-12 h-12 mb-4" />
+                     <p className="text-[10px] font-black uppercase tracking-widest">No risk violations on record.</p>
+                   </div>
+                 ) : (
+                   <div className="space-y-4">
+                     {userBreaches.map((b) => (
+                       <Card key={b.id} className="bg-destructive/5 border-destructive/20 overflow-hidden">
+                         <div className="p-4 flex items-start gap-4">
+                           <div className="p-2 bg-destructive/10 rounded-lg text-destructive shrink-0">
+                             <ShieldAlert size={18} />
+                           </div>
+                           <div className="flex-1 space-y-1">
+                             <div className="flex justify-between items-center">
+                               <p className="text-[10px] font-black uppercase text-destructive tracking-widest">{b.type || 'HARD'} BREACH</p>
+                               <p className="text-[9px] text-zinc-500 font-bold uppercase">{b.breachedAt?.toDate ? format(b.breachedAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</p>
+                             </div>
+                             <p className="text-sm font-bold text-white">{b.reason || 'Risk limit exceeded.'}</p>
+                             <p className="text-[10px] text-zinc-500 font-mono">Incident ID: {b.id}</p>
+                           </div>
+                         </div>
+                       </Card>
+                     ))}
+                   </div>
+                 )}
               </TabsContent>
             </div>
 
