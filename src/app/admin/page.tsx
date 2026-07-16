@@ -222,7 +222,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveKyc(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -565,13 +565,13 @@ export default function AdminPage() {
   }, [tabData.featuredPayouts]);
 
   const filteredCountries = useMemo(() => {
-    const term = (payoutForm.country || '').toLowerCase().trim();
+    const term = countrySearchTerm.toLowerCase().trim();
     if (!term) return COUNTRIES.slice(0, 100);
     return COUNTRIES.filter(c => 
       c.name.toLowerCase().includes(term) || 
       c.code.toLowerCase().includes(term)
     );
-  }, [payoutForm.country]);
+  }, [countrySearchTerm]);
 
   // INSIGHT: Inspected User Dedicated Listeners
   useEffect(() => {
@@ -658,7 +658,7 @@ export default function AdminPage() {
                    Price Synchronizer
                 </Button>
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}><Gift className="w-4 h-4 mr-2" /> Gift Account</Button>
-                <Button variant="outline" className="h-10 w-10 p-0" onClick={() => refreshStats(true)} disabled={isLoading}><RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} /></Button>
+                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}><Network className="w-4 h-4 mr-2" /> Sync Network</Button>
                 <Button variant="outline" className="h-10 w-10 p-0" asChild><Link href="/dashboard"><LogOut size={16} /></Link></Button>
              </div>
           </div>
