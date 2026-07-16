@@ -445,11 +445,11 @@ export default function AdminPage() {
     }
   };
 
-  const handleCountrySelect = useCallback((name: string, flag: string) => {
+  const handleCountrySelect = (name: string, flag: string) => {
     setPayoutForm(prev => ({ ...prev, country: name, countryFlag: flag }));
     setCountrySearchTerm('');
     setIsCountryPopoverOpen(false);
-  }, []);
+  };
 
   const handleSaveFeaturedPayout = async () => {
     if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
@@ -891,10 +891,7 @@ export default function AdminPage() {
                           <button 
                             key={c.code} 
                             type="button" 
-                            onPointerDown={(e) => {
-                              e.preventDefault();
-                              handleCountrySelect(c.name, c.flag);
-                            }}
+                            onClick={() => handleCountrySelect(c.name, c.flag)}
                             className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-white/5 rounded-md text-left transition-colors"
                           >
                             <CheckIcon className={cn("h-4 w-4 text-primary", payoutForm.country === c.name ? "opacity-100" : "opacity-0")} />
