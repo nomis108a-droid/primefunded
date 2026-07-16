@@ -297,7 +297,6 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
-    // Reduced cooldown to 10s for polling
     if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
 
     try {
@@ -329,7 +328,6 @@ export default function AdminPage() {
     } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
   }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
-  // AUTOMATIC STATS UPDATE: Poll every 10 seconds
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats(true);
@@ -344,29 +342,30 @@ export default function AdminPage() {
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
 
+    // SERVER-SIDE SEARCH LOGIC (Uncapped & Real-time)
     if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
-      (async () => {
-        const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
-        const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'), limit(50));
-        const snap = await getDocs(q);
+      const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
+      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
+      unsub = onSnapshot(q, (snap) => {
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
-      })();
-      return;
+      });
+      return () => unsub();
     }
 
+    // REAL-TIME SNAPSHOT LOGIC (Uncapped Default View)
     const qMap: any = {
       'overview': null,
-      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)),
-      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)),
-      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc'), limit(100)),
-      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc'), limit(100)),
-      'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc'), limit(100)),
-      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)),
-      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(50)),
-      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)),
+      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
+      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), // Trading nodes keep limit for safety unless requested
+      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
+      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
+      'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc')),
+      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
+      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
+      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
       'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
-      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(100))
+      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
     };
 
     const targetQ = qMap[activeTab];
@@ -436,7 +435,6 @@ export default function AdminPage() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Failed", description: e.message });
     } finally {
-      setActionLoading(true); // actually resetting action loading
       setActionLoading(false);
     }
   };
@@ -574,7 +572,6 @@ export default function AdminPage() {
     if (!selectedUser?.id || !isUserManagementOpen) return;
     
     setTradesLoading(true);
-    // COMPLETE HISTORY: Removed limit(1000) to ensure full ledger is retrieved
     const qT = query(
       collection(db, 'demoTrades'), 
       where('userId', '==', selectedUser.id), 
@@ -593,6 +590,23 @@ export default function AdminPage() {
       setTradesLoading(false);
     };
   }, [selectedUser?.id, isUserManagementOpen]);
+
+  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
+    const term = searchTerm.toLowerCase();
+    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
+  }), [tabData.users, searchTerm]);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (userPage - 1) * usersPerPage;
+    return filteredUsers.slice(start, start + usersPerPage);
+  }, [filteredUsers, userPage]);
+
+  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage);
+
+  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
+    const term = searchTerm.toLowerCase();
+    return o.email?.toLowerCase().includes(term) || o.id.toLowerCase().includes(term);
+  }), [tabData.orders, searchTerm]);
 
   if (!isAuthenticated && !showAdminModal) {
     return (
@@ -753,7 +767,7 @@ export default function AdminPage() {
           <TabsContent value="order-review">
             <div className="space-y-6">
               <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={tabData.orders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
+              <DataTable loading={isLoading} data={filteredOrders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
                 <tr key={o.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{o.email}</td>
                   <td className="p-4 text-xs text-muted-foreground">{o.plan}</td>
@@ -797,7 +811,7 @@ export default function AdminPage() {
           <TabsContent value="user-directory">
             <div className="space-y-6">
               <TabHeader title="Identity: User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={tabData.users} columns={['Name', 'Email', 'Country', 'KYC', 'Joined', 'Actions']} renderRow={(u) => (
+              <DataTable loading={isLoading} data={paginatedUsers} columns={['Name', 'Email', 'Country', 'KYC', 'Joined', 'Actions']} renderRow={(u) => (
                 <tr key={u.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{u.name || 'Trader'}</td>
                   <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
@@ -807,6 +821,16 @@ export default function AdminPage() {
                   <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
                 </tr>
               )} />
+              
+              {totalUserPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-xs text-muted-foreground">Showing {paginatedUsers.length} of {filteredUsers.length} traders</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}><ChevronLeft className="w-4 h-4 mr-1" /> Prev</Button>
+                    <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
 
