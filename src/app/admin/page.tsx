@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -587,7 +586,7 @@ export default function AdminPage() {
     setNodesLoading(true);
     setBreachesLoading(true);
 
-    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'), limit(1000));
+    const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id), orderBy('openedAt', 'desc'));
     const unsubT = onSnapshot(qT, (snap) => {
       setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTradesLoading(false);
