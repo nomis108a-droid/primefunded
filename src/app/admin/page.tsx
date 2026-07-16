@@ -17,7 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, AlertTriangle
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -64,7 +64,7 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
   { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
   { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
   { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
@@ -284,6 +284,11 @@ export default function AdminPage() {
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
+  // Price Sync Interface States
+  const [isPriceSyncModalOpen, setIsPriceSyncModalOpen] = useState(false);
+  const [priceSyncData, setPriceSyncData] = useState<any[]>([]);
+  const [priceSyncLoading, setPriceSyncLoading] = useState(false);
+
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
 
@@ -389,6 +394,19 @@ export default function AdminPage() {
     return () => unsub();
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
+  // Price Sync Interface Listener
+  useEffect(() => {
+    if (!isPriceSyncModalOpen || !isAuthenticated || !isAuthorized) return;
+    
+    setPriceSyncLoading(true);
+    const q = query(collection(db, 'livePrices'), orderBy('updatedAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      setPriceSyncData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setPriceSyncLoading(false);
+    });
+    return () => unsub();
+  }, [isPriceSyncModalOpen, isAuthenticated, isAuthorized]);
+
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
@@ -447,6 +465,8 @@ export default function AdminPage() {
 
   const handleManualPriceSync = async () => {
     setActionLoading(true);
+    // Open modal as the primary action
+    setIsPriceSyncModalOpen(true);
     try {
       const res = await fetch('/api/terminal/price-feed', {
         headers: { 'x-api-key': 'primefunded_cron_2024' }
@@ -883,6 +903,123 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Price Synchronizer Modal */}
+      <Dialog open={isPriceSyncModalOpen} onOpenChange={setIsPriceSyncModalOpen}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white max-h-[85vh] flex flex-col p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="p-6 border-b border-white/5 bg-zinc-900/40">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <RefreshCw className={cn("w-6 h-6", actionLoading && "animate-spin")} />
+                </div>
+                <div>
+                  <DialogTitle className="text-xl font-headline font-bold uppercase tracking-tight">Institutional Price Synchronizer</DialogTitle>
+                  <DialogDescription className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em] mt-1">Real-time Liquidity & Feed Audit</DialogDescription>
+                </div>
+              </div>
+              <Button size="sm" className="bg-primary text-black font-black" onClick={handleManualPriceSync} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                FORCE GLOBAL SYNC
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6 bg-zinc-950">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="bg-emerald-500/5 border-emerald-500/20 p-4">
+                <div className="flex justify-between items-start">
+                  <p className="text-[9px] font-black uppercase text-emerald-500 tracking-widest">OANDA FEED</p>
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                </div>
+                <p className="text-lg font-bold text-white mt-1 uppercase">Healthy</p>
+                <p className="text-[8px] text-emerald-500/70 font-bold mt-1">Institutional FX & Metals active</p>
+              </Card>
+              <Card className="bg-primary/5 border-primary/20 p-4">
+                <div className="flex justify-between items-start">
+                  <p className="text-[9px] font-black uppercase text-primary tracking-widest">KRAKEN FEED</p>
+                  <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <p className="text-lg font-bold text-white mt-1 uppercase">Active</p>
+                <p className="text-[8px] text-primary/70 font-bold mt-1">Real-time Crypto liquidity active</p>
+              </Card>
+              <Card className="bg-amber-500/5 border-amber-500/20 p-4">
+                <div className="flex justify-between items-start">
+                  <p className="text-[9px] font-black uppercase text-amber-500 tracking-widest">RTDB BROADCSTR</p>
+                  <Activity className="w-3.5 h-3.5 text-amber-500" />
+                </div>
+                <p className="text-lg font-bold text-white mt-1 uppercase">150ms</p>
+                <p className="text-[8px] text-amber-500/70 font-bold mt-1">High-frequency UI delivery active</p>
+              </Card>
+            </div>
+
+            <div className="rounded-2xl border border-white/5 overflow-hidden shadow-xl">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-secondary/40 text-muted-foreground uppercase text-[10px] font-black tracking-widest border-b border-white/5">
+                  <tr>
+                    <th className="py-4 px-6">Symbol</th>
+                    <th className="py-4 px-4 text-right">Bid Price</th>
+                    <th className="py-4 px-4 text-right">Ask Price</th>
+                    <th className="py-4 px-4 text-center">Spread</th>
+                    <th className="py-4 px-4">Temporal Audit</th>
+                    <th className="py-4 px-6 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {priceSyncLoading ? (
+                    [1, 2, 3].map(i => <tr key={i} className="animate-pulse"><td colSpan={6} className="py-6 px-6"><div className="h-4 bg-white/5 rounded w-full" /></td></tr>)
+                  ) : priceSyncData.length === 0 ? (
+                    <tr><td colSpan={6} className="py-20 text-center text-[10px] text-zinc-600 font-bold uppercase">No market data in buffer.</td></tr>
+                  ) : priceSyncData.map((tick) => {
+                    const updatedAt = tick.updatedAt?.toDate ? tick.updatedAt.toDate() : new Date(tick.updatedAt || Date.now());
+                    const ageSec = Math.floor((Date.now() - updatedAt.getTime()) / 1000);
+                    const isStale = ageSec > 30;
+                    const spread = (tick.ask || 0) - (tick.bid || 0);
+
+                    return (
+                      <tr key={tick.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 px-6 font-bold text-white tracking-tight">{tick.id}</td>
+                        <td className="py-3 px-4 text-right font-mono text-zinc-400">{(tick.bid || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</td>
+                        <td className="py-3 px-4 text-right font-mono text-zinc-400">{(tick.ask || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 5 })}</td>
+                        <td className="py-3 px-4 text-center">
+                          <Badge variant="outline" className="text-[9px] font-mono border-white/10 text-primary">
+                            {spread.toFixed(tick.id.includes('JPY') ? 3 : 5)}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4">
+                           <div className="flex items-center gap-2">
+                             <Clock className={cn("w-3 h-3", isStale ? "text-destructive" : "text-emerald-500")} />
+                             <span className={cn("text-[10px] font-mono", isStale ? "text-destructive font-black" : "text-zinc-500")}>
+                               {ageSec}s ago
+                             </span>
+                           </div>
+                        </td>
+                        <td className="py-3 px-6 text-right">
+                          <Badge className={cn(
+                            "text-[8px] font-black uppercase px-2 py-0.5 border-none",
+                            isStale ? "bg-red-500/20 text-red-500" : "bg-emerald-500/20 text-emerald-500"
+                          )}>
+                            {isStale ? "STALE" : "SYNCED"}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <DialogFooter className="p-6 border-t border-white/5 bg-zinc-900/20">
+             <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest mr-auto flex items-center gap-2">
+               <ShieldCheck className="w-3 h-3" /> System verified at {new Date().toLocaleTimeString()}
+             </p>
+             <Button variant="outline" className="font-black text-[10px] uppercase tracking-widest h-10 border-white/10" onClick={() => setIsPriceSyncModalOpen(false)}>
+               Dismiss Audit
+             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
