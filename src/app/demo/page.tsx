@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback, memo } from "react";
@@ -314,6 +315,7 @@ export default function DemoPage() {
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const mainSeriesRef = useRef<ISeriesApi<any> | null>(null);
   const priceLinesRef = useRef<Map<string, IPriceLine[]>>(new Map());
+  const componentMounted = useRef(true);
   
   const lastCandleTimeRef = useRef<number>(0);
   const lastOpenPriceRef = useRef<number>(0);
@@ -321,7 +323,13 @@ export default function DemoPage() {
   const currentHighRef = useRef<number>(0);
   const currentLowRef = useRef<number>(0);
 
-  useEffect(() => { setHasMounted(true); }, []);
+  useEffect(() => { 
+    setHasMounted(true);
+    componentMounted.current = true;
+    return () => {
+      componentMounted.current = false;
+    };
+  }, []);
 
   const { tick: streamTick } = useTickStream(selectedSymbol);
   const livePrices = useLivePrices(SYMBOLS);
@@ -376,14 +384,18 @@ export default function DemoPage() {
   }, [fusedPrices]);
 
   const reconcileHistory = useCallback(async () => {
-    if (!mainSeriesRef.current || !isChartReady) return;
+    if (!mainSeriesRef.current || !isChartReady || !componentMounted.current) return;
     try {
       const res = await fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=10`);
       const data = await res.json();
-      if (data.candles && data.candles.length > 0 && mainSeriesRef.current) {
+      if (data.candles && data.candles.length > 0 && mainSeriesRef.current && componentMounted.current) {
         data.candles.forEach((c: any) => {
           const normalizedTime = typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time;
-          mainSeriesRef.current?.update({ ...c, time: normalizedTime as any });
+          try {
+            mainSeriesRef.current?.update({ ...c, time: normalizedTime as any });
+          } catch (err) {
+            // Silently handle disposal errors during transitions
+          }
         });
       }
     } catch (e) {
@@ -436,48 +448,61 @@ export default function DemoPage() {
 
     const handleResize = () => { 
       if (chartInstanceRef.current && chartContainerRef.current) {
-        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); 
+        try {
+          chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth, height: chartContainerRef.current.clientHeight }); 
+        } catch (e) {
+          // Chart might be disposed
+        }
       }
     };
     
     window.addEventListener('resize', handleResize);
     return () => { 
+      setIsChartReady(false);
       window.removeEventListener('resize', handleResize); 
-      if (chartInstanceRef.current) { chartInstanceRef.current.remove(); chartInstanceRef.current = null; }
+      if (chartInstanceRef.current) {
+        try {
+          chartInstanceRef.current.remove(); 
+        } catch (e) { }
+        chartInstanceRef.current = null;
+        mainSeriesRef.current = null;
+      }
     };
   }, [selectedSymbol, hasMounted, authLoading]);
 
   useEffect(() => {
-    if (!isChartReady || !mainSeriesRef.current) return;
+    if (!isChartReady || !mainSeriesRef.current || !componentMounted.current) return;
     setIsChartLoading(true);
     
     fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${selectedInterval}&limit=500`)
       .then(res => res.json())
       .then(data => {
-        if (data.candles && mainSeriesRef.current) {
+        if (data.candles && mainSeriesRef.current && componentMounted.current) {
           const normalizedCandles = data.candles.map((c: any) => ({
             ...c,
             time: (typeof c.time === 'string' ? Math.floor(new Date(c.time).getTime() / 1000) : c.time) as any
           }));
 
-          mainSeriesRef.current.setData(normalizedCandles);
-          if (normalizedCandles.length > 0) {
-            const last = normalizedCandles[normalizedCandles.length - 1];
-            lastCandleTimeRef.current = last.time;
-            lastOpenPriceRef.current = last.open;
-            lastClosePriceRef.current = last.close;
-            currentHighRef.current = last.high;
-            currentLowRef.current = last.low;
-          }
-          chartInstanceRef.current?.timeScale().fitContent();
+          try {
+            mainSeriesRef.current.setData(normalizedCandles);
+            if (normalizedCandles.length > 0) {
+              const last = normalizedCandles[normalizedCandles.length - 1];
+              lastCandleTimeRef.current = last.time;
+              lastOpenPriceRef.current = last.open;
+              lastClosePriceRef.current = last.close;
+              currentHighRef.current = last.high;
+              currentLowRef.current = last.low;
+            }
+            chartInstanceRef.current?.timeScale().fitContent();
+          } catch (e) {}
         }
       })
       .catch((e) => console.error('[Chart-History] Fail:', e))
-      .finally(() => { setIsChartLoading(false); });
+      .finally(() => { if (componentMounted.current) setIsChartLoading(false); });
   }, [selectedSymbol, selectedInterval, isChartReady]);
 
   useEffect(() => {
-    if (activePrice && mainSeriesRef.current && isChartReady) {
+    if (activePrice && mainSeriesRef.current && isChartReady && componentMounted.current) {
       const getIntervalSeconds = (val: string) => {
         const map: Record<string, number> = { '1min': 60, '5min': 300, '15min': 900, '30min': 1800, '1h': 3600, '4h': 14400, '1day': 86400 };
         return map[val] || 60;
@@ -524,7 +549,9 @@ export default function DemoPage() {
           currentHighRef.current = high;
           currentLowRef.current = low;
           
-          setTimeout(reconcileHistory, 2000);
+          setTimeout(() => {
+            if (componentMounted.current) reconcileHistory();
+          }, 2000);
         } 
         else if (isUpdate) {
           if (lastOpenPriceRef.current === 0) lastOpenPriceRef.current = price;
@@ -545,13 +572,13 @@ export default function DemoPage() {
           });
         }
       } catch (e) {
-        console.error('[Tick-Engine] Processing fault:', e);
+        // Silently catch updates to disposed charts
       }
     }
   }, [activePrice, isChartReady, selectedInterval, selectedSymbol, reconcileHistory]);
 
   useEffect(() => {
-    if (!mainSeriesRef.current || !isChartReady) return;
+    if (!mainSeriesRef.current || !isChartReady || !componentMounted.current) return;
     
     const sym = selectedSymbol.toUpperCase().trim();
     const currentSymbolTrades = openTrades.filter(t => t.symbol.toUpperCase().trim() === sym);
@@ -559,7 +586,11 @@ export default function DemoPage() {
     
     priceLinesRef.current.forEach((lines, id) => {
       if (!activeIds.has(id)) {
-        lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
+        lines.forEach(l => { 
+          try { 
+            if (mainSeriesRef.current) mainSeriesRef.current.removePriceLine(l); 
+          } catch(e) {} 
+        });
         priceLinesRef.current.delete(id);
       }
     });
@@ -574,25 +605,27 @@ export default function DemoPage() {
       const hasTp = trade.tp && trade.tp > 0;
       const expectedLineCount = 1 + (hasSl ? 1 : 0) + (hasTp ? 1 : 0);
 
-      if (!lines || lines.length !== expectedLineCount) {
-        if (lines) lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
-        
-        const entry = mainSeriesRef.current!.createPriceLine({ 
-          price: trade.openPrice, 
-          color: '#11b3f5', 
-          lineStyle: LineStyle.Dashed, 
-          axisLabelVisible: true, 
-          title 
-        });
-        
-        const newLines = [entry];
-        if (hasSl) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' }));
-        if (hasTp) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' }));
-        
-        priceLinesRef.current.set(trade.id, newLines);
-      } else {
-        lines[0].applyOptions({ title });
-      }
+      try {
+        if (!lines || lines.length !== expectedLineCount) {
+          if (lines) lines.forEach(l => { try { mainSeriesRef.current?.removePriceLine(l); } catch(e) {} });
+          
+          const entry = mainSeriesRef.current!.createPriceLine({ 
+            price: trade.openPrice, 
+            color: '#11b3f5', 
+            lineStyle: LineStyle.Dashed, 
+            axisLabelVisible: true, 
+            title 
+          });
+          
+          const newLines = [entry];
+          if (hasSl) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.sl, color: '#ef4444', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'SL' }));
+          if (hasTp) newLines.push(mainSeriesRef.current!.createPriceLine({ price: trade.tp, color: '#10b981', lineStyle: LineStyle.Solid, axisLabelVisible: true, title: 'TP' }));
+          
+          priceLinesRef.current.set(trade.id, newLines);
+        } else {
+          lines[0].applyOptions({ title });
+        }
+      } catch (e) {}
     });
 
     const markers = currentSymbolTrades.map(t => {
@@ -608,7 +641,9 @@ export default function DemoPage() {
       };
     }).filter(Boolean);
 
-    mainSeriesRef.current.setMarkers(markers as any);
+    try {
+      mainSeriesRef.current.setMarkers(markers as any);
+    } catch (e) {}
   }, [openTrades, selectedSymbol, isChartReady, calculateTradePnL]);
 
   const closeTrade = useCallback(async (tradeId: string) => {
