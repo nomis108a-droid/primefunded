@@ -31,6 +31,9 @@ import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
 import { ADMIN_EMAILS } from '@/lib/admin';
+import { useCollection } from '@/firebase';
+import { where } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -94,12 +97,27 @@ export const Navigation = memo(function Navigation() {
   const router = useRouter();
   const { logout, userData, user } = useAuth();
   const branding = useBrandSettings();
+  const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
 
   const [clickCount, setClickCount] = useState(0);
   const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
 
   const isAdmin = user && ADMIN_EMAILS.includes(user.email || "");
+
+  const accountConstraints = useMemo(() => {
+    if (!user?.uid) return [];
+    return [where('userId', '==', user.uid)];
+  }, [user?.uid]);
+
+  const { data: accounts } = useCollection<any>(
+    user?.uid ? 'demoAccounts' : null,
+    accountConstraints
+  );
+
+  const hasActiveChallenge = useMemo(() => 
+    accounts.some(a => a.status === 'active' || a.status === 'passed')
+  , [accounts]);
 
   useEffect(() => {
     const routesToPrefetch = [
@@ -121,7 +139,6 @@ export const Navigation = memo(function Navigation() {
       "h-screen sticky top-0 flex flex-col shrink-0 relative transition-all duration-300",
       collapsed ? "w-0" : "w-64"
     )}>
-      {/* Collapse Toggle - Placed outside the overflow container to prevent clipping */}
       <button 
         onClick={() => setCollapsed(!collapsed)}
         className="absolute -right-3 top-8 z-50 w-6 h-6 rounded-full bg-primary text-black flex items-center justify-center hover:scale-110 transition-transform shadow-lg cursor-pointer"
@@ -129,7 +146,6 @@ export const Navigation = memo(function Navigation() {
         <ChevronRight className={cn("w-4 h-4 transition-transform", !collapsed && "rotate-180")} />
       </button>
 
-      {/* Internal Content Container - Handles overflow and background styling */}
       <div className={cn(
         "bg-card border-r border-border h-full flex flex-col transition-all duration-300 overflow-hidden",
         collapsed ? "w-0" : "w-64 p-6"
@@ -182,13 +198,20 @@ export const Navigation = memo(function Navigation() {
 
               {navItems.map((item) => {
                 const isTrade = item.name === 'Trade';
-                const isTradeDisabled = isTrade && !isAdmin && userData?.challengeStatus !== 'active';
+                const isTradeDisabled = isTrade && !isAdmin && !hasActiveChallenge;
 
                 if (isTradeDisabled) {
                   return (
                     <div
                       key={item.name}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-not-allowed opacity-40 text-muted-foreground select-none group"
+                      onClick={() => {
+                        toast({
+                          variant: "destructive",
+                          title: "Trade Locked",
+                          description: "Trading is only available with an active challenge. Please start a new challenge."
+                        });
+                      }}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-pointer opacity-40 text-muted-foreground select-none group hover:bg-secondary/10"
                       title="Trade is only available when you have an active challenge."
                     >
                       <item.icon className="w-5 h-5" />

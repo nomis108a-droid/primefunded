@@ -94,6 +94,10 @@ export default function DashboardPage() {
 
   const { data: accounts, loading: accountsLoading } = useCollection<any>(user?.uid ? 'demoAccounts' : null, accountConstraints);
 
+  const hasActiveChallenge = useMemo(() => 
+    accounts.some(a => a.status === 'active' || a.status === 'passed')
+  , [accounts]);
+
   const visibleAccounts = useMemo(() => 
     accounts.filter((a: any) => true) // Show all in dashboard for historical viewing
   , [accounts]);
@@ -132,15 +136,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user?.uid || !dbInstance || authLoading || accountsLoading) return;
     
-    const hasActiveNode = accounts.some(a => a.status === 'active' || a.status === 'passed');
     const currentChallengeStatus = userData?.challengeStatus;
     
-    if (hasActiveNode && currentChallengeStatus !== 'active') {
+    if (hasActiveChallenge && currentChallengeStatus !== 'active') {
       updateDoc(doc(dbInstance, 'users', user.uid), { challengeStatus: 'active' });
-    } else if (!hasActiveNode && accounts.length > 0 && currentChallengeStatus === 'active') {
+    } else if (!hasActiveChallenge && accounts.length > 0 && currentChallengeStatus === 'active') {
       updateDoc(doc(dbInstance, 'users', user.uid), { challengeStatus: 'inactive' });
     }
-  }, [accounts, userData, user?.uid, dbInstance, authLoading, accountsLoading]);
+  }, [accounts, userData, user?.uid, dbInstance, authLoading, accountsLoading, hasActiveChallenge]);
 
   useEffect(() => {
     let isMounted = true;
@@ -222,27 +225,27 @@ export default function DashboardPage() {
           <Card className="bg-card/40 border-border/50 overflow-hidden relative">
             <div className={cn(
               "absolute top-0 left-0 w-1 h-full",
-              userData?.challengeStatus === 'active' ? "bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" : "bg-zinc-700"
+              hasActiveChallenge ? "bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" : "bg-zinc-700"
             )} />
             <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
               <div className="flex items-center gap-4">
                 <div className={cn(
                   "w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-500",
-                  userData?.challengeStatus === 'active' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "bg-secondary border-border text-muted-foreground"
+                  hasActiveChallenge ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "bg-secondary border-border text-muted-foreground"
                 )}>
-                  <Activity className={cn("w-6 h-6", userData?.challengeStatus === 'active' && "animate-pulse")} />
+                  <Activity className={cn("w-6 h-6", hasActiveChallenge && "animate-pulse")} />
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Challenge Activity</p>
                   <div className="flex items-center gap-2">
                     <h3 className="text-xl font-bold text-white uppercase tracking-tight">
-                      {userData?.challengeStatus === 'active' ? 'Status: Active' : 'Status: Inactive'}
+                      {hasActiveChallenge ? 'Status: Active' : 'Status: Inactive'}
                     </h3>
-                    {userData?.challengeStatus === 'active' && <Badge className="bg-emerald-500 text-white h-5 text-[8px] font-black">TRADING ENABLED</Badge>}
+                    {hasActiveChallenge && <Badge className="bg-emerald-500 text-white h-5 text-[8px] font-black">TRADING ENABLED</Badge>}
                   </div>
                 </div>
               </div>
-              {!userData?.challengeStatus || userData?.challengeStatus !== 'active' ? (
+              {!hasActiveChallenge ? (
                 <Button variant="outline" className="w-full sm:w-auto font-bold border-primary/20 text-primary hover:bg-primary/10 rounded-xl px-8" asChild>
                   <Link href="/challenges">Start Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
                 </Button>
