@@ -4,9 +4,9 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 
 /**
- * @fileOverview Institutional Firebase Admin SDK Configuration (V13)
- * Hardened for Production: Ensures full administrative scopes for Auth, Firestore, and RTDB.
- * Resolves gRPC "PERMISSION_DENIED" (Error 7) by strictly mapping Service Account credentials.
+ * @fileOverview Institutional Firebase Admin SDK Configuration
+ * Hardened for Production: Ensures reliable administrative access and resolves
+ * gRPC "metadata from plugin" errors by strictly managing Service Account lifecycle.
  */
 
 let adminApp: App | null = null;
@@ -15,57 +15,64 @@ function getAdminApp(): App | null {
   if (adminApp) return adminApp;
 
   try {
+    // 1. Singleton Guard
     const apps = getApps();
-    const existingApp = apps.find(a => a.name === 'pf-admin');
-    if (existingApp) {
-      adminApp = existingApp;
+    if (apps.length > 0) {
+      adminApp = apps[0];
       return adminApp;
     }
 
-    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
+    // 2. Configuration Retrieval
+    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
     const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
     const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
     const config: any = {
-      projectId: projectId,
-      databaseURL: databaseURL
+      projectId,
+      databaseURL
     };
 
+    // 3. Credential Injection
     if (b64Key && b64Key.trim() !== '') {
       try {
         const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
         const serviceAccount = JSON.parse(decoded);
         
         if (serviceAccount.private_key) {
-          // Robust multi-line key normalization
-          serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n').trim();
+          // Normalize the private key to handle both literal newlines and escaped characters
+          serviceAccount.private_key = serviceAccount.private_key
+            .replace(/\\n/g, '\n')
+            .replace(/^"(.*)"$/, '$1')
+            .trim();
         }
         
-        // Using cert() explicitly binds the service account with full scopes (cloud-platform)
+        // Explicitly use the project_id from the service account if available
+        if (serviceAccount.project_id) {
+          config.projectId = serviceAccount.project_id;
+        }
+
         config.credential = cert(serviceAccount);
-        console.log(`[Firebase-Admin] MASTER INIT: Authenticated via Service Account (${serviceAccount.client_email})`);
-      } catch (e: any) {
-        console.error("[Firebase-Admin] B64 PARSE ERROR:", e.message);
+        console.log(`[Admin-Init] Master established via Service Account: ${serviceAccount.client_email}`);
+      } catch (err: any) {
+        console.error("[Admin-Init] Service Account parse failed. Falling back to ADC:", err.message);
         config.credential = credential.applicationDefault();
       }
     } else {
-      // Fallback for GCP internal environments with required scopes
-      console.warn("[Firebase-Admin] WARN: No B64 key found. Falling back to Application Default.");
+      console.warn("[Admin-Init] No Service Account key provided. Using Application Default Credentials.");
       config.credential = credential.applicationDefault();
     }
 
-    // Initialize named app to isolate administrative context from client context
-    adminApp = initializeApp(config, 'pf-admin');
+    // 4. Initialization
+    adminApp = initializeApp(config);
     return adminApp;
   } catch (e: any) {
-    console.error("[Firebase-Admin] CRITICAL STARTUP FAILURE:", e.message);
+    console.error("[Admin-Init] CRITICAL FATAL FAILURE:", e.message);
     return null;
   }
 }
 
 /**
  * Service Provider Singletons
- * Always ensures the 'pf-admin' app is used for administrative operations.
  */
 export const getAdminDb = () => {
   const app = getAdminApp();
@@ -92,4 +99,4 @@ export function getAdminServices() {
   };
 }
 
-export const isFirebaseAdminConfigured = () => !!adminApp;
+export const isFirebaseAdminConfigured = () => !!getAdminApp();

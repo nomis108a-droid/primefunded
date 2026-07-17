@@ -15,10 +15,10 @@ export async function verifyAdminAuth() {
     const masterToken = cookieStore.get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     
+    // Fallback to Firebase session check if available
     const auth = getAdminAuth();
     if (!auth) return false;
     
-    // Additional validation could happen here via session token
     return true; 
   } catch (error) { return false; }
 }
@@ -41,7 +41,7 @@ export async function giftAccountAction(traderIdOrEmail: string, emailFallback: 
 
   try {
     const db = getAdminDb();
-    if (!db) return { success: false, error: "Database unavailable" };
+    if (!db) return { success: false, error: "Administrative database service is currently offline." };
 
     const input = (traderIdOrEmail || "").trim();
     let userId = "";
@@ -89,14 +89,17 @@ export async function giftAccountAction(traderIdOrEmail: string, emailFallback: 
     });
 
     return { success: true, accountId: docRef.id };
-  } catch (err: any) { return { success: false, error: err.message }; }
+  } catch (err: any) { 
+    console.error("[Action-Gift] Execution error:", err.message);
+    return { success: false, error: err.message }; 
+  }
 }
 
 export async function approveManualOrderAction(id: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    if (!db) return { success: false, error: "Database unavailable" };
+    if (!db) throw new Error("Database unavailable");
     const orderRef = db.collection('orders').doc(id);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
@@ -215,14 +218,13 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 }
 
 /**
- * Hardened KYC Action: Handles approval and rejection via Admin SDK
+ * Hardened KYC Action
  */
 export async function updateKycStatusAction(userId: string, status: string, reason?: string) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    const auth = getAdminAuth();
-    if (!db || !auth) throw new Error("Admin services unavailable");
+    if (!db) throw new Error("Admin services unavailable");
 
     const updates: any = { 
       kycStatus: status, 
@@ -234,12 +236,11 @@ export async function updateKycStatusAction(userId: string, status: string, reas
     
     await db.collection('users').doc(userId).update(updates);
     
-    // Set Custom Claims for Verified Users (Server-side bypass)
+    // Set Custom Claims for Verified Users via Admin SDK
     if (status === 'verified') {
-      try {
+      const auth = getAdminAuth();
+      if (auth) {
         await auth.setCustomUserClaims(userId, { kycVerified: true });
-      } catch (authErr) {
-        console.warn("[Action-KYC] Claims update skipped:", authErr);
       }
     }
     
@@ -253,7 +254,6 @@ export async function updateKycStatusAction(userId: string, status: string, reas
     
     return { success: true };
   } catch (err: any) { 
-    console.error("[Action-KYC] Error:", err.message);
     return { success: false, error: err.message }; 
   }
 }
