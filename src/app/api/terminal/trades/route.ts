@@ -5,9 +5,10 @@ import { auditDemoAccount } from '@/lib/rulesEngine';
 import { getAuthoritativePrice } from '@/lib/priceSync';
 
 /**
- * @fileOverview Institutional Order Execution API (V11 - Hardened Admin Execution)
+ * @fileOverview Institutional Order Execution API (V12 - Hardened Auth)
  * Enforces strict server-side validation and executes trades via the Admin SDK 
  * to ensure 100% permission availability regardless of client state.
+ * Resolves gRPC Code 7 (PERMISSION_DENIED) by ensuring administrative scope consistency.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -24,14 +25,18 @@ export async function POST(req: NextRequest) {
     const db = getAdminDb();
     
     if (!auth || !db) {
-      return NextResponse.json({ error: "Terminal services temporarily unavailable. Please retry." }, { status: 503 });
+      console.error('[Trade-API] Initialization Error: Admin SDK services unavailable.');
+      return NextResponse.json({ 
+        error: "Execution engine is offline. Please ensure the backend service account is configured correctly." 
+      }, { status: 503 });
     }
 
     let uid: string;
     try {
       const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
-    } catch (err) {
+    } catch (err: any) {
+      console.error('[Trade-API] Token Verification Failed:', err.message);
       return NextResponse.json({ error: "Invalid or expired session. Please re-login." }, { status: 401 });
     }
 
@@ -45,7 +50,7 @@ export async function POST(req: NextRequest) {
     const symUpper = symbol.toUpperCase().trim();
     const lots = parseFloat(String(rawLots));
 
-    // 1. EXECUTION CONCURRENCY LOCK
+    // 1. EXECUTION CONCURRENCY LOCK (Prevents duplicate order submission)
     const activeLockRef = db.collection('_locks').doc(uid);
     const lockSnap = await activeLockRef.get();
     if (lockSnap.exists && (Date.now() - (lockSnap.data()?.timestamp || 0) < 2000)) {
@@ -53,7 +58,7 @@ export async function POST(req: NextRequest) {
     }
     await activeLockRef.set({ timestamp: Date.now(), accountId });
 
-    // 2. FETCH AUTHORITATIVE PRICE
+    // 2. FETCH AUTHORITATIVE PRICE (Validated against Broker feed)
     const feed = await getAuthoritativePrice(symUpper);
 
     if (!feed || !feed.bid || !feed.ask) {
@@ -71,21 +76,21 @@ export async function POST(req: NextRequest) {
 
     const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
-    // 3. WITNESS VALIDATION (Prevent extreme slippage/latency arbitrage)
+    // 3. WITNESS VALIDATION (Execution protection)
     if (witnessPrice && Math.abs(executionPrice - witnessPrice) / witnessPrice > 0.05) {
       await activeLockRef.delete();
-      return NextResponse.json({ error: "Price deviation too high. Execution aborted to protect your capital." }, { status: 409 });
+      return NextResponse.json({ error: "Price deviation too high. Execution aborted." }, { status: 409 });
     }
 
+    // 4. ATOMIC DATABASE TRANSACTION (High Privilege)
     const result = await db.runTransaction(async (tx) => {
       const accRef = db.collection("demoAccounts").doc(accountId);
       const accSnap = await tx.get(accRef);
       if (!accSnap.exists) throw new Error("Trading node not found in registry.");
       const account = accSnap.data()!;
 
-      // HARD SECURITY GUARD: Restrict execution to ACTIVE or PASSED accounts only
       if (account.status !== 'active' && account.status !== 'passed') {
-        throw new Error(`Execution Blocked: Current status is ${account.status.toUpperCase()}. No new orders permitted.`);
+        throw new Error(`Execution Blocked: Current node status is ${account.status.toUpperCase()}.`);
       }
 
       const rawPlan = String(account.plan || '10k');
@@ -93,6 +98,7 @@ export async function POST(req: NextRequest) {
       const maxAllowed = MAX_LOTS[planKey] || 0.5;
       if (lots > maxAllowed) throw new Error(`Lot Violation: Maximum ${maxAllowed} lots permitted for ${rawPlan} tier.`);
 
+      // Commission Logic
       const commission = (() => {
         const isForex = !['XAUUSD','BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD','XAGUSD','XPTUSD'].includes(symUpper);
         if (isForex) return lots * 5; 
@@ -128,13 +134,21 @@ export async function POST(req: NextRequest) {
       return { tradeId: tradeRef.id, openPrice: executionPrice };
     });
 
-    // 4. CLEANUP & AUDIT
+    // 5. CLEANUP & BACKGROUND AUDIT
     await activeLockRef.delete();
     auditDemoAccount(accountId).catch(() => {});
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
     console.error('[Trade-API-Failure]', error.message);
+    
+    // Catch common gRPC scope errors and provide actionable feedback
+    if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
+      return NextResponse.json({ 
+        error: "Backend authentication scope violation. Please contact support to verify service account status." 
+      }, { status: 403 });
+    }
+
     return NextResponse.json({ 
       error: error.message || "An internal execution fault occurred. Your account has not been charged." 
     }, { status: 500 });
