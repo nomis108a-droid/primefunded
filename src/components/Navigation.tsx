@@ -35,7 +35,6 @@ const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Trade', href: '/demo', icon: TrendingUp },
   { name: 'Challenges', href: '/challenges', icon: Trophy },
-  { name: 'Referral', href: '/referral', icon: Users },
   { name: 'Giveaway', href: '/giveaway', icon: Gift },
   { name: 'Accounts', href: '/accounts', icon: ShieldCheck },
   { name: 'Payouts', href: '/payouts', icon: Wallet },
@@ -44,6 +43,7 @@ const navItems = [
 ];
 
 const secondaryItems = [
+  { name: 'Referral', href: '/referral', icon: Users },
   { name: 'Rules', href: '/rules', icon: BookOpen },
   { name: 'Trades Payout', href: '/trades-payout', icon: DollarSign },
   { name: 'KYC Verification', href: '/kyc', icon: FingerprintIcon },
