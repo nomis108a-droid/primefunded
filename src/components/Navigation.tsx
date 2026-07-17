@@ -106,7 +106,6 @@ export const Navigation = memo(function Navigation() {
   const router = useRouter();
   const { logout, userData, user } = useAuth();
   const branding = useBrandSettings();
-  const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   const [showTradeLock, setShowTradeLock] = useState(false);
 
@@ -209,7 +208,7 @@ export const Navigation = memo(function Navigation() {
 
               {navItems.map((item) => {
                 const isTrade = item.name === 'Trade';
-                const isTradeDisabled = isTrade && !isAdmin && !hasActiveChallenge;
+                const isTradeDisabled = isTrade && !hasActiveChallenge;
 
                 if (isTradeDisabled) {
                   return (
@@ -328,9 +327,9 @@ export const Navigation = memo(function Navigation() {
             <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-6">
               <AlertCircle className="w-10 h-10 text-destructive" />
             </div>
-            <DialogTitle className="text-center text-2xl font-headline font-bold uppercase tracking-tight">No Active Challenge</DialogTitle>
+            <DialogTitle className="text-center text-xl font-headline font-bold uppercase tracking-tight">No Active Challenge</DialogTitle>
             <DialogDescription className="text-center text-zinc-400 text-sm leading-relaxed pt-2">
-              You need an active evaluation node to access the execution terminal. Start or buy a new challenge to begin trading.
+              No active challenge found. Please start a challenge to access trading.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex flex-col gap-3 pt-6 pb-2">
@@ -341,7 +340,7 @@ export const Navigation = memo(function Navigation() {
                 router.push('/challenges');
               }}
             >
-              Start New Challenge
+              Start Challenge
             </Button>
             <Button 
               variant="ghost" 
