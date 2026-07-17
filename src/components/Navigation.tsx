@@ -24,7 +24,8 @@ import {
   Gift,
   BookOpen,
   DollarSign,
-  Lock
+  Lock,
+  AlertCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -34,6 +35,14 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { useCollection } from '@/firebase';
 import { where } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -99,6 +108,7 @@ export const Navigation = memo(function Navigation() {
   const branding = useBrandSettings();
   const { toast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
+  const [showTradeLock, setShowTradeLock] = useState(false);
 
   const [clickCount, setClickCount] = useState(0);
   const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
@@ -115,8 +125,9 @@ export const Navigation = memo(function Navigation() {
     accountConstraints
   );
 
+  // Strict check: Trading is only for active nodes
   const hasActiveChallenge = useMemo(() => 
-    accounts.some(a => a.status === 'active' || a.status === 'passed')
+    accounts.some(a => a.status === 'active')
   , [accounts]);
 
   useEffect(() => {
@@ -204,15 +215,8 @@ export const Navigation = memo(function Navigation() {
                   return (
                     <div
                       key={item.name}
-                      onClick={() => {
-                        toast({
-                          variant: "destructive",
-                          title: "Trade Locked",
-                          description: "Trading is only available with an active challenge. Please start a new challenge."
-                        });
-                      }}
+                      onClick={() => setShowTradeLock(true)}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-pointer opacity-40 text-muted-foreground select-none group hover:bg-secondary/10"
-                      title="Trade is only available when you have an active challenge."
                     >
                       <item.icon className="w-5 h-5" />
                       <span className="flex-1">{item.name}</span>
@@ -316,6 +320,39 @@ export const Navigation = memo(function Navigation() {
           </>
         )}
       </div>
+
+      {/* Access Restriction Modal */}
+      <Dialog open={showTradeLock} onOpenChange={setShowTradeLock}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-sm">
+          <DialogHeader className="pt-4">
+            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-6">
+              <AlertCircle className="w-10 h-10 text-destructive" />
+            </div>
+            <DialogTitle className="text-center text-2xl font-headline font-bold uppercase tracking-tight">No Active Challenge</DialogTitle>
+            <DialogDescription className="text-center text-zinc-400 text-sm leading-relaxed pt-2">
+              You need an active evaluation node to access the execution terminal. Start or buy a new challenge to begin trading.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col gap-3 pt-6 pb-2">
+            <Button 
+              className="w-full h-12 font-black cyan-box-glow bg-primary text-black uppercase tracking-widest text-xs" 
+              onClick={() => {
+                setShowTradeLock(false);
+                router.push('/challenges');
+              }}
+            >
+              Start New Challenge
+            </Button>
+            <Button 
+              variant="ghost" 
+              className="w-full text-zinc-500 font-bold uppercase tracking-widest text-[10px]"
+              onClick={() => setShowTradeLock(false)}
+            >
+              Dismiss
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });
