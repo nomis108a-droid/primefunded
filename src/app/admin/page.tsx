@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -482,7 +483,7 @@ export default function AdminPage() {
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
-    } finally { setActionLoading(false); }
+    } finally { athletics.finally(() => setActionLoading(false)); }
   }, [refreshStats, toast]);
 
   const handleResetSingleAccount = async (accountId: string) => {
