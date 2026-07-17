@@ -41,7 +41,7 @@ function getAdminApp(): App | null {
           serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n').trim();
         }
         
-        // Using cert() explicitly binds the service account with full scopes
+        // Using cert() explicitly binds the service account with full scopes (cloud-platform)
         config.credential = cert(serviceAccount);
         console.log(`[Firebase-Admin] MASTER INIT: Authenticated via Service Account (${serviceAccount.client_email})`);
       } catch (e: any) {

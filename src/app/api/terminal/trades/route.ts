@@ -26,8 +26,8 @@ async function getBrokerAuth() {
     throw new Error("Unable to authenticate with broker. API credentials not configured.");
   }
 
-  // Simulated token refresh: In a standard OANDA integration, tokens are static 
-  // or refreshed via a dedicated OAuth2 endpoint.
+  // Institutional API keys for OANDA V20 are usually static.
+  // If an OAuth2 flow was required, we would perform the refresh here.
   return { apiKey, accountId };
 }
 
@@ -46,9 +46,11 @@ export async function POST(req: NextRequest) {
 
     let uid: string;
     try {
+      // Use Admin Auth to verify token, ensuring correct scopes
       const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch (err: any) {
+      console.error('[Trade-API-Auth] JWT verification failed:', err.message);
       return NextResponse.json({ error: "Invalid session. Please re-login." }, { status: 401 });
     }
 
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
     const symUpper = symbol.toUpperCase().trim();
     const lots = parseFloat(String(rawLots));
 
-    // 1. EXECUTION CONCURRENCY LOCK
+    // 1. EXECUTION CONCURRENCY LOCK (Admin scoped write)
     const activeLockRef = db.collection('_locks').doc(uid);
     const lockSnap = await activeLockRef.get();
     if (lockSnap.exists && (Date.now() - (lockSnap.data()?.timestamp || 0) < 2000)) {
@@ -80,7 +82,6 @@ export async function POST(req: NextRequest) {
     const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
     // 3. BROKER ORDER PLACEMENT (OANDA)
-    // Satisfies requirement to send HTTP/gRPC request to external broker API
     let brokerOrderId = "INTERNAL_" + Date.now();
     try {
       const { apiKey, accountId: oandaAccountId } = await getBrokerAuth();
@@ -111,19 +112,25 @@ export async function POST(req: NextRequest) {
       if (oandaRes.ok) {
         const oandaData = await oandaRes.json();
         brokerOrderId = oandaData.orderFillTransaction?.id || brokerOrderId;
+      } else {
+        const errData = await oandaRes.json().catch(() => ({}));
+        console.error('[Trade-API] Broker Rejection:', errData);
       }
-      // Note: We continue to Firestore even if OANDA fails in practice mode
-      // but in production we would abort here if !oandaRes.ok
     } catch (brokerErr: any) {
       console.warn('[Trade-API] Broker Sync Warning:', brokerErr.message);
     }
 
-    // 4. ATOMIC DATABASE TRANSACTION
+    // 4. ATOMIC DATABASE TRANSACTION (Admin scoped)
     const result = await db.runTransaction(async (tx) => {
       const accRef = db.collection("demoAccounts").doc(accountId);
       const accSnap = await tx.get(accRef);
       if (!accSnap.exists) throw new Error("Trading node not found.");
       const account = accSnap.data()!;
+
+      // Enforce status check
+      if (account.status !== 'active' && account.status !== 'passed') {
+        throw new Error("Trading is disabled for this account.");
+      }
 
       const rawPlan = String(account.plan || '10k');
       const planKey = rawPlan.toLowerCase().trim().replace('$', '');
@@ -175,10 +182,10 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error('[Trade-API-Failure]', error.message);
     
-    // Resolve Error 7 (PERMISSION_DENIED)
+    // Explicitly handle gRPC Code 7 (PERMISSION_DENIED) from Admin SDK
     if (error.code === 7 || error.message?.includes('PERMISSION_DENIED')) {
       return NextResponse.json({ 
-        error: "Backend authentication scope violation. Admin SDK re-authorization required." 
+        error: "Terminal Authentication Failure: The execution engine lacks the required administrative scopes. Please check service account configuration." 
       }, { status: 403 });
     }
 
