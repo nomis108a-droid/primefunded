@@ -4,9 +4,9 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 
 /**
- * @fileOverview Institutional Firebase Admin SDK Configuration (V12)
+ * @fileOverview Institutional Firebase Admin SDK Configuration (V13)
  * Hardened for Production: Ensures full administrative scopes for Auth, Firestore, and RTDB.
- * Resolves "PERMISSION_DENIED" errors by strictly mapping Service Account credentials.
+ * Resolves gRPC "PERMISSION_DENIED" (Error 7) by strictly mapping Service Account credentials.
  */
 
 let adminApp: App | null = null;
