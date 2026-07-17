@@ -221,7 +221,8 @@ export async function updateKycStatusAction(userId: string, status: string, reas
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    if (!db) throw new Error("Admin DB unavailable");
+    const auth = getAdminAuth();
+    if (!db || !auth) throw new Error("Admin services unavailable");
 
     const updates: any = { 
       kycStatus: status, 
@@ -232,6 +233,15 @@ export async function updateKycStatusAction(userId: string, status: string, reas
     else if (status === 'verified') updates.kycRejectionReason = null;
     
     await db.collection('users').doc(userId).update(updates);
+    
+    // Set Custom Claims for Verified Users (Server-side bypass)
+    if (status === 'verified') {
+      try {
+        await auth.setCustomUserClaims(userId, { kycVerified: true });
+      } catch (authErr) {
+        console.warn("[Action-KYC] Claims update skipped:", authErr);
+      }
+    }
     
     await db.collection('users').doc(userId).collection('notifications').add({
       title: status === 'verified' ? '✅ KYC Verified' : '❌ KYC Rejected',

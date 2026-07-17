@@ -6,7 +6,7 @@ import { getDatabase } from 'firebase-admin/database';
 /**
  * @fileOverview Institutional Firebase Admin SDK Configuration
  * Hardened for both Local Development and Production environments.
- * Resolves "Could not refresh access token" errors by ensuring proper credential mapping.
+ * Resolves "PERMISSION_DENIED" and scope errors by ensuring proper credential mapping.
  */
 
 let adminApp: App | null = null;
@@ -37,6 +37,7 @@ function getAdminApp(): App | null {
         if (serviceAccount.private_key) {
           serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n').trim();
         }
+        
         config.credential = cert(serviceAccount);
         console.log(`[Firebase-Admin] Initialized with Service Account: ${serviceAccount.client_email}`);
       } catch (e: any) {
@@ -48,7 +49,7 @@ function getAdminApp(): App | null {
         config.credential = credential.applicationDefault();
         console.log(`[Firebase-Admin] Initialized with Application Default Credentials`);
       } catch (err: any) {
-        console.warn("[Firebase-Admin] No credentials found. Admin SDK limited to project metadata.");
+        console.warn("[Firebase-Admin] No credentials found. Using base config.");
       }
     }
 
