@@ -37,7 +37,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import Link from 'link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
 // Static Country List
@@ -394,6 +394,8 @@ export default function AdminPage() {
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
+      // Establish session cookie for Server Actions
+      document.cookie = "admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Strict";
       localStorage.setItem('adminVerified', 'true');
       setIsAuthenticated(true);
       setShowAdminModal(false);
@@ -401,12 +403,12 @@ export default function AdminPage() {
   };
 
   const handleApproveOrder = useCallback(async (orderId: string) => {
-    setApprovingOrderId(orderId);
+    setApprovingOrder(orderId);
     try {
       const res = await approveManualOrderAction(orderId);
       if (res.success) { toast({ title: "Order Approved" }); refreshStats(true); }
       else toast({ variant: "destructive", title: "Approval Failed", description: res.error });
-    } finally { setApprovingOrderId(null); }
+    } finally { setApprovingOrder(null); }
   }, [refreshStats, toast]);
 
   const handleApproveKyc = useCallback(async (userId: string) => {
@@ -527,7 +529,7 @@ export default function AdminPage() {
         setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
         refreshStats(true);
       } else {
-        throw new Error(res.error);
+        throw new Error(res.error || "Internal execution failure");
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Grant Failed", description: e.message });

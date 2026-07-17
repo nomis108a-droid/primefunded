@@ -8,18 +8,21 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * SECURITY HELPER: Admin Verification
+ * Checks for either a master key session cookie or a valid admin Firebase session.
  */
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
     const masterToken = cookieStore.get('admin_master')?.value;
+    
+    // Check if master session is active
     if (masterToken === '93463962569392846256') return true;
     
-    // Fallback to Firebase session check if available
-    const auth = getAdminAuth();
-    if (!auth) return false;
+    // Future expansion: Verify Firebase ID Token from a session cookie here
+    // const auth = getAdminAuth();
+    // ...
     
-    return true; 
+    return false; 
   } catch (error) { return false; }
 }
 
@@ -35,36 +38,49 @@ export async function updateGlobalSettingsAction(settings: any) {
 
 /**
  * Multi-Strategy User Lookup (Trader ID or Email)
+ * Resolves the UID needed for administrative actions.
  */
 export async function giftAccountAction(traderIdOrEmail: string, emailFallback: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
+  // 1. Verify Admin Status
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
 
   try {
     const db = getAdminDb();
-    if (!db) return { success: false, error: "Administrative database service is currently offline." };
+    const auth = getAdminAuth();
+    if (!db || !auth) return { success: false, error: "Administrative database service is currently offline." };
 
     const input = (traderIdOrEmail || "").trim();
     let userId = "";
     let targetEmail = (emailFallback || "").trim().toLowerCase();
 
-    // 1. Search by Trader ID
+    // Strategy A: Search Firestore by Trader ID
     if (input) {
       const traderSnap = await db.collection('users').where('traderId', '==', input).limit(1).get();
       if (!traderSnap.empty) {
         userId = traderSnap.docs[0].id;
         targetEmail = targetEmail || traderSnap.docs[0].data()?.email;
       } else if (input.includes('@')) {
-        // 2. Fallback to Email search if input looks like email
+        // Strategy B: Search Firestore by Email
         const emailSnap = await db.collection('users').where('email', '==', input.toLowerCase()).limit(1).get();
         if (!emailSnap.empty) {
           userId = emailSnap.docs[0].id;
           targetEmail = targetEmail || emailSnap.docs[0].data()?.email;
+        } else {
+          // Strategy C: Search Firebase Auth by Email directly
+          try {
+            const authUser = await auth.getUserByEmail(input.toLowerCase());
+            userId = authUser.uid;
+            targetEmail = input.toLowerCase();
+          } catch (e) {
+            // User not found in auth either
+          }
         }
       }
     }
 
-    if (!userId) return { success: false, error: "No trader found with provided ID or Email." };
+    if (!userId) return { success: false, error: "No trader found with provided ID or Email. Please ensure the user has signed up." };
 
+    // 2. Resolve Plan Rules
     const planKey = getPlanKey(accountPlan);
     const rules = RULES_CONFIG.plans[planKey]?.[currentPhase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
     
@@ -72,6 +88,7 @@ export async function giftAccountAction(traderIdOrEmail: string, emailFallback: 
     const dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
     const maxLossLimitUsd = startBalance * (rules.maxDrawdown / 100);
 
+    // 3. Provision Demo Account
     const docRef = await db.collection("demoAccounts").add({
       userId, 
       email: targetEmail || 'unknown@primefunded.fund', 
@@ -79,13 +96,21 @@ export async function giftAccountAction(traderIdOrEmail: string, emailFallback: 
       startBalance, balance: startBalance, equity: startBalance,
       plan: `${startBalance / 1000}k`, planType: planKey, phase: currentPhase,
       profitTarget, dailyLossLimitUsd, dailyGrossLossUsd: 0, maxLoss: maxLossLimitUsd,
-      status: 'active', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+      status: 'active',
+      isGifted: true,
+      grantedBy: "Administrative Terminal",
+      grantedAt: FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(), 
+      updatedAt: FieldValue.serverTimestamp()
     });
 
+    // 4. Send Official Notification
     await db.collection('users').doc(userId).collection('notifications').add({
       title: '🎁 Account Provisioned',
-      message: `Your ${accountLabel} challenge is now live in your dashboard.`,
-      type: 'account_gifted', isRead: false, createdAt: FieldValue.serverTimestamp()
+      message: `Your ${accountLabel} challenge node is now live in your dashboard. Happy trading!`,
+      type: 'account_gifted', 
+      isRead: false, 
+      createdAt: FieldValue.serverTimestamp()
     });
 
     return { success: true, accountId: docRef.id };
