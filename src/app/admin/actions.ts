@@ -8,19 +8,15 @@ import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
  * SECURITY HELPER: Admin Verification
- * Checks for either a master key session cookie or a valid admin Firebase session.
+ * Checks for the master key session cookie established in the terminal.
  */
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
     const masterToken = cookieStore.get('admin_master')?.value;
     
-    // Check if master session is active
+    // The master key established in Admin Terminal
     if (masterToken === '93463962569392846256') return true;
-    
-    // Future expansion: Verify Firebase ID Token from a session cookie here
-    // const auth = getAdminAuth();
-    // ...
     
     return false; 
   } catch (error) { return false; }
@@ -37,86 +33,86 @@ export async function updateGlobalSettingsAction(settings: any) {
 }
 
 /**
- * Multi-Strategy User Lookup (Trader ID or Email)
- * Resolves the UID needed for administrative actions.
+ * Institutional Account Provisioning (REWRITTEN FROM SCRATCH)
+ * Uses Firebase Admin SDK to safely grant free challenges to traders.
  */
-export async function giftAccountAction(traderIdOrEmail: string, emailFallback: string, accountLabel: string, startBalance: number, accountPlan: string, currentPhase: string) {
-  // 1. Verify Admin Status
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+export async function giftAccountAction(email: string, accountSize: string, planType: string) {
+  // 1. Verify Caller Authority
+  if (!await verifyAdminAuth()) {
+    return { success: false, error: "Unauthorized" };
+  }
 
   try {
     const db = getAdminDb();
     const auth = getAdminAuth();
-    if (!db || !auth) return { success: false, error: "Administrative database service is currently offline." };
+    if (!db || !auth) return { success: false, error: "Admin services offline." };
 
-    const input = (traderIdOrEmail || "").trim();
+    const targetEmail = (email || "").trim().toLowerCase();
+    if (!targetEmail) return { success: false, error: "Email is required." };
+
+    // 2. Identify Target User ID
     let userId = "";
-    let targetEmail = (emailFallback || "").trim().toLowerCase();
-
-    // Strategy A: Search Firestore by Trader ID
-    if (input) {
-      const traderSnap = await db.collection('users').where('traderId', '==', input).limit(1).get();
-      if (!traderSnap.empty) {
-        userId = traderSnap.docs[0].id;
-        targetEmail = targetEmail || traderSnap.docs[0].data()?.email;
-      } else if (input.includes('@')) {
-        // Strategy B: Search Firestore by Email
-        const emailSnap = await db.collection('users').where('email', '==', input.toLowerCase()).limit(1).get();
-        if (!emailSnap.empty) {
-          userId = emailSnap.docs[0].id;
-          targetEmail = targetEmail || emailSnap.docs[0].data()?.email;
-        } else {
-          // Strategy C: Search Firebase Auth by Email directly
-          try {
-            const authUser = await auth.getUserByEmail(input.toLowerCase());
-            userId = authUser.uid;
-            targetEmail = input.toLowerCase();
-          } catch (e) {
-            // User not found in auth either
-          }
-        }
+    
+    // Strategy A: Search Firestore by Email
+    const emailSnap = await db.collection('users').where('email', '==', targetEmail).limit(1).get();
+    if (!emailSnap.empty) {
+      userId = emailSnap.docs[0].id;
+    } else {
+      // Strategy B: Search Firebase Auth directly
+      try {
+        const authUser = await auth.getUserByEmail(targetEmail);
+        userId = authUser.uid;
+      } catch (e) {
+        return { success: false, error: "No trader found with this email. Ensure they have signed up." };
       }
     }
 
-    if (!userId) return { success: false, error: "No trader found with provided ID or Email. Please ensure the user has signed up." };
-
-    // 2. Resolve Plan Rules
-    const planKey = getPlanKey(accountPlan);
-    const rules = RULES_CONFIG.plans[planKey]?.[currentPhase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    // 3. Resolve Plan Parameters & Risk Rules
+    const planKey = getPlanKey(planType);
+    const balance = parseInt(accountSize.replace(/[^0-9]/g, '')) || 100000;
     
-    const profitTarget = startBalance * (rules.profitTarget || 10) / 100;
-    const dailyLossLimitUsd = startBalance * (rules.dailyDrawdown / 100);
-    const maxLossLimitUsd = startBalance * (rules.maxDrawdown / 100);
+    // Resolve rules from master config
+    const rules = RULES_CONFIG.plans[planKey]?.['evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+    
+    const profitTarget = balance * (rules.profitTarget || 10) / 100;
+    const dailyLossLimitUsd = balance * (rules.dailyDrawdown / 100);
+    const maxLossLimitUsd = balance * (rules.maxDrawdown / 100);
 
-    // 3. Provision Demo Account
+    // 4. Provision Challenge Node
     const docRef = await db.collection("demoAccounts").add({
-      userId, 
-      email: targetEmail || 'unknown@primefunded.fund', 
-      label: accountLabel || `Gifted ${accountPlan}`,
-      startBalance, balance: startBalance, equity: startBalance,
-      plan: `${startBalance / 1000}k`, planType: planKey, phase: currentPhase,
-      profitTarget, dailyLossLimitUsd, dailyGrossLossUsd: 0, maxLoss: maxLossLimitUsd,
+      userId,
+      email: targetEmail,
+      label: `${planType.toUpperCase()} — $${(balance/1000)}k Challenge`,
+      startBalance: balance,
+      balance: balance,
+      equity: balance,
+      plan: `${balance/1000}k`,
+      planType: planKey,
+      phase: 'evaluation',
+      profitTarget,
+      dailyLossLimitUsd,
+      dailyGrossLossUsd: 0,
+      maxLoss: maxLossLimitUsd,
       status: 'active',
       isGifted: true,
-      grantedBy: "Administrative Terminal",
       grantedAt: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(), 
+      createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    // 4. Send Official Notification
+    // 5. Send Real-time Notification
     await db.collection('users').doc(userId).collection('notifications').add({
       title: '🎁 Account Provisioned',
-      message: `Your ${accountLabel} challenge node is now live in your dashboard. Happy trading!`,
-      type: 'account_gifted', 
-      isRead: false, 
+      message: `Your free ${accountSize} ${planType} challenge node is now live in your dashboard.`,
+      type: 'account_gifted',
+      isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });
 
-    return { success: true, accountId: docRef.id };
-  } catch (err: any) { 
-    console.error("[Action-Gift] Execution error:", err.message);
-    return { success: false, error: err.message }; 
+    return { success: true, id: docRef.id };
+  } catch (err: any) {
+    console.error("[Grant-Action] Failure:", err.message);
+    return { success: false, error: err.message };
   }
 }
 
@@ -134,16 +130,19 @@ export async function approveManualOrderAction(id: string) {
 
     const userSnap = await db.collection('users').doc(order.userId).get();
     const userData = userSnap.data();
-    const traderId = userData?.traderId;
+    const traderEmail = order.email || userData?.email;
     
-    if (!traderId) return { success: false, error: "User has no traderId assigned." };
+    if (!traderEmail) return { success: false, error: "User email not found." };
 
-    const startBalance = parseInt(order.accountSize.replace(/[^0-9]/g, '')) || 100000;
-
-    const res = await giftAccountAction(traderId, order.email, `Verified Node — ${order.accountSize}`, startBalance, order.plan, 'evaluation');
+    const res = await giftAccountAction(traderEmail, order.accountSize, order.plan);
 
     if (res.success) {
-      await orderRef.update({ status: 'completed', approvedBy: "admin", approvedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      await orderRef.update({ 
+        status: 'completed', 
+        approvedBy: "admin", 
+        approvedAt: FieldValue.serverTimestamp(), 
+        updatedAt: FieldValue.serverTimestamp() 
+      });
       return { success: true };
     }
     throw new Error(res.error);

@@ -271,7 +271,7 @@ export default function AdminPage() {
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [giftForm, setGiftForm] = useState({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+  const [giftForm, setGiftForm] = useState({ email: '', plan: '1-step-pro', size: '100k' });
 
   const [isKycRejectModalOpen, setIsKycRejectModalOpen] = useState(false);
   const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
@@ -507,29 +507,26 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    if (!giftForm.traderId && !giftForm.email) {
-      toast({ variant: "destructive", title: "Input Required", description: "Please enter a Trader ID or Email." });
+    if (!giftForm.email) {
+      toast({ variant: "destructive", title: "Email Required" });
       return;
     }
 
     setActionLoading(true);
     try {
       const res = await giftAccountAction(
-        giftForm.traderId,
         giftForm.email,
-        `Gifted ${giftForm.plan.toUpperCase()} — $${giftForm.size / 1000}k`,
         giftForm.size,
-        giftForm.plan,
-        'evaluation'
+        giftForm.plan
       );
 
       if (res.success) {
-        toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
+        toast({ title: "🎁 Success", description: "Account granted successfully." });
         setIsGiftModalOpen(false);
-        setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+        setGiftForm({ email: '', plan: '1-step-pro', size: '100k' });
         refreshStats(true);
       } else {
-        throw new Error(res.error || "Internal execution failure");
+        throw new Error(res.error || "Internal failure");
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Grant Failed", description: e.message });
@@ -945,15 +942,15 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+            <div className="space-y-2"><Label>Trader Email</Label><Input value={giftForm.email} onChange={e => setGiftForm({...giftForm, email: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
+              <div className="space-y-2"><Label>Account Size</Label><Select value={giftForm.size} onValueChange={v => setGiftForm({...giftForm, size: v})}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                  {[5, 10, 25, 50, 100, 200, 300].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
+                  {['5k', '10k', '25k', '50k', '100k', '200k', '300k'].map(s => <SelectItem key={s} value={s}>${s}</SelectItem>)}
                 </SelectContent>
               </Select></div>
-              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+              <div className="space-y-2"><Label>Plan Type</Label><Select value={giftForm.plan} onValueChange={v => setGiftForm({...giftForm, plan: v})}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="1-Step Pro" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                   <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
@@ -1264,3 +1261,4 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
+
