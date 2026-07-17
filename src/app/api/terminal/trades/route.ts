@@ -5,10 +5,9 @@ import { auditDemoAccount } from '@/lib/rulesEngine';
 import { getAuthoritativePrice } from '@/lib/priceSync';
 
 /**
- * @fileOverview Institutional Order Execution API (V10 - Leaderless Self-Healing)
- * Uses high-frequency RTDB and self-healing REST fallbacks to ensure 
- * 100% execution uptime even when background sync workers are offline.
- * Rejects specific bugged price markers and enforces freshness guards.
+ * @fileOverview Institutional Order Execution API (V11 - Hardened Admin Execution)
+ * Enforces strict server-side validation and executes trades via the Admin SDK 
+ * to ensure 100% permission availability regardless of client state.
  */
 
 const MAX_LOTS: Record<string, number> = {
@@ -25,7 +24,7 @@ export async function POST(req: NextRequest) {
     const db = getAdminDb();
     
     if (!auth || !db) {
-      return NextResponse.json({ error: "Terminal services temporarily unavailable" }, { status: 503 });
+      return NextResponse.json({ error: "Terminal services temporarily unavailable. Please retry." }, { status: 503 });
     }
 
     let uid: string;
@@ -33,7 +32,7 @@ export async function POST(req: NextRequest) {
       const decoded = await auth.verifyIdToken(token);
       uid = decoded.uid;
     } catch (err) {
-      return NextResponse.json({ error: "Session expired" }, { status: 401 });
+      return NextResponse.json({ error: "Invalid or expired session. Please re-login." }, { status: 401 });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -46,15 +45,15 @@ export async function POST(req: NextRequest) {
     const symUpper = symbol.toUpperCase().trim();
     const lots = parseFloat(String(rawLots));
 
-    // 1. GLOBAL EXECUTION LOCK
+    // 1. EXECUTION CONCURRENCY LOCK
     const activeLockRef = db.collection('_locks').doc(uid);
     const lockSnap = await activeLockRef.get();
-    if (lockSnap.exists && (Date.now() - lockSnap.data()!.timestamp < 2000)) {
-      return NextResponse.json({ error: "Execution in progress..." }, { status: 429 });
+    if (lockSnap.exists && (Date.now() - (lockSnap.data()?.timestamp || 0) < 2000)) {
+      return NextResponse.json({ error: "An execution is already in progress. Please wait." }, { status: 429 });
     }
     await activeLockRef.set({ timestamp: Date.now(), accountId });
 
-    // 2. FETCH AUTHORITATIVE PRICE (Hierarchy: Memory -> RTDB -> Forced REST Poll -> DB)
+    // 2. FETCH AUTHORITATIVE PRICE
     const feed = await getAuthoritativePrice(symUpper);
 
     if (!feed || !feed.bid || !feed.ask) {
@@ -62,39 +61,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Market liquidity offline for ${symUpper}.` }, { status: 503 });
     }
 
-    // 3. FRESHNESS GUARD (Strict 10s check on the best available source)
     const priceAgeSeconds = (Date.now() - feed.updatedAt) / 1000;
-    
     if (priceAgeSeconds > 10) {
       await activeLockRef.delete();
       return NextResponse.json({ 
-        error: `Market feed is stale (${priceAgeSeconds.toFixed(0)}s old). Self-healing failed, please retry.` 
+        error: `Market feed is stale (${priceAgeSeconds.toFixed(0)}s old). Please retry.` 
       }, { status: 503 });
     }
 
     const executionPrice = type === 'buy' ? feed.ask : feed.bid;
 
-    // 4. WITNESS VALIDATION (Prevent extreme slippage)
+    // 3. WITNESS VALIDATION (Prevent extreme slippage/latency arbitrage)
     if (witnessPrice && Math.abs(executionPrice - witnessPrice) / witnessPrice > 0.05) {
       await activeLockRef.delete();
-      return NextResponse.json({ error: "Price deviation too high. Please retry." }, { status: 409 });
+      return NextResponse.json({ error: "Price deviation too high. Execution aborted to protect your capital." }, { status: 409 });
     }
 
     const result = await db.runTransaction(async (tx) => {
       const accRef = db.collection("demoAccounts").doc(accountId);
       const accSnap = await tx.get(accRef);
-      if (!accSnap.exists) throw new Error("Trading node not found");
+      if (!accSnap.exists) throw new Error("Trading node not found in registry.");
       const account = accSnap.data()!;
 
       // HARD SECURITY GUARD: Restrict execution to ACTIVE or PASSED accounts only
       if (account.status !== 'active' && account.status !== 'passed') {
-        throw new Error(`Account Terminated: Current status is ${account.status.toUpperCase()}. No new orders permitted.`);
+        throw new Error(`Execution Blocked: Current status is ${account.status.toUpperCase()}. No new orders permitted.`);
       }
 
       const rawPlan = String(account.plan || '10k');
       const planKey = rawPlan.toLowerCase().trim().replace('$', '');
       const maxAllowed = MAX_LOTS[planKey] || 0.5;
-      if (lots > maxAllowed) throw new Error(`Lot Violation: Max ${maxAllowed} for ${rawPlan}`);
+      if (lots > maxAllowed) throw new Error(`Lot Violation: Maximum ${maxAllowed} lots permitted for ${rawPlan} tier.`);
 
       const commission = (() => {
         const isForex = !['XAUUSD','BTCUSD','ETHUSD','XRPUSD','SOLUSD','DOGEUSD','ADAUSD','BNBUSD','XAGUSD','XPTUSD'].includes(symUpper);
@@ -131,12 +128,15 @@ export async function POST(req: NextRequest) {
       return { tradeId: tradeRef.id, openPrice: executionPrice };
     });
 
+    // 4. CLEANUP & AUDIT
     await activeLockRef.delete();
     auditDemoAccount(accountId).catch(() => {});
 
     return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
     console.error('[Trade-API-Failure]', error.message);
-    return NextResponse.json({ error: error.message || "Execution Fault" }, { status: 500 });
+    return NextResponse.json({ 
+      error: error.message || "An internal execution fault occurred. Your account has not been charged." 
+    }, { status: 500 });
   }
 }

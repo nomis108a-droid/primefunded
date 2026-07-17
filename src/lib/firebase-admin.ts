@@ -44,7 +44,7 @@ function getAdminApp(): App | null {
         console.error("[Firebase-Admin] B64 Service Account Parse Failure:", e.message);
       }
     } else {
-      // Fallback for local development or environments with Application Default Credentials
+      // Fallback for environments with Application Default Credentials
       try {
         config.credential = credential.applicationDefault();
         console.log(`[Firebase-Admin] Initialized with Application Default Credentials`);
