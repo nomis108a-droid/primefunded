@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, memo, useState } from 'react';
+import { useEffect, memo, useState, useMemo } from 'react';
 import Image from 'next/image';
 import { 
   LayoutDashboard, 
@@ -23,7 +23,8 @@ import {
   ChevronLeft,
   Gift,
   BookOpen,
-  DollarSign
+  DollarSign,
+  Lock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -179,22 +180,41 @@ export const Navigation = memo(function Navigation() {
                 </Link>
               )}
 
-              {navItems.map((item) => (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  prefetch={true}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-pointer",
-                    pathname === item.href 
-                      ? "bg-primary/10 text-primary border-r-2 border-primary rounded-r-none" 
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  )}
-                >
-                  <item.icon className="w-5 h-5" />
-                  {item.name}
-                </Link>
-              ))}
+              {navItems.map((item) => {
+                const isTrade = item.name === 'Trade';
+                const isTradeDisabled = isTrade && !isAdmin && userData?.challengeStatus !== 'active';
+
+                if (isTradeDisabled) {
+                  return (
+                    <div
+                      key={item.name}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-not-allowed opacity-40 text-muted-foreground select-none group"
+                      title="Trade is only available when you have an active challenge."
+                    >
+                      <item.icon className="w-5 h-5" />
+                      <span className="flex-1">{item.name}</span>
+                      <Lock className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  );
+                }
+
+                return (
+                  <Link
+                    key={item.name}
+                    href={item.href}
+                    prefetch={true}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all cursor-pointer",
+                      pathname === item.href 
+                        ? "bg-primary/10 text-primary border-r-2 border-primary rounded-r-none" 
+                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    )}
+                  >
+                    <item.icon className="w-5 h-5" />
+                    {item.name}
+                  </Link>
+                );
+              })}
             </nav>
 
             <div className="mt-8 pt-8 border-t border-border space-y-4 shrink-0">

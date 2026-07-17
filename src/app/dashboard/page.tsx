@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, memo, useCallback } from 'react';
@@ -28,7 +29,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from "@/components/ui/skeleton";
 import { useFirestore, useCollection } from '@/firebase';
-import { where, orderBy } from 'firebase/firestore';
+import { where, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
 import { NotificationBell } from '@/components/NotificationBell';
@@ -76,6 +77,7 @@ const MetricCard = memo(function MetricCard({
 
 export default function DashboardPage() {
   const { user, userData, loading: authLoading } = useAuth();
+  const dbInstance = useFirestore();
   const { toast } = useToast();
   const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -125,6 +127,20 @@ export default function DashboardPage() {
     const rules = RULES_CONFIG.plans[planKey]?.[phase];
     return rules?.minTradingDays || rules?.minTradingDaysBeforePayout || 0;
   }, [selectedAccount]);
+
+  // Synchronize Challenge Status flag on user document
+  useEffect(() => {
+    if (!user?.uid || !dbInstance || authLoading || accountsLoading) return;
+    
+    const hasActiveNode = accounts.some(a => a.status === 'active' || a.status === 'passed');
+    const currentChallengeStatus = userData?.challengeStatus;
+    
+    if (hasActiveNode && currentChallengeStatus !== 'active') {
+      updateDoc(doc(dbInstance, 'users', user.uid), { challengeStatus: 'active' });
+    } else if (!hasActiveNode && accounts.length > 0 && currentChallengeStatus === 'active') {
+      updateDoc(doc(dbInstance, 'users', user.uid), { challengeStatus: 'inactive' });
+    }
+  }, [accounts, userData, user?.uid, dbInstance, authLoading, accountsLoading]);
 
   useEffect(() => {
     let isMounted = true;
@@ -200,6 +216,45 @@ export default function DashboardPage() {
           <div><h1 className="text-3xl font-headline font-bold mb-1 text-white">Trader Terminal</h1><p className="text-muted-foreground">Monitoring active challenges and node performance.</p></div>
           <div className="flex items-center gap-4"><NotificationBell /><Button className="font-bold cyan-box-glow cursor-pointer" asChild><Link href="/challenges"><Zap className="w-4 h-4 mr-2" /> New Challenge</Link></Button></div>
         </header>
+
+        {/* Challenge Activity Monitor */}
+        <section className="mb-8">
+          <Card className="bg-card/40 border-border/50 overflow-hidden relative">
+            <div className={cn(
+              "absolute top-0 left-0 w-1 h-full",
+              userData?.challengeStatus === 'active' ? "bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]" : "bg-zinc-700"
+            )} />
+            <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-4">
+                <div className={cn(
+                  "w-12 h-12 rounded-2xl flex items-center justify-center border transition-all duration-500",
+                  userData?.challengeStatus === 'active' ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "bg-secondary border-border text-muted-foreground"
+                )}>
+                  <Activity className={cn("w-6 h-6", userData?.challengeStatus === 'active' && "animate-pulse")} />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">Challenge Activity</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-xl font-bold text-white uppercase tracking-tight">
+                      {userData?.challengeStatus === 'active' ? 'Status: Active' : 'Status: Inactive'}
+                    </h3>
+                    {userData?.challengeStatus === 'active' && <Badge className="bg-emerald-500 text-white h-5 text-[8px] font-black">TRADING ENABLED</Badge>}
+                  </div>
+                </div>
+              </div>
+              {!userData?.challengeStatus || userData?.challengeStatus !== 'active' ? (
+                <Button variant="outline" className="w-full sm:w-auto font-bold border-primary/20 text-primary hover:bg-primary/10 rounded-xl px-8" asChild>
+                  <Link href="/challenges">Start Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                </Button>
+              ) : (
+                <Button className="w-full sm:w-auto font-bold cyan-box-glow px-8 rounded-xl" asChild>
+                  <Link href="/demo">Open Terminal <ArrowRight className="ml-2 w-4 h-4" /></Link>
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+
         <section className="mb-12">
           <div className="flex items-center gap-2 mb-6"><Trophy className="w-5 h-5 text-primary" /><h2 className="text-xl font-headline font-bold text-white uppercase tracking-tight">Active Challenges</h2></div>
           {accountsLoading ? <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{[1, 2, 3].map(i => <Skeleton key={i} className="h-64 rounded-3xl bg-secondary/20" />)}</div> : accounts.length === 0 ? <Card className="border-2 border-dashed border-border/50 bg-secondary/5 p-12 text-center flex flex-col items-center justify-center space-y-6"><Terminal className="w-16 h-16 text-muted-foreground opacity-20" /><div className="max-sm"><h3 className="text-xl font-bold text-white mb-2">No active challenges</h3><p className="text-muted-foreground text-sm leading-relaxed">You haven't started any evaluations yet. Purchase a challenge to begin your institutional funding journey.</p></div><Button className="font-bold cyan-box-glow px-10 h-12 rounded-xl" asChild><Link href="/challenges">Buy a Challenge <ArrowRight className="ml-2 w-4 h-4" /></Link></Button></Card> : (
