@@ -571,7 +571,7 @@ export default function AdminPage() {
       const uid = userDoc.id;
       const accountSizeStr = `${giftForm.size / 1000}k`;
 
-      // Step B: Write profile provisioning data (Non-blocking optimistic write)
+      // Step B: Write profile provisioning data
       const userUpdateData = {
         accountSize: accountSizeStr,
         planType: giftForm.plan,
@@ -579,19 +579,9 @@ export default function AdminPage() {
         grantedAt: serverTimestamp()
       };
 
-      setDoc(userDoc.ref, userUpdateData, { merge: true })
-        .catch(async (serverError) => {
-          if (serverError.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-              path: userDoc.ref.path,
-              operation: 'update',
-              requestResourceData: userUpdateData,
-            } satisfies SecurityRuleContext);
-            errorEmitter.emit('permission-error', permissionError);
-          }
-        });
+      await setDoc(userDoc.ref, userUpdateData, { merge: true });
 
-      // Step C: Initialize the challenge node (Non-blocking optimistic write)
+      // Step C: Initialize the challenge node
       const challengeData = {
         status: 'active',
         accountSize: accountSizeStr,
@@ -601,17 +591,15 @@ export default function AdminPage() {
       };
 
       const challengesRef = collection(db, 'users', uid, 'challenges');
-      addDoc(challengesRef, challengeData)
-        .catch(async (serverError) => {
-          if (serverError.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-              path: challengesRef.path,
-              operation: 'create',
-              requestResourceData: challengeData,
-            } satisfies SecurityRuleContext);
-            errorEmitter.emit('permission-error', permissionError);
-          }
-        });
+      
+      try {
+        await addDoc(challengesRef, challengeData);
+      } catch (error: any) {
+        console.error('Failed to create challenge:', error);
+        toast({ variant: "destructive", title: "Grant Failed", description: 'Failed to create challenge: ' + error.message });
+        setActionLoading(false);
+        return;
+      }
 
       // UI Feedback & Cleanup
       toast({ title: "Account granted successfully" });
@@ -1103,7 +1091,6 @@ export default function AdminPage() {
              <Button variant="destructive" onClick={handleRejectOrder}>Reject Order</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)]">
