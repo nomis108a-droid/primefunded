@@ -506,8 +506,8 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    const email = giftForm.traderId?.trim();
-    if (!email) {
+    const emailInput = giftForm.traderId?.trim();
+    if (!emailInput) {
       toast({ variant: "destructive", title: 'Email Required', description: 'Please enter an email address.' });
       return;
     }
@@ -516,43 +516,44 @@ export default function AdminPage() {
     try {
       // Step A: Find target user by email
       const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('email', '==', email));
+      const q = query(usersRef, where('email', '==', emailInput));
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        toast({ variant: "destructive", title: 'Error', description: 'User not found with email: ' + email });
+        toast({ variant: "destructive", title: 'Error', description: 'User not found with email: ' + emailInput });
         setActionLoading(false);
         return;
       }
 
       const userDoc = querySnapshot.docs[0];
       const uid = userDoc.id;
-      const selectedAccountSize = `${giftForm.size / 1000}k`;
-      const selectedPlanType = giftForm.plan;
+      const selectedSize = `${giftForm.size / 1000}k`;
+      const selectedPlan = giftForm.plan;
 
       // Step B: Update user document
-      await setDoc(doc(db, 'users', uid), {
-        accountSize: selectedAccountSize,
-        planType: selectedPlanType,
+      const userRef = doc(db, 'users', uid);
+      await setDoc(userRef, {
+        accountSize: selectedSize,
+        planType: selectedPlan,
         accountStatus: 'active',
-        grantedAt: serverTimestamp()
+        grantedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       }, { merge: true });
 
-      // Step C: Create challenge
+      // Step C: Create challenge in subcollection
       const balance = giftForm.size;
-
-      await addDoc(collection(db, 'users', uid, 'challenges'), {
+      const challengesRef = collection(db, 'users', uid, 'challenges');
+      await addDoc(challengesRef, {
         status: 'active',
-        accountSize: selectedAccountSize,
-        planType: selectedPlanType,
+        accountSize: selectedSize,
+        planType: selectedPlan,
         balance,
         createdAt: serverTimestamp()
       });
 
-      // Step D: Create Demo Account Node
-      const pKey = selectedPlanType;
-      const phase = selectedPlanType.startsWith('instant') ? "funded" : "evaluation";
-      const rules = RULES_CONFIG.plans[pKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+      // Step D: Create Terminal Node (demoAccounts)
+      const phase = selectedPlan.startsWith('instant') ? "funded" : "evaluation";
+      const rules = RULES_CONFIG.plans[selectedPlan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
       const profitTarget = balance * (rules.profitTarget || 10) / 100;
       const dailyLossLimitUsd = balance * (rules.dailyDrawdown / 100);
@@ -560,11 +561,11 @@ export default function AdminPage() {
 
       await addDoc(collection(db, "demoAccounts"), {
         userId: uid,
-        email: email,
-        plan: selectedAccountSize,
-        planType: pKey,
+        email: emailInput,
+        plan: selectedSize,
+        planType: selectedPlan,
         phase: phase,
-        label: `${selectedPlanType.toUpperCase()} — $${(balance/1000)}k Challenge`,
+        label: `${selectedPlan.toUpperCase()} — $${(balance/1000)}k Challenge`,
         balance: balance,
         equity: balance,
         startBalance: balance,
