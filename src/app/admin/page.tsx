@@ -558,13 +558,13 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
+      // Step A: Find the target user's UID by querying the users collection
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('email', '==', email));
-      
       const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
-        toast({ variant: "destructive", title: "User not found", description: "No user with this email exists." });
+        toast({ variant: "destructive", title: "User not found", description: "No trader found with this email." });
         setActionLoading(false);
         return;
       }
@@ -573,16 +573,15 @@ export default function AdminPage() {
       const uid = userDoc.id;
       const accountSizeStr = `${giftForm.size / 1000}k`;
 
-      const userDataUpdate = {
+      // Step B: Write account data directly to the user's document
+      await setDoc(userDoc.ref, {
         accountSize: accountSizeStr,
         planType: giftForm.plan,
         accountStatus: 'active',
         grantedAt: serverTimestamp()
-      };
+      }, { merge: true });
 
-      // Step B: Write account data directly to the user's document (Non-blocking)
-      setDoc(userDoc.ref, userDataUpdate, { merge: true });
-
+      // Step C: Create a challenge document
       const challengeData = {
         status: 'active',
         accountSize: accountSizeStr,
@@ -591,9 +590,8 @@ export default function AdminPage() {
         createdAt: serverTimestamp()
       };
 
-      // Step C: Create a challenge document in subcollection (Non-blocking)
       const challengesRef = collection(db, 'users', uid, 'challenges');
-      addDoc(challengesRef, challengeData);
+      await addDoc(challengesRef, challengeData);
 
       toast({ title: "Account granted successfully" });
       setIsGiftModalOpen(false);
@@ -601,7 +599,12 @@ export default function AdminPage() {
       refreshStats(true);
 
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Grant failed", description: error.message });
+      console.error('Grant error:', error);
+      toast({ 
+        variant: "destructive", 
+        title: "Grant failed", 
+        description: error.message || "Permissions denied. Check security rules." 
+      });
     } finally {
       setActionLoading(false);
     }
