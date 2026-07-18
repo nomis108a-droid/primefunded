@@ -165,7 +165,9 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
                    {columns[2] === 'status' ? (
                      <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
                    ) : (
-                     <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
+                     <span className="text-[10px] font-mono text-zinc-500">
+                       {item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}
+                     </span>
                    )}
                 </td>
               </tr>
