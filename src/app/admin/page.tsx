@@ -37,7 +37,7 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { CONTRACT_SIZE } from '@/lib/rulesConfig';
+import { CONTRACT_SIZE, RULES_CONFIG } from '@/lib/rulesConfig';
 
 // Static Country List
 const COUNTRIES = [
@@ -508,41 +508,84 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    const identifier = giftForm.traderId.trim();
-    if (!identifier) {
-      toast({ variant: "destructive", title: "Email Required", description: "Please enter an email address." });
+    const email = giftForm.traderId?.trim();
+    if (!email) {
+      toast({ variant: "destructive", title: 'Email Required', description: 'Please enter an email address.' });
       return;
     }
 
     setActionLoading(true);
     try {
-      const res = await fetch('/api/admin/gift-account-bypass', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: identifier, 
-          accountSize: `${giftForm.size / 1000}k`, 
-          planType: giftForm.plan 
-        })
-      });
-      
-      const data = await res.json();
+      // Step A: Find target user by email
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', email));
+      const querySnapshot = await getDocs(q);
 
-      if (res.ok && data.success) {
-        toast({ title: "Account granted successfully" });
-        setIsGiftModalOpen(false);
-        setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-        refreshStats(true);
-      } else {
-        throw new Error(data.error || "Operation failed.");
+      if (querySnapshot.empty) {
+        toast({ variant: "destructive", title: 'Error', description: 'User not found with email: ' + email });
+        setActionLoading(false);
+        return;
       }
+
+      const userDoc = querySnapshot.docs[0];
+      const uid = userDoc.id;
+      const selectedAccountSize = `${giftForm.size / 1000}k`;
+      const selectedPlanType = giftForm.plan;
+
+      // Step B: Update user document
+      await setDoc(doc(db, 'users', uid), {
+        accountSize: selectedAccountSize,
+        planType: selectedPlanType,
+        accountStatus: 'active',
+        grantedAt: serverTimestamp()
+      }, { merge: true });
+
+      // Step C: Create challenge
+      const balance = giftForm.size;
+
+      await addDoc(collection(db, 'users', uid, 'challenges'), {
+        status: 'active',
+        accountSize: selectedAccountSize,
+        planType: selectedPlanType,
+        balance,
+        createdAt: serverTimestamp()
+      });
+
+      // Step D: Create Demo Account Node
+      const pKey = selectedPlanType;
+      const phase = selectedPlanType.startsWith('instant') ? "funded" : "evaluation";
+      const rules = RULES_CONFIG.plans[pKey]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+      
+      const profitTarget = balance * (rules.profitTarget || 10) / 100;
+      const dailyLossLimitUsd = balance * (rules.dailyDrawdown / 100);
+      const maxLossLimitUsd = balance * (rules.maxDrawdown / 100);
+
+      await addDoc(collection(db, "demoAccounts"), {
+        userId: uid,
+        email: email,
+        plan: selectedAccountSize,
+        planType: pKey,
+        phase: phase,
+        label: `${selectedPlanType.toUpperCase()} — $${(balance/1000)}k Challenge`,
+        balance: balance,
+        equity: balance,
+        startBalance: balance,
+        profitTarget,
+        dailyLossLimitUsd, 
+        dailyGrossLossUsd: 0, 
+        maxLoss: maxLossLimitUsd, 
+        status: "active",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      toast({ title: 'Success', description: 'Account granted successfully' });
+      setIsGiftModalOpen(false);
+      setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+      refreshStats(true);
     } catch (error: any) {
       console.error('Grant exception:', error);
-      toast({ 
-        variant: "destructive", 
-        title: "Grant failed", 
-        description: error.message 
-      });
+      toast({ variant: "destructive", title: 'Error', description: error.message || 'Grant failed' });
     } finally {
       setActionLoading(false);
     }

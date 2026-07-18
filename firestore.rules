@@ -32,25 +32,15 @@ service cloud.firestore {
 
     // Orders Collection
     match /orders/{id} {
-      allow read: if isAdmin() || (request.auth != null && (resource == null || request.auth.uid == resource.data.userId));
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
-      allow delete: if isAdmin();
+      allow read, write: if request.auth != null;
     }
 
     // User Management & Challenges (Simplified for administrative overrides)
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+      allow read, write: if request.auth != null;
       
-      match /challenges/{challengeId} {
-        allow read: if request.auth != null;
-        allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-      }
-
       match /{allPaths=**} {
-        allow read: if request.auth != null;
-        allow write: if isAdmin() || (request.auth != null && request.auth.uid == userId);
+        allow read, write: if request.auth != null;
       }
     }
 
@@ -89,13 +79,11 @@ service cloud.firestore {
     }
 
     match /demoAccounts/{id} {
-      allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
-      allow write: if isAdmin();
+      allow read, write: if request.auth != null;
     }
 
     match /demoTrades/{id} {
-      allow read: if isAdmin() || (request.auth != null && (resource == null || resource.data.userId == request.auth.uid));
-      allow write: if isAdmin();
+      allow read, write: if request.auth != null;
     }
 
     match /alerts/{id} {
@@ -105,9 +93,7 @@ service cloud.firestore {
     
     // Giveaway System
     match /giveaways/{id} {
-      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
-      allow create: if request.auth != null;
-      allow delete: if isAdmin();
+      allow read, write: if request.auth != null;
     }
     
     // Global System Collections
