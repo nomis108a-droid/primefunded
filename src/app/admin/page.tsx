@@ -574,6 +574,7 @@ export default function AdminPage() {
 
       if (querySnapshot.empty) {
         toast({ variant: "destructive", title: "User not found", description: "No user with this email exists." });
+        setActionLoading(false);
         return;
       }
 
@@ -589,7 +590,7 @@ export default function AdminPage() {
       };
 
       // Step B: Write account data directly to the user's document
-      await setDoc(userDoc.ref, userDataUpdate, { merge: true }).catch(async (serverError) => {
+      setDoc(userDoc.ref, userDataUpdate, { merge: true }).catch(async (serverError) => {
         if (serverError.code === 'permission-denied') {
           const permissionError = new FirestorePermissionError({
             path: userDoc.ref.path,
@@ -598,7 +599,6 @@ export default function AdminPage() {
           } satisfies SecurityRuleContext);
           errorEmitter.emit('permission-error', permissionError);
         }
-        throw serverError;
       });
 
       const challengeData = {
@@ -611,7 +611,7 @@ export default function AdminPage() {
 
       // Step C: Create a challenge document in subcollection
       const challengesRef = collection(db, 'users', uid, 'challenges');
-      await addDoc(challengesRef, challengeData).catch(async (serverError) => {
+      addDoc(challengesRef, challengeData).catch(async (serverError) => {
         if (serverError.code === 'permission-denied') {
           const permissionError = new FirestorePermissionError({
             path: challengesRef.path,
@@ -620,7 +620,6 @@ export default function AdminPage() {
           } satisfies SecurityRuleContext);
           errorEmitter.emit('permission-error', permissionError);
         }
-        throw serverError;
       });
 
       toast({ title: "Account granted successfully" });
@@ -629,7 +628,6 @@ export default function AdminPage() {
       refreshStats(true);
 
     } catch (error: any) {
-      console.error('Grant error:', error);
       if (error.code !== 'permission-denied') {
         toast({ variant: "destructive", title: "Grant failed", description: error.message });
       }
