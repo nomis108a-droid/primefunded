@@ -508,7 +508,6 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    // BUG FIX: The identifier is stored in giftForm.traderId, which is the state bound to the "Trader ID or Email" input.
     const identifier = giftForm.traderId.trim();
     if (!identifier) {
       toast({ variant: "destructive", title: "Email Required", description: "Please enter an email address." });
