@@ -483,7 +483,9 @@ export default function AdminPage() {
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
-    } finally { setActionLoading(false); }
+    } finally {
+      setActionLoading(false);
+    }
   }, [refreshStats, toast]);
 
   const handleResetSingleAccount = async (accountId: string) => {
@@ -506,8 +508,9 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    const email = giftForm.email.trim();
-    if (!email) {
+    // BUG FIX: The identifier is stored in giftForm.traderId, which is the state bound to the "Trader ID or Email" input.
+    const identifier = giftForm.traderId.trim();
+    if (!identifier) {
       toast({ variant: "destructive", title: "Email Required", description: "Please enter an email address." });
       return;
     }
@@ -518,7 +521,7 @@ export default function AdminPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          email, 
+          email: identifier, 
           accountSize: `${giftForm.size / 1000}k`, 
           planType: giftForm.plan 
         })
