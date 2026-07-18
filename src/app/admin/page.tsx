@@ -394,6 +394,8 @@ export default function AdminPage() {
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
+      // SET COOKIE FOR SERVER ACTIONS
+      document.cookie = "admin_master=93463962569392846256; path=/; max-age=28800; SameSite=Strict";
       localStorage.setItem('adminVerified', 'true');
       setIsAuthenticated(true);
       setShowAdminModal(false);
