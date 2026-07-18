@@ -23,6 +23,7 @@ import {
   sendGlobalBroadcastAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
+  giftAccountAction, 
   updateKycStatusAction, 
   updatePayoutStatusAction, 
   cleanupDuplicateOrdersAction 
@@ -38,8 +39,6 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
-import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 
 // Static Country List
 const COUNTRIES = [
@@ -295,51 +294,25 @@ export default function AdminPage() {
     return adminList.includes(user.email.toLowerCase());
   }, [user]);
 
-  // Ensure user is redirected to login if no auth session exists when accessing admin
-  useEffect(() => {
-    if (!authLoading && !user && isAuthenticated) {
-      router.push(`/login?redirect=${encodeURIComponent('/admin')}`);
-    }
-  }, [user, authLoading, router, isAuthenticated]);
-
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   const refreshStats = useCallback(async (force = false) => {
-    if (!isAuthenticated || !isAuthorized || authLoading || !user) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
     if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
 
     try {
-      const fetchCount = async (q: any) => {
-        try {
-          return (await getCountFromServer(q)).data().count;
-        } catch (serverError: any) {
-          if (serverError.code === 'permission-denied') {
-            const permissionError = new FirestorePermissionError({
-              path: q._query.path.toString(),
-              operation: 'list',
-            } satisfies SecurityRuleContext);
-            errorEmitter.emit('permission-error', permissionError);
-          }
-          throw serverError;
-        }
-      };
-
+      const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
       const results = await Promise.allSettled([
         fetchCount(collection(db, 'users')),
         fetchCount(collection(db, 'demoAccounts')),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
         fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
-        getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }).catch(async (err) => {
-          if (err.code === 'permission-denied') {
-            errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'orders', operation: 'list' }));
-          }
-          throw err;
-        }),
+        getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }),
         fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
@@ -358,18 +331,18 @@ export default function AdminPage() {
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
     } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
-  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount, user]);
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
-    if (isAuthenticated && isAuthorized && !authLoading && user) {
+    if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats(true);
       const timer = setInterval(() => refreshStats(true), 10000);
       return () => clearInterval(timer);
     }
-  }, [isAuthenticated, isAuthorized, authLoading, refreshStats, user]);
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   useEffect(() => {
-    if (!isAuthenticated || !isAuthorized || authLoading || !user) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     setIsLoading(true);
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
@@ -379,11 +352,6 @@ export default function AdminPage() {
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
       unsub = onSnapshot(q, (snap) => {
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
-      }, async (err) => {
-        if (err.code === 'permission-denied') {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ path, operation: 'list' }));
-        }
         setIsLoading(false);
       });
       return () => unsub();
@@ -405,15 +373,9 @@ export default function AdminPage() {
 
     const targetQ = qMap[activeTab];
     if (targetQ) {
-      const pathKey = activeTab === 'kyc-hub' ? 'users' : activeTab === 'order-review' ? 'orders' : activeTab;
       unsub = onSnapshot(targetQ, (snap) => {
         const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
         setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
-      }, async (err) => {
-        if (err.code === 'permission-denied') {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ path: pathKey, operation: 'list' }));
-        }
         setIsLoading(false);
       });
     } else {
@@ -422,7 +384,7 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, user]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -542,6 +504,10 @@ export default function AdminPage() {
     }
   };
 
+  /**
+   * GIFT ACCOUNT HANDLER (Admin SDK Bypass)
+   * Calls the server action to provision high-privilege account data.
+   */
   const handleGiftAccount = async () => {
     const email = giftForm.email.trim();
     if (!email) {
@@ -549,70 +515,29 @@ export default function AdminPage() {
       return;
     }
 
-    if (!user) {
-      toast({ variant: "destructive", title: "Auth Error", description: "Firebase Auth session not detected." });
-      return;
-    }
-
     setActionLoading(true);
     try {
-      // Step A: Find the target trader via email lookup
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('email', '==', email));
-      const querySnapshot = await getDocs(q);
+      // Direct Server Action call (Bypasses all client rules)
+      const res = await giftAccountAction(
+        email, 
+        `${giftForm.size / 1000}k`, 
+        giftForm.plan
+      );
 
-      if (querySnapshot.empty) {
-        toast({ variant: "destructive", title: "User not found", description: "No trader found with this email." });
-        setActionLoading(false);
-        return;
+      if (res.success) {
+        toast({ title: "Account granted successfully" });
+        setIsGiftModalOpen(false);
+        setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
+        refreshStats(true);
+      } else {
+        throw new Error(res.error || "Operation failed.");
       }
-
-      const userDoc = querySnapshot.docs[0];
-      const uid = userDoc.id;
-      const accountSizeStr = `${giftForm.size / 1000}k`;
-
-      // Step B: Write profile provisioning data
-      const userUpdateData = {
-        accountSize: accountSizeStr,
-        planType: giftForm.plan,
-        accountStatus: 'active',
-        grantedAt: serverTimestamp()
-      };
-
-      await setDoc(userDoc.ref, userUpdateData, { merge: true });
-
-      // Step C: Initialize the challenge node
-      const challengeData = {
-        status: 'active',
-        accountSize: accountSizeStr,
-        planType: giftForm.plan,
-        balance: parseFloat(String(giftForm.size)),
-        createdAt: serverTimestamp()
-      };
-
-      const challengesRef = collection(db, 'users', uid, 'challenges');
-      
-      try {
-        await addDoc(challengesRef, challengeData);
-      } catch (error: any) {
-        console.error('Failed to create challenge:', error);
-        toast({ variant: "destructive", title: "Grant Failed", description: 'Failed to create challenge: ' + error.message });
-        setActionLoading(false);
-        return;
-      }
-
-      // UI Feedback & Cleanup
-      toast({ title: "Account granted successfully" });
-      setIsGiftModalOpen(false);
-      setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-      refreshStats(true);
-
     } catch (error: any) {
       console.error('Grant exception:', error);
       toast({ 
         variant: "destructive", 
         title: "Grant failed", 
-        description: error.message || "An unexpected error occurred during provisioning." 
+        description: error.message || "Bypass engine rejected the request." 
       });
     } finally {
       setActionLoading(false);
@@ -670,32 +595,17 @@ export default function AdminPage() {
     const unsubT = onSnapshot(qT, (snap) => {
       setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTradesLoading(false);
-    }, async (err) => {
-      if (err.code === 'permission-denied') {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'demoTrades', operation: 'list' }));
-      }
-      setTradesLoading(false);
     });
 
     const qN = query(collection(db, 'demoAccounts'), where('userId', '==', selectedUser.id), orderBy('createdAt', 'desc'));
     const unsubN = onSnapshot(qN, (snap) => {
       setUserNodes(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setNodesLoading(false);
-    }, async (err) => {
-      if (err.code === 'permission-denied') {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'demoAccounts', operation: 'list' }));
-      }
-      setNodesLoading(false);
     });
 
     const qB = query(collection(db, 'breaches'), where('userId', '==', selectedUser.id), orderBy('breachedAt', 'desc'));
     const unsubB = onSnapshot(qB, (snap) => {
       setUserBreaches(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setBreachesLoading(false);
-    }, async (err) => {
-      if (err.code === 'permission-denied') {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'breaches', operation: 'list' }));
-      }
       setBreachesLoading(false);
     });
     

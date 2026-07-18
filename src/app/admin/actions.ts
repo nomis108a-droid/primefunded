@@ -33,8 +33,9 @@ export async function updateGlobalSettingsAction(settings: any) {
 }
 
 /**
- * Institutional Account Provisioning (REWRITTEN FROM SCRATCH)
- * Uses Firebase Admin SDK to safely grant free challenges to traders.
+ * Institutional Account Provisioning (Admin SDK Bypass)
+ * Safely grants challenges by writing directly via Admin SDK.
+ * Bypasses all Firestore Security Rules.
  */
 export async function giftAccountAction(email: string, accountSize: string, planType: string) {
   // 1. Verify Caller Authority
@@ -50,36 +51,54 @@ export async function giftAccountAction(email: string, accountSize: string, plan
     const targetEmail = (email || "").trim().toLowerCase();
     if (!targetEmail) return { success: false, error: "Email is required." };
 
-    // 2. Identify Target User ID
+    // 2. Identify Target User
     let userId = "";
-    
-    // Strategy A: Search Firestore by Email
-    const emailSnap = await db.collection('users').where('email', '==', targetEmail).limit(1).get();
-    if (!emailSnap.empty) {
-      userId = emailSnap.docs[0].id;
-    } else {
-      // Strategy B: Search Firebase Auth directly
-      try {
-        const authUser = await auth.getUserByEmail(targetEmail);
-        userId = authUser.uid;
-      } catch (e) {
+    try {
+      const authUser = await auth.getUserByEmail(targetEmail);
+      userId = authUser.uid;
+    } catch (e) {
+      const emailSnap = await db.collection('users').where('email', '==', targetEmail).limit(1).get();
+      if (!emailSnap.empty) {
+        userId = emailSnap.docs[0].id;
+      } else {
         return { success: false, error: "No trader found with this email. Ensure they have signed up." };
       }
     }
 
-    // 3. Resolve Plan Parameters & Risk Rules
+    // 3. Resolve Plan Parameters
     const planKey = getPlanKey(planType);
     const balance = parseInt(accountSize.replace(/[^0-9]/g, '')) || 100000;
-    
-    // Resolve rules from master config
     const rules = RULES_CONFIG.plans[planKey]?.['evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
     
     const profitTarget = balance * (rules.profitTarget || 10) / 100;
     const dailyLossLimitUsd = balance * (rules.dailyDrawdown / 100);
     const maxLossLimitUsd = balance * (rules.maxDrawdown / 100);
 
-    // 4. Provision Challenge Node
-    const docRef = await db.collection("demoAccounts").add({
+    const batch = db.batch();
+    const userRef = db.collection('users').doc(userId);
+
+    // A. Update Profile Status
+    batch.set(userRef, {
+      accountSize,
+      planType: planKey,
+      accountStatus: 'active',
+      grantedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // B. Create Sub-collection Challenge (Bypass Rules)
+    const subChallengeRef = userRef.collection('challenges').doc();
+    batch.set(subChallengeRef, {
+      status: 'active',
+      accountSize,
+      planType: planKey,
+      balance,
+      createdAt: FieldValue.serverTimestamp()
+    });
+
+    // C. Create Terminal Node
+    const demoAccRef = db.collection("demoAccounts").doc();
+    batch.set(demoAccRef, {
       userId,
       email: targetEmail,
       label: `${planType.toUpperCase()} — $${(balance/1000)}k Challenge`,
@@ -100,8 +119,9 @@ export async function giftAccountAction(email: string, accountSize: string, plan
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    // 5. Send Real-time Notification
-    await db.collection('users').doc(userId).collection('notifications').add({
+    // D. Send Notification
+    const notifRef = userRef.collection('notifications').doc();
+    batch.set(notifRef, {
       title: '🎁 Account Provisioned',
       message: `Your free ${accountSize} ${planType} challenge node is now live in your dashboard.`,
       type: 'account_gifted',
@@ -109,7 +129,8 @@ export async function giftAccountAction(email: string, accountSize: string, plan
       createdAt: FieldValue.serverTimestamp()
     });
 
-    return { success: true, id: docRef.id };
+    await batch.commit();
+    return { success: true };
   } catch (err: any) {
     console.error("[Grant-Action] Failure:", err.message);
     return { success: false, error: err.message };
