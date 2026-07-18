@@ -574,12 +574,24 @@ export default function AdminPage() {
       const accountSizeStr = `${giftForm.size / 1000}k`;
 
       // Step B: Write account data directly to the user's document
-      await setDoc(userDoc.ref, {
+      const userUpdateData = {
         accountSize: accountSizeStr,
         planType: giftForm.plan,
         accountStatus: 'active',
         grantedAt: serverTimestamp()
-      }, { merge: true });
+      };
+
+      setDoc(userDoc.ref, userUpdateData, { merge: true })
+        .catch(async (serverError) => {
+          if (serverError.code === 'permission-denied') {
+            const permissionError = new FirestorePermissionError({
+              path: userDoc.ref.path,
+              operation: 'update',
+              requestResourceData: userUpdateData,
+            } satisfies SecurityRuleContext);
+            errorEmitter.emit('permission-error', permissionError);
+          }
+        });
 
       // Step C: Create a challenge document
       const challengeData = {
@@ -591,7 +603,17 @@ export default function AdminPage() {
       };
 
       const challengesRef = collection(db, 'users', uid, 'challenges');
-      await addDoc(challengesRef, challengeData);
+      addDoc(challengesRef, challengeData)
+        .catch(async (serverError) => {
+          if (serverError.code === 'permission-denied') {
+            const permissionError = new FirestorePermissionError({
+              path: challengesRef.path,
+              operation: 'create',
+              requestResourceData: challengeData,
+            } satisfies SecurityRuleContext);
+            errorEmitter.emit('permission-error', permissionError);
+          }
+        });
 
       toast({ title: "Account granted successfully" });
       setIsGiftModalOpen(false);
