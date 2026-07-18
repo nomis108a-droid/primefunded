@@ -556,7 +556,7 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
-      // Step A: Find the target user's UID by querying the users collection
+      // Step A: Find the target trader via email lookup
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('email', '==', email));
       const querySnapshot = await getDocs(q);
@@ -571,7 +571,7 @@ export default function AdminPage() {
       const uid = userDoc.id;
       const accountSizeStr = `${giftForm.size / 1000}k`;
 
-      // Step B: Write account data directly to the user's document
+      // Step B: Write profile provisioning data (Non-blocking optimistic write)
       const userUpdateData = {
         accountSize: accountSizeStr,
         planType: giftForm.plan,
@@ -591,7 +591,7 @@ export default function AdminPage() {
           }
         });
 
-      // Step C: Create a challenge document
+      // Step C: Initialize the challenge node (Non-blocking optimistic write)
       const challengeData = {
         status: 'active',
         accountSize: accountSizeStr,
@@ -613,17 +613,18 @@ export default function AdminPage() {
           }
         });
 
+      // UI Feedback & Cleanup
       toast({ title: "Account granted successfully" });
       setIsGiftModalOpen(false);
       setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
       refreshStats(true);
 
     } catch (error: any) {
-      console.error('Grant error:', error);
+      console.error('Grant exception:', error);
       toast({ 
         variant: "destructive", 
         title: "Grant failed", 
-        description: error.message || "Permissions denied. Check security rules." 
+        description: error.message || "An unexpected error occurred during provisioning." 
       });
     } finally {
       setActionLoading(false);
@@ -1371,4 +1372,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
-

@@ -38,19 +38,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // User Management & Challenges (Explicit matches for administrative reliability)
+    // User Management & Challenges (Simplified for administrative overrides)
     match /users/{userId} {
       allow read, write: if request.auth != null;
       
-      match /challenges/{challengeId} {
-        allow read, write: if request.auth != null;
-      }
-      
-      match /notifications/{notifId} {
-        allow read, write: if request.auth != null;
-      }
-      
-      // Allow recursive access for any other subcollections
       match /{allPaths=**} {
         allow read, write: if request.auth != null;
       }
