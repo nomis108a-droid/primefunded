@@ -23,7 +23,6 @@ import {
   sendGlobalBroadcastAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
-  giftAccountAction, 
   updateKycStatusAction, 
   updatePayoutStatusAction, 
   cleanupDuplicateOrdersAction 
@@ -394,7 +393,7 @@ export default function AdminPage() {
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
-      // SET COOKIE FOR SERVER ACTIONS
+      // SET SECURE COOKIE FOR SERVER ACTIONS
       document.cookie = "admin_master=93463962569392846256; path=/; max-age=28800; SameSite=Strict";
       localStorage.setItem('adminVerified', 'true');
       setIsAuthenticated(true);
@@ -506,10 +505,6 @@ export default function AdminPage() {
     }
   };
 
-  /**
-   * GIFT ACCOUNT HANDLER (Admin SDK Bypass)
-   * Calls the server action to provision high-privilege account data.
-   */
   const handleGiftAccount = async () => {
     const email = giftForm.email.trim();
     if (!email) {
@@ -519,27 +514,32 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
-      // Direct Server Action call (Bypasses all client rules)
-      const res = await giftAccountAction(
-        email, 
-        `${giftForm.size / 1000}k`, 
-        giftForm.plan
-      );
+      const res = await fetch('/api/admin/gift-account-bypass', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email, 
+          accountSize: `${giftForm.size / 1000}k`, 
+          planType: giftForm.plan 
+        })
+      });
+      
+      const data = await res.json();
 
-      if (res.success) {
+      if (res.ok && data.success) {
         toast({ title: "Account granted successfully" });
         setIsGiftModalOpen(false);
         setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
         refreshStats(true);
       } else {
-        throw new Error(res.error || "Operation failed.");
+        throw new Error(data.error || "Operation failed.");
       }
     } catch (error: any) {
       console.error('Grant exception:', error);
       toast({ 
         variant: "destructive", 
         title: "Grant failed", 
-        description: error.message || "Bypass engine rejected the request." 
+        description: error.message 
       });
     } finally {
       setActionLoading(false);
