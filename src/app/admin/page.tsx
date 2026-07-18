@@ -561,16 +561,7 @@ export default function AdminPage() {
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('email', '==', email));
       
-      const querySnapshot = await getDocs(q).catch(async (serverError) => {
-        if (serverError.code === 'permission-denied') {
-          const permissionError = new FirestorePermissionError({
-            path: usersRef.path,
-            operation: 'list',
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        }
-        throw serverError;
-      });
+      const querySnapshot = await getDocs(q);
 
       if (querySnapshot.empty) {
         toast({ variant: "destructive", title: "User not found", description: "No user with this email exists." });
@@ -589,17 +580,8 @@ export default function AdminPage() {
         grantedAt: serverTimestamp()
       };
 
-      // Step B: Write account data directly to the user's document
-      setDoc(userDoc.ref, userDataUpdate, { merge: true }).catch(async (serverError) => {
-        if (serverError.code === 'permission-denied') {
-          const permissionError = new FirestorePermissionError({
-            path: userDoc.ref.path,
-            operation: 'update',
-            requestResourceData: userDataUpdate
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        }
-      });
+      // Step B: Write account data directly to the user's document (Non-blocking)
+      setDoc(userDoc.ref, userDataUpdate, { merge: true });
 
       const challengeData = {
         status: 'active',
@@ -609,18 +591,9 @@ export default function AdminPage() {
         createdAt: serverTimestamp()
       };
 
-      // Step C: Create a challenge document in subcollection
+      // Step C: Create a challenge document in subcollection (Non-blocking)
       const challengesRef = collection(db, 'users', uid, 'challenges');
-      addDoc(challengesRef, challengeData).catch(async (serverError) => {
-        if (serverError.code === 'permission-denied') {
-          const permissionError = new FirestorePermissionError({
-            path: challengesRef.path,
-            operation: 'create',
-            requestResourceData: challengeData
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        }
-      });
+      addDoc(challengesRef, challengeData);
 
       toast({ title: "Account granted successfully" });
       setIsGiftModalOpen(false);
@@ -628,9 +601,7 @@ export default function AdminPage() {
       refreshStats(true);
 
     } catch (error: any) {
-      if (error.code !== 'permission-denied') {
-        toast({ variant: "destructive", title: "Grant failed", description: error.message });
-      }
+      toast({ variant: "destructive", title: "Grant failed", description: error.message });
     } finally {
       setActionLoading(false);
     }
@@ -1377,4 +1348,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
-
