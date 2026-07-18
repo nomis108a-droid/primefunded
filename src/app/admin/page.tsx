@@ -953,7 +953,7 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.email} onChange={e => setGiftForm({...giftForm, email: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>

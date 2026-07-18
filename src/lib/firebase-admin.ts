@@ -5,66 +5,79 @@ import { getDatabase } from 'firebase-admin/database';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Configuration
- * Hardened for Production: Ensures reliable administrative access and resolves
- * gRPC "metadata from plugin" errors by strictly managing Service Account lifecycle.
+ * Hardened for Production: Ensures reliable administrative access using a global singleton
+ * to prevent initialization conflicts during server-side hot-reloads.
  */
 
-let adminApp: App | null = null;
+interface AdminServices {
+  app: App;
+  db: ReturnType<typeof getFirestore>;
+  auth: ReturnType<typeof getAuth>;
+  rtdb: ReturnType<typeof getDatabase>;
+}
 
-function getAdminApp(): App | null {
-  if (adminApp) return adminApp;
+// Global variable to persist admin services across HMR and requests
+declare global {
+  var __admin_services: AdminServices | undefined;
+}
+
+function initAdmin(): AdminServices | null {
+  if (global.__admin_services) return global.__admin_services;
 
   try {
-    // 1. Singleton Guard
     const apps = getApps();
+    let adminApp: App;
+
     if (apps.length > 0) {
       adminApp = apps[0];
-      return adminApp;
-    }
+    } else {
+      const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
+      const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
+      const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
-    // 2. Configuration Retrieval
-    const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
-    const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
-    const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+      const config: any = {
+        projectId,
+        databaseURL
+      };
 
-    const config: any = {
-      projectId,
-      databaseURL
-    };
+      if (b64Key && b64Key.trim() !== '') {
+        try {
+          const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
+          const serviceAccount = JSON.parse(decoded);
+          
+          if (serviceAccount.private_key) {
+            serviceAccount.private_key = serviceAccount.private_key
+              .replace(/\\n/g, '\n')
+              .replace(/^"(.*)"$/, '$1')
+              .trim();
+          }
+          
+          if (serviceAccount.project_id) {
+            config.projectId = serviceAccount.project_id;
+          }
 
-    // 3. Credential Injection
-    if (b64Key && b64Key.trim() !== '') {
-      try {
-        const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
-        const serviceAccount = JSON.parse(decoded);
-        
-        if (serviceAccount.private_key) {
-          // Normalize the private key to handle both literal newlines and escaped characters
-          serviceAccount.private_key = serviceAccount.private_key
-            .replace(/\\n/g, '\n')
-            .replace(/^"(.*)"$/, '$1')
-            .trim();
+          config.credential = cert(serviceAccount);
+          console.log(`[Admin-Init] Master established via Service Account: ${serviceAccount.client_email}`);
+        } catch (err: any) {
+          console.error("[Admin-Init] Service Account parse failed. Falling back to ADC:", err.message);
+          config.credential = credential.applicationDefault();
         }
-        
-        // Explicitly use the project_id from the service account if available
-        if (serviceAccount.project_id) {
-          config.projectId = serviceAccount.project_id;
-        }
-
-        config.credential = cert(serviceAccount);
-        console.log(`[Admin-Init] Master established via Service Account: ${serviceAccount.client_email}`);
-      } catch (err: any) {
-        console.error("[Admin-Init] Service Account parse failed. Falling back to ADC:", err.message);
+      } else {
+        console.warn("[Admin-Init] No Service Account key provided. Using Application Default Credentials.");
         config.credential = credential.applicationDefault();
       }
-    } else {
-      console.warn("[Admin-Init] No Service Account key provided. Using Application Default Credentials.");
-      config.credential = credential.applicationDefault();
+
+      adminApp = initializeApp(config);
     }
 
-    // 4. Initialization
-    adminApp = initializeApp(config);
-    return adminApp;
+    global.__admin_services = {
+      app: adminApp,
+      db: getFirestore(adminApp),
+      auth: getAuth(adminApp),
+      rtdb: getDatabase(adminApp)
+    };
+
+    return global.__admin_services;
   } catch (e: any) {
     console.error("[Admin-Init] CRITICAL FATAL FAILURE:", e.message);
     return null;
@@ -72,31 +85,14 @@ function getAdminApp(): App | null {
 }
 
 /**
- * Service Provider Singletons
+ * Service Provider Getters
  */
-export const getAdminDb = () => {
-  const app = getAdminApp();
-  return app ? getFirestore(app) : null;
-};
-
-export const getAdminAuth = () => {
-  const app = getAdminApp();
-  return app ? getAuth(app) : null;
-};
-
-export const getAdminRtdb = () => {
-  const app = getAdminApp();
-  return app ? getDatabase(app) : null;
-};
+export const getAdminDb = () => initAdmin()?.db || null;
+export const getAdminAuth = () => initAdmin()?.auth || null;
+export const getAdminRtdb = () => initAdmin()?.rtdb || null;
 
 export function getAdminServices() {
-  const app = getAdminApp();
-  if (!app) return null;
-  return { 
-    db: getFirestore(app), 
-    auth: getAuth(app), 
-    rtdb: getDatabase(app) 
-  };
+  return initAdmin();
 }
 
-export const isFirebaseAdminConfigured = () => !!getAdminApp();
+export const isFirebaseAdminConfigured = () => !!initAdmin();
