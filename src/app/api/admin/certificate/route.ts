@@ -1,6 +1,8 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
+import { ADMIN_EMAILS } from '@/lib/admin';
 
 /**
  * @fileOverview Institutional Performance Certification API
@@ -15,17 +17,21 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const auth = getAdminAuth();
+    if (!auth) throw new Error("Auth service offline");
+    
     const decoded = await auth.verifyIdToken(token);
     
-    // Check if is authorized admin
-    const ADMIN_EMAILS = ["sitarama108a@gmail.com", "sitarama108a-alt@gmail.com"];
-    if (!ADMIN_EMAILS.includes(decoded.email || "")) {
+    // Authorization Check via Central Admin List
+    const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
+    if (!decoded.email || !adminList.includes(decoded.email.toLowerCase())) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { userId, traderName, amount, payoutId, plan } = await req.json();
 
     const db = getAdminDb();
+    if (!db) throw new Error("DB service offline");
+    
     const certRef = db.collection("certificates").doc();
     const certId = certRef.id;
 
