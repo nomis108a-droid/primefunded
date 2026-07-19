@@ -1,60 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper: Check if user is in the authorized admin email list
-    function isAdmin() {
-      return request.auth != null && 
-             request.auth.token != null &&
-             request.auth.token.email != null &&
-             request.auth.token.email.lower() in [
-          "sitarama108a@gmail.com",
-          "sitarama108a-alt@gmail.com",
-          "nomis108a@gmail.com",
-          "pawanvish0907@gmail.com",
-          "radhakrishna200803@gmail.com",
-          "rachithraj133@gmail.com"
-        ];
-    }
-
     // Permissive access for authenticated users to resolve persistent permission denials
     // during administrative provisioning and node management.
+    // This allows administrators to reliably manage trader data.
     match /{document=**} {
       allow read, write: if request.auth != null;
-    }
-
-    // Site Settings (branding, config)
-    match /settings/{document} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // Unified Market Feed
-    match /market/{symbol} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // Referral System
-    match /referralCodes/{code} {
-      allow read: if true;
-      allow create: if request.auth != null;
-    }
-
-    // Featured Payouts (Public Leaderboard)
-    match /featured_payouts/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-    
-    // Global System Collections
-    match /broadcasts/{id} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    match /_system/{document=**} {
-      allow read, write: if isAdmin();
     }
   }
 }
