@@ -37,7 +37,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import Link from 'link';
 import { CONTRACT_SIZE, RULES_CONFIG } from '@/lib/rulesConfig';
 
 // Static Country List
@@ -491,7 +491,7 @@ export default function AdminPage() {
 
       const nowIso = new Date().toISOString();
 
-      // Step B: Update user document directly (Optimized internal structure - No subcollections)
+      // Step B: Update user document directly (Optimized internal structure)
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         accountSize: selectedSize,
@@ -506,11 +506,11 @@ export default function AdminPage() {
           accountSize: selectedSize,
           planType: selectedPlan,
           balance,
-          grantedAt: nowIso
+          grantedAt: nowIso // Fixed: serverTimestamp not allowed in arrayUnion
         })
       });
 
-      // Step C: Create Terminal Node (demoAccounts) - Required for dashboard visibility and terminal access
+      // Step C: Create Terminal Node (demoAccounts) - Required for dashboard visibility
       const phase = selectedPlan.startsWith('instant') ? "funded" : "evaluation";
       const rules = RULES_CONFIG.plans[selectedPlan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
