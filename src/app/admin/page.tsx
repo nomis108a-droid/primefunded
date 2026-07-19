@@ -458,87 +458,64 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    const inputVal = giftForm.traderId?.trim();
-    if (!inputVal) {
-      toast({ variant: "destructive", title: 'Input Required', description: 'Please enter a trader email.' });
-      return;
-    }
+    const email = giftForm.traderId?.trim();
+    if (!email) { toast({ variant: "destructive", title: 'Input Required' }); return; }
 
     setActionLoading(true);
     try {
-      // Direct Firestore write (Client SDK) to bypass restrictive API checks
-      const usersRef = collection(db, 'users');
-      // Resolve UID from input (assume email for primary lookup)
-      const q = query(usersRef, where('email', '==', inputVal));
-      const querySnapshot = await getDocs(q);
+      const q = query(collection(db, 'users'), where('email', '==', email));
+      const snap = await getDocs(q);
+      if (snap.empty) { toast({ variant: "destructive", title: 'User not found' }); return; }
 
-      if (querySnapshot.empty) {
-        toast({ variant: "destructive", title: 'Error', description: 'User not found with email: ' + inputVal });
-        setActionLoading(false);
-        return;
-      }
-
-      const userDocSnapshot = querySnapshot.docs[0];
-      const uid = userDocSnapshot.id;
+      const uid = snap.docs[0].id;
       const balance = giftForm.size;
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
-      const selectedPlan = giftForm.plan;
 
-      const nowIso = new Date().toISOString();
-
-      // Step B: Update user document directly
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, {
+      // 1. Update Profile
+      await updateDoc(doc(db, 'users', uid), {
         accountSize: selectedSize,
-        planType: selectedPlan,
+        planType: giftForm.plan,
         accountStatus: 'active',
         accountType: 'gifted',
         balance: balance,
         grantedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
         challenges: arrayUnion({
           status: 'active',
           accountSize: selectedSize,
-          planType: selectedPlan,
+          planType: giftForm.plan,
           balance,
-          grantedAt: nowIso // Use ISO string to avoid arrayUnion sentinel error
+          grantedAt: new Date().toISOString()
         })
       });
 
-      // Step C: Create Terminal Node (demoAccounts) - Required for dashboard visibility
-      const phase = selectedPlan.startsWith('instant') ? "funded" : "evaluation";
-      const rules = RULES_CONFIG.plans[selectedPlan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
-      
-      const profitTarget = balance * (rules.profitTarget || 10) / 100;
-      const dailyLossLimitUsd = balance * (rules.dailyDrawdown / 100);
-      const maxLossLimitUsd = balance * (rules.maxDrawdown / 100);
+      // 2. Provision Trading Node (Instant Visibility)
+      const phase = giftForm.plan.startsWith('instant') ? "funded" : "evaluation";
+      const rules = RULES_CONFIG.plans[giftForm.plan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
       await addDoc(collection(db, "demoAccounts"), {
         userId: uid,
-        email: inputVal,
+        email,
         plan: selectedSize,
-        planType: selectedPlan,
-        phase: phase,
-        label: `${selectedPlan.toUpperCase()} — ${selectedSize} Challenge`,
-        balance: balance,
+        planType: giftForm.plan,
+        phase,
+        label: `${giftForm.plan.toUpperCase()} — ${selectedSize} Challenge`,
+        balance,
         equity: balance,
         startBalance: balance,
-        profitTarget,
-        dailyLossLimitUsd, 
-        dailyGrossLossUsd: 0, 
-        maxLoss: maxLossLimitUsd, 
+        profitTarget: balance * (rules.profitTarget || 10) / 100,
+        dailyLossLimitUsd: balance * (rules.dailyDrawdown / 100),
+        maxLoss: balance * (rules.maxDrawdown / 100),
         status: "active",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
 
-      toast({ title: 'Success', description: 'Account granted and provisioned successfully.' });
+      toast({ title: 'Success', description: 'Account provisioned successfully.' });
       setIsGiftModalOpen(false);
       setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
       refreshStats(true);
     } catch (error: any) {
-      console.error('Grant exception:', error);
-      toast({ variant: "destructive", title: 'Error', description: error.message || 'Grant failed' });
+      toast({ variant: "destructive", title: 'Error', description: error.message });
     } finally {
       setActionLoading(false);
     }
