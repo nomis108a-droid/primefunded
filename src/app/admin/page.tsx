@@ -31,7 +31,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -527,31 +527,30 @@ export default function AdminPage() {
 
       const userDoc = querySnapshot.docs[0];
       const uid = userDoc.id;
-      const selectedSize = `${giftForm.size / 1000}k`;
+      const balance = giftForm.size;
+      const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
       const selectedPlan = giftForm.plan;
 
-      // Step B: Update user document
+      // Step B: Update user document directly (Optimized internal structure)
       const userRef = doc(db, 'users', uid);
-      await setDoc(userRef, {
+      await updateDoc(userRef, {
         accountSize: selectedSize,
         planType: selectedPlan,
         accountStatus: 'active',
+        accountType: 'gifted',
+        balance: balance,
         grantedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      // Step C: Create challenge in subcollection
-      const balance = giftForm.size;
-      const challengesRef = collection(db, 'users', uid, 'challenges');
-      await addDoc(challengesRef, {
-        status: 'active',
-        accountSize: selectedSize,
-        planType: selectedPlan,
-        balance,
-        createdAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        challenges: arrayUnion({
+          status: 'active',
+          accountSize: selectedSize,
+          planType: selectedPlan,
+          balance,
+          grantedAt: serverTimestamp()
+        })
       });
 
-      // Step D: Create Terminal Node (demoAccounts)
+      // Step C: Create Terminal Node (demoAccounts) - Required for dashboard visibility
       const phase = selectedPlan.startsWith('instant') ? "funded" : "evaluation";
       const rules = RULES_CONFIG.plans[selectedPlan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
@@ -565,7 +564,7 @@ export default function AdminPage() {
         plan: selectedSize,
         planType: selectedPlan,
         phase: phase,
-        label: `${selectedPlan.toUpperCase()} — $${(balance/1000)}k Challenge`,
+        label: `${selectedPlan.toUpperCase()} — ${selectedSize} Challenge`,
         balance: balance,
         equity: balance,
         startBalance: balance,
@@ -578,7 +577,7 @@ export default function AdminPage() {
         updatedAt: serverTimestamp()
       });
 
-      toast({ title: 'Success', description: 'Account granted successfully' });
+      toast({ title: 'Success', description: 'Account granted and provisioned successfully.' });
       setIsGiftModalOpen(false);
       setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
       refreshStats(true);
