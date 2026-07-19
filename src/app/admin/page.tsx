@@ -62,7 +62,7 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
   { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
   { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
   { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
@@ -531,7 +531,7 @@ export default function AdminPage() {
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
       const selectedPlan = giftForm.plan;
 
-      // Step B: Update user document directly (Optimized internal structure)
+      // Step B: Update user document directly (Optimized internal structure - No subcollections)
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         accountSize: selectedSize,
@@ -550,7 +550,7 @@ export default function AdminPage() {
         })
       });
 
-      // Step C: Create Terminal Node (demoAccounts) - Required for dashboard visibility
+      // Step C: Create Terminal Node (demoAccounts) - Required for dashboard visibility and terminal access
       const phase = selectedPlan.startsWith('instant') ? "funded" : "evaluation";
       const rules = RULES_CONFIG.plans[selectedPlan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
