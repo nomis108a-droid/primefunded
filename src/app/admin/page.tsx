@@ -288,12 +288,6 @@ export default function AdminPage() {
 
   const instanceId = "Studio-8383940162";
 
-  const isAuthorized = useMemo(() => {
-    if (!user || !user.email) return false;
-    const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
-    return adminList.includes(user.email.toLowerCase());
-  }, [user]);
-
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400);
     return () => clearTimeout(timer);
