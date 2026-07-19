@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -531,6 +532,8 @@ export default function AdminPage() {
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
       const selectedPlan = giftForm.plan;
 
+      const nowIso = new Date().toISOString();
+
       // Step B: Update user document directly (Optimized internal structure - No subcollections)
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
@@ -546,7 +549,7 @@ export default function AdminPage() {
           accountSize: selectedSize,
           planType: selectedPlan,
           balance,
-          grantedAt: serverTimestamp()
+          grantedAt: nowIso
         })
       });
 
