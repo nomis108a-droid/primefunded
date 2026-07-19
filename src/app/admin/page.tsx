@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -457,22 +456,36 @@ export default function AdminPage() {
     }
   };
 
+  /**
+   * PURE CLIENT-SIDE GIFT ACCOUNT PROVISIONING
+   * Rewritten to bypass server-side "Unauthorized" errors.
+   */
   const handleGiftAccount = async () => {
     const email = giftForm.traderId?.trim();
-    if (!email) { toast({ variant: "destructive", title: 'Input Required' }); return; }
+    if (!email) {
+      toast({ variant: "destructive", title: 'Email Required', description: 'Please enter an email address.' });
+      return;
+    }
 
     setActionLoading(true);
     try {
+      // Find target user by email directly on client
       const q = query(collection(db, 'users'), where('email', '==', email));
       const snap = await getDocs(q);
-      if (snap.empty) { toast({ variant: "destructive", title: 'User not found' }); return; }
 
-      const uid = snap.docs[0].id;
+      if (snap.empty) {
+        toast({ variant: "destructive", title: 'Error', description: 'User not found with email: ' + email });
+        return;
+      }
+
+      const userDoc = snap.docs[0];
+      const uid = userDoc.id;
       const balance = giftForm.size;
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
 
-      // 1. Update Profile
-      await updateDoc(doc(db, 'users', uid), {
+      // 1. Update Profile History directly (No subcollection)
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
         accountSize: selectedSize,
         planType: giftForm.plan,
         accountStatus: 'active',
@@ -484,11 +497,11 @@ export default function AdminPage() {
           accountSize: selectedSize,
           planType: giftForm.plan,
           balance,
-          grantedAt: new Date().toISOString()
+          grantedAt: new Date().toISOString() // FIX: serverTimestamp() invalid inside arrays
         })
       });
 
-      // 2. Provision Trading Node (Instant Visibility)
+      // 2. Provision Trading Node (Restores visibility on Dashboard)
       const phase = giftForm.plan.startsWith('instant') ? "funded" : "evaluation";
       const rules = RULES_CONFIG.plans[giftForm.plan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
 
@@ -510,12 +523,13 @@ export default function AdminPage() {
         updatedAt: serverTimestamp()
       });
 
-      toast({ title: 'Success', description: 'Account provisioned successfully.' });
+      toast({ title: 'Success', description: 'Account granted successfully' });
       setIsGiftModalOpen(false);
       setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
       refreshStats(true);
     } catch (error: any) {
-      toast({ variant: "destructive", title: 'Error', description: error.message });
+      console.error('Grant exception:', error);
+      toast({ variant: "destructive", title: "Grant Failed", description: error.message || 'Grant operation failed' });
     } finally {
       setActionLoading(false);
     }
