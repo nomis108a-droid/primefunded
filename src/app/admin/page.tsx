@@ -342,51 +342,6 @@ export default function AdminPage() {
   }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   useEffect(() => {
-    if (!isAuthenticated || !isAuthorized || authLoading) return;
-    setIsLoading(true);
-    let unsub: () => void = () => {};
-    const term = debouncedSearchTerm.toLowerCase().trim();
-
-    if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
-      const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
-      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
-      unsub = onSnapshot(q, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
-      });
-      return () => unsub();
-    }
-
-    const qMap: any = {
-      'overview': null,
-      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
-      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
-      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
-      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
-      'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc')),
-      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
-      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
-      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
-      'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
-      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
-    };
-
-    const targetQ = qMap[activeTab];
-    if (targetQ) {
-      unsub = onSnapshot(targetQ, (snap) => {
-        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
-        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
-      });
-    } else {
-      refreshStats();
-      setIsLoading(false);
-    }
-
-    return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
-
-  useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
   }, []);
@@ -395,6 +350,8 @@ export default function AdminPage() {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
       localStorage.setItem('adminVerified', 'true');
+      // Set the session cookie required by server actions (verifyAdminAuth)
+      document.cookie = "admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax";
       setIsAuthenticated(true);
       setShowAdminModal(false);
     } else setAdminError('❌ Invalid credentials');
@@ -613,6 +570,51 @@ export default function AdminPage() {
       setActionLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
+    setIsLoading(true);
+    let unsub: () => void = () => {};
+    const term = debouncedSearchTerm.toLowerCase().trim();
+
+    if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
+      const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
+      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
+      unsub = onSnapshot(q, (snap) => {
+        setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setIsLoading(false);
+      });
+      return () => unsub();
+    }
+
+    const qMap: any = {
+      'overview': null,
+      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
+      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
+      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
+      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
+      'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc')),
+      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
+      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
+      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
+      'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
+      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
+    };
+
+    const targetQ = qMap[activeTab];
+    if (targetQ) {
+      unsub = onSnapshot(targetQ, (snap) => {
+        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
+        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setIsLoading(false);
+      });
+    } else {
+      refreshStats();
+      setIsLoading(false);
+    }
+
+    return () => unsub();
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
   const filteredFeaturedPayouts = useMemo(() => {
     return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
