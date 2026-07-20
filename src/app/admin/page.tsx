@@ -39,7 +39,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE, RULES_CONFIG } from '@/lib/rulesConfig';
 
-// Static Country List
+// Static Country List (Deduplicated)
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
