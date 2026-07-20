@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -38,8 +38,8 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// Static Country List (Deduplicated)
-const COUNTRIES = [
+// Static Country List (Deduplicated manually to fix key MH/MR error)
+const COUNTRIES_RAW = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
   { name: "Bahamas", code: "BS" }, { name: "Bahrain", code: "BH" }, { name: "Bangladesh", code: "BD" }, { name: "Barbados", code: "BB" }, { name: "Belarus", code: "BY" },
@@ -79,12 +79,13 @@ const COUNTRIES = [
   { name: "Ukraine", code: "UA" }, { name: "United Arab Emirates", code: "AE" }, { name: "United Kingdom", code: "GB" }, { name: "United States", code: "US" }, { name: "Uruguay", code: "UY" },
   { name: "Uzbekistan", code: "UZ" }, { name: "Vanuatu", code: "VU" }, { name: "Vatican City", code: "VA" }, { name: "Venezuela", code: "VE" }, { name: "Vietnam", code: "VN" },
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
-].reduce((acc, c) => {
-  if (!acc.some(existing => existing.code === c.code)) {
-    acc.push(c);
-  }
-  return acc;
-}, [] as any[]);
+];
+
+// Deduplicate COUNTRIES list by code
+const COUNTRIES = Array.from(new Map(COUNTRIES_RAW.map(c => [c.code, c])).values()).map(c => {
+  const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
+  return { ...c, flag: String.fromCodePoint(...codePoints) };
+});
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colorMap: any = {
@@ -281,6 +282,7 @@ export default function AdminPage() {
   const [isCountryAutocompleteOpen, setIsCountryAutocompleteOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
+  const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
   const [userPage, setUserPage] = useState(1);
   const usersPerPage = 50;
@@ -603,10 +605,10 @@ export default function AdminPage() {
   }, [tabData.featuredPayouts]);
 
   const filteredCountries = useMemo(() => {
-    const term = payoutForm.country.toLowerCase().trim();
+    const term = countrySearchTerm.toLowerCase().trim();
     if (!term) return COUNTRIES.slice(0, 100);
     return COUNTRIES.filter(c => c.name.toLowerCase().includes(term));
-  }, [payoutForm.country]);
+  }, [countrySearchTerm]);
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -724,6 +726,7 @@ export default function AdminPage() {
                     onChange={e => {
                       const val = e.target.value;
                       setPayoutForm({...payoutForm, country: val});
+                      setCountrySearchTerm(val);
                       setIsCountryAutocompleteOpen(true);
                     }}
                     onFocus={() => setIsCountryAutocompleteOpen(true)}
@@ -745,6 +748,7 @@ export default function AdminPage() {
                             onPointerDown={e => { 
                               e.preventDefault(); 
                               setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
+                              setCountrySearchTerm(c.name);
                               setIsCountryAutocompleteOpen(false);
                             }}
                             className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/5 rounded-md text-left transition-colors group"
