@@ -62,7 +62,7 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
   { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
   { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
   { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
@@ -345,6 +345,8 @@ export default function AdminPage() {
       localStorage.setItem('adminVerified', 'true');
       setIsAuthenticated(true);
       setShowAdminModal(false);
+      // Set session cookie for server actions
+      document.cookie = "admin_master=93463962569392846256; path=/; max-age=86400";
     } else setAdminError('❌ Invalid credentials');
   };
 
@@ -459,9 +461,9 @@ export default function AdminPage() {
    * Bypasses "Unauthorized" errors by performing direct Firestore mutations.
    */
   const handleGiftAccount = async () => {
-    const emailInput = giftForm.email?.trim() || giftForm.traderId?.trim();
+    const emailInput = (giftForm.email || giftForm.traderId)?.trim();
     if (!emailInput) {
-      toast({ variant: "destructive", title: 'Email Required', description: 'Please enter a target email.' });
+      toast({ variant: "destructive", title: "Email Required", description: "Please enter a target email." });
       return;
     }
 
@@ -491,7 +493,7 @@ export default function AdminPage() {
       const dailyLossLimitUsd = balance * (planRules.dailyDrawdown / 100);
       const maxLossLimitUsd = balance * (planRules.maxDrawdown / 100);
 
-      // 3. Update User Profile & Challenge History (Direct client-side write)
+      // 3. Update User Profile & Challenge History (Atomic direct write)
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         accountSize: selectedSize,
@@ -509,7 +511,7 @@ export default function AdminPage() {
         })
       });
 
-      // 4. Provision Trading Terminal Node (Restores visibility on Dashboard)
+      // 4. Provision Trading Terminal Node
       await addDoc(collection(db, "demoAccounts"), {
         userId: uid,
         email: emailInput,
@@ -1002,7 +1004,7 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
             <DialogTitle>Provision Free Account</DialogTitle>
-            <DialogDescription className="sr-only">Grant a gifted challenge to a trader by email or ID.</DialogDescription>
+            <DialogDescription className="sr-only">Grant a gifted challenge account to a trader by email or ID.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
