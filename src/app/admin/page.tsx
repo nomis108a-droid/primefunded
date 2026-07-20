@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -505,9 +506,10 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
-      const q = query(collection(db, 'users'), where('email', '==', emailInput));
-      const snap = await getDocs(q);
-
+      const { getFirestore, collection, query, where, getDocs, doc, updateDoc, serverTimestamp, arrayUnion, addDoc } = await import('firebase/firestore');
+      const db = getFirestore();
+      
+      const snap = await getDocs(query(collection(db, 'users'), where('email', '==', emailInput)));
       if (snap.empty) {
         toast({ variant: "destructive", title: 'Error', description: 'User not found: ' + emailInput });
         return;

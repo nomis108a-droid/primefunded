@@ -1,19 +1,15 @@
+
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Payout Evidence: Publicly viewable, Authenticated uploads
     match /payouts/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null;
     }
-
-    // Featured Payout Proofs (Legacy Path): Publicly viewable, Authenticated uploads
     match /featured-payout-proofs/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null;
     }
-
-    // Private KYC and Payment Proofs: Staff or Owner access
     match /{allPaths=**} {
       allow read, write: if request.auth != null;
     }
