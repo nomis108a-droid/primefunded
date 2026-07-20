@@ -439,7 +439,7 @@ export default function AdminPage() {
     if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
     setActionLoading(true);
     try {
-      let proofUrl = '';
+      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
       if (payoutProofFile) {
         const storageRef = ref(storage, `payouts/${Date.now()}_${payoutProofFile.name}`);
         const snap = await uploadBytes(storageRef, payoutProofFile);
@@ -454,14 +454,13 @@ export default function AdminPage() {
         totalPayouts: parseInt(payoutForm.payoutsCount || '1'),
         proofUrl,
         isFeatured: true,
-        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
 
       if (payoutForm.id) {
         await updateDoc(doc(db, 'payouts', payoutForm.id), payload);
       } else {
-        await addDoc(collection(db, 'payouts'), payload);
+        await addDoc(collection(db, 'payouts'), { ...payload, createdAt: serverTimestamp() });
       }
 
       toast({ title: "Featured Payout Saved" });
@@ -525,7 +524,8 @@ export default function AdminPage() {
       const dailyLossLimitUsd = balance * (planRules.dailyDrawdown / 100);
       const maxLossLimitUsd = balance * (planRules.maxDrawdown / 100);
 
-      await updateDoc(doc(db, 'users', uid), {
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
         accountSize: selectedSize,
         planType: plan,
         accountStatus: 'active',
@@ -569,6 +569,22 @@ export default function AdminPage() {
       setActionLoading(false);
     }
   };
+
+  const handleResetHistory = useCallback(async () => {
+    if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetAllHistoryAction();
+      if (res.success) {
+        toast({ title: `Reset Complete: ${res.count} trades archived.` });
+        refreshStats(true);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
+    } finally {
+      setActionLoading(false);
+    }
+  }, [refreshStats, toast]);
 
   const handleRejectOrder = async () => {
     if (!rejectingOrderId || !rejectReason.trim()) {
