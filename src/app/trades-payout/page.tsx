@@ -1,13 +1,12 @@
-
 "use client";
 
 import { useMemo, memo } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Wallet, Globe, ArrowUpRight, Trophy, Info, ExternalLink } from 'lucide-react';
+import { Wallet, Trophy, Info, ExternalLink } from 'lucide-react';
 import { useCollection } from '@/firebase';
-import { orderBy } from 'firebase/firestore';
+import { orderBy, where } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -27,17 +26,16 @@ const StatBox = memo(function StatBox({ title, value, icon, color = 'primary' }:
 
 export default function TradesPayoutPage() {
   const { data: featuredPayouts, loading } = useCollection<any>(
-    'featured_payouts',
-    [orderBy('paidOut', 'desc')]
+    'payouts',
+    useMemo(() => [
+      where('isFeatured', '==', true),
+      orderBy('createdAt', 'desc')
+    ], [])
   );
 
-  const sortedPayouts = useMemo(() => {
-    return [...(featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
-  }, [featuredPayouts]);
-
   const totalPaidOut = useMemo(() => {
-    return sortedPayouts.reduce((acc, curr) => acc + (parseFloat(curr.paidOut) || 0), 0);
-  }, [sortedPayouts]);
+    return featuredPayouts.reduce((acc, curr) => acc + (parseFloat(curr.paidOut) || 0), 0);
+  }, [featuredPayouts]);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -88,7 +86,7 @@ export default function TradesPayoutPage() {
                         <td colSpan={6} className="py-6 px-6"><Skeleton className="h-4 w-full bg-secondary/50 rounded" /></td>
                       </tr>
                     ))
-                  ) : sortedPayouts.length === 0 ? (
+                  ) : featuredPayouts.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-20 text-center text-muted-foreground italic flex flex-col items-center gap-4">
                         <Info className="w-12 h-12 opacity-20" />
@@ -96,7 +94,7 @@ export default function TradesPayoutPage() {
                       </td>
                     </tr>
                   ) : (
-                    sortedPayouts.map((p, index) => {
+                    featuredPayouts.map((p, index) => {
                       const rank = index + 1;
                       return (
                         <tr key={p.id} className="hover:bg-primary/5 transition-colors group">
@@ -111,7 +109,7 @@ export default function TradesPayoutPage() {
                               {rank}
                             </Badge>
                           </td>
-                          <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.name}</td>
+                          <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.traderName}</td>
                           <td className="py-4 px-6 text-zinc-400 text-xs">
                              <div className="flex items-center gap-2">
                                 <span className="text-base">{p.countryFlag}</span>
@@ -122,7 +120,7 @@ export default function TradesPayoutPage() {
                             ${(parseFloat(p.paidOut) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                           <td className="py-4 px-6 text-center">
-                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.payoutsCount}</Badge>
+                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.totalPayouts}</Badge>
                           </td>
                           <td className="py-4 px-6 text-right">
                             {p.proofUrl ? (
