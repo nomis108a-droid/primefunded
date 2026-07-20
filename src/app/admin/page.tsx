@@ -38,7 +38,7 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// Static Country List (Deduplicated manually to fix key MH/MR error)
+// Static Country List (Cleaned and Deduplicated)
 const COUNTRIES_RAW = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
@@ -81,7 +81,6 @@ const COUNTRIES_RAW = [
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ];
 
-// Deduplicate COUNTRIES list by code
 const COUNTRIES = Array.from(new Map(COUNTRIES_RAW.map(c => [c.code, c])).values()).map(c => {
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
   return { ...c, flag: String.fromCodePoint(...codePoints) };

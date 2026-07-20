@@ -121,7 +121,7 @@ export default function TradesPayoutPage() {
                             ${(parseFloat(p.paidOut) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                           <td className="py-4 px-6 text-center">
-                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.totalPayouts}</Badge>
+                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.payoutsCount || p.totalPayouts || 1}</Badge>
                           </td>
                           <td className="py-4 px-6 text-right">
                             {p.proofUrl ? (
