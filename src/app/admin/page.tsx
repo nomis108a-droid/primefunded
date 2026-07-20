@@ -336,18 +336,13 @@ export default function AdminPage() {
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
-    if (isVerified) {
-      document.cookie = "admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax";
-      setIsAuthenticated(true);
-    }
+    if (isVerified) setIsAuthenticated(true);
   }, []);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
       localStorage.setItem('adminVerified', 'true');
-      // Set session cookie for high-privilege server actions
-      document.cookie = "admin_master=93463962569392846256; path=/; max-age=86400; SameSite=Lax";
       setIsAuthenticated(true);
       setShowAdminModal(false);
     } else setAdminError('❌ Invalid credentials');
@@ -461,23 +456,24 @@ export default function AdminPage() {
 
   /**
    * PURE CLIENT-SIDE GIFT ACCOUNT PROVISIONING
-   * Rewritten to eliminate "Unauthorized" API errors.
+   * Bypasses "Unauthorized" errors by performing direct Firestore mutations.
    */
   const handleGiftAccount = async () => {
-    const email = giftForm.traderId?.trim() || giftForm.email?.trim();
-    if (!email) {
-      toast({ variant: "destructive", title: 'Email Required', description: 'Please enter an email address.' });
+    const emailInput = giftForm.email?.trim() || giftForm.traderId?.trim();
+    if (!emailInput) {
+      toast({ variant: "destructive", title: 'Email Required', description: 'Please enter a target email.' });
       return;
     }
 
     setActionLoading(true);
     try {
-      // 1. Find target user directly from client
-      const q = query(collection(db, 'users'), where('email', '==', email));
+      // 1. Find user by email directly on client
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', emailInput));
       const snap = await getDocs(q);
 
       if (snap.empty) {
-        toast({ variant: "destructive", title: 'Error', description: 'User not found with email: ' + email });
+        toast({ variant: "destructive", title: 'Error', description: 'User not found: ' + emailInput });
         return;
       }
 
@@ -487,7 +483,7 @@ export default function AdminPage() {
       const plan = giftForm.plan;
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
 
-      // 2. Resolve Plan Rules for Provisioning
+      // 2. Resolve Plan Rules
       const phase = plan.startsWith('instant') ? "funded" : "evaluation";
       const planRules = RULES_CONFIG.plans[plan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
@@ -495,7 +491,7 @@ export default function AdminPage() {
       const dailyLossLimitUsd = balance * (planRules.dailyDrawdown / 100);
       const maxLossLimitUsd = balance * (planRules.maxDrawdown / 100);
 
-      // 3. Update User Profile directly (Direct Client Write)
+      // 3. Update User Profile & Challenge History (Direct client-side write)
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         accountSize: selectedSize,
@@ -509,14 +505,14 @@ export default function AdminPage() {
           accountSize: selectedSize,
           planType: plan,
           balance,
-          grantedAt: new Date().toISOString() // serverTimestamp() invalid inside arrays
+          grantedAt: new Date().toISOString() // ISO string required inside arrays
         })
       });
 
-      // 4. Provision Trading Node (Restores visibility on Dashboard)
+      // 4. Provision Trading Terminal Node (Restores visibility on Dashboard)
       await addDoc(collection(db, "demoAccounts"), {
         userId: uid,
-        email,
+        email: emailInput,
         plan: selectedSize,
         planType: plan,
         phase,
@@ -533,13 +529,13 @@ export default function AdminPage() {
         updatedAt: serverTimestamp()
       });
 
-      toast({ title: 'Success', description: 'Account granted successfully' });
+      toast({ title: 'Success', description: 'Account granted and provisioned.' });
       setIsGiftModalOpen(false);
       setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
       refreshStats(true);
     } catch (error: any) {
-      console.error('Grant exception:', error);
-      toast({ variant: "destructive", title: "Grant Failed", description: error.message || 'Permission denied' });
+      console.error('[Grant-Logic] Failure:', error);
+      toast({ variant: "destructive", title: "Grant Failed", description: error.message || 'Check firestore rules.' });
     } finally {
       setActionLoading(false);
     }
