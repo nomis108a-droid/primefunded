@@ -30,7 +30,6 @@ import {
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
-import { getTradeDate } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
 import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc, arrayUnion } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -38,7 +37,6 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 // Static Country List (Deduplicated)
 const COUNTRIES = [
@@ -83,8 +81,7 @@ const COUNTRIES = [
   { name: "Yemen", code: "YE" }, { name: "Zambia", code: "ZM" }, { name: "Zimbabwe", code: "ZW" }
 ].reduce((acc, c) => {
   if (!acc.some(existing => existing.code === c.code)) {
-    const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
-    acc.push({ ...c, flag: String.fromCodePoint(...codePoints) });
+    acc.push(c);
   }
   return acc;
 }, [] as any[]);
@@ -506,9 +503,6 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
-      const { getFirestore, collection, query, where, getDocs, doc, updateDoc, serverTimestamp, arrayUnion, addDoc } = await import('firebase/firestore');
-      const db = getFirestore();
-      
       const snap = await getDocs(query(collection(db, 'users'), where('email', '==', emailInput)));
       if (snap.empty) {
         toast({ variant: "destructive", title: 'Error', description: 'User not found: ' + emailInput });
@@ -520,18 +514,16 @@ export default function AdminPage() {
       const plan = giftForm.plan;
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
       const phase = plan.startsWith('instant') ? "funded" : "evaluation";
-      const planRules = RULES_CONFIG.plans[plan]?.[phase] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
       
-      const profitTarget = balance * (planRules.profitTarget || 10) / 100;
-      const dailyLossLimitUsd = balance * (planRules.dailyDrawdown / 100);
-      const maxLossLimitUsd = balance * (planRules.maxDrawdown / 100);
+      const profitTarget = balance * 0.10;
+      const dailyLossLimitUsd = balance * 0.05;
+      const maxLossLimitUsd = balance * 0.10;
 
       const userRef = doc(db, 'users', uid);
       await updateDoc(userRef, {
         accountSize: selectedSize,
         planType: plan,
         accountStatus: 'active',
-        accountType: 'gifted',
         balance: balance,
         grantedAt: serverTimestamp(),
         challenges: arrayUnion({
