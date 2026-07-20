@@ -335,6 +335,51 @@ export default function AdminPage() {
   }, [isAuthenticated, authLoading, refreshStats]);
 
   useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
+    setIsLoading(true);
+    let unsub: () => void = () => {};
+    const term = debouncedSearchTerm.toLowerCase().trim();
+
+    if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
+      const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
+      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
+      unsub = onSnapshot(q, (snap) => {
+        setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setIsLoading(false);
+      });
+      return () => unsub();
+    }
+
+    const qMap: any = {
+      'overview': null,
+      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
+      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
+      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
+      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
+      'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc')),
+      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
+      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
+      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
+      'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
+      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
+    };
+
+    const targetQ = qMap[activeTab];
+    if (targetQ) {
+      unsub = onSnapshot(targetQ, (snap) => {
+        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
+        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setIsLoading(false);
+      });
+    } else {
+      refreshStats();
+      setIsLoading(false);
+    }
+
+    return () => unsub();
+  }, [isAuthenticated, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
+
+  useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     if (isVerified) setIsAuthenticated(true);
   }, []);
@@ -469,6 +514,8 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
+      const { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, arrayUnion, addDoc } = await import('firebase/firestore');
+
       // 1. Find user by email directly on client
       const usersRef = collection(db, 'users');
       const q = query(usersRef, where('email', '==', emailInput));
@@ -617,9 +664,9 @@ export default function AdminPage() {
   const filteredCountries = useMemo(() => {
     const term = payoutForm.country.toLowerCase().trim();
     if (!term) return COUNTRIES.slice(0, 100);
-    return COUNTRIES.filter(c => 
-      c.name.toLowerCase().includes(term) || 
-      c.code.toLowerCase().includes(term)
+    return COUNTRIES.filter((c, index, self) => 
+      (c.name.toLowerCase().includes(term) || c.code.toLowerCase().includes(term)) && 
+      self.findIndex(t => t.code === c.code) === index
     );
   }, [payoutForm.country]);
 
