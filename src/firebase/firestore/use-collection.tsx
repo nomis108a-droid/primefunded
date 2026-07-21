@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
@@ -40,10 +39,10 @@ export function useCollection<T = DocumentData>(
     if (!path || !db || globalQuotaExhausted) return null;
 
     // Protection: Prevent expensive global collection scans for high-volume paths
-    const SENSITIVE_COLLECTIONS = ["demoAccounts", "demoTrades", "payouts", "breaches", "orders", "referrals", "notifications"];
+    // unless explicit filtering is provided.
+    const SENSITIVE_COLLECTIONS = ["demoTrades", "notifications", "broadcasts", "payouts"];
     if (SENSITIVE_COLLECTIONS.includes(path) && constraints.length === 0) {
-      console.warn(`[useCollection] Blocked global listen on sensitive path: ${path}. Use limits/orderBy.`);
-      return null;
+      console.warn(`[useCollection] Warning: Subscribing to high-volume collection '${path}' without limits or filters. This may consume high read quota.`);
     }
 
     try {
@@ -88,6 +87,7 @@ export function useCollection<T = DocumentData>(
               globalQuotaExhausted = true;
               setError(serverError);
               setLoading(false);
+              // Trigger a global UI event or context update if needed
               return;
             }
 
@@ -132,5 +132,10 @@ export function useCollection<T = DocumentData>(
     };
   }, [q, path]);
 
-  return useMemo(() => ({ data, loading, error, isQuotaExhausted: globalQuotaExhausted }), [data, loading, error]);
+  return useMemo(() => ({ 
+    data, 
+    loading, 
+    error, 
+    isQuotaExhausted: globalQuotaExhausted 
+  }), [data, loading, error]);
 }

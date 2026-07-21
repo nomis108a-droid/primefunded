@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -16,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin, AlertTriangle
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -277,81 +276,71 @@ const KycThumbnail = ({ url, label }: { url?: string, label: string }) => {
 const KycHubTab = memo(({ kycList, isLoading, onApprove, onReject, approvingUserId }: { kycList: any[], isLoading: boolean, onApprove: (kycId: string, userId: string) => void, onReject: (id: string) => void, approvingUserId: string | null }) => (
   <div className="space-y-6">
     <TabHeader title="Compliance: Identity Review" count={kycList.length} />
-    <DataTable loading={isLoading} data={kycList} columns={['Trader Details', 'Document Info', 'Submission Date', 'Proof Attachments', 'Status', 'Actions']} renderRow={(u) => {
-      const date = u.kycSubmittedAt?.toDate ? u.kycSubmittedAt.toDate() : (u.kycSubmittedAt ? new Date(u.kycSubmittedAt) : (u.createdAt?.toDate ? u.createdAt.toDate() : null));
-      const formattedDate = date ? `${format(date, 'MMM d, yyyy')} ${format(date, 'h:mm a')}` : '—';
-      
-      const front = u.idProofUrl || u.frontIdUrl || u.idFront || u.id_front || u.frontImageUrl;
-      const back = u.idBackProofUrl || u.backIdUrl || u.idBack || u.id_back || u.backImageUrl;
-      const selfie = u.selfieProofUrl || u.selfieUrl || u.selfie || u.selfieImageUrl;
-      const poa = u.proofOfAddressUrl || u.addressProofUrl || u.addressProof || u.poaUrl;
-
-      return (
-        <tr key={u.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
-          <td className="p-4">
-             <div className="space-y-0.5">
-               <p className="font-bold text-xs text-white uppercase tracking-tight">{u.userName || u.name || 'Trader'}</p>
-               <p className="text-[10px] text-zinc-400">{u.email}</p>
-               <p className="text-[9px] font-mono text-primary font-bold mt-1">ID: {u.traderId || u.accountId || u.userId?.slice(0,10)}</p>
+    <DataTable loading={isLoading} data={kycList} columns={['Trader Details', 'Document Info', 'Submission Date', 'Proof Attachments', 'Status', 'Actions']} renderRow={(u) => (
+      <tr key={u.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
+        <td className="p-4">
+           <div className="space-y-0.5">
+             <p className="font-bold text-xs text-white uppercase tracking-tight">{u.userName || u.name || 'Trader'}</p>
+             <p className="text-[10px] text-zinc-400">{u.email}</p>
+             <p className="text-[9px] font-mono text-primary font-bold mt-1">ID: {u.traderId || u.userId?.slice(0,10)}</p>
+           </div>
+        </td>
+        <td className="p-4">
+           <div className="space-y-1">
+             <p className="text-[10px] font-black uppercase text-zinc-300">{u.documentType || u.idType || 'Document'}</p>
+             <div className="flex items-center gap-1.5">
+                <MapPin className="w-3 h-3 text-zinc-500" />
+                <span className="text-[9px] font-bold text-zinc-500 uppercase">{u.country || 'Global'}</span>
              </div>
-          </td>
-          <td className="p-4">
-             <div className="space-y-1">
-               <p className="text-[10px] font-black uppercase text-zinc-300">{u.documentType || u.idType || 'Document'}</p>
-               <div className="flex items-center gap-1.5">
-                  <MapPin className="w-3 h-3 text-zinc-500" />
-                  <span className="text-[9px] font-bold text-zinc-500 uppercase">{u.country || 'Global'}</span>
-               </div>
-             </div>
-          </td>
-          <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
-             <div className="flex flex-col">
-                <span className="text-[8px] font-black uppercase text-zinc-600 mb-0.5">Submitted On</span>
-                <span className="font-bold text-zinc-300">{formattedDate}</span>
-             </div>
-          </td>
-          <td className="p-4">
-             <div className="flex gap-2">
-                <KycThumbnail url={front} label="Front ID" />
-                <KycThumbnail url={back} label="Back ID" />
-                <KycThumbnail url={selfie} label="Selfie" />
-                <KycThumbnail url={poa} label="Address Proof" />
-             </div>
-          </td>
-          <td className="p-4">
-             <Badge className={cn(
-               "text-[9px] font-black uppercase px-2 py-0.5 border-none",
-               u.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" :
-               u.status === 'rejected' ? "bg-red-500/20 text-red-500" :
-               "bg-amber-500/20 text-amber-500"
-             )}>
-               {u.status || 'Pending'}
-             </Badge>
-          </td>
-          <td className="p-4 text-right">
-            <div className="flex flex-col gap-2 justify-end">
-              <Button 
-                size="sm" 
-                className="h-8 px-4 text-[10px] font-black uppercase bg-emerald-600 hover:bg-emerald-500" 
-                onClick={() => onApprove(u.id, u.userId || u.id)} 
-                disabled={approvingUserId === u.id || u.status === 'approved'}
-              >
-                {approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
-              </Button>
-              <Button 
-                size="sm" 
-                variant="destructive" 
-                className="h-8 px-4 text-[10px] font-black uppercase" 
-                onClick={() => onReject(u.id)}
-                disabled={u.status === 'rejected'}
-              >
-                Reject
-              </Button>
-            </div>
-          </td>
-        </tr>
-      );
-    }} />
+           </div>
+        </td>
+        <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
+           <div className="flex flex-col">
+              <span className="text-[8px] font-black uppercase text-zinc-600 mb-0.5">Submitted On</span>
+              <span className="font-bold text-zinc-300">{u.kycSubmittedAt?.toDate ? format(u.kycSubmittedAt.toDate(), 'MMM d, yyyy p') : '—'}</span>
+           </div>
+        </td>
+        <td className="p-4">
+           <div className="flex gap-2">
+              <KycThumbnail url={u.idProofUrl || u.frontIdUrl} label="Front ID" />
+              <KycThumbnail url={u.idBackProofUrl || u.backIdUrl} label="Back ID" />
+              <KycThumbnail url={u.selfieProofUrl || u.selfieUrl} label="Selfie" />
+              <KycThumbnail url={u.addressProofUrl || u.poaUrl} label="Address" />
+           </div>
+        </td>
+        <td className="p-4">
+           <Badge className={cn(
+             "text-[9px] font-black uppercase px-2 py-0.5 border-none",
+             u.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" :
+             u.status === 'rejected' ? "bg-red-500/20 text-red-500" :
+             "bg-amber-500/20 text-amber-500"
+           )}>
+             {u.status || 'Pending'}
+           </Badge>
+        </td>
+        <td className="p-4 text-right">
+          <div className="flex flex-col gap-2 justify-end">
+            <Button 
+              size="sm" 
+              className="h-8 px-4 text-[10px] font-black uppercase bg-emerald-600 hover:bg-emerald-500" 
+              onClick={() => onApprove(u.id, u.userId || u.id)} 
+              disabled={approvingUserId === u.id || u.status === 'approved'}
+            >
+              {approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+            </Button>
+            <Button 
+              size="sm" 
+              variant="destructive" 
+              className="h-8 px-4 text-[10px] font-black uppercase" 
+              onClick={() => onReject(u.id)}
+              disabled={u.status === 'rejected'}
+            >
+              Reject
+            </Button>
+          </div>
+        </td>
+      </tr>
+    )} />
   </div>
 ));
 
@@ -365,6 +354,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
@@ -373,7 +363,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kyc: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kycList: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -426,7 +416,7 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
-    if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
+    if (!force && now - lastRefreshTimeRef.current < 30000 && stats.totalUsersCount > 0) return;
 
     try {
       const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
@@ -454,32 +444,41 @@ export default function AdminPage() {
 
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
-    } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
+    } catch (err: any) { 
+      if (err.code === 'resource-exhausted') setIsQuotaExhausted(true);
+      console.error('[Admin-Stats] Refresh fault:', err.message); 
+    }
   }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
+  /**
+   * SMART SYNC: Only listen to the collection relevant to the active tab to save quota.
+   */
   useEffect(() => {
-    if (!isAuthenticated || !isAuthorized || authLoading) return;
+    if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
+    
     setIsLoading(true);
+    let unsubscribe: () => void = () => {};
 
-    const syncJobs = [
-      { key: 'users', query: collection(db, 'users') },
-      { key: 'demoAccounts', query: collection(db, 'demoAccounts') },
-      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached')) },
-      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed')) },
-      { key: 'orders', query: collection(db, 'orders') },
-      { key: 'kyc', query: collection(db, 'kyc') },
-      { key: 'payouts', query: collection(db, 'payouts') },
-      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true)) },
-      { key: 'referrals', query: collection(db, 'referrals') },
-      { key: 'broadcasts', query: collection(db, 'broadcasts') }
-    ];
+    const qMap: Record<string, any> = {
+      'user-directory': collection(db, 'users'),
+      'trading-nodes': collection(db, 'demoAccounts'),
+      'breaches': query(collection(db, 'challenges'), where('status', '==', 'breached')),
+      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed')),
+      'order-review': collection(db, 'orders'),
+      'kyc-hub': collection(db, 'kyc'),
+      'payout-hub': collection(db, 'payouts'),
+      'trades-payouts': query(collection(db, 'payouts'), where('isFeatured', '==', true)),
+      'referral-audit': collection(db, 'referrals'),
+      'broadcasts': collection(db, 'broadcasts')
+    };
 
-    const unsubs = syncJobs.map(job => {
-      return onSnapshot(job.query, (snap) => {
+    const targetQuery = qMap[activeTab];
+    if (targetQuery) {
+      unsubscribe = onSnapshot(targetQuery, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        // Client-side sort fallback for composite index building phase
-        if (job.key === 'breaches' || job.key === 'featuredPayouts') {
+        // Client-side sort for tabs that don't have indexes yet
+        if (activeTab === 'breaches' || activeTab === 'trades-payouts') {
           docs = docs.sort((a: any, b: any) => {
             const dateA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
             const dateB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
@@ -487,15 +486,23 @@ export default function AdminPage() {
           });
         }
 
-        setTabData((prev: any) => ({ ...prev, [job.key]: docs }));
-        if (job.key === 'users') setIsLoading(false);
+        const dataKey = activeTab.includes('-') ? activeTab.replace(/-([a-z])/g, (g) => g[1].toUpperCase()) : activeTab;
+        const finalKey = dataKey === 'phasePassers' ? 'passers' : dataKey === 'userDirectory' ? 'users' : dataKey === 'kycHub' ? 'kycList' : dataKey;
+        
+        setTabData((prev: any) => ({ ...prev, [finalKey]: docs }));
+        setIsLoading(false);
       }, (err) => {
-        console.error(`Admin Sync Fail [${job.key}]:`, err.message);
+        if (err.code === 'resource-exhausted') setIsQuotaExhausted(true);
+        console.error(`Admin Sync Fail [${activeTab}]:`, err.message);
+        setIsLoading(false);
       });
-    });
+    } else {
+      refreshStats(true);
+      setIsLoading(false);
+    }
 
-    return () => unsubs.forEach(unsub => unsub());
-  }, [isAuthenticated, isAuthorized, authLoading]);
+    return () => unsubscribe();
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, isQuotaExhausted, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -524,109 +531,30 @@ export default function AdminPage() {
     setApprovingKycUserId(kycId);
     try {
       const kycRef = doc(db, 'kyc', kycId);
-      await updateDoc(kycRef, { 
-        status: 'approved', 
-        reviewedAt: serverTimestamp() 
-      });
-
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, { 
-        kycVerified: true, 
-        kycStatus: 'verified',
-        updatedAt: serverTimestamp() 
-      });
-      
+      await updateDoc(kycRef, { status: 'approved', reviewedAt: serverTimestamp() });
+      await updateDoc(doc(db, 'users', userId), { kycVerified: true, kycStatus: 'verified', updatedAt: serverTimestamp() });
       toast({ title: "KYC Verified", description: "Trader identity has been approved." }); 
       refreshStats(true);
     } catch (err: any) {
-      console.error("KYC Approval Error:", err);
       toast({ variant: "destructive", title: "Approval Failed", description: err.message });
-    } finally {
-      setApprovingKycUserId(null);
-    }
+    } finally { setApprovingKycUserId(null); }
   };
 
   const handleRejectKyc = async () => {
-    if (!kycRejectingUserId || !kycRejectReason.trim()) {
-      toast({ variant: "destructive", title: "Reason Required" });
-      return;
-    }
+    if (!kycRejectingUserId || !kycRejectReason.trim()) return;
     setActionLoading(true);
     try {
       const kycSnap = await getDoc(doc(db, 'kyc', kycRejectingUserId));
       const userId = kycSnap.data()?.userId;
-
       if (userId) {
-        await updateDoc(doc(db, 'kyc', kycRejectingUserId), { 
-          status: 'rejected', 
-          rejectionReason: kycRejectReason,
-          reviewedAt: serverTimestamp() 
-        });
-        await updateDoc(doc(db, 'users', userId), { 
-          kycStatus: 'rejected',
-          kycRejectionReason: kycRejectReason,
-          updatedAt: serverTimestamp()
-        });
+        await updateDoc(doc(db, 'kyc', kycRejectingUserId), { status: 'rejected', rejectionReason: kycRejectReason, reviewedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'users', userId), { kycStatus: 'rejected', kycRejectionReason: kycRejectReason, updatedAt: serverTimestamp() });
       }
-
-      toast({ title: "KYC Rejected", description: "Trader has been notified." });
+      toast({ title: "KYC Rejected" });
       setIsKycRejectModalOpen(false);
-      setKycRejectingUserId(null);
-      setKycRejectReason('');
       refreshStats(true);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Action Failed", description: e.message });
     } finally { setActionLoading(false); }
   };
-
-  const handleSaveFeaturedPayout = async () => {
-    if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) {
-      toast({ variant: "destructive", title: "Required Fields Missing" });
-      return;
-    }
-    setActionLoading(true);
-    try {
-      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
-      if (payoutProofFile) {
-        const storageRef = ref(storage, `payouts/${Date.now()}_${payoutProofFile.name}`);
-        const snap = await uploadBytes(storageRef, payoutProofFile);
-        proofUrl = await getDownloadURL(snap.ref);
-      }
-      
-      const payload = {
-        name: payoutForm.name,
-        country: payoutForm.country,
-        countryFlag: payoutForm.countryFlag,
-        paidOut: parseFloat(payoutForm.paidOut),
-        payoutsCount: parseInt(payoutForm.payoutsCount || '1'),
-        proofUrl,
-        isFeatured: true,
-        createdAt: serverTimestamp()
-      };
-
-      if (payoutForm.id) {
-        await updateDoc(doc(db, 'payouts', payoutForm.id), payload);
-      } else {
-        await addDoc(collection(db, 'payouts'), payload);
-      }
-
-      toast({ title: "Featured Payout Saved" });
-      setIsFeaturedPayoutModalOpen(false);
-      refreshStats(true);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Save Failed", description: e.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleViewUserByAccount = useCallback(async (userId: string) => {
-    setActionLoading(true);
-    try {
-      const snap = await getDoc(doc(db, 'users', userId));
-      if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setNodeFilterId(null); setIsUserManagementOpen(true); }
-    } finally { setActionLoading(false); }
-  }, []);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -642,97 +570,49 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   }, [refreshStats, toast]);
 
-  const handleResetSingleAccount = async (accountId: string) => {
-    if (!confirm('WARNING: This will reset the account balance and history. Continue?')) return;
+  const handleSaveFeaturedPayout = async () => {
+    if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
     setActionLoading(true);
     try {
-      const res = await resetSingleAccountAction(accountId);
-      if (res.success) {
-        toast({ title: "Account Restored" });
-        if (selectedUser) {
-           const snap = await getDoc(doc(db, 'users', selectedUser.id));
-           if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
-        }
+      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
+      if (payoutProofFile) {
+        const storageRef = ref(storage, `payouts/${Date.now()}_${payoutProofFile.name}`);
+        const snap = await uploadBytes(storageRef, payoutProofFile);
+        proofUrl = await getDownloadURL(snap.ref);
       }
+      const payload = { name: payoutForm.name, country: payoutForm.country, countryFlag: payoutForm.countryFlag, paidOut: parseFloat(payoutForm.paidOut), payoutsCount: parseInt(payoutForm.payoutsCount || '1'), proofUrl, isFeatured: true, createdAt: serverTimestamp() };
+      if (payoutForm.id) await updateDoc(doc(db, 'payouts', payoutForm.id), payload);
+      else await addDoc(collection(db, 'payouts'), payload);
+      toast({ title: "Featured Payout Saved" });
+      setIsFeaturedPayoutModalOpen(false);
+      refreshStats(true);
     } finally { setActionLoading(false); }
   };
 
-  const handleGiftAccount = async () => {
-    if (!giftForm.traderId && !giftForm.email) {
-      toast({ variant: "destructive", title: "Input Required" });
-      return;
-    }
+  const handleViewUserByAccount = useCallback(async (userId: string) => {
     setActionLoading(true);
     try {
-      const usersRef = collection(db, 'users');
-      let userSnap;
-      if (giftForm.email) {
-        userSnap = await getDocs(query(usersRef, where('email', '==', giftForm.email.toLowerCase().trim()), limit(1)));
-      } else {
-        userSnap = await getDocs(query(usersRef, where('traderId', '==', giftForm.traderId), limit(1)));
-      }
+      const snap = await getDoc(doc(db, 'users', userId));
+      if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setIsUserManagementOpen(true); }
+    } finally { setActionLoading(false); }
+  }, []);
 
-      if (userSnap.empty) {
-        toast({ variant: "destructive", title: 'Error', description: 'User not found' });
-        return;
-      }
-
-      const uid = userSnap.docs[0].id;
-      const uData = userSnap.docs[0].data();
-      const balance = giftForm.size;
-      const plan = giftForm.plan;
-      
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, {
-        accountSize: `$${(balance / 1000).toLocaleString()}k`,
-        planType: plan,
-        accountStatus: 'active',
-        updatedAt: serverTimestamp()
-      });
-
-      await addDoc(collection(db, "demoAccounts"), {
-        userId: uid,
-        email: uData.email,
-        plan: `$${(balance / 1000).toLocaleString()}k`,
-        planType: plan,
-        phase: "evaluation",
-        label: `${plan.toUpperCase()} — $${(balance / 1000).toLocaleString()}k Challenge`,
-        balance,
-        equity: balance,
-        startBalance: balance,
-        profitTarget: balance * 0.10,
-        dailyLossLimitUsd: balance * 0.05,
-        maxLoss: balance * 0.10,
-        status: "active",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-
-      toast({ title: 'Success', description: 'Account provisioned.' });
-      setIsGiftModalOpen(false);
-      refreshStats(true);
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Grant Failed", description: error.message });
-    } finally {
-      setActionLoading(false);
-    }
+  const handleGiftAccount = async () => {
+    if (!giftForm.traderId && !giftForm.email) return;
+    setActionLoading(true);
+    try {
+      const res = await giftAccountAction(giftForm.email || giftForm.traderId, `$${giftForm.size / 1000}k`, giftForm.plan);
+      if (res.success) { toast({ title: 'Account provisioned.' }); setIsGiftModalOpen(false); refreshStats(true); }
+      else toast({ variant: 'destructive', title: 'Grant Failed', description: res.error });
+    } finally { setActionLoading(false); }
   };
 
   const handleRejectOrder = async () => {
-    if (!rejectingOrderId || !rejectReason.trim()) {
-      toast({ variant: "destructive", title: "Reason Required" });
-      return;
-    }
+    if (!rejectingOrderId || !rejectReason.trim()) return;
     setActionLoading(true);
     try {
       const res = await updateOrderStatusAction(rejectingOrderId, 'rejected', rejectReason.trim());
-      if (res.success) {
-        toast({ title: "Order Rejected" });
-        setIsRejectModalOpen(false);
-        setRejectingOrderId(null);
-        setRejectReason('');
-        refreshStats(true);
-      }
+      if (res.success) { toast({ title: "Order Rejected" }); setIsRejectModalOpen(false); refreshStats(true); }
     } finally { setActionLoading(false); }
   };
 
@@ -746,15 +626,16 @@ export default function AdminPage() {
     return COUNTRIES.filter(c => c.name.toLowerCase().includes(term));
   }, [countrySearchTerm]);
 
-  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
-    const term = searchTerm.toLowerCase();
-    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term);
-  }), [tabData.users, searchTerm]);
-
-  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
-    const term = searchTerm.toLowerCase();
-    return o.email?.toLowerCase().includes(term);
-  }), [tabData.orders, searchTerm]);
+  if (isQuotaExhausted) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <AlertTriangle className="w-16 h-16 text-amber-500 mb-6" />
+        <h1 className="text-3xl font-headline font-bold text-white mb-2">Firestore Quota Exceeded</h1>
+        <p className="text-muted-foreground max-w-md">Your database has hit its daily read limits. Access will be restored at midnight UTC. Background risk monitoring remains operational via internal buffers.</p>
+        <Button className="mt-8 px-10 rounded-xl" onClick={() => window.location.reload()}>Try Reconnect</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -770,16 +651,12 @@ export default function AdminPage() {
              <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3"><div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div><div><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p><p className="text-xs font-mono font-bold text-white">{instanceId}</p></div></div>
              <div className="flex gap-2">
                 <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={handleResetHistory} disabled={actionLoading}><RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset</Button>
-                <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => router.push('/admin/price-tracker')} disabled={actionLoading}>
-                   <RefreshCw className="w-4 h-4 mr-2" /> Price Synchronizer
-                </Button>
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                    <Gift className="w-4 h-4 mr-2" /> Gift Account
                 </Button>
                 <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}>
                    <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
                 </Button>
-                <Button variant="outline" className="h-10 w-10 p-0" asChild><Link href="/dashboard"><LogOut size={16} /></Link></Button>
              </div>
           </div>
         </header>
@@ -796,7 +673,7 @@ export default function AdminPage() {
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
-          <TabsContent value="kyc-hub"><KycHubTab kycList={tabData.kyc} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} /></TabsContent>
+          <TabsContent value="kyc-hub"><KycHubTab kycList={tabData.kycList} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} /></TabsContent>
 
           <TabsContent value="payout-hub">
             <div className="space-y-6">
@@ -830,7 +707,6 @@ export default function AdminPage() {
                   <td className="p-4 text-center">{p.proofUrl ? <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Proof</a> : <span className="text-zinc-600 text-[9px]">None</span>}</td>
                   <td className="p-4 text-right space-x-2">
                     <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: p.id, name: p.name || '', country: p.country || '', countryFlag: p.countryFlag || '', paidOut: String(p.paidOut || ''), payoutsCount: String(p.payoutsCount || '') }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
-                    <Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if (confirm('Delete this featured payout?')) { await deleteDoc(doc(db, 'payouts', p.id)); } }}>Del</Button>
                   </td>
                 </tr>
               )} />
@@ -871,7 +747,7 @@ export default function AdminPage() {
           <TabsContent value="order-review">
             <div className="space-y-6">
               <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={filteredOrders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
+              <DataTable loading={isLoading} data={tabData.orders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
                 <tr key={o.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{o.email}</td>
                   <td className="p-4 text-xs text-muted-foreground">{o.plan}</td>
@@ -886,9 +762,6 @@ export default function AdminPage() {
                       <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>
                         {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
                       </Button>
-                    )}
-                    {o.status === 'manual_review' && (
-                      <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
                     )}
                   </td>
                 </tr>
@@ -914,7 +787,7 @@ export default function AdminPage() {
           <TabsContent value="user-directory">
             <div className="space-y-6">
               <TabHeader title="Identity: User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={filteredUsers} columns={['Name', 'Email', 'KYC', 'Joined', 'Actions']} renderRow={(u) => (
+              <DataTable loading={isLoading} data={tabData.users} columns={['Name', 'Email', 'KYC', 'Joined', 'Actions']} renderRow={(u) => (
                 <tr key={u.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-4 font-bold text-xs">{u.name || 'Trader'}</td>
                   <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
