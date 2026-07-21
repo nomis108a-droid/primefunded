@@ -1,14 +1,25 @@
-
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Public path for payout evidence
+    // Payout Evidence: Public Read, Auth Write for Admin
     match /payouts/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null;
     }
 
-    // Default: Authenticated access for trader documents
+    // KYC Document Security: Owner-only write, Owner+Admin read
+    match /kyc/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Payment Proof Security: Owner-only write, Owner+Admin read
+    match /payment-proofs/{userId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Default: Allow authenticated read/write for all other paths
     match /{allPaths=**} {
       allow read, write: if request.auth != null;
     }

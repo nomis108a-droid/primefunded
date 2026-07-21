@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -82,7 +81,7 @@ const COUNTRIES_RAW = [
 
 const COUNTRIES = Array.from(new Map(COUNTRIES_RAW.map(c => [c.code, c])).values()).map(c => {
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
-  return { ...c, flag: String.fromCodePoint(...codePoints) };
+  return { ...c, flag: String.fromPoint(...codePoints) };
 });
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
@@ -245,7 +244,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kycUsers: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -783,7 +782,7 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
           <DialogHeader>
             <DialogTitle>{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle>
-            <DialogDescription className="sr-only">Configure featured payout entry for public leaderboard.</DialogDescription>
+            <DialogDescription className="sr-only">Detailed configuration for public leaderboard payout showcase.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
              <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
@@ -846,7 +845,7 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
             <DialogTitle>Provision Free Account</DialogTitle>
-            <DialogDescription className="sr-only">Grant a gifted challenge account to a trader by email or ID.</DialogDescription>
+            <DialogDescription className="sr-only">Grant a free trading challenge account to a specified trader.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
@@ -876,7 +875,7 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
             <DialogTitle>Reject KYC</DialogTitle>
-            <DialogDescription className="sr-only">Provide a reason for the KYC document rejection.</DialogDescription>
+            <DialogDescription className="sr-only">Provide specific reasons for rejecting the trader's identity verification.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <Label>Rejection Reason</Label>
@@ -893,7 +892,7 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader>
             <DialogTitle>Reject Order</DialogTitle>
-            <DialogDescription className="sr-only">Provide a reason for the order rejection.</DialogDescription>
+            <DialogDescription className="sr-only">Provide details for the commercial order rejection.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <Label>Rejection Reason</Label>

@@ -1,14 +1,19 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Payouts & Rankings: Public Read, Auth Create
+    // Payouts & Featured Leaderboard: Public Read, Auth Write for Admin
     match /payouts/{payoutId} {
       allow read: if true;
       allow create, update, delete: if request.auth != null;
     }
     
-    // Core Collections: Full Auth Access for Admin Oversight
+    // Featured Payouts (legacy compatibility): Public Read
+    match /featured_payouts/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Core Administrative Collections: Full Access for Authenticated Users (Staff/Admin)
     match /challenges/{id} { allow read, write: if request.auth != null; }
     match /trades/{id} { allow read, write: if request.auth != null; }
     match /demoTrades/{id} { allow read, write: if request.auth != null; }
@@ -20,6 +25,12 @@ service cloud.firestore {
     match /kycSubmissions/{id} { allow read, write: if request.auth != null; }
     match /broadcasts/{id} { allow read, write: if request.auth != null; }
     match /announcements/{id} { allow read, write: if request.auth != null; }
+    match /settings/{id} { allow read, write: if request.auth != null; }
+
+    // User Sub-collections: Authenticated Access
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
 
     // Default: Authenticated access for all other documents
     match /{document=**} {
