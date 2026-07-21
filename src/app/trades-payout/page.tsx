@@ -110,7 +110,7 @@ export default function TradesPayoutPage() {
                               {rank}
                             </Badge>
                           </td>
-                          <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.traderName}</td>
+                          <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.traderName || p.name}</td>
                           <td className="py-4 px-6 text-zinc-400 text-xs">
                              <div className="flex items-center gap-2">
                                 <span className="text-base">{p.countryFlag}</span>
@@ -121,7 +121,7 @@ export default function TradesPayoutPage() {
                             ${(parseFloat(p.paidOut) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                           </td>
                           <td className="py-4 px-6 text-center">
-                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.payoutsCount || p.totalPayouts || 1}</Badge>
+                            <Badge variant="outline" className="bg-secondary/50 text-[10px] h-6 px-3">{p.totalPayouts || p.payoutsCount || 1}</Badge>
                           </td>
                           <td className="py-4 px-6 text-right">
                             {p.proofUrl ? (

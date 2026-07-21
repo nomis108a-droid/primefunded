@@ -496,37 +496,32 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    const emailInput = (giftForm.email || giftForm.traderId)?.trim();
-    if (!emailInput) {
+    if (!giftForm.email) {
       toast({ variant: "destructive", title: "Email Required" });
       return;
     }
-
     setActionLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, 'users'), where('email', '==', emailInput)));
+      const { getDocs, collection, query, where, doc, updateDoc, arrayUnion, addDoc, serverTimestamp } = await import('firebase/firestore');
+      const snap = await getDocs(query(collection(db, 'users'), where('email', '==', giftForm.email.toLowerCase().trim())));
       if (snap.empty) {
-        toast({ variant: "destructive", title: 'Error', description: 'User not found: ' + emailInput });
+        toast({ variant: "destructive", title: 'Error', description: 'User not found' });
         return;
       }
-
       const uid = snap.docs[0].id;
       const balance = giftForm.size;
-      const plan = giftForm.plan;
       const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
-      const phase = plan.startsWith('instant') ? "funded" : "evaluation";
-      
+      const plan = giftForm.plan;
       const profitTarget = balance * 0.10;
       const dailyLossLimitUsd = balance * 0.05;
       const maxLossLimitUsd = balance * 0.10;
 
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, {
+      await updateDoc(doc(db, 'users', uid), {
         accountSize: selectedSize,
         planType: plan,
         accountStatus: 'active',
         balance: balance,
-        grantedAt: serverTimestamp(),
+        grantedAt: new Date().toISOString(),
         challenges: arrayUnion({
           status: 'active',
           accountSize: selectedSize,
@@ -538,10 +533,10 @@ export default function AdminPage() {
 
       await addDoc(collection(db, "demoAccounts"), {
         userId: uid,
-        email: emailInput,
+        email: giftForm.email,
         plan: selectedSize,
         planType: plan,
-        phase,
+        phase: "evaluation",
         label: `${plan.toUpperCase()} — ${selectedSize} Challenge`,
         balance,
         equity: balance,
@@ -558,8 +553,8 @@ export default function AdminPage() {
       toast({ title: 'Success', description: 'Account provisioned.' });
       setIsGiftModalOpen(false);
       refreshStats(true);
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Grant Failed", description: error.message });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Grant Failed", description: "Unauthorized" });
     } finally {
       setActionLoading(false);
     }
