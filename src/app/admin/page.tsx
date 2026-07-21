@@ -246,7 +246,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kycUsers: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -340,14 +340,13 @@ export default function AdminPage() {
     const dbRefs = [
       { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(200)) },
       { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(200)) },
-      { key: 'breaches', query: query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')) },
+      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached'), orderBy('createdAt', 'desc')) },
       { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
       { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)) },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
       { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
       { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)) },
-      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) },
-      { key: 'kycUsers', query: query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])) }
+      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) }
     ];
 
     const unsubs = dbRefs.map(ref => {
@@ -634,7 +633,7 @@ export default function AdminPage() {
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
-          <TabsContent value="kyc-hub"><KycHubTab users={tabData.kycUsers} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
+          <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
 
           <TabsContent value="payout-hub">
             <div className="space-y-6">
