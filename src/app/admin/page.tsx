@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -9,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -335,18 +334,29 @@ export default function AdminPage() {
     const syncJobs = [
       { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(500)) },
       { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(300)) },
-      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached'), orderBy('createdAt', 'desc')) },
+      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached')) },
       { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
       { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(150)) },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
-      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
+      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true)) },
       { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(150)) },
       { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) }
     ];
 
     const unsubs = syncJobs.map(job => {
       return onSnapshot(job.query, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [job.key]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Client-side sort to bypass composite index requirements while maintaining order
+        if (job.key === 'breaches' || job.key === 'featuredPayouts') {
+          docs = docs.sort((a: any, b: any) => {
+            const timeA = (a.createdAt?.toMillis?.() || (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0));
+            const timeB = (b.createdAt?.toMillis?.() || (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0));
+            return timeB - timeA;
+          });
+        }
+
+        setTabData((prev: any) => ({ ...prev, [job.key]: docs }));
         if (job.key === 'users') setIsLoading(false);
       }, (err) => {
         console.error(`Admin Sync Fail [${job.key}]:`, err.message);
@@ -468,7 +478,7 @@ export default function AdminPage() {
       if (res.success) {
         toast({ title: "Account Restored" });
         if (selectedUser) {
-           const snap = await getDoc(db, 'users', selectedUser.id));
+           const snap = await getDoc(doc(db, 'users', selectedUser.id));
            if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
         }
       }
