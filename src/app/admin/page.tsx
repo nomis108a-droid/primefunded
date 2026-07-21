@@ -279,7 +279,6 @@ const KycHubTab = memo(({ kycList, isLoading, onApprove, onReject, approvingUser
       const date = u.kycSubmittedAt?.toDate ? u.kycSubmittedAt.toDate() : (u.kycSubmittedAt ? new Date(u.kycSubmittedAt) : (u.createdAt?.toDate ? u.createdAt.toDate() : null));
       const formattedDate = date ? `${format(date, 'MMM d, yyyy')} ${format(date, 'h:mm a')}` : '—';
       
-      // Variations check for URLs
       const front = u.idProofUrl || u.frontIdUrl || u.idFront || u.id_front || u.frontImageUrl;
       const back = u.idBackProofUrl || u.backIdUrl || u.idBack || u.id_back || u.backImageUrl;
       const selfie = u.selfieProofUrl || u.selfieUrl || u.selfie || u.selfieImageUrl;
@@ -463,19 +462,28 @@ export default function AdminPage() {
     const syncJobs = [
       { key: 'users', query: collection(db, 'users') },
       { key: 'demoAccounts', query: collection(db, 'demoAccounts') },
-      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached'), orderBy('createdAt', 'desc')) },
-      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
+      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached')) },
+      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed')) },
       { key: 'orders', query: collection(db, 'orders') },
       { key: 'kyc', query: collection(db, 'kyc') },
-      { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc')) },
-      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
-      { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc')) },
-      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')) }
+      { key: 'payouts', query: collection(db, 'payouts') },
+      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true)) },
+      { key: 'referrals', query: collection(db, 'referrals') },
+      { key: 'broadcasts', query: collection(db, 'broadcasts') }
     ];
 
     const unsubs = syncJobs.map(job => {
       return onSnapshot(job.query, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        if (job.key === 'breaches' || job.key === 'featuredPayouts') {
+          docs = docs.sort((a: any, b: any) => {
+            const dateA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+            const dateB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+            return dateB - dateA;
+          });
+        }
+
         setTabData((prev: any) => ({ ...prev, [job.key]: docs }));
         if (job.key === 'users') setIsLoading(false);
       }, (err) => {
