@@ -245,7 +245,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kycUsers: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -480,47 +480,50 @@ export default function AdminPage() {
   };
 
   const handleGiftAccount = async () => {
-    if (!giftForm.email) {
-      toast({ variant: "destructive", title: "Email Required" });
+    if (!giftForm.traderId && !giftForm.email) {
+      toast({ variant: "destructive", title: "Input Required" });
       return;
     }
     setActionLoading(true);
     try {
-      const snap = await getDocs(query(collection(db, 'users'), where('email', '==', giftForm.email.toLowerCase().trim())));
-      if (snap.empty) {
+      const usersRef = collection(db, 'users');
+      let userSnap;
+      if (giftForm.email) {
+        userSnap = await getDocs(query(usersRef, where('email', '==', giftForm.email.toLowerCase().trim()), limit(1)));
+      } else {
+        userSnap = await getDocs(query(usersRef, where('traderId', '==', giftForm.traderId), limit(1)));
+      }
+
+      if (userSnap.empty) {
         toast({ variant: "destructive", title: 'Error', description: 'User not found' });
         return;
       }
-      const uid = snap.docs[0].id;
-      const balance = giftForm.size;
-      const selectedSize = `$${(balance / 1000).toLocaleString()}k`;
-      const plan = giftForm.plan;
-      const profitTarget = balance * 0.10;
-      const dailyLossLimitUsd = balance * 0.05;
-      const maxLossLimitUsd = balance * 0.10;
 
+      const uid = userSnap.docs[0].id;
+      const uData = userSnap.docs[0].data();
+      const balance = giftForm.size;
+      const plan = giftForm.plan;
+      
       await updateDoc(doc(db, 'users', uid), {
-        accountSize: selectedSize,
+        accountSize: `$${(balance / 1000).toLocaleString()}k`,
         planType: plan,
         accountStatus: 'active',
-        balance: balance,
-        grantedAt: new Date().toISOString(),
+        updatedAt: serverTimestamp()
       });
 
       await addDoc(collection(db, "demoAccounts"), {
         userId: uid,
-        email: giftForm.email,
-        plan: selectedSize,
+        email: uData.email,
+        plan: `$${(balance / 1000).toLocaleString()}k`,
         planType: plan,
         phase: "evaluation",
-        label: `${plan.toUpperCase()} — ${selectedSize} Challenge`,
+        label: `${plan.toUpperCase()} — $${(balance / 1000).toLocaleString()}k Challenge`,
         balance,
         equity: balance,
         startBalance: balance,
-        profitTarget,
-        dailyLossLimitUsd,
-        dailyGrossLossUsd: 0,
-        maxLoss: maxLossLimitUsd,
+        profitTarget: balance * 0.10,
+        dailyLossLimitUsd: balance * 0.05,
+        maxLoss: balance * 0.10,
         status: "active",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -529,8 +532,8 @@ export default function AdminPage() {
       toast({ title: 'Success', description: 'Account provisioned.' });
       setIsGiftModalOpen(false);
       refreshStats(true);
-    } catch (error) {
-      toast({ variant: "destructive", title: "Grant Failed", description: "Direct write failed." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Grant Failed", description: error.message });
     } finally {
       setActionLoading(false);
     }
