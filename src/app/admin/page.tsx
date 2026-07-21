@@ -31,14 +31,13 @@ import {
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// Static Country List (Deduplicated)
 const COUNTRIES_RAW = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
@@ -220,7 +219,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingKycUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -246,7 +245,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kycUsers: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -288,13 +287,19 @@ export default function AdminPage() {
 
   const instanceId = "Studio-8383940162";
 
+  const isAuthorized = useMemo(() => {
+    if (!user || !user.email) return false;
+    const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
+    return adminList.includes(user.email.toLowerCase());
+  }, [user]);
+
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   const refreshStats = useCallback(async (force = false) => {
-    if (!isAuthenticated || authLoading) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
     if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
 
@@ -325,60 +330,37 @@ export default function AdminPage() {
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
     } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
-  }, [isAuthenticated, authLoading, stats.totalUsersCount]);
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
-    if (isAuthenticated && !authLoading) {
-      refreshStats(true);
-      const timer = setInterval(() => refreshStats(true), 10000);
-      return () => clearInterval(timer);
-    }
-  }, [isAuthenticated, authLoading, refreshStats]);
-
-  useEffect(() => {
-    if (!isAuthenticated || authLoading) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     setIsLoading(true);
-    let unsub: () => void = () => {};
-    const term = debouncedSearchTerm.toLowerCase().trim();
 
-    if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
-      const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
-      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
-      unsub = onSnapshot(q, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+    const dbRefs = [
+      { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(200)) },
+      { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(200)) },
+      { key: 'breaches', query: query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')) },
+      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
+      { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)) },
+      { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
+      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
+      { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)) },
+      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) },
+      { key: 'kycUsers', query: query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])) }
+    ];
+
+    const unsubs = dbRefs.map(ref => {
+      return onSnapshot(ref.query, (snap) => {
+        setTabData((prev: any) => ({ ...prev, [ref.key]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setIsLoading(false);
+      }, (err) => {
+        console.error(`Admin sync error [${ref.key}]:`, err);
         setIsLoading(false);
       });
-      return () => unsub();
-    }
+    });
 
-    const qMap: any = {
-      'overview': null,
-      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
-      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
-      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
-      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
-      'order-review': query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), orderBy('submittedAt', 'desc')),
-      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
-      'trades-payouts': query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')),
-      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
-      'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
-      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
-    };
-
-    const targetQ = qMap[activeTab];
-    if (targetQ) {
-      unsub = onSnapshot(targetQ, (snap) => {
-        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
-        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
-      });
-    } else {
-      refreshStats();
-      setIsLoading(false);
-    }
-
-    return () => unsub();
-  }, [isAuthenticated, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
+    return () => unsubs.forEach(unsub => unsub());
+  }, [isAuthenticated, isAuthorized, authLoading]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -391,7 +373,6 @@ export default function AdminPage() {
       localStorage.setItem('adminVerified', 'true');
       setIsAuthenticated(true);
       setShowAdminModal(false);
-      document.cookie = "admin_master=93463962569392846256; path=/; max-age=86400";
     } else setAdminError('❌ Invalid credentials');
   };
 
@@ -505,7 +486,6 @@ export default function AdminPage() {
     }
     setActionLoading(true);
     try {
-      const { getDocs, collection, query, where, doc, updateDoc, arrayUnion, addDoc, serverTimestamp } = await import('firebase/firestore');
       const snap = await getDocs(query(collection(db, 'users'), where('email', '==', giftForm.email.toLowerCase().trim())));
       if (snap.empty) {
         toast({ variant: "destructive", title: 'Error', description: 'User not found' });
@@ -525,13 +505,6 @@ export default function AdminPage() {
         accountStatus: 'active',
         balance: balance,
         grantedAt: new Date().toISOString(),
-        challenges: arrayUnion({
-          status: 'active',
-          accountSize: selectedSize,
-          planType: plan,
-          balance,
-          grantedAt: new Date().toISOString()
-        })
       });
 
       await addDoc(collection(db, "demoAccounts"), {
@@ -557,7 +530,7 @@ export default function AdminPage() {
       setIsGiftModalOpen(false);
       refreshStats(true);
     } catch (error) {
-      toast({ variant: "destructive", title: "Grant Failed", description: "Unauthorized" });
+      toast({ variant: "destructive", title: "Grant Failed", description: "Direct write failed." });
     } finally {
       setActionLoading(false);
     }
@@ -607,6 +580,16 @@ export default function AdminPage() {
     return COUNTRIES.filter(c => c.name.toLowerCase().includes(term));
   }, [countrySearchTerm]);
 
+  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
+    const term = searchTerm.toLowerCase();
+    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term);
+  }), [tabData.users, searchTerm]);
+
+  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
+    const term = searchTerm.toLowerCase();
+    return o.email?.toLowerCase().includes(term);
+  }), [tabData.orders, searchTerm]);
+
   return (
     <div className="flex min-h-screen bg-background text-white">
       <Navigation />
@@ -647,7 +630,7 @@ export default function AdminPage() {
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
-          <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
+          <TabsContent value="kyc-hub"><KycHubTab users={tabData.kycUsers} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
 
           <TabsContent value="payout-hub">
             <div className="space-y-6">
@@ -659,7 +642,7 @@ export default function AdminPage() {
                   <td className="p-4 text-xs text-muted-foreground">{p.method}</td>
                   <td className="p-4 text-xs text-muted-foreground">{p.date || (p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, yyyy HH:mm') : '—')}</td>
                   <td className="p-4 text-right">
-                    <Badge className={cn("text-[8px] font-black uppercase", (p.status === 'done' || p.status === 'approved' || p.status === 'completed') ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge>
+                    <Badge className={cn("text-[8px] font-black uppercase border-none", (p.status === 'done' || p.status === 'approved' || p.status === 'completed') ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge>
                   </td>
                 </tr>
               )} />
@@ -697,8 +680,95 @@ export default function AdminPage() {
                   <td className="p-4"><span className="text-[10px] font-black uppercase text-zinc-300">{acc.planType || acc.plan} - {acc.phase}</span></td>
                   <td className="p-4 font-mono text-xs font-bold text-zinc-300">${(acc.balance || 0).toLocaleString()}</td>
                   <td className="p-4 font-mono text-xs font-bold text-zinc-300">${(acc.equity || 0).toLocaleString()}</td>
-                  <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", (acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated') ? "bg-red-500/20 text-red-500" : "bg-emerald-500/20 text-emerald-500")}>{acc.status}</Badge></td>
+                  <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase border-none", (acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated') ? "bg-red-500/20 text-red-500" : "bg-emerald-500/20 text-emerald-500")}>{acc.status}</Badge></td>
                   <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3.5 h-3.5 mr-2" /> Inspect</Button></td>
+                </tr>
+              )} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="breaches">
+            <div className="space-y-6">
+              <TabHeader title="Risk: Breach Incidents" count={tabData.breaches.length} />
+              <DataTable loading={isLoading} data={tabData.breaches} columns={['Email', 'Plan', 'Breach Reason', 'Final Balance', 'Status']} renderRow={(acc) => (
+                <tr key={acc.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 font-bold text-xs">{acc.email || acc.userId?.slice(0, 12)}</td>
+                  <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase border-white/10">{acc.planType || acc.plan || '—'}</Badge></td>
+                  <td className="p-4 text-xs text-destructive max-w-[200px] truncate">{acc.breachReason || 'Risk limit exceeded'}</td>
+                  <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
+                  <td className="p-4 text-right"><Badge className="text-[8px] font-black uppercase bg-destructive/20 text-destructive border-none">{acc.status}</Badge></td>
+                </tr>
+              )} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="order-review">
+            <div className="space-y-6">
+              <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
+              <DataTable loading={isLoading} data={filteredOrders} columns={['Email', 'Plan', 'Size', 'Amount', 'Network', 'Status', 'Actions']} renderRow={(o) => (
+                <tr key={o.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 font-bold text-xs">{o.email}</td>
+                  <td className="p-4 text-xs text-muted-foreground">{o.plan}</td>
+                  <td className="p-4 text-xs">{o.accountSize}</td>
+                  <td className="p-4 font-mono text-xs">${parseFloat(o.amountPaid || 0).toLocaleString()}</td>
+                  <td className="p-4 text-[10px] text-muted-foreground uppercase">{o.network || o.coin || '—'}</td>
+                  <td className="p-4 text-right">
+                    <Badge className={cn("text-[8px] font-black uppercase border-none", (o.status === 'completed' || o.status === 'approved') ? "bg-emerald-500/20 text-emerald-500" : o.status === 'rejected' ? "bg-destructive/20 text-destructive" : "bg-amber-500/20 text-amber-500")}>{o.status}</Badge>
+                  </td>
+                  <td className="p-4 text-right space-x-2">
+                    {o.status === 'manual_review' && (
+                      <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>
+                        {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+                      </Button>
+                    )}
+                    {o.status === 'manual_review' && (
+                      <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setRejectReason(''); setIsRejectModalOpen(true); }}>Reject</Button>
+                    )}
+                  </td>
+                </tr>
+              )} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="referral-audit">
+            <div className="space-y-6">
+              <TabHeader title="Growth: Referral Audit" count={tabData.referrals.length} />
+              <DataTable loading={isLoading} data={tabData.referrals} columns={['Referred Email', 'Referrer ID', 'Amount', 'Date', 'Status']} renderRow={(r) => (
+                <tr key={r.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 font-bold text-xs">{r.referredUserEmail || 'Anonymous'}</td>
+                  <td className="p-4 font-mono text-[10px] text-zinc-400">{r.referrerId?.slice(0, 12)}</td>
+                  <td className="p-4 font-mono text-emerald-500 text-xs">${(r.amount || 0).toFixed(2)}</td>
+                  <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
+                  <td className="p-4 text-right"><Badge className={cn("text-[8px] font-black uppercase border-none", r.status === 'funded' ? "bg-emerald-500/20 text-emerald-500" : "bg-zinc-700/50 text-zinc-400")}>{r.status || 'pending'}</Badge></td>
+                </tr>
+              )} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="user-directory">
+            <div className="space-y-6">
+              <TabHeader title="Identity: User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
+              <DataTable loading={isLoading} data={filteredUsers} columns={['Name', 'Email', 'KYC', 'Joined', 'Actions']} renderRow={(u) => (
+                <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 font-bold text-xs">{u.name || 'Trader'}</td>
+                  <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
+                  <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase border-none", u.kycVerified ? "bg-emerald-500/20 text-emerald-500" : "bg-zinc-700/50 text-zinc-500")}>{u.kycVerified ? 'verified' : u.kycStatus || 'not submitted'}</Badge></td>
+                  <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
+                  <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
+                </tr>
+              )} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="broadcasts">
+            <div className="space-y-6">
+              <TabHeader title="Communications: Broadcasts" count={tabData.broadcasts.length} />
+              <DataTable loading={isLoading} data={tabData.broadcasts} columns={['Sent At', 'Title', 'Message', 'Type']} renderRow={(b) => (
+                <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                  <td className="p-4 font-bold text-xs text-white">{b.title}</td>
+                  <td className="p-4 text-[10px] text-zinc-400 max-w-xs truncate">{b.message}</td>
+                  <td className="p-4"><Badge className="bg-primary/20 text-primary text-[8px] uppercase">{b.type}</Badge></td>
                 </tr>
               )} />
             </div>
@@ -873,7 +943,6 @@ export default function AdminPage() {
                     <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2"><p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
                  </div>
               </TabsContent>
-              {/* Other inspection tabs logic remains same but ensuring no key errors */}
             </div>
           </Tabs>
         </DialogContent>

@@ -2,12 +2,24 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Featured Payouts: Public Read, Authenticated Write
+    // Featured Payouts: Public Read
     match /payouts/{payoutId} {
       allow read: if true;
       allow write: if request.auth != null;
     }
     
+    // Explicit Admin Rules for requested collections
+    match /challenges/{id} { allow read, write: if request.auth != null; }
+    match /trades/{id} { allow read, write: if request.auth != null; }
+    match /demoTrades/{id} { allow read, write: if request.auth != null; }
+    match /orders/{id} { allow read, write: if request.auth != null; }
+    match /referrals/{id} { allow read, write: if request.auth != null; }
+    match /users/{id} { allow read, write: if request.auth != null; }
+    match /kyc/{id} { allow read, write: if request.auth != null; }
+    match /kycSubmissions/{id} { allow read, write: if request.auth != null; }
+    match /broadcasts/{id} { allow read, write: if request.auth != null; }
+    match /announcements/{id} { allow read, write: if request.auth != null; }
+
     // Default: Authenticated access for all other documents (Permissive for Staff)
     match /{document=**} {
       allow read, write: if request.auth != null;

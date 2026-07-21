@@ -2,13 +2,19 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Payout Evidence: Public Read, Authenticated Write
+    // Payout Evidence: Public Read
     match /payouts/{allPaths=**} {
       allow read: if true;
       allow write: if request.auth != null;
     }
     
-    // Catch-all: Authenticated access for staff operations
+    // Featured Payout Proofs: Public Read
+    match /featured-payout-proofs/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Default: Authenticated access for staff operations
     match /{allPaths=**} {
       allow read, write: if request.auth != null;
     }
