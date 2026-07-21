@@ -21,12 +21,9 @@ import {
 import { 
   updateOrderStatusAction, 
   resetSingleAccountAction, 
-  sendGlobalBroadcastAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
   updateKycStatusAction, 
-  updatePayoutStatusAction, 
-  cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -246,7 +243,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], trades: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kyc: []
+    users: [], orders: [], trades: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -347,8 +344,7 @@ export default function AdminPage() {
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
       { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
       { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)) },
-      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) },
-      { key: 'kyc', query: query(collection(db, 'kyc'), orderBy('submittedAt', 'desc'), limit(100)) }
+      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) }
     ];
 
     const unsubs = dbRefs.map(refObj => {
