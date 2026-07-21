@@ -3,9 +3,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Administrative Access: Permissive for authenticated users (Staff)
-    // In production, we filter by specific admin UIDs or custom claims, but for 
-    // the MVP terminal we allow all authenticated users to manage operations.
-    
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
@@ -18,6 +15,9 @@ service cloud.firestore {
       allow read: if true;
     }
     match /livePrices/{id} {
+      allow read: if true;
+    }
+    match /settings/branding {
       allow read: if true;
     }
   }
