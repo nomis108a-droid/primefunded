@@ -2,32 +2,98 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Permissive access for authenticated users (Staff/Admins)
-    // This ensures administrative operations are never blocked by ownership checks.
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    // Helper: Check if user is an authorized staff member
+    function isStaff() {
+      return request.auth != null && request.auth.token.email in [
+        "sitarama108a@gmail.com",
+        "sitarama108a-alt@gmail.com",
+        "nomis108a@gmail.com",
+        "Pawanvish0907@gmail.com",
+        "radhakrishna200803@gmail.com",
+        "rachithraj133@gmail.com"
+      ];
     }
 
-    // Public Reads for leaderboard and feeds
+    // Helper: Check if user owns the document
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // --- ADMINISTRATIVE OVERRIDE ---
+    // Authorized staff can perform any operation on any document
+    match /{document=**} {
+      allow read, write: if isStaff();
+    }
+
+    // --- PUBLIC ACCESS ---
+    // Required for guest landing page and branding synchronization
+    match /settings/branding {
+      allow read: if true;
+    }
+    match /livePrices/{id} {
+      allow read: if true;
+    }
     match /payouts/{id} {
       allow read: if true;
     }
     match /featured_payouts/{id} {
       allow read: if true;
     }
-    match /livePrices/{id} {
+    match /featured_payouts_proofs/{id} {
       allow read: if true;
     }
-    match /settings/branding {
-      allow read: if true;
+
+    // --- USER DATA SECURITY ---
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      
+      match /notifications/{id} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) || isStaff();
+      }
+      match /challenges/{id} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) || isStaff();
+      }
+    }
+
+    match /demoAccounts/{id} {
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isStaff());
+      allow write: if isStaff();
+      allow create: if request.auth != null;
+    }
+
+    match /demoTrades/{id} {
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isStaff());
+      allow write: if isStaff();
+      allow create: if request.auth != null;
+    }
+
+    match /referrals/{id} {
+      allow read: if request.auth != null && (resource.data.referrerId == request.auth.uid || resource.data.referredUserId == request.auth.uid || isStaff());
+      allow write: if isStaff();
     }
     
-    // User-specific read/write for standard functionality
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    match /kyc/{id} {
+       allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isStaff());
+       allow write: if isStaff();
+       allow create: if request.auth != null;
     }
-    match /referrals/{id} {
-      allow read: if request.auth != null && (resource.data.referrerId == request.auth.uid || resource.data.referredUserId == request.auth.uid);
+    
+    match /orders/{id} {
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isStaff());
+      allow write: if isStaff();
+      allow create: if request.auth != null;
+    }
+
+    match /broadcasts/{id} {
+      allow read: if request.auth != null;
+      allow write: if isStaff();
+    }
+
+    match /mail/{id} {
+      allow create: if request.auth != null;
+      allow read, write: if isStaff();
     }
   }
 }
