@@ -246,7 +246,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
+    users: [], orders: [], trades: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kyc: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -343,18 +343,20 @@ export default function AdminPage() {
       { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached'), orderBy('createdAt', 'desc')) },
       { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
       { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)) },
+      { key: 'trades', query: query(collection(db, 'demoTrades'), orderBy('openedAt', 'desc'), limit(100)) },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
       { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
       { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)) },
-      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) }
+      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) },
+      { key: 'kyc', query: query(collection(db, 'kyc'), orderBy('submittedAt', 'desc'), limit(100)) }
     ];
 
-    const unsubs = dbRefs.map(ref => {
-      return onSnapshot(ref.query, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [ref.key]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+    const unsubs = dbRefs.map(refObj => {
+      return onSnapshot(refObj.query, (snap) => {
+        setTabData((prev: any) => ({ ...prev, [refObj.key]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
       }, (err) => {
-        console.error(`Admin sync error [${ref.key}]:`, err);
+        console.error(`Admin sync error [${refObj.key}]:`, err);
         setIsLoading(false);
       });
     });
@@ -430,11 +432,13 @@ export default function AdminPage() {
       }
       
       const payload = {
+        name: payoutForm.name,
         traderName: payoutForm.name,
         country: payoutForm.country,
         countryFlag: payoutForm.countryFlag,
         paidOut: parseFloat(payoutForm.paidOut),
         totalPayouts: parseInt(payoutForm.payoutsCount || '1'),
+        payoutsCount: parseInt(payoutForm.payoutsCount || '1'),
         proofUrl,
         isFeatured: true,
         createdAt: serverTimestamp()
@@ -504,7 +508,8 @@ export default function AdminPage() {
       const balance = giftForm.size;
       const plan = giftForm.plan;
       
-      await updateDoc(doc(db, 'users', uid), {
+      const userRef = doc(db, 'users', uid);
+      await updateDoc(userRef, {
         accountSize: `$${(balance / 1000).toLocaleString()}k`,
         planType: plan,
         accountStatus: 'active',
