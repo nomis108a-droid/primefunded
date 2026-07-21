@@ -23,6 +23,7 @@ import {
   resetSingleAccountAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
+  updateKycStatusAction
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -262,6 +263,7 @@ const KycThumbnail = ({ url, label }: { url?: string, label: string }) => {
         <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-white/5">
              <DialogTitle className="text-white uppercase font-black text-sm tracking-widest">{label} - High Resolution</DialogTitle>
+             <DialogDescription className="sr-only">Detailed view of the trader identification proof document.</DialogDescription>
           </DialogHeader>
           <div className="p-2 flex items-center justify-center bg-black">
              <img src={downloadUrl!} alt={label} className="max-w-full max-h-[80vh] object-contain shadow-2xl" />
@@ -476,6 +478,7 @@ export default function AdminPage() {
       return onSnapshot(job.query, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
+        // Client-side sort fallback for composite index building phase
         if (job.key === 'breaches' || job.key === 'featuredPayouts') {
           docs = docs.sort((a: any, b: any) => {
             const dateA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
