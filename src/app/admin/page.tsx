@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -36,6 +37,7 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
 const COUNTRIES_RAW = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
@@ -81,7 +83,7 @@ const COUNTRIES_RAW = [
 
 const COUNTRIES = Array.from(new Map(COUNTRIES_RAW.map(c => [c.code, c])).values()).map(c => {
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
-  return { ...c, flag: String.fromPoint(...codePoints) };
+  return { ...c, flag: String.fromCodePoint(...codePoints) };
 });
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
