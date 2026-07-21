@@ -334,26 +334,24 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     setIsLoading(true);
 
-    const dbRefs = [
-      { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(200)) },
-      { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(200)) },
+    const syncJobs = [
+      { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(500)) },
+      { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(300)) },
       { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached'), orderBy('createdAt', 'desc')) },
       { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
-      { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(100)) },
-      { key: 'trades', query: query(collection(db, 'demoTrades'), orderBy('openedAt', 'desc'), limit(100)) },
+      { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(150)) },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
       { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
-      { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)) },
+      { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(150)) },
       { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) }
     ];
 
-    const unsubs = dbRefs.map(refObj => {
-      return onSnapshot(refObj.query, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [refObj.key]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
+    const unsubs = syncJobs.map(job => {
+      return onSnapshot(job.query, (snap) => {
+        setTabData((prev: any) => ({ ...prev, [job.key]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        if (job.key === 'users') setIsLoading(false);
       }, (err) => {
-        console.error(`Admin sync error [${refObj.key}]:`, err);
-        setIsLoading(false);
+        console.error(`Admin Sync Fail [${job.key}]:`, err.message);
       });
     });
 
