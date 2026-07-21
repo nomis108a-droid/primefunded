@@ -16,14 +16,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
   resetSingleAccountAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
-  updateKycStatusAction,
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -230,7 +229,15 @@ const KycThumbnail = ({ url, label }: { url?: string, label: string }) => {
       });
   }, [url, label]);
 
-  if (!url) return <div className="text-[10px] text-zinc-600 font-bold uppercase italic">No {label}</div>;
+  if (!url) return (
+    <div className="flex flex-col items-center gap-1.5 p-2 bg-zinc-900/50 rounded-lg border border-dashed border-zinc-800">
+      <span className="text-[8px] font-black uppercase text-zinc-600 tracking-widest">{label}</span>
+      <div className="w-16 h-16 rounded bg-black/40 flex items-center justify-center">
+         <XCircle className="w-4 h-4 text-zinc-800" />
+      </div>
+      <span className="text-[7px] text-zinc-700 font-bold uppercase">Not provided</span>
+    </div>
+  );
 
   return (
     <div className="flex flex-col items-center gap-1.5 p-2 bg-zinc-900/50 rounded-lg border border-white/5">
@@ -268,31 +275,77 @@ const KycThumbnail = ({ url, label }: { url?: string, label: string }) => {
 const KycHubTab = memo(({ kycList, isLoading, onApprove, onReject, approvingUserId }: { kycList: any[], isLoading: boolean, onApprove: (kycId: string, userId: string) => void, onReject: (id: string) => void, approvingUserId: string | null }) => (
   <div className="space-y-6">
     <TabHeader title="Compliance: Identity Review" count={kycList.length} />
-    <DataTable loading={isLoading} data={kycList} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => {
+    <DataTable loading={isLoading} data={kycList} columns={['Trader Details', 'Document Info', 'Submission Date', 'Proof Attachments', 'Status', 'Actions']} renderRow={(u) => {
       const date = u.kycSubmittedAt?.toDate ? u.kycSubmittedAt.toDate() : (u.kycSubmittedAt ? new Date(u.kycSubmittedAt) : (u.createdAt?.toDate ? u.createdAt.toDate() : null));
+      const formattedDate = date ? `${format(date, 'MMM d, yyyy')} ${format(date, 'h:mm a')}` : '—';
+      
+      // Variations check for URLs
+      const front = u.idProofUrl || u.frontIdUrl || u.idFront || u.id_front || u.frontImageUrl;
+      const back = u.idBackProofUrl || u.backIdUrl || u.idBack || u.id_back || u.backImageUrl;
+      const selfie = u.selfieProofUrl || u.selfieUrl || u.selfie || u.selfieImageUrl;
+      const poa = u.proofOfAddressUrl || u.addressProofUrl || u.addressProof || u.poaUrl;
+
       return (
         <tr key={u.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
           <td className="p-4">
-             <p className="font-bold text-xs text-white">{u.email || 'Unknown'}</p>
-             <p className="text-[9px] font-mono text-zinc-500 mt-0.5">UID: {u.userId || u.id}</p>
+             <div className="space-y-0.5">
+               <p className="font-bold text-xs text-white uppercase tracking-tight">{u.userName || u.name || 'Trader'}</p>
+               <p className="text-[10px] text-zinc-400">{u.email}</p>
+               <p className="text-[9px] font-mono text-primary font-bold mt-1">ID: {u.traderId || u.accountId || u.userId?.slice(0,10)}</p>
+             </div>
+          </td>
+          <td className="p-4">
+             <div className="space-y-1">
+               <p className="text-[10px] font-black uppercase text-zinc-300">{u.documentType || u.idType || 'Document'}</p>
+               <div className="flex items-center gap-1.5">
+                  <MapPin className="w-3 h-3 text-zinc-500" />
+                  <span className="text-[9px] font-bold text-zinc-500 uppercase">{u.country || 'Global'}</span>
+               </div>
+             </div>
           </td>
           <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
-            {date ? (
-              <div className="flex flex-col">
-                <span className="font-bold text-zinc-300">Submitted: {format(date, 'MMM d, yyyy')}</span>
-                <span className="text-[10px] text-zinc-500">{format(date, 'h:mm a')}</span>
-              </div>
-            ) : 'Pending Date'}
+             <div className="flex flex-col">
+                <span className="text-[8px] font-black uppercase text-zinc-600 mb-0.5">Submitted On</span>
+                <span className="font-bold text-zinc-300">{formattedDate}</span>
+             </div>
           </td>
-          <td className="p-4"><KycThumbnail url={u.idProofUrl || u.frontIdUrl} label="Front ID" /></td>
-          <td className="p-4"><KycThumbnail url={u.idBackProofUrl || u.backIdUrl} label="Back ID" /></td>
-          <td className="p-4"><KycThumbnail url={u.selfieProofUrl || u.selfieUrl} label="Selfie" /></td>
+          <td className="p-4">
+             <div className="flex gap-2">
+                <KycThumbnail url={front} label="Front ID" />
+                <KycThumbnail url={back} label="Back ID" />
+                <KycThumbnail url={selfie} label="Selfie" />
+                <KycThumbnail url={poa} label="Address Proof" />
+             </div>
+          </td>
+          <td className="p-4">
+             <Badge className={cn(
+               "text-[9px] font-black uppercase px-2 py-0.5 border-none",
+               u.status === 'approved' ? "bg-emerald-500/20 text-emerald-500" :
+               u.status === 'rejected' ? "bg-red-500/20 text-red-500" :
+               "bg-amber-500/20 text-amber-500"
+             )}>
+               {u.status || 'Pending'}
+             </Badge>
+          </td>
           <td className="p-4 text-right">
-            <div className="flex gap-2 justify-end">
-              <Button size="sm" className="h-9 px-4 text-[10px] font-black uppercase bg-emerald-600 hover:bg-emerald-500" onClick={() => onApprove(u.id, u.userId || u.id)} disabled={approvingUserId === u.id}>
-                {approvingUserId === u.id ? <Loader2 className="w-4 h-4 animate-spin" /> : "Approve"}
+            <div className="flex flex-col gap-2 justify-end">
+              <Button 
+                size="sm" 
+                className="h-8 px-4 text-[10px] font-black uppercase bg-emerald-600 hover:bg-emerald-500" 
+                onClick={() => onApprove(u.id, u.userId || u.id)} 
+                disabled={approvingUserId === u.id || u.status === 'approved'}
+              >
+                {approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
               </Button>
-              <Button size="sm" variant="destructive" className="h-9 px-4 text-[10px] font-black uppercase" onClick={() => onReject(u.id)}>Reject</Button>
+              <Button 
+                size="sm" 
+                variant="destructive" 
+                className="h-8 px-4 text-[10px] font-black uppercase" 
+                onClick={() => onReject(u.id)}
+                disabled={u.status === 'rejected'}
+              >
+                Reject
+              </Button>
             </div>
           </td>
         </tr>
@@ -355,9 +408,6 @@ export default function AdminPage() {
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
-
-  const [userPage, setUserPage] = useState(1);
-  const usersPerPage = 50;
 
   const instanceId = "Studio-8383940162";
 
@@ -427,7 +477,7 @@ export default function AdminPage() {
       return onSnapshot(job.query, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // Client-side sort for complex composite indexes without requiring backend.json changes
+        // Client-side sort for complex composite indexes
         if (['breaches', 'featuredPayouts', 'passers', 'kyc'].includes(job.key)) {
           docs = docs.sort((a: any, b: any) => {
             const timeA = (a.submittedAt?.toMillis?.() || a.createdAt?.toMillis?.() || a.sentAt?.toMillis?.() || 0);
@@ -472,14 +522,12 @@ export default function AdminPage() {
   const handleApproveKyc = async (kycId: string, userId: string) => {
     setApprovingKycUserId(kycId);
     try {
-      // 1. Update KYC record in dedicated collection
       const kycRef = doc(db, 'kyc', kycId);
       await updateDoc(kycRef, { 
         status: 'approved', 
         reviewedAt: serverTimestamp() 
       });
 
-      // 2. Sync approval status back to User profile
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, { 
         kycVerified: true, 
@@ -504,7 +552,6 @@ export default function AdminPage() {
     }
     setActionLoading(true);
     try {
-      // Find userId from kyc doc
       const kycSnap = await getDoc(doc(db, 'kyc', kycRejectingUserId));
       const userId = kycSnap.data()?.userId;
 
@@ -521,7 +568,7 @@ export default function AdminPage() {
         });
       }
 
-      toast({ title: "KYC Rejected", description: "Trader has been notified with the reason." });
+      toast({ title: "KYC Rejected", description: "Trader has been notified." });
       setIsKycRejectModalOpen(false);
       setKycRejectingUserId(null);
       setKycRejectReason('');
@@ -547,11 +594,9 @@ export default function AdminPage() {
       
       const payload = {
         name: payoutForm.name,
-        traderName: payoutForm.name,
         country: payoutForm.country,
         countryFlag: payoutForm.countryFlag,
         paidOut: parseFloat(payoutForm.paidOut),
-        totalPayouts: parseInt(payoutForm.payoutsCount || '1'),
         payoutsCount: parseInt(payoutForm.payoutsCount || '1'),
         proofUrl,
         isFeatured: true,
@@ -583,7 +628,7 @@ export default function AdminPage() {
   }, []);
 
   const handleResetSingleAccount = async (accountId: string) => {
-    if (!confirm('WARNING: This will reset the account balance and history for this account only. Continue?')) return;
+    if (!confirm('WARNING: This will reset the account balance and history. Continue?')) return;
     setActionLoading(true);
     try {
       const res = await resetSingleAccountAction(accountId);
@@ -657,22 +702,6 @@ export default function AdminPage() {
       setActionLoading(false);
     }
   };
-
-  const handleResetHistory = useCallback(async () => {
-    if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
-    setActionLoading(true);
-    try {
-      const res = await resetAllHistoryAction();
-      if (res.success) {
-        toast({ title: `Reset Complete: ${res.count} trades archived.` });
-        refreshStats(true);
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
-    } finally {
-      setActionLoading(false);
-    }
-  }, [refreshStats, toast]);
 
   const handleRejectOrder = async () => {
     if (!rejectingOrderId || !rejectReason.trim()) {
@@ -779,13 +808,13 @@ export default function AdminPage() {
               </div>
               <DataTable loading={isLoading} data={filteredFeaturedPayouts} columns={['Trader', 'Country', 'Paid Out', 'Payouts', 'Proof', 'Actions']} renderRow={(p) => (
                 <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-bold text-xs">{p.traderName || p.name}</td>
+                  <td className="p-4 font-bold text-xs">{p.name}</td>
                   <td className="p-4 text-xs text-zinc-400">{p.countryFlag} {p.country}</td>
                   <td className="p-4 font-mono text-emerald-500 font-bold">${(p.paidOut || 0).toLocaleString()}</td>
-                  <td className="p-4 text-xs text-muted-foreground">{p.totalPayouts || p.payoutsCount || 1}</td>
+                  <td className="p-4 text-xs text-muted-foreground">{p.payoutsCount || 1}</td>
                   <td className="p-4 text-center">{p.proofUrl ? <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Proof</a> : <span className="text-zinc-600 text-[9px]">None</span>}</td>
                   <td className="p-4 text-right space-x-2">
-                    <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: p.id, name: p.traderName || p.name || '', country: p.country || '', countryFlag: p.countryFlag || '', paidOut: String(p.paidOut || ''), payoutsCount: String(p.totalPayouts || p.payoutsCount || '') }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
+                    <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: p.id, name: p.name || '', country: p.country || '', countryFlag: p.countryFlag || '', paidOut: String(p.paidOut || ''), payoutsCount: String(p.payoutsCount || '') }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
                     <Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if (confirm('Delete this featured payout?')) { await deleteDoc(doc(db, 'payouts', p.id)); } }}>Del</Button>
                   </td>
                 </tr>
