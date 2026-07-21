@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -333,15 +334,15 @@ export default function AdminPage() {
     setIsLoading(true);
 
     const syncJobs = [
-      { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(500)) },
-      { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(300)) },
+      { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc')) },
+      { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')) },
       { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached')) },
       { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed')) },
-      { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(150)) },
+      { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc')) },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
       { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true)) },
       { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(150)) },
-      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)) }
+      { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')) }
     ];
 
     const unsubs = syncJobs.map(job => {
