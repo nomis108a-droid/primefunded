@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -22,11 +22,12 @@ import {
   resetSingleAccountAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
+  updateKycStatusAction,
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc, limit, writeBatch } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -335,7 +336,7 @@ export default function AdminPage() {
       { key: 'users', query: query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(500)) },
       { key: 'demoAccounts', query: query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(300)) },
       { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached')) },
-      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
+      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed')) },
       { key: 'orders', query: query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(150)) },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)) },
       { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true)) },
@@ -348,10 +349,10 @@ export default function AdminPage() {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
         // Client-side sort to bypass composite index requirements while maintaining order
-        if (job.key === 'breaches' || job.key === 'featuredPayouts') {
+        if (job.key === 'breaches' || job.key === 'featuredPayouts' || job.key === 'passers') {
           docs = docs.sort((a: any, b: any) => {
-            const timeA = (a.createdAt?.toMillis?.() || (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : 0));
-            const timeB = (b.createdAt?.toMillis?.() || (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : 0));
+            const timeA = (a.createdAt?.toMillis?.() || (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : (a.updatedAt?.seconds ? a.updatedAt.seconds * 1000 : 0)));
+            const timeB = (b.createdAt?.toMillis?.() || (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : (b.updatedAt?.seconds ? b.updatedAt.seconds * 1000 : 0)));
             return timeB - timeA;
           });
         }
