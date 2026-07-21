@@ -463,12 +463,12 @@ export default function AdminPage() {
     const syncJobs = [
       { key: 'users', query: collection(db, 'users') },
       { key: 'demoAccounts', query: collection(db, 'demoAccounts') },
-      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached')) },
-      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed')) },
+      { key: 'breaches', query: query(collection(db, 'challenges'), where('status', '==', 'breached'), orderBy('createdAt', 'desc')) },
+      { key: 'passers', query: query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')) },
       { key: 'orders', query: collection(db, 'orders') },
       { key: 'kyc', query: collection(db, 'kyc') },
       { key: 'payouts', query: query(collection(db, 'payouts'), orderBy('createdAt', 'desc')) },
-      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true)) },
+      { key: 'featuredPayouts', query: query(collection(db, 'payouts'), where('isFeatured', '==', true), orderBy('createdAt', 'desc')) },
       { key: 'referrals', query: query(collection(db, 'referrals'), orderBy('createdAt', 'desc')) },
       { key: 'broadcasts', query: query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')) }
     ];
@@ -476,16 +476,6 @@ export default function AdminPage() {
     const unsubs = syncJobs.map(job => {
       return onSnapshot(job.query, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        // Client-side sort for complex composite indexes
-        if (['breaches', 'featuredPayouts', 'passers', 'kyc'].includes(job.key)) {
-          docs = docs.sort((a: any, b: any) => {
-            const timeA = (a.submittedAt?.toMillis?.() || a.createdAt?.toMillis?.() || a.sentAt?.toMillis?.() || 0);
-            const timeB = (b.submittedAt?.toMillis?.() || b.createdAt?.toMillis?.() || b.sentAt?.toMillis?.() || 0);
-            return timeB - timeA;
-          });
-        }
-
         setTabData((prev: any) => ({ ...prev, [job.key]: docs }));
         if (job.key === 'users') setIsLoading(false);
       }, (err) => {
@@ -626,6 +616,20 @@ export default function AdminPage() {
       if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setNodeFilterId(null); setIsUserManagementOpen(true); }
     } finally { setActionLoading(false); }
   }, []);
+
+  const handleResetHistory = useCallback(async () => {
+    if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetAllHistoryAction();
+      if (res.success) {
+        toast({ title: `Reset Complete: ${res.count} trades archived.` });
+        refreshStats(true);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
+    } finally { setActionLoading(false); }
+  }, [refreshStats, toast]);
 
   const handleResetSingleAccount = async (accountId: string) => {
     if (!confirm('WARNING: This will reset the account balance and history. Continue?')) return;
