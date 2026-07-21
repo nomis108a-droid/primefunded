@@ -89,9 +89,11 @@ export default function TradesPayoutPage() {
                     ))
                   ) : featuredPayouts.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-20 text-center text-muted-foreground italic flex flex-col items-center gap-4">
-                        <Info className="w-12 h-12 opacity-20" />
-                        <span>No featured payouts recorded yet.</span>
+                      <td colSpan={6} className="py-20 text-center text-muted-foreground italic">
+                        <div className="flex flex-col items-center gap-4">
+                          <Info className="w-12 h-12 opacity-20" />
+                          <span>No featured payouts recorded yet.</span>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -113,7 +115,7 @@ export default function TradesPayoutPage() {
                           <td className="py-4 px-6 font-bold text-white uppercase tracking-tight">{p.traderName || p.name}</td>
                           <td className="py-4 px-6 text-zinc-400 text-xs">
                              <div className="flex items-center gap-2">
-                                <span className="text-base">{p.countryFlag}</span>
+                                <span>{p.countryFlag}</span>
                                 <span>{p.country}</span>
                              </div>
                           </td>
