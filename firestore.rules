@@ -1,20 +1,18 @@
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Payouts & Featured Leaderboard: Public Read, Auth Write for staff
     match /payouts/{payoutId} {
       allow read: if true;
-      allow create, update, delete: if request.auth != null;
+      allow write: if request.auth != null;
     }
     
-    // Featured Payouts (legacy compatibility): Public Read
     match /featured_payouts/{id} {
       allow read: if true;
       allow write: if request.auth != null;
     }
     
-    // Global Collections: Full access for all authenticated users (staff/administrators)
+    // Admin & Service Collections: Permissive for all authenticated users (staff)
     match /challenges/{id} { allow read, write: if request.auth != null; }
     match /trades/{id} { allow read, write: if request.auth != null; }
     match /demoTrades/{id} { allow read, write: if request.auth != null; }
@@ -23,17 +21,16 @@ service cloud.firestore {
     match /referrals/{id} { allow read, write: if request.auth != null; }
     match /users/{id} { allow read, write: if request.auth != null; }
     match /kyc/{id} { allow read, write: if request.auth != null; }
-    match /kycSubmissions/{id} { allow read, write: if request.auth != null; }
     match /broadcasts/{id} { allow read, write: if request.auth != null; }
-    match /announcements/{id} { allow read, write: if request.auth != null; }
     match /settings/{id} { allow read, write: if request.auth != null; }
+    match /livePrices/{id} { allow read: if true; allow write: if request.auth != null; }
 
-    // User Sub-collections: Authenticated Access
+    // User Data Sub-collections
     match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null;
     }
 
-    // Default: Authenticated access for all other documents to prevent permission-denied errors
+    // Default: Authenticated access for all other documents
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
