@@ -468,7 +468,7 @@ export default function AdminPage() {
       if (res.success) {
         toast({ title: "Account Restored" });
         if (selectedUser) {
-           const snap = await getDoc(doc(db, 'users', selectedUser.id));
+           const snap = await getDoc(db, 'users', selectedUser.id));
            if (snap.exists()) setSelectedUser({ id: snap.id, ...snap.data() });
         }
       }
