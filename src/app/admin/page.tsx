@@ -469,7 +469,6 @@ export default function AdminPage() {
       let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
       
       if (accountSnap.exists()) {
-        // Inspecting from Trading Nodes — this is the demoAccount doc
         const accountData = { id: accountSnap.id, ...accountSnap.data() };
         const uid = accountData.userId;
         if (uid) {
@@ -481,10 +480,8 @@ export default function AdminPage() {
           }
         }
         setSelectedUser(accountData);
-        // CRITICAL: set nodeFilterId to the demoAccount DOC ID (not userId) so demoTrades query works
         setNodeFilterId(accountSnap.id);
       } else {
-        // Inspecting from User Directory — find their demoAccounts
         const userSnap = await getDoc(doc(db, 'users', userIdOrAccountId));
         if (!userSnap.exists()) return;
         const userData = { id: userSnap.id, ...userSnap.data() };
@@ -495,7 +492,6 @@ export default function AdminPage() {
           userData.planType = acc.planType; userData.startBalance = acc.startBalance;
           userData.balance = acc.balance; userData.equity = acc.equity;
           userData.phase = acc.phase; userData.status = acc.status; userData.updatedAt = acc.updatedAt;
-          // CRITICAL: set nodeFilterId to the demoAccount DOC ID
           setNodeFilterId(latest.id);
         }
         setSelectedUser(userData);
@@ -643,19 +639,15 @@ export default function AdminPage() {
         <TabsContent value="order-review">
           <div className="space-y-6">
             <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'SUBMITTED', 'ACTIONS']} renderRow={(order) => (
+            <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'ACTIONS']} renderRow={(order) => (
               <tr key={order.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{order.email}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{order.plan}</td>
-                <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize || '—'}</td>
+                <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize ? `$${Number(order.accountSize).toLocaleString()}` : '—'}</td>
                 <td className="p-4 text-xs font-mono text-zinc-300">{order.amountPaid ? `$${Number(order.amountPaid).toFixed(2)}` : '$0.00'}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || '—'}</td>
                 <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : order.status === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{order.status}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{order.submittedAt?.toDate ? format(order.submittedAt.toDate(), 'MMM d, HH:mm') : (order.createdAt?.toDate ? format(order.createdAt.toDate(), 'MMM d, HH:mm') : '—')}</td>
-                <td className="p-4 text-right space-x-2">
-                  {order.status === 'completed' || order.status === 'approved' ? <Button size="sm" variant="outline" className="h-7 text-[8px] text-primary border-primary/30" onClick={() => window.open(order.proofUrl || '#', '_blank')}>PROOF</Button> : null}
-                  {order.status === 'manual_review' && <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(order.id)} disabled={approvingOrderId === order.id}>{approvingOrderId === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'APPROVE'}</Button>}
-                </td>
+                <td className="p-4 text-right">{(order.status === 'completed' || order.status === 'approved') && (order.proofUrl || order.paymentProofUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(order.proofUrl || order.paymentProofUrl, '_blank')}>PROOF</span> : null}</td>
               </tr>
             )} />
           </div>
@@ -670,7 +662,7 @@ export default function AdminPage() {
                 <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType}</td>
                 <td className="p-4 text-xs font-mono text-zinc-400">${node.startBalance?.toLocaleString() || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : node.status === 'passed' ? "bg-blue-500/20 text-blue-500" : "bg-red-500/20 text-red-500")}>{node.status}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : node.status === 'passed' ? 'bg-blue-500/20 text-blue-500' : 'bg-red-500/20 text-red-500')}>{node.status}</Badge></td>
                 <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
                 <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.userId)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
@@ -734,7 +726,7 @@ export default function AdminPage() {
               <tr key={r.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{r.referrerEmail || r.referrerId}</td>
                 <td className="p-4 text-xs text-zinc-300">{r.referredEmail || r.referredId}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{r.status || 'pending'}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{r.status || 'pending'}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
               </tr>
             )} />
