@@ -454,16 +454,17 @@ export default function AdminPage() {
     setIsLoading(true);
     let unsubscribe: () => void = () => {};
 
-    const qMap: Record<string, any> = {
+    const qMap: any = {
+      'overview': null,
       'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
       'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
-      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), 
-      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('passedAt', 'desc')), 
+      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
+      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
       'order-review': query(collection(db, 'orders'), orderBy('submittedAt', 'desc')),
-      'kyc-hub': collection(db, 'kyc'),
       'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
       'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
       'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
+      'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
       'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
     };
 
@@ -684,148 +685,136 @@ export default function AdminPage() {
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
-          
-          <TabsContent value="payout-hub">
-            <TabHeader title="Finance: Payout Hub" count={tabData.payouts.length} />
-            <DataTable loading={isLoading} data={tabData.payouts} columns={['Trader ID', 'Amount', 'Currency', 'Payment Method', 'Status', 'Requested Date']} renderRow={(p) => (
-              <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-mono text-[10px] text-zinc-400">{p.userId?.slice(0, 10)}...</td>
-                <td className="p-4 font-bold text-white">${parseFloat(p.amount || 0).toLocaleString()}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-500">{p.currency || 'USD'}</td>
-                <td className="p-4 text-xs">{p.paymentMethod || p.method || '—'}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="trades-payouts">
-            <div className="flex justify-between items-center mb-6">
-              <TabHeader title="Showcase: Trades Payouts" count={tabData.featuredPayouts.length} />
-              <Button size="sm" className="font-bold" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Entry</Button>
-            </div>
-            <DataTable loading={isLoading} data={filteredFeaturedPayouts} columns={['Trader Name', 'Country', 'Paid Out ($)', 'Payouts Count', 'Proof', 'Actions']} renderRow={(p) => (
-              <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-white">{p.name}</td>
-                <td className="p-4 text-xs text-zinc-400">{p.countryFlag} {p.country}</td>
-                <td className="p-4 font-mono text-emerald-500 font-bold">${(p.paidOut || 0).toLocaleString()}</td>
-                <td className="p-4 text-xs">{p.payoutsCount || 1}</td>
-                <td className="p-4">{p.proofUrl ? <a href={p.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Proof</a> : <span className="text-zinc-600 text-[9px]">None</span>}</td>
-                <td className="p-4 text-right">
-                  <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: p.id, name: p.name, country: p.country, countryFlag: p.countryFlag, paidOut: String(p.paidOut), payoutsCount: String(p.payoutsCount) }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
-                </td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="trading-nodes">
-            <TabHeader title="Infrastructure: Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['Trader', 'User ID', 'Plan', 'Account Size', 'Status', 'Updated']} renderRow={(acc) => (
-              <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs text-white">{acc.email || '—'}</td>
-                <td className="p-4 font-mono text-[9px] text-zinc-500">{acc.userId?.slice(0, 12)}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || '—'}</td>
-                <td className="p-4 font-mono text-xs">${(acc.startBalance || 0).toLocaleString()}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500")}>{acc.status}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="breaches">
-            <TabHeader title="Risk: Breach Incidents" count={tabData.breaches.length} />
-            <DataTable loading={isLoading} data={tabData.breaches} columns={['Trader', 'Account ID', 'Plan', 'Status', 'Reason', 'Breached At']} renderRow={(acc) => (
-              <tr key={acc.id} className="hover:bg-red-500/5 transition-colors">
-                <td className="p-4 font-bold text-xs text-white">{acc.email || '—'}</td>
-                <td className="p-4 font-mono text-[9px] text-zinc-500">{acc.id}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || '—'}</td>
-                <td className="p-4"><Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/30 text-[8px] uppercase">{acc.status}</Badge></td>
-                <td className="p-4 text-[10px] text-red-400 font-medium max-w-xs">{acc.breachReason || 'Risk limit exceeded'}</td>
-                <td className="p-4 text-xs text-muted-foreground">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="order-review">
-            <div className="space-y-6">
-              <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={filteredOrders || tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'SUBMITTED', 'ACTIONS']} renderRow={(order) => (
-                <tr key={order.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-bold text-xs">{order.email || order.userEmail}</td>
-                  <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{order.plan || order.planType}</td>
-                  <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize ? `$${Number(String(order.accountSize).replace(/[^0-9.-]+/g,"")).toLocaleString()}` : '—'}</td>
-                  <td className="p-4 text-xs font-mono text-zinc-300">{order.amountPaid ? `$${Number(order.amountPaid).toFixed(2)}` : (order.amount ? `$${Number(order.amount).toFixed(2)}` : '$0.00')}</td>
-                  <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || order.paymentMethod || '—'}</td>
-                  <td className="p-4 text-center">
-                    <Badge className={cn("text-[8px] font-black uppercase",
-                      order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' :
-                      order.status === 'rejected' ? 'bg-red-500/20 text-red-500' :
-                      'bg-amber-500/20 text-amber-500'
-                    )}>{order.status || 'pending'}</Badge>
-                  </td>
-                  <td className="p-4 text-xs text-muted-foreground">{order.submittedAt?.toDate ? format(order.submittedAt.toDate(), 'MMM d, HH:mm') : (order.createdAt?.toDate ? format(order.createdAt.toDate(), 'MMM d, HH:mm') : '—')}</td>
-                  <td className="p-4 text-right space-x-2">
-                    {order.status === 'completed' || order.status === 'approved' ? (
-                      <Button size="sm" variant="outline" className="h-7 text-[8px] text-primary border-primary/30" onClick={() => window.open(order.proofUrl || order.paymentProofUrl || '#', '_blank')}>PROOF</Button>
-                    ) : null}
-                    {order.status === 'manual_review' && (
-                      <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(order.id)} disabled={approvingOrderId === order.id}>
-                        {approvingOrderId === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'APPROVE'}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              )} />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="referral-audit">
-            <TabHeader title="Growth: Referral Audit" count={tabData.referrals.length} />
-            <DataTable loading={isLoading} data={tabData.referrals} columns={['Referrer', 'Referred', 'Status', 'Date']} renderRow={(r) => (
-              <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs text-white">{r.referrerEmail || r.referrerId?.slice(0, 10)}</td>
-                <td className="p-4 text-xs text-zinc-400">{r.referredEmail || r.referredUserId?.slice(0, 10)}</td>
-                <td className="p-4"><Badge className="text-[8px] uppercase bg-secondary text-zinc-400">{r.status}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="user-directory">
-            <TabHeader title="Identity: User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={paginatedUsers} columns={['Name', 'Email', 'KYC Status', 'Joined', 'Actions']} renderRow={(u) => (
-              <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-white">{u.displayName || u.name || '—'}</td>
-                <td className="p-4 text-xs text-zinc-400">{u.email}</td>
-                <td className="p-4"><Badge variant="outline" className={cn("text-[8px] uppercase", u.kycStatus === 'verified' ? 'border-emerald-500 text-emerald-500' : 'border-zinc-700 text-zinc-500')}>{u.kycStatus || 'None'}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                <td className="p-4 text-right">
-                  <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}>Inspect</Button>
-                </td>
-              </tr>
-            )} />
-            <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
-              <p>Page {userPage} of {totalUserPages}</p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}>Prev</Button>
-                <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next</Button>
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="broadcasts">
-            <TabHeader title="Comms: Global Broadcasts" count={tabData.broadcasts.length} />
-            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['Message', 'Sent By', 'Sent At', 'Status']} renderRow={(b) => (
-              <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 text-xs text-white max-w-md truncate">{b.message}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-500">{b.sentBy || 'Admin'}</td>
-                <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                <td className="p-4"><Badge className="bg-primary/20 text-primary text-[8px] uppercase">{b.active !== false ? 'Active' : 'Archived'}</Badge></td>
-              </tr>
-            )} />
-          </TabsContent>
-
           <TabsContent value="kyc-hub"><KycHubTab kycList={tabData.kycList} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} /></TabsContent>
+
+        <TabsContent value="order-review">
+          <div className="space-y-6">
+            <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'SUBMITTED', 'ACTIONS']} renderRow={(order) => (
+              <tr key={order.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{order.email}</td>
+                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{order.plan}</td>
+                <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize || '—'}</td>
+                <td className="p-4 text-xs font-mono text-zinc-300">{order.amountPaid ? `$${Number(order.amountPaid).toFixed(2)}` : '$0.00'}</td>
+                <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || '—'}</td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : order.status === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{order.status}</Badge></td>
+                <td className="p-4 text-xs text-muted-foreground">{order.submittedAt?.toDate ? format(order.submittedAt.toDate(), 'MMM d, HH:mm') : (order.createdAt?.toDate ? format(order.createdAt.toDate(), 'MMM d, HH:mm') : '—')}</td>
+                <td className="p-4 text-right space-x-2">
+                  {order.status === 'completed' || order.status === 'approved' ? <Button size="sm" variant="outline" className="h-7 text-[8px] text-primary border-primary/30" onClick={() => window.open(order.proofUrl || '#', '_blank')}>PROOF</Button> : null}
+                  {order.status === 'manual_review' && <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(order.id)} disabled={approvingOrderId === order.id}>{approvingOrderId === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'APPROVE'}</Button>}
+                </td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="trading-nodes">
+          <div className="space-y-6">
+            <TabHeader title="Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED']} renderRow={(node) => (
+              <tr key={node.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{node.email}</td>
+                <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
+                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType}</td>
+                <td className="p-4 text-xs font-mono text-zinc-400">${node.startBalance?.toLocaleString() || '—'}</td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : node.status === 'passed' ? "bg-blue-500/20 text-blue-500" : "bg-red-500/20 text-red-500")}>{node.status}</Badge></td>
+                <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
+                <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="breaches">
+          <div className="space-y-6">
+            <TabHeader title="Breach Monitor" count={tabData.breaches.length} />
+            <DataTable loading={isLoading} data={tabData.breaches} columns={['TRADER', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
+              <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{b.email}</td>
+                <td className="p-4 font-mono text-[10px] text-zinc-400">{b.id}</td>
+                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
+                <td className="p-4 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
+                <td className="p-4 text-xs text-red-400">{b.breachReason || '—'}</td>
+                <td className="p-4 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="payout-hub">
+          <div className="space-y-6">
+            <TabHeader title="Payout Hub" count={tabData.payouts.length} />
+            <DataTable loading={isLoading} data={tabData.payouts} columns={['USER ID', 'AMOUNT', 'METHOD', 'WALLET/ACCOUNT', 'STATUS', 'REQUESTED']} renderRow={(p) => (
+              <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{p.userId || p.email}</td>
+                <td className="p-4 text-xs font-mono text-emerald-400">${Number(p.amount || 0).toFixed(2)}</td>
+                <td className="p-4 text-[10px] uppercase text-zinc-300">{p.paymentMethod || '—'}</td>
+                <td className="p-4 text-[10px] font-mono text-zinc-400 max-w-[200px] truncate">{p.walletAddress || p.accountNumber || '—'}</td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'paid' || p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : p.status === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
+                <td className="p-4 text-xs text-muted-foreground">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="trades-payouts">
+          <div className="space-y-6">
+            <div className="flex justify-between items-center"><TabHeader title="Trades Payouts" count={tabData.featuredPayouts.length} /><Button className="h-8 text-[10px] font-black bg-primary text-black" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-3 h-3 mr-1" /> ADD</Button></div>
+            <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['TRADER', 'COUNTRY', 'PAID OUT ($)', 'PAYOUTS COUNT', 'PROOF', 'ACTIONS']} renderRow={(fp) => (
+              <tr key={fp.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{fp.name}</td>
+                <td className="p-4 text-xs">{fp.countryFlag} {fp.country}</td>
+                <td className="p-4 text-xs font-mono text-emerald-400">${Number(fp.paidOut || 0).toFixed(2)}</td>
+                <td className="p-4 text-xs text-center">{fp.payoutsCount || 0}</td>
+                <td className="p-4 text-center">{fp.proofUrl ? <a href={fp.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">VIEW</a> : <span className="text-zinc-600 text-[9px]">NONE</span>}</td>
+                <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: fp.id, name: fp.name, country: fp.country, countryFlag: fp.countryFlag, paidOut: String(fp.paidOut || ''), payoutsCount: String(fp.payoutsCount || '') }); setIsFeaturedPayoutModalOpen(true); }}>EDIT</Button></td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="referral-audit">
+          <div className="space-y-6">
+            <TabHeader title="Referral Audit" count={tabData.referrals.length} />
+            <DataTable loading={isLoading} data={tabData.referrals} columns={['REFERRER', 'REFERRED', 'STATUS', 'DATE']} renderRow={(r) => (
+              <tr key={r.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{r.referrerEmail || r.referrerId}</td>
+                <td className="p-4 text-xs text-zinc-300">{r.referredEmail || r.referredId}</td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{r.status || 'pending'}</Badge></td>
+                <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="user-directory">
+          <div className="space-y-6">
+            <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
+              <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{u.displayName || '—'}</td>
+                <td className="p-4 text-xs text-zinc-300">{u.email}</td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{u.kycStatus || 'none'}</Badge></td>
+                <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
+                <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="broadcasts">
+          <div className="space-y-6">
+            <TabHeader title="Broadcasts" count={tabData.broadcasts.length} />
+            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['MESSAGE', 'TYPE', 'SENT BY', 'SENT AT']} renderRow={(b) => (
+              <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 text-xs max-w-[300px] truncate">{b.message}</td>
+                <td className="p-4 text-[10px] uppercase text-zinc-400">{b.type || '—'}</td>
+                <td className="p-4 text-xs text-zinc-300">{b.sentBy || 'admin'}</td>
+                <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
         </Tabs>
       </main>
 
