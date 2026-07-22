@@ -15,14 +15,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin, AlertTriangle
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin, AlertTriangle, CreditCard, Banknote
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
   resetSingleAccountAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
-  updateKycStatusAction
+  updateKycStatusAction,
+  giftAccountAction
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -262,7 +263,7 @@ const KycThumbnail = ({ url, label }: { url?: string, label: string }) => {
         <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 p-0 overflow-hidden">
           <DialogHeader className="p-4 border-b border-white/5">
              <DialogTitle className="text-white uppercase font-black text-sm tracking-widest">{label} - High Resolution</DialogTitle>
-             <DialogDescription className="sr-only">Detailed view of the trader identification proof document.</DialogDescription>
+             <DialogDescription className="sr-only">Detailed view of document.</DialogDescription>
           </DialogHeader>
           <div className="p-2 flex items-center justify-center bg-black">
              <img src={downloadUrl!} alt={label} className="max-w-full max-h-[80vh] object-contain shadow-2xl" />
@@ -344,6 +345,100 @@ const KycHubTab = memo(({ kycList, isLoading, onApprove, onReject, approvingUser
   </div>
 ));
 
+const PayoutHubTab = memo(({ payouts, isLoading }: { payouts: any[], isLoading: boolean }) => {
+  const [userMap, setUserMap] = useState<Record<string, any>>({});
+  
+  // Resolve user info for each payout row
+  useEffect(() => {
+    payouts.forEach(async (p) => {
+      if (p.userId && !userMap[p.userId]) {
+        const snap = await getDoc(doc(db, 'users', p.userId));
+        if (snap.exists()) {
+          setUserMap(prev => ({ ...prev, [p.userId]: snap.data() }));
+        }
+      }
+    });
+  }, [payouts]);
+
+  return (
+    <div className="space-y-6">
+      <TabHeader title="Finance: Payout Hub" count={payouts.length} />
+      <DataTable 
+        loading={isLoading} 
+        data={payouts} 
+        columns={['Payout ID', 'Trader Info', 'Account', 'Amount', 'Payment Details', 'Dates', 'Status']} 
+        renderRow={(p) => {
+          const userData = userMap[p.userId] || {};
+          const isCrypto = p.method?.includes('USDT') || p.method?.includes('Crypto');
+          
+          return (
+            <tr key={p.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
+              <td className="p-4 font-mono text-[9px] text-zinc-500">{p.id}</td>
+              <td className="p-4">
+                 <div className="space-y-0.5">
+                   <p className="font-bold text-xs text-white uppercase">{userData.name || p.name || 'Trader'}</p>
+                   <p className="text-[10px] text-zinc-400">{userData.email || p.email}</p>
+                 </div>
+              </td>
+              <td className="p-4">
+                 <div className="space-y-0.5">
+                   <p className="text-[10px] font-bold text-zinc-300">Phase: {p.phase || 'Funded'}</p>
+                   <p className="text-[9px] font-mono text-zinc-500">ID: {p.accountId || '—'}</p>
+                 </div>
+              </td>
+              <td className="p-4">
+                 <div className="space-y-0.5">
+                   <p className="font-mono text-emerald-500 font-black text-sm">${parseFloat(p.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                   <p className="text-[8px] font-black uppercase text-zinc-600">{p.currency || 'USD'}</p>
+                 </div>
+              </td>
+              <td className="p-4">
+                 <div className="space-y-1 max-w-[200px]">
+                    <div className="flex items-center gap-1.5">
+                       {isCrypto ? <Zap size={10} className="text-primary" /> : <Banknote size={10} className="text-amber-500" />}
+                       <span className="text-[9px] font-black uppercase text-zinc-300">{p.method || p.paymentMethod || 'Other'}</span>
+                    </div>
+                    <p className="text-[10px] font-mono text-zinc-400 truncate bg-zinc-900/50 p-1 rounded border border-white/5">
+                      {p.address || p.walletAddress || p.accountNumber || 'Details hidden'}
+                    </p>
+                    {p.bankName && <p className="text-[9px] text-zinc-500 italic">Bank: {p.bankName}</p>}
+                 </div>
+              </td>
+              <td className="p-4 whitespace-nowrap">
+                 <div className="space-y-1">
+                    <div className="flex flex-col">
+                       <span className="text-[8px] font-black uppercase text-zinc-600">Requested</span>
+                       <span className="text-[10px] text-zinc-300">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, yyyy') : 'Recently'}</span>
+                    </div>
+                    {p.processedAt && (
+                      <div className="flex flex-col">
+                         <span className="text-[8px] font-black uppercase text-zinc-600">Paid</span>
+                         <span className="text-[10px] text-zinc-300">{p.processedAt?.toDate ? format(p.processedAt.toDate(), 'MMM d, yyyy') : '—'}</span>
+                      </div>
+                    )}
+                 </div>
+              </td>
+              <td className="p-4 text-right">
+                <div className="space-y-2 flex flex-col items-end">
+                  <Badge className={cn(
+                    "text-[8px] font-black uppercase border-none px-2 py-0.5",
+                    (p.status === 'done' || p.status === 'Paid' || p.status === 'completed') ? "bg-emerald-500/20 text-emerald-500" :
+                    p.status === 'rejected' ? "bg-red-500/20 text-red-500" :
+                    "bg-amber-500/20 text-amber-500"
+                  )}>
+                    {p.status || 'Pending'}
+                  </Badge>
+                  {p.isFeatured && <Badge variant="outline" className="text-[7px] border-primary/30 text-primary h-4">FEATURED</Badge>}
+                </div>
+              </td>
+            </tr>
+          );
+        }} 
+      />
+    </div>
+  );
+});
+
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -354,7 +449,6 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
@@ -375,7 +469,6 @@ export default function AdminPage() {
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [inspectionTab, setInspectionTab] = useState('overview');
-  const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [userNodes, setUserNodes] = useState<any[]>([]);
@@ -445,7 +538,6 @@ export default function AdminPage() {
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
     } catch (err: any) { 
-      if (err.code === 'resource-exhausted') setIsQuotaExhausted(true);
       console.error('[Admin-Stats] Refresh fault:', err.message); 
     }
   }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
@@ -454,7 +546,7 @@ export default function AdminPage() {
    * SMART SYNC: Only listen to the collection relevant to the active tab to save quota.
    */
   useEffect(() => {
-    if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     
     setIsLoading(true);
     let unsubscribe: () => void = () => {};
@@ -478,7 +570,7 @@ export default function AdminPage() {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
         // Client-side sort for tabs that don't have indexes yet
-        if (activeTab === 'breaches' || activeTab === 'trades-payouts') {
+        if (activeTab === 'breaches' || activeTab === 'trades-payouts' || activeTab === 'payout-hub') {
           docs = docs.sort((a: any, b: any) => {
             const dateA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
             const dateB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
@@ -492,7 +584,6 @@ export default function AdminPage() {
         setTabData((prev: any) => ({ ...prev, [finalKey]: docs }));
         setIsLoading(false);
       }, (err) => {
-        if (err.code === 'resource-exhausted') setIsQuotaExhausted(true);
         console.error(`Admin Sync Fail [${activeTab}]:`, err.message);
         setIsLoading(false);
       });
@@ -502,7 +593,7 @@ export default function AdminPage() {
     }
 
     return () => unsubscribe();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, isQuotaExhausted, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -626,17 +717,6 @@ export default function AdminPage() {
     return COUNTRIES.filter(c => c.name.toLowerCase().includes(term));
   }, [countrySearchTerm]);
 
-  if (isQuotaExhausted) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <AlertTriangle className="w-16 h-16 text-amber-500 mb-6" />
-        <h1 className="text-3xl font-headline font-bold text-white mb-2">Firestore Quota Exceeded</h1>
-        <p className="text-muted-foreground max-w-md">Your database has hit its daily read limits. Access will be restored at midnight UTC. Background risk monitoring remains operational via internal buffers.</p>
-        <Button className="mt-8 px-10 rounded-xl" onClick={() => window.location.reload()}>Try Reconnect</Button>
-      </div>
-    );
-  }
-
   return (
     <div className="flex min-h-screen bg-background text-white">
       <Navigation />
@@ -676,20 +756,7 @@ export default function AdminPage() {
           <TabsContent value="kyc-hub"><KycHubTab kycList={tabData.kycList} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} /></TabsContent>
 
           <TabsContent value="payout-hub">
-            <div className="space-y-6">
-              <TabHeader title="Finance: Payout Hub" count={tabData.payouts.length} />
-              <DataTable loading={isLoading} data={tabData.payouts.filter((p: any) => !p.isFeatured)} columns={['Trader Email', 'Amount', 'Method', 'Date', 'Status']} renderRow={(p) => (
-                <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4 font-bold text-xs">{p.email}</td>
-                  <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.amount || 0).toLocaleString()}</td>
-                  <td className="p-4 text-xs text-muted-foreground">{p.method}</td>
-                  <td className="p-4 text-xs text-muted-foreground">{p.date || (p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, yyyy HH:mm') : '—')}</td>
-                  <td className="p-4 text-right">
-                    <Badge className={cn("text-[8px] font-black uppercase border-none", (p.status === 'done' || p.status === 'approved' || p.status === 'completed') ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge>
-                  </td>
-                </tr>
-              )} />
-            </div>
+            <PayoutHubTab payouts={tabData.payouts} isLoading={isLoading} />
           </TabsContent>
 
           <TabsContent value="trades-payouts">
