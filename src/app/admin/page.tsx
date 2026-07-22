@@ -29,7 +29,7 @@ import {
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, addDoc, setDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -466,10 +466,53 @@ export default function AdminPage() {
   const handleViewUserByAccount = useCallback(async (userId: string) => {
     setActionLoading(true);
     try {
-      // Try demoAccounts first (trading node), fallback to users
-      let snap = await getDoc(doc(db, 'demoAccounts', userId));
-      if (!snap.exists()) snap = await getDoc(doc(db, 'users', userId));
-      if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setNodeFilterId(snap.id); setIsUserManagementOpen(true); }
+      // First try fetching directly from demoAccounts (when clicking Inspect from Trading Nodes)
+      let accountSnap = await getDoc(doc(db, 'demoAccounts', userId));
+      
+      if (accountSnap.exists()) {
+        // Clicked from Trading Nodes — this IS the account doc
+        const accountData = { id: accountSnap.id, ...accountSnap.data() };
+        // Also fetch the user profile for email/displayName
+        const userIdFromAccount = accountData.userId;
+        if (userIdFromAccount) {
+          const userSnap = await getDoc(doc(db, 'users', userIdFromAccount));
+          if (userSnap.exists()) {
+            const userData = userSnap.data();
+            accountData.displayName = userData.displayName || accountData.displayName || userData.name;
+            accountData.kycStatus = userData.kycStatus || accountData.kycStatus;
+          }
+        }
+        setSelectedUser(accountData);
+      } else {
+        // Clicked from User Directory — fetch user doc, then find their demoAccounts
+        const userSnap = await getDoc(doc(db, 'users', userId));
+        if (!userSnap.exists()) return;
+        const userData = { id: userSnap.id, ...userSnap.data() };
+        
+        // Fetch ALL demo accounts for this user
+        const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+        if (!accountsSnap.empty) {
+          // Merge the first (or latest) account data into userData
+          const latestAccount = accountsSnap.docs.sort((a, b) => {
+            const aTime = a.data().updatedAt?.toDate?.()?.getTime() || 0;
+            const bTime = b.data().updatedAt?.toDate?.()?.getTime() || 0;
+            return bTime - aTime;
+          })[0];
+          const accData = latestAccount.data();
+          userData.planType = accData.planType || userData.planType;
+          userData.startBalance = accData.startBalance || userData.startBalance;
+          userData.balance = accData.balance || userData.balance;
+          userData.equity = accData.equity || userData.equity;
+          userData.phase = accData.phase || userData.phase;
+          userData.status = accData.status || userData.status;
+          userData.updatedAt = accData.updatedAt || userData.updatedAt;
+        }
+        setSelectedUser(userData);
+      }
+      
+      setInspectionTab('overview');
+      setNodeFilterId(accountSnap.exists() ? accountSnap.id : userId);
+      setIsUserManagementOpen(true);
     } finally { setActionLoading(false); }
   }, []);
 
@@ -713,7 +756,7 @@ export default function AdminPage() {
             <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={paginatedUsers} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
               <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{u.displayName || '—'}</td>
+                <td className="p-4 font-bold text-xs">{u.displayName || u.name || '—'}</td>
                 <td className="p-4 text-xs text-zinc-300">{u.email}</td>
                 <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{u.kycStatus || 'none'}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
