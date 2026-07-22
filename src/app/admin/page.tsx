@@ -214,7 +214,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingKycUserId === u.id}>{approvingKycUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -460,44 +460,36 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
+  const handleViewUserByAccount = async (userId: string) => {
+    if (!userId) return;
     setActionLoading(true);
     try {
-      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
-      
-      if (accountSnap.exists()) {
-        const accountData = { id: accountSnap.id, ...accountSnap.data() };
-        const uid = accountData.userId;
-        if (uid) {
-          const userSnap = await getDoc(doc(db, 'users', uid));
-          if (userSnap.exists()) {
-            const u = userSnap.data();
-            accountData.displayName = u.displayName || accountData.displayName || u.name;
-            accountData.kycStatus = u.kycStatus || accountData.kycStatus;
-          }
-        }
-        setSelectedUser(accountData);
-        setNodeFilterId(accountSnap.id);
-      } else {
-        const userSnap = await getDoc(doc(db, 'users', userIdOrAccountId));
-        if (!userSnap.exists()) return;
-        const userData = { id: userSnap.id, ...userSnap.data() };
-        const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userIdOrAccountId)));
-        if (!accountsSnap.empty) {
-          const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
-          const acc = latest.data();
-          userData.planType = acc.planType; userData.startBalance = acc.startBalance;
-          userData.balance = acc.balance; userData.equity = acc.equity;
-          userData.phase = acc.phase; userData.status = acc.status; userData.updatedAt = acc.updatedAt;
-          setNodeFilterId(latest.id);
-        }
-        setSelectedUser(userData);
+      let userObj = tabData.users?.find((u: any) => u.id === userId);
+      if (!userObj) {
+        const snap = await getDoc(doc(db, 'users', userId));
+        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
       }
-      
-      setInspectionTab('overview');
-      setIsUserManagementOpen(true);
-    } finally { setActionLoading(false); }
-  }, []);
+      if (userObj) {
+        // Fetch demoAccounts to merge account-level fields (balance, equity, planType, phase, etc.)
+        try {
+          const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+          if (!accountsSnap.empty) {
+            const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
+            const acc = latest.data();
+            userObj = { ...userObj, planType: acc.planType, startBalance: acc.startBalance, balance: acc.balance, equity: acc.equity, phase: acc.phase, accountStatus: acc.status, updatedAt: acc.updatedAt, accountId: latest.id };
+            setNodeFilterId(latest.id);
+          }
+        } catch(e) { /* ignore if demoAccounts fetch fails */ }
+        setSelectedUser(userObj);
+        setInspectionTab('overview');
+        setIsUserManagementOpen(true);
+      } else {
+        toast({ variant: "destructive", title: "Trader Not Found" });
+      }
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -633,22 +625,21 @@ export default function AdminPage() {
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
 
-        <TabsContent value="order-review">
-          <div className="space-y-6">
-            <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'ACTIONS']} renderRow={(order) => (
-              <tr key={order.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{order.email}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{order.plan}</td>
-                <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize ? `$${Number(order.accountSize).toLocaleString()}` : '—'}</td>
-                <td className="p-4 text-xs font-mono text-zinc-300">{order.amountPaid ? `$${Number(order.amountPaid).toFixed(2)}` : '$0.00'}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : order.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{order.status}</Badge></td>
-                <td className="p-4 text-right">{(order.status === 'completed' || order.status === 'approved') && (order.proofUrl || order.paymentProofUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(order.proofUrl || order.paymentProofUrl, '_blank')}>PROOF</span> : null}</td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
+          <TabsContent value="order-review" className="space-y-6">
+             <TabHeader title="Commerce: Order Review" count={tabData.orders?.length} onSearch={setSearchTerm} />
+             <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'ACTIONS']} renderRow={(o) => (
+                  <tr key={o.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-bold text-xs">{o.email}</td>
+                    <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{o.plan}</td>
+                    <td className="p-4 text-xs font-mono text-zinc-400">{o.accountSize || '—'}</td>
+                    <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid ? `$${Number(o.amountPaid).toFixed(2)}` : '$0.00'}</td>
+                    <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
+                    <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
+                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl, '_blank')}>PROOF</span> : null}</td>
+                  </tr>
+                )}
+             />
+          </TabsContent>
 
         <TabsContent value="trading-nodes">
           <div className="space-y-6">
@@ -693,7 +684,7 @@ export default function AdminPage() {
                 <td className="p-4 text-xs font-mono text-emerald-400">${Number(p.amount || 0).toFixed(2)}</td>
                 <td className="p-4 text-[10px] uppercase text-zinc-300">{p.paymentMethod || '—'}</td>
                 <td className="p-4 text-[10px] font-mono text-zinc-400 max-w-[200px] truncate">{p.walletAddress || p.accountNumber || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'paid' || p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : p.status === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{p.status}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'paid' || p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : p.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
               </tr>
             )} />
@@ -730,27 +721,19 @@ export default function AdminPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="user-directory">
-          <div className="space-y-6">
-            <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={paginatedUsers} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
-              <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{u.displayName || u.name || '—'}</td>
-                <td className="p-4 text-xs text-zinc-300">{u.email}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" : u.kycStatus === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{u.kycStatus || 'none'}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
-              </tr>
-            )} />
-            <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
-               <p>Page {userPage} of {totalUserPages}</p>
-               <div className="flex gap-2">
-                 <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}>Prev</Button>
-                 <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next</Button>
-               </div>
-            </div>
-          </div>
-        </TabsContent>
+          <TabsContent value="user-directory" className="space-y-6">
+             <TabHeader title="Institutional Trader Directory" count={tabData.users?.length} onSearch={setSearchTerm} />
+             <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
+                  <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-bold text-xs">{u.displayName || u.name || '—'}</td>
+                    <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
+                    <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? 'bg-emerald-500/20 text-emerald-500' : u.kycStatus === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{u.kycStatus || 'none'}</Badge></td>
+                    <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
+                    <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
+                  </tr>
+                )}
+             />
+          </TabsContent>
 
         <TabsContent value="broadcasts">
           <div className="space-y-6">
