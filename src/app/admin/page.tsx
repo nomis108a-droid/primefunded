@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -29,7 +30,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, addDoc, setDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -456,8 +457,8 @@ export default function AdminPage() {
     const qMap: Record<string, any> = {
       'user-directory': collection(db, 'users'),
       'trading-nodes': collection(db, 'demoAccounts'),
-      'breaches': collection(db, 'demoAccounts'), // Client-side filter applied below
-      'phase-passers': collection(db, 'demoAccounts'), // Client-side filter applied below
+      'breaches': collection(db, 'demoAccounts'), 
+      'phase-passers': collection(db, 'demoAccounts'), 
       'order-review': collection(db, 'orders'),
       'kyc-hub': collection(db, 'kyc'),
       'payout-hub': collection(db, 'payouts'),
@@ -471,7 +472,6 @@ export default function AdminPage() {
       unsubscribe = onSnapshot(targetQuery, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        // Manual sorting and filtering to avoid missing index errors during cloud propagation
         if (activeTab === 'breaches') {
           docs = docs.filter((a: any) => ['blown', 'breach', 'terminated'].includes(a.status))
                      .sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
@@ -936,6 +936,7 @@ export default function AdminPage() {
              <Button variant="destructive" onClick={handleRejectOrder}>Reject Order</Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden">
