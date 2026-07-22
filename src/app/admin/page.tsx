@@ -456,8 +456,8 @@ export default function AdminPage() {
     const qMap: Record<string, any> = {
       'user-directory': collection(db, 'users'),
       'trading-nodes': collection(db, 'demoAccounts'),
-      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])),
-      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed')),
+      'breaches': collection(db, 'demoAccounts'), // Client-side filter applied below
+      'phase-passers': collection(db, 'demoAccounts'), // Client-side filter applied below
       'order-review': collection(db, 'orders'),
       'kyc-hub': collection(db, 'kyc'),
       'payout-hub': collection(db, 'payouts'),
@@ -471,8 +471,14 @@ export default function AdminPage() {
       unsubscribe = onSnapshot(targetQuery, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        // Client-side sorting for time-sensitive lists
-        if (activeTab === 'breaches' || activeTab === 'broadcasts' || activeTab === 'payout-hub' || activeTab === 'referral-audit') {
+        // Manual sorting and filtering to avoid missing index errors during cloud propagation
+        if (activeTab === 'breaches') {
+          docs = docs.filter((a: any) => ['blown', 'breach', 'terminated'].includes(a.status))
+                     .sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
+        } else if (activeTab === 'phase-passers') {
+          docs = docs.filter((a: any) => a.status === 'passed')
+                     .sort((a, b) => (b.passedAt?.toMillis?.() || 0) - (a.passedAt?.toMillis?.() || 0));
+        } else if (activeTab === 'broadcasts' || activeTab === 'payout-hub' || activeTab === 'referral-audit') {
           docs = docs.sort((a: any, b: any) => {
             const dateA = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || a.sentAt?.toMillis?.() || 0;
             const dateB = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || b.sentAt?.toMillis?.() || 0;
@@ -642,6 +648,10 @@ export default function AdminPage() {
     return tabData.users.slice(start, start + usersPerPage);
   }, [tabData.users, userPage]);
 
+  const totalUserPages = useMemo(() => {
+    return Math.ceil(tabData.users.length / usersPerPage) || 1;
+  }, [tabData.users]);
+
   return (
     <div className="flex min-h-screen bg-background text-white">
       <Navigation />
@@ -720,7 +730,7 @@ export default function AdminPage() {
                 <td className="p-4 font-mono text-[9px] text-zinc-500">{acc.userId?.slice(0, 12)}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || '—'}</td>
                 <td className="p-4 font-mono text-xs">${(acc.startBalance || 0).toLocaleString()}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{acc.status}</Badge></td>
+                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500")}>{acc.status}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{acc.updatedAt?.toDate ? format(acc.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
               </tr>
             )} />
@@ -926,7 +936,6 @@ export default function AdminPage() {
              <Button variant="destructive" onClick={handleRejectOrder}>Reject Order</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden">
