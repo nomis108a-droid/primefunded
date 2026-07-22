@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin, AlertTriangle, CreditCard, Banknote
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Save, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, FileText, MapPin, AlertTriangle, CreditCard, Banknote, Hourglass
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -26,7 +26,7 @@ import {
   giftAccountAction
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { db, storage } from '@/lib/firebase';
 import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, updateDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -34,6 +34,8 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { CONTRACT_SIZE } from '@/lib/rulesConfig';
+import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 
 const COUNTRIES_RAW = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
@@ -449,6 +451,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [livePrices, setLivePrices] = useState<Record<string, any>>({});
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
@@ -457,7 +460,7 @@ export default function AdminPage() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: [], kycList: []
+    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], trades: [], breaches: [], passers: [], featuredPayouts: [], kycList: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -492,6 +495,8 @@ export default function AdminPage() {
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
   const [countrySearchTerm, setCountrySearchTerm] = useState('');
+
+  const [userMap, setUserMap] = useState<Record<string, any>>({});
 
   const instanceId = "Studio-8383940162";
 
@@ -553,7 +558,7 @@ export default function AdminPage() {
 
     const qMap: Record<string, any> = {
       'user-directory': collection(db, 'users'),
-      'trading-nodes': collection(db, 'demoAccounts'),
+      'trading-nodes': collection(db, 'demoTrades'),
       'breaches': query(collection(db, 'challenges'), where('status', '==', 'breached')),
       'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed')),
       'order-review': collection(db, 'orders'),
@@ -570,10 +575,10 @@ export default function AdminPage() {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
         // Client-side sort for tabs that don't have indexes yet
-        if (activeTab === 'breaches' || activeTab === 'trades-payouts' || activeTab === 'payout-hub') {
+        if (activeTab === 'breaches' || activeTab === 'trades-payouts' || activeTab === 'payout-hub' || activeTab === 'trading-nodes') {
           docs = docs.sort((a: any, b: any) => {
-            const dateA = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
-            const dateB = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+            const dateA = a.openedAt?.toMillis?.() || a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+            const dateB = b.openedAt?.toMillis?.() || b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
             return dateB - dateA;
           });
         }
@@ -582,6 +587,19 @@ export default function AdminPage() {
         const finalKey = dataKey === 'phasePassers' ? 'passers' : dataKey === 'userDirectory' ? 'users' : dataKey === 'kycHub' ? 'kycList' : dataKey;
         
         setTabData((prev: any) => ({ ...prev, [finalKey]: docs }));
+
+        // Resolve user info for trades
+        if (activeTab === 'trading-nodes') {
+          docs.forEach(async (trade: any) => {
+            if (trade.userId && !userMap[trade.userId]) {
+              const uSnap = await getDoc(doc(db, 'users', trade.userId));
+              if (uSnap.exists()) {
+                setUserMap(prev => ({ ...prev, [trade.userId]: uSnap.data() }));
+              }
+            }
+          });
+        }
+
         setIsLoading(false);
       }, (err) => {
         console.error(`Admin Sync Fail [${activeTab}]:`, err.message);
@@ -594,6 +612,22 @@ export default function AdminPage() {
 
     return () => unsubscribe();
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch('/api/terminal/live-prices');
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          setLivePrices(data);
+        }
+      } catch (e) {}
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 5000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -782,17 +816,78 @@ export default function AdminPage() {
 
           <TabsContent value="trading-nodes">
             <div className="space-y-6">
-              <TabHeader title="CHALLENGE NODE REGISTRY" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
-              <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['ACCOUNT ID', 'PLAN / PHASE', 'BALANCE', 'EQUITY', 'STATUS', 'ACTIONS']} renderRow={(acc) => (
-                <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-4"><button onClick={() => handleViewUserByAccount(acc.userId)} className="text-primary hover:underline font-mono text-[11px] font-bold text-left block">{acc.id}</button><span className="text-[10px] text-zinc-500">{acc.email}</span></td>
-                  <td className="p-4"><span className="text-[10px] font-black uppercase text-zinc-300">{acc.planType || acc.plan} - {acc.phase}</span></td>
-                  <td className="p-4 font-mono text-xs font-bold text-zinc-300">${(acc.balance || 0).toLocaleString()}</td>
-                  <td className="p-4 font-mono text-xs font-bold text-zinc-300">${(acc.equity || 0).toLocaleString()}</td>
-                  <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase border-none", (acc.status === 'blown' || acc.status === 'breach' || acc.status === 'terminated') ? "bg-red-500/20 text-red-500" : "bg-emerald-500/20 text-emerald-500")}>{acc.status}</Badge></td>
-                  <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => handleViewUserByAccount(acc.userId)}><Eye className="w-3.5 h-3.5 mr-2" /> Inspect</Button></td>
-                </tr>
-              )} />
+              <TabHeader title="EXECUTION LEDGER" count={tabData.trades.length} />
+              <DataTable 
+                loading={isLoading} 
+                data={tabData.trades} 
+                columns={['Trade ID', 'Trader Info', 'Account', 'Symbol', 'Type', 'Lots', 'Entry', 'Current', 'PnL', 'Status', 'Opened At', 'Duration', 'Actions']} 
+                renderRow={(t) => {
+                  const userData = userMap[t.userId] || {};
+                  const symbolUpper = (t.symbol || "").toUpperCase().trim();
+                  const pData = livePrices[symbolUpper];
+                  const currentPrice = pData ? (t.type === 'buy' ? pData.bid : pData.ask) : null;
+                  const contractSize = CONTRACT_SIZE[symbolUpper] || 100000;
+                  const pnl = currentPrice 
+                    ? (t.type === 'buy' ? (currentPrice - t.openPrice) : (t.openPrice - currentPrice)) * contractSize * t.lots 
+                    : (t.pnl || 0);
+
+                  const openedAt = getTradeDate(t.openedAt);
+                  const closedAt = getTradeDate(t.closedAt);
+                  const durationSec = openedAt && closedAt ? calculateHoldingTimeSeconds(openedAt, closedAt) : 0;
+
+                  return (
+                    <tr key={t.id} className="hover:bg-white/5 transition-colors border-b border-white/5">
+                      <td className="p-4 font-mono text-[9px] text-zinc-500">{t.id?.slice(0, 8)}</td>
+                      <td className="p-4">
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-xs text-white uppercase">{userData.name || 'Trader'}</p>
+                          <p className="text-[10px] text-zinc-400">{userData.email || '—'}</p>
+                        </div>
+                      </td>
+                      <td className="p-4 font-mono text-[10px] text-zinc-500">{t.accountId?.slice(0, 8)}</td>
+                      <td className="p-4 font-bold text-xs text-primary">{t.symbol}</td>
+                      <td className="p-4">
+                        <Badge variant="outline" className={cn(
+                          "text-[9px] font-black uppercase border-none px-2", 
+                          t.type === 'buy' ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                        )}>
+                          {t.type}
+                        </Badge>
+                      </td>
+                      <td className="p-4 font-mono text-xs">{t.lots?.toFixed(2)}</td>
+                      <td className="p-4 font-mono text-xs text-zinc-400">${t.openPrice?.toLocaleString()}</td>
+                      <td className="p-4 font-mono text-xs text-white">${currentPrice?.toLocaleString() || '---'}</td>
+                      <td className={cn(
+                        "p-4 text-right font-mono font-black text-sm",
+                        pnl >= 0 ? "text-emerald-500" : "text-red-500"
+                      )}>
+                        ${pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-4 text-center">
+                        <Badge className={cn(
+                          "text-[8px] uppercase px-1.5 h-5 border-none", 
+                          t.status === 'open' ? 'bg-primary text-black' : 'bg-zinc-800 text-zinc-500'
+                        )}>
+                          {t.status}
+                        </Badge>
+                      </td>
+                      <td className="p-4 text-xs text-zinc-500 whitespace-nowrap">
+                        {openedAt ? format(openedAt, 'MMM d, HH:mm') : '—'}
+                      </td>
+                      <td className="p-4 text-center">
+                        <Badge variant="outline" className="h-5 px-1.5 text-[8px] border-zinc-800 text-zinc-400 flex items-center gap-1">
+                          <Hourglass className="w-2.5 h-2.5" /> {formatDuration(durationSec)}
+                        </Badge>
+                      </td>
+                      <td className="p-4 text-right">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-white/10" onClick={() => handleViewUserByAccount(t.userId)}>
+                          <Eye className="w-4 h-4 text-zinc-500" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                }} 
+              />
             </div>
           </TabsContent>
 

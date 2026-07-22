@@ -25,6 +25,9 @@ service cloud.firestore {
     match /livePrices/{id} {
       allow read: if true;
     }
+    match /featured_payouts/{id} {
+      allow read: if true;
+    }
 
     // --- ADMINISTRATIVE OVERRIDE ---
     // Authorized staff can perform any operation on any document
