@@ -455,16 +455,16 @@ export default function AdminPage() {
     let unsubscribe: () => void = () => {};
 
     const qMap: Record<string, any> = {
-      'user-directory': collection(db, 'users'),
-      'trading-nodes': collection(db, 'demoAccounts'),
-      'breaches': collection(db, 'demoAccounts'), 
-      'phase-passers': collection(db, 'demoAccounts'), 
-      'order-review': collection(db, 'orders'),
+      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
+      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
+      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), 
+      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('passedAt', 'desc')), 
+      'order-review': query(collection(db, 'orders'), orderBy('submittedAt', 'desc')),
       'kyc-hub': collection(db, 'kyc'),
-      'payout-hub': collection(db, 'payouts'),
-      'trades-payouts': collection(db, 'featured_payouts'),
-      'referral-audit': collection(db, 'referrals'),
-      'broadcasts': collection(db, 'broadcasts')
+      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
+      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
+      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
+      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
     };
 
     const targetQuery = qMap[activeTab];
@@ -472,20 +472,6 @@ export default function AdminPage() {
       unsubscribe = onSnapshot(targetQuery, (snap) => {
         let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         
-        if (activeTab === 'breaches') {
-          docs = docs.filter((a: any) => ['blown', 'breach', 'terminated'].includes(a.status))
-                     .sort((a, b) => (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0));
-        } else if (activeTab === 'phase-passers') {
-          docs = docs.filter((a: any) => a.status === 'passed')
-                     .sort((a, b) => (b.passedAt?.toMillis?.() || 0) - (a.passedAt?.toMillis?.() || 0));
-        } else if (activeTab === 'broadcasts' || activeTab === 'payout-hub' || activeTab === 'referral-audit') {
-          docs = docs.sort((a: any, b: any) => {
-            const dateA = a.updatedAt?.toMillis?.() || a.createdAt?.toMillis?.() || a.sentAt?.toMillis?.() || 0;
-            const dateB = b.updatedAt?.toMillis?.() || b.createdAt?.toMillis?.() || b.sentAt?.toMillis?.() || 0;
-            return dateB - dateA;
-          });
-        }
-
         const fieldMap: any = { 
           'user-directory': 'users', 
           'trading-nodes': 'demoAccounts', 
@@ -643,14 +629,24 @@ export default function AdminPage() {
     return COUNTRIES.filter(c => c.name.toLowerCase().includes(term));
   }, [countrySearchTerm]);
 
+  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
+    const term = searchTerm.toLowerCase();
+    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
+  }), [tabData.users, searchTerm]);
+
   const paginatedUsers = useMemo(() => {
     const start = (userPage - 1) * usersPerPage;
-    return tabData.users.slice(start, start + usersPerPage);
-  }, [tabData.users, userPage]);
+    return filteredUsers.slice(start, start + usersPerPage);
+  }, [filteredUsers, userPage]);
 
   const totalUserPages = useMemo(() => {
-    return Math.ceil(tabData.users.length / usersPerPage) || 1;
-  }, [tabData.users]);
+    return Math.ceil(filteredUsers.length / usersPerPage) || 1;
+  }, [filteredUsers]);
+
+  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
+    const term = searchTerm.toLowerCase();
+    return o.email?.toLowerCase().includes(term) || o.id.toLowerCase().includes(term);
+  }), [tabData.orders, searchTerm]);
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -723,7 +719,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="trading-nodes">
-            <TabHeader title="Infrastructure: Trading Nodes" count={tabData.demoAccounts.length} />
+            <TabHeader title="Infrastructure: Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['Trader', 'User ID', 'Plan', 'Account Size', 'Status', 'Updated']} renderRow={(acc) => (
               <tr key={acc.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs text-white">{acc.email || '—'}</td>
@@ -751,23 +747,36 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="order-review">
-            <TabHeader title="Commerce: Order Review" count={tabData.orders.length} />
-            <DataTable loading={isLoading} data={tabData.orders} columns={['Trader', 'Plan', 'Amount Paid', 'Status', 'Submitted', 'Actions']} renderRow={(o) => (
-              <tr key={o.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs text-white">{o.email}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{o.plan}</td>
-                <td className="p-4 font-mono text-xs text-zinc-300">${parseFloat(o.amountPaid || 0).toLocaleString()}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", o.status === 'completed' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{o.submittedAt?.toDate ? format(o.submittedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                <td className="p-4 text-right">
-                  {o.status === 'manual_review' && (
-                    <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>
-                      {approvingOrderId === o.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            )} />
+            <div className="space-y-6">
+              <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
+              <DataTable loading={isLoading} data={filteredOrders || tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'SUBMITTED', 'ACTIONS']} renderRow={(order) => (
+                <tr key={order.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-4 font-bold text-xs">{order.email || order.userEmail}</td>
+                  <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{order.plan || order.planType}</td>
+                  <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize ? `$${Number(String(order.accountSize).replace(/[^0-9.-]+/g,"")).toLocaleString()}` : '—'}</td>
+                  <td className="p-4 text-xs font-mono text-zinc-300">{order.amountPaid ? `$${Number(order.amountPaid).toFixed(2)}` : (order.amount ? `$${Number(order.amount).toFixed(2)}` : '$0.00')}</td>
+                  <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || order.paymentMethod || '—'}</td>
+                  <td className="p-4 text-center">
+                    <Badge className={cn("text-[8px] font-black uppercase",
+                      order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' :
+                      order.status === 'rejected' ? 'bg-red-500/20 text-red-500' :
+                      'bg-amber-500/20 text-amber-500'
+                    )}>{order.status || 'pending'}</Badge>
+                  </td>
+                  <td className="p-4 text-xs text-muted-foreground">{order.submittedAt?.toDate ? format(order.submittedAt.toDate(), 'MMM d, HH:mm') : (order.createdAt?.toDate ? format(order.createdAt.toDate(), 'MMM d, HH:mm') : '—')}</td>
+                  <td className="p-4 text-right space-x-2">
+                    {order.status === 'completed' || order.status === 'approved' ? (
+                      <Button size="sm" variant="outline" className="h-7 text-[8px] text-primary border-primary/30" onClick={() => window.open(order.proofUrl || order.paymentProofUrl || '#', '_blank')}>PROOF</Button>
+                    ) : null}
+                    {order.status === 'manual_review' && (
+                      <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(order.id)} disabled={approvingOrderId === order.id}>
+                        {approvingOrderId === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'APPROVE'}
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              )} />
+            </div>
           </TabsContent>
 
           <TabsContent value="referral-audit">
@@ -783,7 +792,7 @@ export default function AdminPage() {
           </TabsContent>
 
           <TabsContent value="user-directory">
-            <TabHeader title="Identity: User Directory" count={tabData.users.length} />
+            <TabHeader title="Identity: User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={paginatedUsers} columns={['Name', 'Email', 'KYC Status', 'Joined', 'Actions']} renderRow={(u) => (
               <tr key={u.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-white">{u.displayName || u.name || '—'}</td>
