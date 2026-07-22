@@ -463,55 +463,45 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  const handleViewUserByAccount = useCallback(async (userId: string) => {
+  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
     setActionLoading(true);
     try {
-      // First try fetching directly from demoAccounts (when clicking Inspect from Trading Nodes)
-      let accountSnap = await getDoc(doc(db, 'demoAccounts', userId));
+      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
       
       if (accountSnap.exists()) {
-        // Clicked from Trading Nodes — this IS the account doc
+        // Inspecting from Trading Nodes — this is the demoAccount doc
         const accountData = { id: accountSnap.id, ...accountSnap.data() };
-        // Also fetch the user profile for email/displayName
-        const userIdFromAccount = accountData.userId;
-        if (userIdFromAccount) {
-          const userSnap = await getDoc(doc(db, 'users', userIdFromAccount));
+        const uid = accountData.userId;
+        if (uid) {
+          const userSnap = await getDoc(doc(db, 'users', uid));
           if (userSnap.exists()) {
-            const userData = userSnap.data();
-            accountData.displayName = userData.displayName || accountData.displayName || userData.name;
-            accountData.kycStatus = userData.kycStatus || accountData.kycStatus;
+            const u = userSnap.data();
+            accountData.displayName = u.displayName || accountData.displayName || u.name;
+            accountData.kycStatus = u.kycStatus || accountData.kycStatus;
           }
         }
         setSelectedUser(accountData);
+        // CRITICAL: set nodeFilterId to the demoAccount DOC ID (not userId) so demoTrades query works
+        setNodeFilterId(accountSnap.id);
       } else {
-        // Clicked from User Directory — fetch user doc, then find their demoAccounts
-        const userSnap = await getDoc(doc(db, 'users', userId));
+        // Inspecting from User Directory — find their demoAccounts
+        const userSnap = await getDoc(doc(db, 'users', userIdOrAccountId));
         if (!userSnap.exists()) return;
         const userData = { id: userSnap.id, ...userSnap.data() };
-        
-        // Fetch ALL demo accounts for this user
-        const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+        const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userIdOrAccountId)));
         if (!accountsSnap.empty) {
-          // Merge the first (or latest) account data into userData
-          const latestAccount = accountsSnap.docs.sort((a, b) => {
-            const aTime = a.data().updatedAt?.toDate?.()?.getTime() || 0;
-            const bTime = b.data().updatedAt?.toDate?.()?.getTime() || 0;
-            return bTime - aTime;
-          })[0];
-          const accData = latestAccount.data();
-          userData.planType = accData.planType || userData.planType;
-          userData.startBalance = accData.startBalance || userData.startBalance;
-          userData.balance = accData.balance || userData.balance;
-          userData.equity = accData.equity || userData.equity;
-          userData.phase = accData.phase || userData.phase;
-          userData.status = accData.status || userData.status;
-          userData.updatedAt = accData.updatedAt || userData.updatedAt;
+          const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
+          const acc = latest.data();
+          userData.planType = acc.planType; userData.startBalance = acc.startBalance;
+          userData.balance = acc.balance; userData.equity = acc.equity;
+          userData.phase = acc.phase; userData.status = acc.status; userData.updatedAt = acc.updatedAt;
+          // CRITICAL: set nodeFilterId to the demoAccount DOC ID
+          setNodeFilterId(latest.id);
         }
         setSelectedUser(userData);
       }
       
       setInspectionTab('overview');
-      setNodeFilterId(accountSnap.exists() ? accountSnap.id : userId);
       setIsUserManagementOpen(true);
     } finally { setActionLoading(false); }
   }, []);
@@ -965,7 +955,7 @@ export default function AdminPage() {
           )}
 
           {inspectionTab === 'breaches' && (
-            <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
+            <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
               <tr key={b.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
                 <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
