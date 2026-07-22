@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -412,6 +411,20 @@ export default function AdminPage() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  const handleResetHistory = useCallback(async () => {
+    if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
+    setActionLoading(true);
+    try {
+      const res = await resetAllHistoryAction();
+      if (res.success) {
+        toast({ title: `Reset Complete: ${res.count} trades archived.` });
+        refreshStats(true);
+      }
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
+    } finally { setActionLoading(false); }
+  }, [toast]);
+
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
@@ -551,20 +564,6 @@ export default function AdminPage() {
       refreshStats(true);
     } finally { setActionLoading(false); }
   };
-
-  const handleResetHistory = useCallback(async () => {
-    if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
-    setActionLoading(true);
-    try {
-      const res = await resetAllHistoryAction();
-      if (res.success) {
-        toast({ title: `Reset Complete: ${res.count} trades archived.` });
-        refreshStats(true);
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Reset Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  }, [refreshStats, toast]);
 
   const handleSaveFeaturedPayout = async () => {
     if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
@@ -711,7 +710,7 @@ export default function AdminPage() {
         <TabsContent value="trading-nodes">
           <div className="space-y-6">
             <TabHeader title="Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED']} renderRow={(node) => (
+            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED', 'ACTIONS']} renderRow={(node) => (
               <tr key={node.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{node.email}</td>
                 <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
@@ -720,6 +719,7 @@ export default function AdminPage() {
                 <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : node.status === 'passed' ? "bg-blue-500/20 text-blue-500" : "bg-red-500/20 text-red-500")}>{node.status}</Badge></td>
                 <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
                 <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.userId)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
               </tr>
             )} />
           </div>
@@ -799,6 +799,13 @@ export default function AdminPage() {
                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
               </tr>
             )} />
+            <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
+               <p>Page {userPage} of {totalUserPages}</p>
+               <div className="flex gap-2">
+                 <Button variant="outline" size="sm" disabled={userPage === 1} onClick={() => setUserPage(p => p - 1)}>Prev</Button>
+                 <Button variant="outline" size="sm" disabled={userPage === totalUserPages} onClick={() => setUserPage(p => p + 1)}>Next</Button>
+               </div>
+            </div>
           </div>
         </TabsContent>
 
