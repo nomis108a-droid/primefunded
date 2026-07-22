@@ -481,7 +481,7 @@ export default function AdminPage() {
     } catch (e: any) {
       toast({ variant: "destructive", title: "Reset Failed", description: e.message });
     } finally { setActionLoading(false); }
-  }, [toast]);
+  }, [refreshStats, toast]);
 
   const handleGiftAccount = async () => {
     if (!giftForm.traderId && !giftForm.email) {
