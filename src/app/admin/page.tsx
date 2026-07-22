@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -646,7 +645,7 @@ export default function AdminPage() {
                 <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize ? `$${Number(order.accountSize).toLocaleString()}` : '—'}</td>
                 <td className="p-4 text-xs font-mono text-zinc-300">{order.amountPaid ? `$${Number(order.amountPaid).toFixed(2)}` : '$0.00'}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : order.status === 'rejected' ? "bg-red-500/20 text-red-500" : "bg-amber-500/20 text-amber-500")}>{order.status}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", order.status === 'completed' || order.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : order.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{order.status}</Badge></td>
                 <td className="p-4 text-right">{(order.status === 'completed' || order.status === 'approved') && (order.proofUrl || order.paymentProofUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(order.proofUrl || order.paymentProofUrl, '_blank')}>PROOF</span> : null}</td>
               </tr>
             )} />
