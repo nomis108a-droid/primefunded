@@ -380,11 +380,15 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!selectedUser?.id || !isUserManagementOpen) return;
-    const unsubTrades = onSnapshot(
-      query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId || selectedUser.id), orderBy('openedAt', 'desc')),
-      (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const unsub = onSnapshot(
+      query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId || selectedUser.id)),
+      (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+        const aTime = a.openTime?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
+        const bTime = b.openTime?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
+        return bTime - aTime;
+      }))
     );
-    return () => { unsubTrades(); };
+    return () => { unsub(); };
   }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
@@ -483,60 +487,6 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   }, [refreshStats, toast]);
 
-  const handleGiftAccount = async () => {
-    if (!giftForm.traderId && !giftForm.email) {
-      toast({ variant: "destructive", title: "Input Required", description: "Please enter a Trader ID or Email." });
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      const res = await giftAccountAction(
-        giftForm.traderId,
-        giftForm.email,
-        `Gifted ${giftForm.plan.toUpperCase()} — $${giftForm.size / 1000}k`,
-        giftForm.size,
-        giftForm.plan,
-        'evaluation'
-      );
-
-      if (res.success) {
-        toast({ title: "🎁 Success", description: "The trading node has been provisioned." });
-        setIsGiftModalOpen(false);
-        setGiftForm({ traderId: '', email: '', plan: '1-step-pro', size: 100000 });
-        refreshStats(true);
-      } else {
-        throw new Error(res.error);
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Grant Failed", description: e.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleRejectOrder = async () => {
-    if (!rejectingOrderId || !rejectReason.trim()) {
-      toast({ variant: "destructive", title: "Reason Required" });
-      return;
-    }
-    setActionLoading(true);
-    try {
-      const res = await updateOrderStatusAction(rejectingOrderId, 'rejected', rejectReason.trim());
-      if (res.success) {
-        toast({ title: "Order Rejected" });
-        setIsRejectModalOpen(false);
-        setRejectingOrderId(null);
-        setRejectReason('');
-        refreshStats(true);
-      }
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Rejection Failed", description: e.message });
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const filteredFeaturedPayouts = useMemo(() => {
     return [...(tabData.featuredPayouts || [])].sort((a, b) => (parseFloat(b.paidOut) || 0) - (parseFloat(a.paidOut) || 0));
   }, [tabData.featuredPayouts]);
@@ -555,9 +505,7 @@ export default function AdminPage() {
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
 
-  const totalUserPages = useMemo(() => {
-    return Math.ceil(filteredUsers.length / usersPerPage) || 1;
-  }, [filteredUsers]);
+  const totalUserPages = Math.ceil(filteredUsers.length / usersPerPage) || 1;
 
   const paginatedUsers = useMemo(() => {
     const start = (userPage - 1) * usersPerPage;
