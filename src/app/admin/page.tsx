@@ -258,8 +258,6 @@ export default function AdminPage() {
   const [userNodes, setUserNodes] = useState<any[]>([]);
   const [userBreaches, setUserBreaches] = useState<any[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
-  const [nodesLoading, setNodesLoading] = useState(false);
-  const [breachesLoading, setBreachesLoading] = useState(false);
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
