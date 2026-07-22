@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -27,7 +28,6 @@ import {
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
-import { getTradeDate } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
 import { collection, query, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, addDoc, setDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -371,6 +371,7 @@ export default function AdminPage() {
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [inspectionTab, setInspectionTab] = useState('overview');
+  const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [userNodes, setUserNodes] = useState<any[]>([]);
@@ -518,6 +519,15 @@ export default function AdminPage() {
     if (isVerified) setIsAuthenticated(true);
   }, []);
 
+  useEffect(() => {
+    if (!selectedUser?.id || !isUserManagementOpen) return;
+    const unsubTrades = onSnapshot(
+      query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId || selectedUser.id), orderBy('openedAt', 'desc')),
+      (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    );
+    return () => { unsubTrades(); };
+  }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
+
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
@@ -595,8 +605,10 @@ export default function AdminPage() {
   const handleViewUserByAccount = useCallback(async (userId: string) => {
     setActionLoading(true);
     try {
-      const snap = await getDoc(doc(db, 'users', userId));
-      if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setIsUserManagementOpen(true); }
+      // Try demoAccounts first (trading node), fallback to users
+      let snap = await getDoc(doc(db, 'demoAccounts', userId));
+      if (!snap.exists()) snap = await getDoc(doc(db, 'users', userId));
+      if (snap.exists()) { setSelectedUser({ id: snap.id, ...snap.data() }); setInspectionTab('overview'); setNodeFilterId(snap.id); setIsUserManagementOpen(true); }
     } finally { setActionLoading(false); }
   }, []);
 
@@ -634,14 +646,14 @@ export default function AdminPage() {
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
 
+  const totalUserPages = useMemo(() => {
+    return Math.ceil(filteredUsers.length / usersPerPage) || 1;
+  }, [filteredUsers]);
+
   const paginatedUsers = useMemo(() => {
     const start = (userPage - 1) * usersPerPage;
     return filteredUsers.slice(start, start + usersPerPage);
   }, [filteredUsers, userPage]);
-
-  const totalUserPages = useMemo(() => {
-    return Math.ceil(filteredUsers.length / usersPerPage) || 1;
-  }, [filteredUsers]);
 
   const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
     const term = searchTerm.toLowerCase();
@@ -716,7 +728,7 @@ export default function AdminPage() {
                 <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType}</td>
                 <td className="p-4 text-xs font-mono text-zinc-400">${node.startBalance?.toLocaleString() || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : node.status === 'passed' ? "bg-blue-500/20 text-blue-500" : "bg-red-500/20 text-red-500")}>{node.status}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : node.status === 'passed' ? "bg-blue-500/20 text-blue-500" : "bg-red-500/20 text-red-500")}>{node.status}</Badge></td>
                 <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
                 <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.userId)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
@@ -790,7 +802,7 @@ export default function AdminPage() {
         <TabsContent value="user-directory">
           <div className="space-y-6">
             <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
+            <DataTable loading={isLoading} data={paginatedUsers} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
               <tr key={u.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{u.displayName || '—'}</td>
                 <td className="p-4 text-xs text-zinc-300">{u.email}</td>
@@ -944,45 +956,73 @@ export default function AdminPage() {
       </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
-        <DialogContent className="max-w-5xl bg-zinc-950 border-zinc-800 text-white max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          <DialogHeader className="p-6 border-b border-white/5 bg-zinc-900/20 shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-5">
-                <Avatar className="w-14 h-14 border-2 border-primary/20 p-1 bg-primary/5">
-                  {selectedUser?.photoURL ? <AvatarImage src={selectedUser.photoURL} /> : null}
-                  <AvatarFallback className="bg-primary/10 text-primary font-black text-xl">PF</AvatarFallback>
-                </Avatar>
-                <div>
-                  <DialogTitle className="text-2xl font-headline font-bold text-white uppercase tracking-tight">{selectedUser?.name || 'Trader'}</DialogTitle>
-                  <DialogDescription className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
-                    Trader GUID: <span className="text-zinc-300 font-mono">{selectedUser?.id}</span>
-                  </DialogDescription>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Badge className="bg-primary text-black text-[10px] font-black uppercase px-4 h-7 rounded-lg">{selectedUser?.tier || 'Bronze'}</Badge>
-                <Badge variant="outline" className={cn("text-[10px] font-black uppercase px-4 h-7 rounded-lg", selectedUser?.kycVerified ? "border-emerald-500/30 text-emerald-500 bg-emerald-500/5" : "border-destructive/30 text-destructive bg-destructive/5")}>KYC: {selectedUser?.kycStatus || 'None'}</Badge>
-              </div>
-            </div>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <Eye className="w-5 h-5 text-primary" />
+              User Inspection — {selectedUser?.email || 'Unknown'}
+            </DialogTitle>
+            <DialogDescription>Trade node details, trade history, and breach logs.</DialogDescription>
           </DialogHeader>
-          <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="flex-1 flex flex-col min-h-0">
-            <div className="px-6 border-b border-white/5 bg-zinc-900/30 shrink-0">
-              <TabsList className="bg-transparent h-14 justify-start p-0 gap-10">
-                {['Overview', 'Trading Nodes', 'Trade History', 'Breach Logs'].map(tab => (
-                  <TabsTrigger key={tab} value={tab.toLowerCase().replace(/ /g, '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-[11px] font-black uppercase tracking-widest text-muted-foreground transition-all">{tab}</TabsTrigger>
-                ))}
-              </TabsList>
+
+          <div className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4">
+            {['overview', 'trades', 'breaches'].map(t => (
+              <button key={t} onClick={() => setInspectionTab(t)} className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", inspectionTab === t ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>
+                {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Trade History' : 'Breach Logs'}
+              </button>
+            ))}
+          </div>
+
+          {inspectionTab === 'overview' && selectedUser && (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                { label: 'Email', value: selectedUser.email },
+                { label: 'Display Name', value: selectedUser.displayName || selectedUser.name },
+                { label: 'Plan Type', value: selectedUser.planType },
+                { label: 'Account Size', value: selectedUser.startBalance ? `$${Number(selectedUser.startBalance).toLocaleString()}` : '—' },
+                { label: 'Status', value: selectedUser.status },
+                { label: 'KYC Status', value: selectedUser.kycStatus },
+                { label: 'Balance', value: selectedUser.balance ? `$${Number(selectedUser.balance).toLocaleString()}` : '—' },
+                { label: 'Equity', value: selectedUser.equity ? `$${Number(selectedUser.equity).toLocaleString()}` : '—' },
+                { label: 'Phase', value: selectedUser.phase },
+                { label: 'Created', value: selectedUser.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy HH:mm') : '—' },
+                { label: 'Updated', value: selectedUser.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, yyyy HH:mm') : '—' },
+                { label: 'User ID', value: selectedUser.userId || selectedUser.id },
+              ].map(item => (
+                <div key={item.label} className="bg-secondary/30 border border-white/5 rounded-lg p-3">
+                  <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mb-1">{item.label}</p>
+                  <p className="text-sm font-bold text-white">{item.value || '—'}</p>
+                </div>
+              ))}
             </div>
-            <div className="flex-1 overflow-y-auto p-8 bg-zinc-950/50">
-              <TabsContent value="overview" className="m-0 space-y-8">
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2"><p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Email Address</p><p className="text-sm font-bold text-white">{selectedUser?.email}</p></div>
-                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2"><p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
-                    <div className="p-6 rounded-2xl bg-secondary/30 border border-white/5 space-y-2"><p className="text-[9px] font-black uppercase text-zinc-500 tracking-[0.2em]">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
-                 </div>
-              </TabsContent>
-            </div>
-          </Tabs>
+          )}
+
+          {inspectionTab === 'trades' && (
+            <DataTable loading={false} data={userTrades} columns={['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY', 'CURRENT', 'P&L', 'STATUS', 'OPENED']} renderRow={(trade) => (
+              <tr key={trade.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-3 font-bold text-xs">{trade.instrument || trade.pair || trade.symbol || '—'}</td>
+                <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.direction || trade.side || trade.type || '').toLowerCase() === 'buy' || (trade.direction || trade.side || trade.type || '').toLowerCase() === 'long' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{trade.direction || trade.side || trade.type || '—'}</Badge></td>
+                <td className="p-3 text-xs font-mono">{trade.units || trade.volume || trade.lots || '—'}</td>
+                <td className="p-3 text-xs font-mono">{trade.price || trade.entryPrice || trade.openPrice || '—'}</td>
+                <td className="p-3 text-xs font-mono">{trade.currentPrice || trade.marketPrice || '—'}</td>
+                <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || trade.pl || trade.realizedPL || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>${Number(trade.pnl || trade.pl || trade.realizedPL || 0).toFixed(2)}</td>
+                <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.state || trade.status || '').toUpperCase() === 'OPEN' || (trade.state || trade.status || '').toUpperCase() === 'FILL' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>{trade.state || trade.status || '—'}</Badge></td>
+                <td className="p-3 text-[10px] text-muted-foreground">{trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : (trade.createdAt?.toDate ? format(trade.createdAt.toDate(), 'MMM d, HH:mm') : (trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : '—'))}</td>
+              </tr>
+            )} />
+          )}
+
+          {inspectionTab === 'breaches' && (
+            <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
+              <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
+                <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
+                <td className="p-3 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
+                <td className="p-3 text-xs text-red-400">{b.breachReason || '—'}</td>
+                <td className="p-3 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -1002,3 +1042,4 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number, 
     </div>
   );
 }
+
