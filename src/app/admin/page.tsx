@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -21,21 +20,27 @@ import {
 import { 
   updateOrderStatusAction, 
   resetSingleAccountAction, 
+  sendGlobalBroadcastAction, 
   approveManualOrderAction, 
   resetAllHistoryAction, 
   giftAccountAction, 
   updateKycStatusAction, 
+  updatePayoutStatusAction, 
+  cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
+import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
+// Static Country List
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
@@ -58,7 +63,7 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
   { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
   { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
   { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
@@ -372,17 +377,68 @@ export default function AdminPage() {
     if (isVerified) setIsAuthenticated(true);
   }, []);
 
+  const handleViewUserByAccount = async (userId: string) => {
+    if (!userId) return;
+    setActionLoading(true);
+    try {
+      let userObj = tabData.users?.find((u: any) => u.id === userId);
+      if (!userObj) {
+        const snap = await getDoc(doc(db, 'users', userId));
+        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
+      }
+      if (userObj) {
+        // Fetch all demoAccounts for this user and merge account fields
+        try {
+          const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+          if (!accSnap.empty) {
+            const acc = { id: accSnap.docs[0].id, ...accSnap.docs[0].data() };
+            userObj = {
+              ...userObj,
+              _demoAccountId: acc.id,
+              planType: acc.plan || acc.planType || userObj.planType || '—',
+              accountSize: acc.startBalance || acc.accountSize || userObj.accountSize || 0,
+              balance: acc.balance ?? 0,
+              equity: acc.equity ?? 0,
+              phase: acc.phase || userObj.phase || '—',
+              accountStatus: acc.status || userObj.accountStatus || '—',
+              updatedAt: acc.updatedAt || userObj.updatedAt || null,
+              startBalance: acc.startBalance || 0,
+            };
+            setNodeFilterId(acc.id);
+          }
+        } catch (e) { console.warn('Could not fetch demoAccounts for user:', e); }
+        setSelectedUser(userObj);
+        setInspectionTab('overview');
+        setIsUserManagementOpen(true);
+      } else {
+        toast({ variant: "destructive", title: "Trader Not Found" });
+      }
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (!selectedUser?.id || !isUserManagementOpen) return;
-    const unsub = onSnapshot(
-      query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId || selectedUser.id)),
-      (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
-        const aTime = a.openTime?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
-        const bTime = b.openTime?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
+    if (!isUserManagementOpen) return;
+    if (nodeFilterId) {
+      // If we have a specific demoAccount ID, use it for exact matching
+      const qT = query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId));
+      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
         return bTime - aTime;
-      }))
-    );
-    return () => { unsub(); };
+      })));
+      return () => unsubT();
+    } else if (selectedUser?.id) {
+      // Fallback: query by userId
+      const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id));
+      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+        return bTime - aTime;
+      })));
+      return () => unsubT();
+    }
   }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
@@ -456,49 +512,6 @@ export default function AdminPage() {
       toast({ title: "Featured payout saved." });
     } finally { setActionLoading(false); }
   };
-
-  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
-    setActionLoading(true);
-    try {
-      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
-      
-      if (accountSnap.exists()) {
-        // Inspecting from Trading Nodes — this is the demoAccount doc
-        const accountData = { id: accountSnap.id, ...accountSnap.data() };
-        const uid = accountData.userId;
-        if (uid) {
-          const userSnap = await getDoc(doc(db, 'users', uid));
-          if (userSnap.exists()) {
-            const u = userSnap.data();
-            accountData.displayName = u.displayName || accountData.displayName;
-            accountData.kycStatus = u.kycStatus || accountData.kycStatus;
-          }
-        }
-        setSelectedUser(accountData);
-        // CRITICAL: set nodeFilterId to the demoAccount DOC ID (not userId) so demoTrades query works
-        setNodeFilterId(accountSnap.id);
-      } else {
-        // Inspecting from User Directory — find their demoAccounts
-        const userSnap = await getDoc(doc(db, 'users', userIdOrAccountId));
-        if (!userSnap.exists()) return;
-        const userData = { id: userSnap.id, ...userSnap.data() };
-        const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userIdOrAccountId)));
-        if (!accountsSnap.empty) {
-          const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
-          const acc = latest.data();
-          userData.planType = acc.planType; userData.startBalance = acc.startBalance;
-          userData.balance = acc.balance; userData.equity = acc.equity;
-          userData.phase = acc.phase; userData.status = acc.status; userData.updatedAt = acc.updatedAt;
-          // CRITICAL: set nodeFilterId to the demoAccount DOC ID
-          setNodeFilterId(latest.id);
-        }
-        setSelectedUser(userData);
-      }
-      
-      setInspectionTab('overview');
-      setIsUserManagementOpen(true);
-    } finally { setActionLoading(false); }
-  }, []);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -637,7 +650,7 @@ export default function AdminPage() {
                     <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid != null ? `$${Number(o.amountPaid).toFixed(2)}` : (o.amount != null ? `$${Number(o.amount).toFixed(2)}` : '$0.00')}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
                     <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl || '#', '_blank')}>PROOF</span> : null}</td>
+                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl || '#', '_blank')}>PROOF</span> : null}</td>
                   </tr>
                 )}
              />
@@ -889,29 +902,19 @@ export default function AdminPage() {
             ))}
           </div>
 
-          {inspectionTab === 'overview' && selectedUser && (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {[
-                { label: 'Email', value: selectedUser.email },
-                { label: 'Display Name', value: selectedUser.displayName || selectedUser.name },
-                { label: 'Plan Type', value: selectedUser.planType },
-                { label: 'Account Size', value: selectedUser.startBalance ? `$${Number(selectedUser.startBalance).toLocaleString()}` : '—' },
-                { label: 'Status', value: selectedUser.status },
-                { label: 'KYC Status', value: selectedUser.kycStatus },
-                { label: 'Balance', value: selectedUser.balance ? `$${Number(selectedUser.balance).toLocaleString()}` : '—' },
-                { label: 'Equity', value: selectedUser.equity ? `$${Number(selectedUser.equity).toLocaleString()}` : '—' },
-                { label: 'Phase', value: selectedUser.phase },
-                { label: 'Created', value: selectedUser.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy HH:mm') : '—' },
-                { label: 'Updated', value: selectedUser.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, yyyy HH:mm') : '—' },
-                { label: 'User ID', value: selectedUser.userId || selectedUser.id },
-              ].map(item => (
-                <div key={item.label} className="bg-secondary/30 border border-white/5 rounded-lg p-3">
-                  <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mb-1">{item.label}</p>
-                  <p className="text-sm font-bold text-white">{item.value || '—'}</p>
-                </div>
-              ))}
-            </div>
-          )}
+               <TabsContent value="overview" className="m-0 space-y-6">
+                  <div className="grid grid-cols-3 gap-4">
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Plan Type</p><p className="text-sm font-bold text-white">{selectedUser?.planType || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Size</p><p className="text-sm font-bold text-white">${Number(selectedUser?.accountSize || selectedUser?.startBalance || 0).toLocaleString()}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">KYC Status</p><p className="text-sm font-bold text-white">{selectedUser?.kycStatus || 'None'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Balance</p><p className="text-sm font-bold text-emerald-500">${Number(selectedUser?.balance || 0).toLocaleString()}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Equity</p><p className="text-sm font-bold text-emerald-500">${Number(selectedUser?.equity || 0).toLocaleString()}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phase</p><p className="text-sm font-bold text-white">{selectedUser?.phase || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Registered Email</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Last Updated</p><p className="text-sm font-bold text-white">{selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, yyyy HH:mm') : '—'}</p></div>
+                  </div>
+               </TabsContent>
 
           {inspectionTab === 'trades' && (
             <DataTable loading={false} data={userTrades} columns={['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY', 'CURRENT', 'P&L', 'STATUS', 'OPENED']} renderRow={(trade) => (
