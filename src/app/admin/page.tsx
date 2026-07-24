@@ -261,8 +261,6 @@ export default function AdminPage() {
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
-  const [userNodes, setUserNodes] = useState<any[]>([]);
-  const [userBreaches, setUserBreaches] = useState<any[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
@@ -451,30 +449,21 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isUserManagementOpen) return;
-    setTradesLoading(true);
     if (nodeFilterId) {
-      // If we have a specific demoAccount ID, use it for exact matching
       const qT = query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId));
-      const unsubT = onSnapshot(qT, (snap) => {
-        setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-          const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-          const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-          return bTime - aTime;
-        }));
-        setTradesLoading(false);
-      });
+      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+        return bTime - aTime;
+      })));
       return () => unsubT();
     } else if (selectedUser?.id) {
-      // Fallback: query by userId
       const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id));
-      const unsubT = onSnapshot(qT, (snap) => {
-        setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-          const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-          const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-          return bTime - aTime;
-        }));
-        setTradesLoading(false);
-      });
+      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+        return bTime - aTime;
+      })));
       return () => unsubT();
     }
   }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
@@ -682,7 +671,7 @@ export default function AdminPage() {
                     <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid != null ? `$${Number(o.amountPaid).toFixed(2)}` : (o.amount != null ? `$${Number(o.amount).toFixed(2)}` : '$0.00')}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
                     <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl || '#', '_blank')}>PROOF</span> : null}</td>
+                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl || '#', '_blank')}>PROOF</span> : null}</td>
                   </tr>
                 )}
              />
@@ -768,7 +757,7 @@ export default function AdminPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="user-directory" className="space-y-6">
+          <TabsContent value="user-directory" className="space-y-6">
              <TabHeader title="User Directory" count={tabData.users?.length} onSearch={setSearchTerm} />
              <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
@@ -914,6 +903,7 @@ export default function AdminPage() {
              <Button variant="destructive" onClick={handleRejectOrder}>Reject Order</Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-4xl max-h-[85vh] overflow-y-auto">
@@ -928,21 +918,21 @@ export default function AdminPage() {
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="w-full">
             <div className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4">
               {['overview', 'trades', 'breaches'].map(t => (
-                <button key={t} onClick={() => setInspectionTab(t)} className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", inspectionTab === t ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>
+                <TabsTrigger key={t} value={t} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all data-[state=active]:bg-primary data-[state=active]:text-black text-zinc-500 hover:text-white bg-transparent border-none shadow-none">
                   {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Trade History' : 'Breach Logs'}
-                </button>
+                </TabsTrigger>
               ))}
             </div>
 
             <TabsContent value="overview" className="m-0 space-y-6">
-               <div className="grid grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Email Address</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
-                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
-                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
-                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Join Date</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'}</p></div>
-                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
-                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity || '—'}</p></div>
-               </div>
+                  <div className="grid grid-cols-3 gap-4">
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Email Address</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Join Date</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity || '—'}</p></div>
+                  </div>
             </TabsContent>
 
             <TabsContent value="trades" className="m-0">
