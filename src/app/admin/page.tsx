@@ -220,7 +220,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingKycUserId === u.id}>{approvingKycUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -392,16 +392,10 @@ export default function AdminPage() {
           const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
           if (!accSnap.empty) {
             const acc = { id: accSnap.docs[0].id, ...accSnap.docs[0].data() };
-            userObj = {
-              ...userObj,
-              _demoAccountId: acc.id,
-              accountStatus: acc.status || userObj.accountStatus || '—',
-              globalLiquidity: acc.globalLiquidity || acc.liquidity || '—',
-              updatedAt: acc.updatedAt || userObj.updatedAt || null,
-            };
+            userObj = { ...userObj, _demoAccountId: acc.id, accountStatus: acc.status || '—', globalLiquidity: acc.globalLiquidity || acc.liquidity || '—', updatedAt: acc.updatedAt || null };
             setNodeFilterId(acc.id);
           }
-        } catch (e) { console.warn('Could not fetch demoAccounts for user:', e); }
+        } catch (e) { console.warn('demoAccounts fetch failed:', e); }
         setSelectedUser(userObj);
         setInspectionTab('overview');
         setIsUserManagementOpen(true);
@@ -900,14 +894,14 @@ export default function AdminPage() {
             </div>
 
             <TabsContent value="overview" className="m-0 space-y-6">
-                  <div className="grid grid-cols-3 gap-4">
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Email Address</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Join Date</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity || '—'}</p></div>
-                  </div>
+               <div className="grid grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Email Address</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
+                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
+                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
+                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Join Date</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'}</p></div>
+                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
+                  <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity || '—'}</p></div>
+               </div>
             </TabsContent>
 
             <TabsContent value="trades" className="m-0">
