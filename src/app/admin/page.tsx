@@ -263,6 +263,7 @@ export default function AdminPage() {
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [userNodes, setUserNodes] = useState<any[]>([]);
   const [userBreaches, setUserBreaches] = useState<any[]>([]);
+  const [tradesLoading, setTradesLoading] = useState(false);
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -387,26 +388,16 @@ export default function AdminPage() {
         if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
       }
       if (userObj) {
-        // Fetch all demoAccounts for this user and merge account fields
+        // Fetch demoAccounts to merge account-level fields (balance, equity, planType, phase, etc.)
         try {
-          const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
-          if (!accSnap.empty) {
-            const acc = { id: accSnap.docs[0].id, ...accSnap.docs[0].data() };
-            userObj = {
-              ...userObj,
-              _demoAccountId: acc.id,
-              planType: acc.plan || acc.planType || userObj.planType || '—',
-              accountSize: acc.startBalance || acc.accountSize || userObj.accountSize || 0,
-              balance: acc.balance ?? 0,
-              equity: acc.equity ?? 0,
-              phase: acc.phase || userObj.phase || '—',
-              accountStatus: acc.status || userObj.accountStatus || '—',
-              updatedAt: acc.updatedAt || userObj.updatedAt || null,
-              startBalance: acc.startBalance || 0,
-            };
-            setNodeFilterId(acc.id);
+          const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+          if (!accountsSnap.empty) {
+            const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
+            const acc = latest.data();
+            userObj = { ...userObj, planType: acc.planType, startBalance: acc.startBalance, balance: acc.balance, equity: acc.equity, phase: acc.phase, accountStatus: acc.status, updatedAt: acc.updatedAt, accountId: latest.id };
+            setNodeFilterId(latest.id);
           }
-        } catch (e) { console.warn('Could not fetch demoAccounts for user:', e); }
+        } catch(e) { /* ignore if demoAccounts fetch fails */ }
         setSelectedUser(userObj);
         setInspectionTab('overview');
         setIsUserManagementOpen(true);
@@ -420,23 +411,30 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isUserManagementOpen) return;
+    setTradesLoading(true);
     if (nodeFilterId) {
       // If we have a specific demoAccount ID, use it for exact matching
       const qT = query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId));
-      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      })));
+      const unsubT = onSnapshot(qT, (snap) => {
+        setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+          const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+          const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+          return bTime - aTime;
+        }));
+        setTradesLoading(false);
+      });
       return () => unsubT();
     } else if (selectedUser?.id) {
       // Fallback: query by userId
       const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id));
-      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      })));
+      const unsubT = onSnapshot(qT, (snap) => {
+        setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+          const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+          const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+          return bTime - aTime;
+        }));
+        setTradesLoading(false);
+      });
       return () => unsubT();
     }
   }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
@@ -535,9 +533,8 @@ export default function AdminPage() {
 
     setActionLoading(true);
     try {
-      const identifier = giftForm.email || giftForm.traderId;
       const res = await giftAccountAction(
-        identifier,
+        giftForm.email || giftForm.traderId,
         `$${(giftForm.size / 1000).toLocaleString()}k`,
         giftForm.plan
       );
@@ -596,11 +593,6 @@ export default function AdminPage() {
     const term = searchTerm.toLowerCase();
     return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
   }), [tabData.users, searchTerm]);
-
-  const filteredOrders = useMemo(() => (tabData.orders || []).filter((o: any) => {
-    const term = searchTerm.toLowerCase();
-    return o.email?.toLowerCase().includes(term) || o.id.toLowerCase().includes(term);
-  }), [tabData.orders, searchTerm]);
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -729,14 +721,14 @@ export default function AdminPage() {
               <tr key={r.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{r.referrerEmail || r.referrerId}</td>
                 <td className="p-4 text-xs text-zinc-300">{r.referredEmail || r.referredId}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{r.status || 'pending'}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : r.status === 'joined' ? 'bg-amber-500/20 text-amber-500' : 'bg-zinc-500/20 text-zinc-500')}>{r.status || 'pending'}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
               </tr>
             )} />
           </div>
         </TabsContent>
 
-          <TabsContent value="user-directory" className="space-y-6">
+        <TabsContent value="user-directory" className="space-y-6">
              <TabHeader title="User Directory" count={tabData.users?.length} onSearch={setSearchTerm} />
              <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
@@ -894,54 +886,56 @@ export default function AdminPage() {
             <DialogDescription>Trade node details, trade history, and breach logs.</DialogDescription>
           </DialogHeader>
 
-          <div className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4">
-            {['overview', 'trades', 'breaches'].map(t => (
-              <button key={t} onClick={() => setInspectionTab(t)} className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", inspectionTab === t ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>
-                {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Trade History' : 'Breach Logs'}
-              </button>
-            ))}
-          </div>
+          <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="w-full">
+            <div className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4">
+              {['overview', 'trades', 'breaches'].map(t => (
+                <button key={t} onClick={() => setInspectionTab(t)} className={cn("px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all", inspectionTab === t ? "bg-primary text-black" : "text-zinc-500 hover:text-white")}>
+                  {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Trade History' : 'Breach Logs'}
+                </button>
+              ))}
+            </div>
 
-               <TabsContent value="overview" className="m-0 space-y-6">
-                  <div className="grid grid-cols-3 gap-4">
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Plan Type</p><p className="text-sm font-bold text-white">{selectedUser?.planType || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Size</p><p className="text-sm font-bold text-white">${Number(selectedUser?.accountSize || selectedUser?.startBalance || 0).toLocaleString()}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">KYC Status</p><p className="text-sm font-bold text-white">{selectedUser?.kycStatus || 'None'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Balance</p><p className="text-sm font-bold text-emerald-500">${Number(selectedUser?.balance || 0).toLocaleString()}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Equity</p><p className="text-sm font-bold text-emerald-500">${Number(selectedUser?.equity || 0).toLocaleString()}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phase</p><p className="text-sm font-bold text-white">{selectedUser?.phase || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Registered Email</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Last Updated</p><p className="text-sm font-bold text-white">{selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, yyyy HH:mm') : '—'}</p></div>
-                  </div>
-               </TabsContent>
+            <TabsContent value="overview" className="m-0 space-y-6">
+                <div className="grid grid-cols-3 gap-4">
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Plan Type</p><p className="text-sm font-bold text-white">{selectedUser?.planType || '—'}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Size</p><p className="text-sm font-bold text-white">${Number(selectedUser?.accountSize || selectedUser?.startBalance || 0).toLocaleString()}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">KYC Status</p><p className="text-sm font-bold text-white">{selectedUser?.kycStatus || 'None'}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Balance</p><p className="text-sm font-bold text-emerald-500">${Number(selectedUser?.balance || 0).toLocaleString()}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Equity</p><p className="text-sm font-bold text-emerald-500">${Number(selectedUser?.equity || 0).toLocaleString()}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phase</p><p className="text-sm font-bold text-white">{selectedUser?.phase || '—'}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Registered Email</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
+                   <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Last Updated</p><p className="text-sm font-bold text-white">{selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, yyyy HH:mm') : '—'}</p></div>
+                </div>
+            </TabsContent>
 
-          {inspectionTab === 'trades' && (
-            <DataTable loading={false} data={userTrades} columns={['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY', 'CURRENT', 'P&L', 'STATUS', 'OPENED']} renderRow={(trade) => (
-              <tr key={trade.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-3 font-bold text-xs">{trade.instrument || trade.pair || trade.symbol || '—'}</td>
-                <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.direction || trade.side || trade.type || '').toLowerCase() === 'buy' || (trade.direction || trade.side || trade.type || '').toLowerCase() === 'long' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{trade.direction || trade.side || trade.type || '—'}</Badge></td>
-                <td className="p-3 text-xs font-mono">{trade.units || trade.volume || trade.lots || '—'}</td>
-                <td className="p-3 text-xs font-mono">{trade.price || trade.entryPrice || trade.openPrice || '—'}</td>
-                <td className="p-3 text-xs font-mono">{trade.currentPrice || trade.marketPrice || '—'}</td>
-                <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || trade.pl || trade.realizedPL || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>${Number(trade.pnl || trade.pl || trade.realizedPL || 0).toFixed(2)}</td>
-                <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.state || trade.status || '').toUpperCase() === 'OPEN' || (trade.state || trade.status || '').toUpperCase() === 'FILL' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>{trade.state || trade.status || '—'}</Badge></td>
-                <td className="p-3 text-[10px] text-muted-foreground">{trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : (trade.createdAt?.toDate ? format(trade.createdAt.toDate(), 'MMM d, HH:mm') : (trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : '—'))}</td>
-              </tr>
-            )} />
-          )}
+            <TabsContent value="trades" className="m-0">
+              <DataTable loading={tradesLoading} data={userTrades} columns={['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY', 'CURRENT', 'P&L', 'STATUS', 'OPENED']} renderRow={(trade) => (
+                <tr key={trade.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-3 font-bold text-xs">{trade.instrument || trade.pair || trade.symbol || '—'}</td>
+                  <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.direction || trade.side || trade.type || '').toLowerCase() === 'buy' || (trade.direction || trade.side || trade.type || '').toLowerCase() === 'long' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{trade.direction || trade.side || trade.type || '—'}</Badge></td>
+                  <td className="p-3 text-xs font-mono">{trade.units || trade.volume || trade.lots || '—'}</td>
+                  <td className="p-3 text-xs font-mono">{trade.price || trade.entryPrice || trade.openPrice || '—'}</td>
+                  <td className="p-3 text-xs font-mono">{trade.currentPrice || trade.marketPrice || '—'}</td>
+                  <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || trade.pl || trade.realizedPL || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>${Number(trade.pnl || trade.pl || trade.realizedPL || 0).toFixed(2)}</td>
+                  <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.state || trade.status || '').toUpperCase() === 'OPEN' || (trade.state || trade.status || '').toUpperCase() === 'FILL' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>{trade.state || trade.status || '—'}</Badge></td>
+                  <td className="p-3 text-[10px] text-muted-foreground">{trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : (trade.createdAt?.toDate ? format(trade.createdAt.toDate(), 'MMM d, HH:mm') : (trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : '—'))}</td>
+                </tr>
+              )} />
+            </TabsContent>
 
-          {inspectionTab === 'breaches' && (
-            <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
-              <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
-                <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
-                <td className="p-3 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
-                <td className="p-3 text-xs text-red-400">{b.breachReason || '—'}</td>
-                <td className="p-3 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          )}
+            <TabsContent value="breaches" className="m-0">
+              <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
+                <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                  <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
+                  <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
+                  <td className="p-3 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
+                  <td className="p-3 text-xs text-red-400">{b.breachReason || '—'}</td>
+                  <td className="p-3 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                </tr>
+              )} />
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </div>
