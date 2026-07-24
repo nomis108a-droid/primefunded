@@ -460,36 +460,48 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  const handleViewUserByAccount = async (userId: string) => {
-    if (!userId) return;
+  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
     setActionLoading(true);
     try {
-      let userObj = tabData.users?.find((u: any) => u.id === userId);
-      if (!userObj) {
-        const snap = await getDoc(doc(db, 'users', userId));
-        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
-      }
-      if (userObj) {
-        // Fetch demoAccounts to merge account-level fields (balance, equity, planType, phase, etc.)
-        try {
-          const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
-          if (!accountsSnap.empty) {
-            const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
-            const acc = latest.data();
-            userObj = { ...userObj, planType: acc.planType, startBalance: acc.startBalance, balance: acc.balance, equity: acc.equity, phase: acc.phase, accountStatus: acc.status, updatedAt: acc.updatedAt, accountId: latest.id };
-            setNodeFilterId(latest.id);
+      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
+      
+      if (accountSnap.exists()) {
+        // Inspecting from Trading Nodes — this is the demoAccount doc
+        const accountData = { id: accountSnap.id, ...accountSnap.data() };
+        const uid = accountData.userId;
+        if (uid) {
+          const userSnap = await getDoc(doc(db, 'users', uid));
+          if (userSnap.exists()) {
+            const u = userSnap.data();
+            accountData.displayName = u.displayName || accountData.displayName;
+            accountData.kycStatus = u.kycStatus || accountData.kycStatus;
           }
-        } catch(e) { /* ignore if demoAccounts fetch fails */ }
-        setSelectedUser(userObj);
-        setInspectionTab('overview');
-        setIsUserManagementOpen(true);
+        }
+        setSelectedUser(accountData);
+        // CRITICAL: set nodeFilterId to the demoAccount DOC ID (not userId) so demoTrades query works
+        setNodeFilterId(accountSnap.id);
       } else {
-        toast({ variant: "destructive", title: "Trader Not Found" });
+        // Inspecting from User Directory — find their demoAccounts
+        const userSnap = await getDoc(doc(db, 'users', userIdOrAccountId));
+        if (!userSnap.exists()) return;
+        const userData = { id: userSnap.id, ...userSnap.data() };
+        const accountsSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userIdOrAccountId)));
+        if (!accountsSnap.empty) {
+          const latest = accountsSnap.docs.sort((a, b) => (b.data().updatedAt?.toDate?.()?.getTime() || 0) - (a.data().updatedAt?.toDate?.()?.getTime() || 0))[0];
+          const acc = latest.data();
+          userData.planType = acc.planType; userData.startBalance = acc.startBalance;
+          userData.balance = acc.balance; userData.equity = acc.equity;
+          userData.phase = acc.phase; userData.status = acc.status; userData.updatedAt = acc.updatedAt;
+          // CRITICAL: set nodeFilterId to the demoAccount DOC ID
+          setNodeFilterId(latest.id);
+        }
+        setSelectedUser(userData);
       }
-    } finally {
-      setActionLoading(false);
-    }
-  };
+      
+      setInspectionTab('overview');
+      setIsUserManagementOpen(true);
+    } finally { setActionLoading(false); }
+  }, []);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -632,10 +644,10 @@ export default function AdminPage() {
                     <td className="p-4 font-bold text-xs">{o.email}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{o.plan}</td>
                     <td className="p-4 text-xs font-mono text-zinc-400">{o.accountSize || '—'}</td>
-                    <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid ? `$${Number(o.amountPaid).toFixed(2)}` : '$0.00'}</td>
+                    <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid != null ? `$${Number(o.amountPaid).toFixed(2)}` : (o.amount != null ? `$${Number(o.amount).toFixed(2)}` : '$0.00')}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
                     <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl, '_blank')}>PROOF</span> : null}</td>
+                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl || '#', '_blank')}>PROOF</span> : null}</td>
                   </tr>
                 )}
              />
