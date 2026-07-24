@@ -344,39 +344,81 @@ export default function AdminPage() {
       return () => unsub();
     }
 
-    const qMap: any = {
-      'overview': null,
-      'user-directory': query(collection(db, 'users'), orderBy('createdAt', 'desc')),
-      'trading-nodes': query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')),
-      'breaches': query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')),
-      'phase-passers': query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')),
-      'order-review': query(collection(db, 'orders'), orderBy('submittedAt', 'desc')),
-      'payout-hub': query(collection(db, 'payouts'), orderBy('createdAt', 'desc')),
-      'trades-payouts': query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')),
-      'referral-audit': query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
-      'kyc-hub': query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])),
-      'broadcasts': query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'))
-    };
-
-    const targetQ = qMap[activeTab];
-    if (targetQ) {
-      unsub = onSnapshot(targetQ, (snap) => {
-        const fieldMap: any = { 'user-directory': 'users', 'trading-nodes': 'demoAccounts', 'phase-passers': 'passers', 'breaches': 'breaches', 'order-review': 'orders', 'payout-hub': 'payouts', 'trades-payouts': 'featuredPayouts', 'referral-audit': 'referrals', 'kyc-hub': 'users', 'broadcasts': 'broadcasts' };
-        setTabData((prev: any) => ({ ...prev, [fieldMap[activeTab]]: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+    switch (activeTab) {
+      case 'overview':
+        refreshStats();
         setIsLoading(false);
-      });
-    } else {
-      refreshStats();
-      setIsLoading(false);
+        break;
+      case 'user-directory':
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'trading-nodes':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'breaches':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'phase-passers':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'order-review':
+        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'payout-hub':
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'trades-payouts':
+        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'referral-audit':
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'kyc-hub':
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'broadcasts':
+        unsub = onSnapshot(collection(db, 'broadcasts'), (snap) => {
+          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+            const aTime = a.sentAt?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
+            const bTime = b.sentAt?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
+            return bTime - aTime;
+          }) }));
+          setIsLoading(false);
+        });
+        break;
+      default:
+        setIsLoading(false);
     }
 
     return () => unsub();
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
-
-  useEffect(() => {
-    const isVerified = localStorage.getItem('adminVerified') === 'true';
-    if (isVerified) setIsAuthenticated(true);
-  }, []);
 
   const handleViewUserByAccount = async (userId: string) => {
     if (!userId) return;
@@ -872,7 +914,6 @@ export default function AdminPage() {
              <Button variant="destructive" onClick={handleRejectOrder}>Reject Order</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-4xl max-h-[85vh] overflow-y-auto">
