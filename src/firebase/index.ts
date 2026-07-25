@@ -21,8 +21,7 @@ let isInitializing = false;
 
 /**
  * Initializes the Firebase Client SDK instances using a hardened singleton pattern.
- * This resolves "FIRESTORE INTERNAL ASSERTION FAILED" errors by ensuring
- * Firestore is initialized idempotently with memory-based caching.
+ * Adds explicit logging for Project ID verification.
  */
 export function initializeFirebase() {
   if (isInitializing) {
@@ -39,6 +38,7 @@ export function initializeFirebase() {
 
   try {
     if (!firebaseApp) {
+      console.log('[Firebase] Initializing project:', firebaseConfig.projectId);
       firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
     }
     
@@ -48,18 +48,15 @@ export function initializeFirebase() {
     
     if (!firestoreInstance) {
       try {
-        // Try getting an existing firestore instance first to avoid "already initialized" errors
         const existing = getFirestore(firebaseApp);
         if (existing) {
           firestoreInstance = existing;
         } else {
-          // If not initialized, set it up with memory cache to prevent IDB assertion errors (b815/ca9)
           firestoreInstance = initializeFirestore(firebaseApp, {
             localCache: memoryLocalCache(),
           });
         }
       } catch (e) {
-        // Fallback for cases where it's already initialized by a non-singleton path
         firestoreInstance = getFirestore(firebaseApp);
       }
     }
@@ -94,7 +91,6 @@ export function useRtdb(): Database {
   return rtdbInstance;
 }
 
-// Barrel exports to maintain application-wide compatibility
 export * from './provider';
 export * from './client-provider';
 export * from './auth/use-user';
