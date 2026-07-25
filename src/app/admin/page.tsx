@@ -356,20 +356,23 @@ export default function AdminPage() {
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), orderBy('updatedAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
+          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
         break;
       case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'), orderBy('updatedAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed')), (snap) => {
+          setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        unsub = onSnapshot(query(
+          collection(db, 'orders'), 
+          where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])
+        ), (snap) => {
+          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.submittedAt?.toDate?.()?.getTime() || 0; const bt = b.submittedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
         break;
