@@ -408,17 +408,16 @@ export default function AdminPage() {
         });
         break;
       case 'overview':
-        unsub = onSnapshot(collection(db, 'orders'), (snap) => {
-          const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setTabData((prev: any) => ({ ...prev, orders }));
-          setIsLoading(false);
-        });
-        break;
-      case 'user-directory-raw':
-        unsub = onSnapshot(collection(db, 'users'), (snap) => {
-          const users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setTabData((prev: any) => ({ ...prev, users }));
-        });
+        {
+          const unsubO = onSnapshot(collection(db, 'orders'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+            setIsLoading(false);
+          });
+          const unsubU = onSnapshot(collection(db, 'users'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          });
+          unsub = () => { unsubO(); unsubU(); };
+        }
         break;
       default:
         refreshStats();
@@ -431,14 +430,6 @@ export default function AdminPage() {
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
       refreshStats();
-      // Also fetch users and orders for overview summary tables
-      const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-        setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-      });
-      const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
-        setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-      });
-      return () => { unsubUsers(); unsubOrders(); };
     }
   }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
