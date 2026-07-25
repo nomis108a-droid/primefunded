@@ -343,10 +343,6 @@ export default function AdminPage() {
     }
 
     switch (activeTab) {
-      case 'overview':
-        refreshStats();
-        setIsLoading(false);
-        break;
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
@@ -411,12 +407,40 @@ export default function AdminPage() {
           setIsLoading(false);
         });
         break;
+      case 'overview':
+        unsub = onSnapshot(collection(db, 'orders'), (snap) => {
+          const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setTabData((prev: any) => ({ ...prev, orders }));
+          setIsLoading(false);
+        });
+        break;
+      case 'user-directory-raw':
+        unsub = onSnapshot(collection(db, 'users'), (snap) => {
+          const users = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          setTabData((prev: any) => ({ ...prev, users }));
+        });
+        break;
       default:
+        refreshStats();
         setIsLoading(false);
     }
 
     return () => unsub();
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
+
+  useEffect(() => {
+    if (isAuthenticated && isAuthorized && !authLoading) {
+      refreshStats();
+      // Also fetch users and orders for overview summary tables
+      const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+      });
+      const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+        setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+      });
+      return () => { unsubUsers(); unsubOrders(); };
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
   const handleViewUserByAccount = async (userId: string) => {
     if (!userId) return;
@@ -618,11 +642,6 @@ export default function AdminPage() {
     );
   }, [payoutForm.country]);
 
-  const filteredUsers = useMemo(() => (tabData.users || []).filter((u: any) => {
-    const term = searchTerm.toLowerCase();
-    return u.name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || u.traderId?.toLowerCase().includes(term);
-  }), [tabData.users, searchTerm]);
-
   return (
     <div className="flex min-h-screen bg-background text-white">
       <Navigation />
@@ -671,7 +690,7 @@ export default function AdminPage() {
                     <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid != null ? `$${Number(o.amountPaid).toFixed(2)}` : (o.amount != null ? `$${Number(o.amount).toFixed(2)}` : '$0.00')}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
                     <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl || '#', '_blank')}>PROOF</span> : null}</td>
+                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl, '_blank')}>PROOF</span> : null}</td>
                   </tr>
                 )}
              />
@@ -757,7 +776,7 @@ export default function AdminPage() {
           </div>
         </TabsContent>
 
-          <TabsContent value="user-directory" className="space-y-6">
+        <TabsContent value="user-directory" className="space-y-6">
              <TabHeader title="User Directory" count={tabData.users?.length} onSearch={setSearchTerm} />
              <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
