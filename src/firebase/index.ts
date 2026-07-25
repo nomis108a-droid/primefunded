@@ -5,10 +5,11 @@ import {
   initializeFirestore, 
   getFirestore,
   type Firestore, 
-  memoryLocalCache 
+  memoryLocalCache,
+  connectFirestoreEmulator
 } from 'firebase/firestore';
-import { getStorage, type FirebaseStorage } from 'firebase/storage';
-import { getDatabase, type Database } from 'firebase/database';
+import { getStorage, type FirebaseStorage, connectStorageEmulator } from 'firebase/storage';
+import { getDatabase, type Database, connectDatabaseEmulator } from 'firebase/database';
 import { firebaseConfig } from './config';
 
 let firebaseApp: FirebaseApp;
@@ -20,8 +21,8 @@ let rtdbInstance: Database;
 let isInitializing = false;
 
 /**
- * Initializes the Firebase Client SDK instances using a hardened singleton pattern.
- * Adds explicit logging for Project ID verification.
+ * Initializes the Firebase Client SDK instances.
+ * Hardened to log project identity and detect emulators.
  */
 export function initializeFirebase() {
   if (isInitializing) {
@@ -38,8 +39,21 @@ export function initializeFirebase() {
 
   try {
     if (!firebaseApp) {
-      console.log('[Firebase] Initializing project:', firebaseConfig.projectId);
       firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+      
+      // IDENTITY AUDIT
+      console.log('==========================================');
+      console.log('   FIREBASE IDENTITY AUDIT (CLIENT)       ');
+      console.log('==========================================');
+      console.log('Project ID:    ', firebaseApp.options.projectId);
+      console.log('App Name:      ', firebaseApp.name);
+      console.log('Auth Domain:   ', firebaseApp.options.authDomain);
+      console.log('Storage Bucket:', firebaseApp.options.storageBucket);
+      
+      if (process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST) {
+        console.warn('⚠️ EMULATOR DETECTED: Connecting to local Firestore');
+      }
+      console.log('==========================================');
     }
     
     if (!authInstance) authInstance = getAuth(firebaseApp);
@@ -48,13 +62,15 @@ export function initializeFirebase() {
     
     if (!firestoreInstance) {
       try {
-        const existing = getFirestore(firebaseApp);
-        if (existing) {
-          firestoreInstance = existing;
-        } else {
-          firestoreInstance = initializeFirestore(firebaseApp, {
-            localCache: memoryLocalCache(),
-          });
+        firestoreInstance = initializeFirestore(firebaseApp, {
+          localCache: memoryLocalCache(),
+        });
+
+        // DISABLE EMULATORS IF ACCIDENTALLY ENABLED
+        const emulatorHost = process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_HOST;
+        if (emulatorHost && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+          // Only connect if explicitly intended
+          // connectFirestoreEmulator(firestoreInstance, 'localhost', 8080);
         }
       } catch (e) {
         firestoreInstance = getFirestore(firebaseApp);
