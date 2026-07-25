@@ -32,13 +32,67 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, Timestamp, DocumentData } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
+
+interface UserProfile {
+  id: string;
+  email: string;
+  name?: string;
+  displayName?: string;
+  phone?: string;
+  country?: string;
+  createdAt?: any;
+  kycStatus?: string;
+  kycVerified?: boolean;
+  tier?: string;
+  traderId?: string;
+  accountStatus?: string;
+  globalLiquidity?: string | number;
+  updatedAt?: any;
+  _demoAccountId?: string;
+  planType?: string;
+  startBalance?: number;
+  balance?: number;
+  equity?: number;
+  phase?: string;
+  accountSize?: string | number;
+}
+
+interface DemoAccount {
+  id: string;
+  userId: string;
+  email: string;
+  status: string;
+  globalLiquidity?: string | number;
+  liquidity?: string | number;
+  updatedAt?: any;
+  startBalance?: number;
+  balance?: number;
+  equity?: number;
+  plan?: string;
+  planType?: string;
+  phase?: string;
+  label?: string;
+  [key: string]: any;
+}
+
+interface AdminTabData {
+  users: UserProfile[];
+  orders: any[];
+  payouts: any[];
+  referrals: any[];
+  broadcasts: any[];
+  demoAccounts: DemoAccount[];
+  breaches: any[];
+  passers: any[];
+  featuredPayouts: any[];
+}
 
 // Static Country List
 const COUNTRIES = [
@@ -176,7 +230,7 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
   );
 });
 
-const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => (
+const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: AdminTabData, onActiveTabChange: (tab: string) => void }) => (
   <div className="space-y-8">
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
       <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
@@ -245,7 +299,7 @@ export default function AdminPage() {
 
   const lastRefreshTimeRef = useRef(0);
 
-  const [tabData, setTabData] = useState<any>({
+  const [tabData, setTabData] = useState<AdminTabData>({
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
 
@@ -256,7 +310,7 @@ export default function AdminPage() {
   const { toast } = useToast();
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [inspectionTab, setInspectionTab] = useState('overview');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
@@ -312,13 +366,13 @@ export default function AdminPage() {
       const statsPayload: any = {};
       results.forEach((r, i) => {
         const val = r.status === 'fulfilled' ? r.value : 0;
-        if (i === 0) statsPayload.totalUsersCount = val;
-        if (i === 1) statsPayload.totalNodesCount = val;
-        if (i === 2) statsPayload.totalLiquidationCount = val;
-        if (i === 3) statsPayload.phasePassersCount = val;
-        if (i === 4) statsPayload.pendingOrdersCount = val;
-        if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
-        if (i === 6) statsPayload.totalKycCount = val;
+        if (i === 0) statsPayload.totalUsersCount = val as number;
+        if (i === 1) statsPayload.totalNodesCount = val as number;
+        if (i === 2) statsPayload.totalLiquidationCount = val as number;
+        if (i === 3) statsPayload.phasePassersCount = val as number;
+        if (i === 4) statsPayload.pendingOrdersCount = val as number;
+        if (i === 5) statsPayload.totalAum = ((val as any)?.data?.()?.totalVolume) || 0;
+        if (i === 6) statsPayload.totalKycCount = val as number;
       });
 
       setStats(prev => ({ ...prev, ...statsPayload }));
@@ -336,7 +390,7 @@ export default function AdminPage() {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
       unsub = onSnapshot(q, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setTabData((prev: AdminTabData) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
       });
       return () => unsub();
@@ -345,61 +399,61 @@ export default function AdminPage() {
     switch (activeTab) {
       case 'user-directory':
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...(d.data() as UserProfile) })) }));
           setIsLoading(false);
         });
         break;
       case 'trading-nodes':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...(d.data() as DemoAccount) })) }));
           setIsLoading(false);
         });
         break;
       case 'breaches':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
-          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
         break;
       case 'phase-passers':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        unsub = onSnapshot(query(collection(db, 'orders')), (snap) => {
+          setTabData((prev: AdminTabData) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.submittedAt?.toDate?.()?.getTime() || 0; const bt = b.submittedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
         break;
       case 'payout-hub':
         unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'trades-payouts':
         unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'referral-audit':
         unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
       case 'kyc-hub':
         unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setTabData((prev: AdminTabData) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...(d.data() as UserProfile) })) }));
           setIsLoading(false);
         });
         break;
       case 'broadcasts':
         unsub = onSnapshot(collection(db, 'broadcasts'), (snap) => {
-          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+          setTabData((prev: AdminTabData) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
             const aTime = a.sentAt?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
             const bTime = b.sentAt?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
             return bTime - aTime;
@@ -410,14 +464,14 @@ export default function AdminPage() {
       case 'overview':
         refreshStats();
         {
-          const uO = onSnapshot(collection(db, 'users'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const uO = onSnapshot(collection(db, 'orders'), (snap) => {
+            setTabData((prev: AdminTabData) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
             setIsLoading(false);
           });
-          const oO = onSnapshot(collection(db, 'orders'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const uU = onSnapshot(collection(db, 'users'), (snap) => {
+            setTabData((prev: AdminTabData) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...(d.data() as UserProfile) })) }));
           });
-          unsub = () => { uO(); oO(); };
+          unsub = () => { uO(); uU(); };
         }
         break;
       default:
@@ -438,17 +492,25 @@ export default function AdminPage() {
     if (!userId) return;
     setActionLoading(true);
     try {
-      let userObj = tabData.users?.find((u: any) => u.id === userId);
+      let userObj = tabData.users?.find((u: UserProfile) => u.id === userId) || null;
       if (!userObj) {
         const snap = await getDoc(doc(db, 'users', userId));
-        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
+        if (snap.exists()) userObj = { id: snap.id, ...(snap.data() as UserProfile) };
       }
       if (userObj) {
         try {
           const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
           if (!accSnap.empty) {
-            const acc = { id: accSnap.docs[0].id, ...accSnap.docs[0].data() };
-            userObj = { ...userObj, _demoAccountId: acc.id, accountStatus: acc.status || '—', globalLiquidity: acc.globalLiquidity || acc.liquidity || '—', updatedAt: acc.updatedAt || null };
+            const doc0 = accSnap.docs[0];
+            const data0 = doc0.data() as DemoAccount;
+            const acc = { id: doc0.id, ...data0 };
+            userObj = { 
+              ...userObj, 
+              _demoAccountId: acc.id, 
+              accountStatus: acc.status ?? '—', 
+              globalLiquidity: acc.globalLiquidity ?? acc.liquidity ?? '—', 
+              updatedAt: acc.updatedAt ?? null 
+            };
             setNodeFilterId(acc.id);
           }
         } catch (e) { console.warn('demoAccounts fetch failed:', e); }
@@ -770,7 +832,7 @@ export default function AdminPage() {
 
         <TabsContent value="user-directory" className="space-y-6">
              <TabHeader title="User Directory" count={tabData.users?.length} onSearch={setSearchTerm} />
-             <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
+             <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u: UserProfile) => (
                   <tr key={u.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{u.displayName || u.name || '—'}</td>
                     <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
@@ -962,7 +1024,7 @@ export default function AdminPage() {
             </TabsContent>
 
             <TabsContent value="breaches" className="m-0">
-              <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
+              <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.id)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
                 <tr key={b.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
                   <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
