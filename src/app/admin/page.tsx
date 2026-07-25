@@ -32,7 +32,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, Timestamp, DocumentData } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -54,6 +54,7 @@ interface UserProfile {
   traderId?: string;
   accountStatus?: string;
   globalLiquidity?: string | number;
+  liquidity?: string | number;
   updatedAt?: any;
   _demoAccountId?: string;
   planType?: string;
@@ -68,9 +69,9 @@ interface DemoAccount {
   id: string;
   userId: string;
   email: string;
-  status: string;
-  globalLiquidity?: string | number;
-  liquidity?: string | number;
+  status?: string;
+  globalLiquidity?: number;
+  liquidity?: number;
   updatedAt?: any;
   startBalance?: number;
   balance?: number;
@@ -390,7 +391,7 @@ export default function AdminPage() {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
       unsub = onSnapshot(q, (snap) => {
-        setTabData((prev: AdminTabData) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+        setTabData((prev: AdminTabData) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() } as any)) }));
         setIsLoading(false);
       });
       return () => unsub();
@@ -464,14 +465,14 @@ export default function AdminPage() {
       case 'overview':
         refreshStats();
         {
-          const uO = onSnapshot(collection(db, 'orders'), (snap) => {
-            setTabData((prev: AdminTabData) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const uO = onSnapshot(collection(db, 'users'), (snap) => {
+            setTabData((prev: AdminTabData) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...(d.data() as UserProfile) })) }));
             setIsLoading(false);
           });
-          const uU = onSnapshot(collection(db, 'users'), (snap) => {
-            setTabData((prev: AdminTabData) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...(d.data() as UserProfile) })) }));
+          const oO = onSnapshot(collection(db, 'orders'), (snap) => {
+            setTabData((prev: AdminTabData) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           });
-          unsub = () => { uO(); uU(); };
+          unsub = () => { uO(); oO(); };
         }
         break;
       default:
@@ -502,13 +503,16 @@ export default function AdminPage() {
           const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
           if (!accSnap.empty) {
             const doc0 = accSnap.docs[0];
-            const data0 = doc0.data() as DemoAccount;
-            const acc = { id: doc0.id, ...data0 };
+            const acc: DemoAccount = {
+              id: doc0.id,
+              ...(doc0.data() as Omit<DemoAccount, "id">)
+            };
             userObj = { 
               ...userObj, 
               _demoAccountId: acc.id, 
-              accountStatus: acc.status ?? '—', 
-              globalLiquidity: acc.globalLiquidity ?? acc.liquidity ?? '—', 
+              accountStatus: acc.status ?? "—", 
+              globalLiquidity: acc.globalLiquidity ?? 0,
+              liquidity: acc.liquidity ?? 0, 
               updatedAt: acc.updatedAt ?? null 
             };
             setNodeFilterId(acc.id);
@@ -1003,8 +1007,8 @@ export default function AdminPage() {
                      <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
                      <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
                      <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Join Date</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity || '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus ?? '—'}</p></div>
+                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity ?? 0}</p></div>
                   </div>
             </TabsContent>
 
