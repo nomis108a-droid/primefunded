@@ -411,15 +411,16 @@ export default function AdminPage() {
         });
         break;
       case 'overview':
+        refreshStats();
         {
-          const unsubO = onSnapshot(collection(db, 'orders'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const uO = onSnapshot(collection(db, 'users'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
             setIsLoading(false);
           });
-          const unsubU = onSnapshot(collection(db, 'users'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const oO = onSnapshot(collection(db, 'orders'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           });
-          unsub = () => { unsubO(); unsubU(); };
+          unsub = () => { uO(); oO(); };
         }
         break;
       default:
