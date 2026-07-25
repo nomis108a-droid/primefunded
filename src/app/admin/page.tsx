@@ -83,18 +83,6 @@ interface DemoAccount {
   [key: string]: any;
 }
 
-interface AdminTabData {
-  users: UserProfile[];
-  orders: any[];
-  payouts: any[];
-  referrals: any[];
-  broadcasts: any[];
-  demoAccounts: DemoAccount[];
-  breaches: any[];
-  passers: any[];
-  featuredPayouts: any[];
-}
-
 // Static Country List
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
@@ -311,7 +299,7 @@ export default function AdminPage() {
   const { toast } = useToast();
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [inspectionTab, setInspectionTab] = useState('overview');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
@@ -350,62 +338,42 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
-    
-    // PREVENT DUPLICATE REFRESHES UNLESS FORCED
-    if (!force && now - lastRefreshTimeRef.current < 5000) return;
+    if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
 
     try {
-      console.log(`[Admin-Audit] ${instanceId} Initiating Global System Check...`);
-      
+      const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
       const results = await Promise.allSettled([
-        getCountFromServer(collection(db, 'users')),
-        getCountFromServer(collection(db, 'demoAccounts')),
-        getCountFromServer(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
-        getCountFromServer(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        getCountFromServer(query(collection(db, 'orders'), where('status', '==', 'pending'))),
+        fetchCount(collection(db, 'users')),
+        fetchCount(collection(db, 'demoAccounts')),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
         getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }),
-        getCountFromServer(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
+        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
       const statsPayload: any = {};
       results.forEach((r, i) => {
-        if (r.status === 'rejected') {
-          console.error(`[Admin-Audit] Card ${i} Query Failed:`, r.reason);
-          toast({ variant: "destructive", title: "Query Error", description: `Stat card ${i} sync failed.` });
-          return;
-        }
-
-        const val = r.value as any;
-        const count = val.data ? val.data().count : null;
-        const sumVal = val.data ? null : val.data()?.totalVolume;
-
-        if (i === 0) statsPayload.totalUsersCount = count;
-        if (i === 1) statsPayload.totalNodesCount = count;
-        if (i === 2) statsPayload.totalLiquidationCount = count;
-        if (i === 3) statsPayload.phasePassersCount = count;
-        if (i === 4) statsPayload.pendingOrdersCount = count;
-        if (i === 5) statsPayload.totalAum = val.data().totalVolume || 0;
-        if (i === 6) statsPayload.totalKycCount = count;
+        const val = r.status === 'fulfilled' ? r.value : 0;
+        if (i === 0) statsPayload.totalUsersCount = val;
+        if (i === 1) statsPayload.totalNodesCount = val;
+        if (i === 2) statsPayload.totalLiquidationCount = val;
+        if (i === 3) statsPayload.phasePassersCount = val;
+        if (i === 4) statsPayload.pendingOrdersCount = val;
+        if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
+        if (i === 6) statsPayload.totalKycCount = val;
       });
-
-      console.log(`[Admin-Audit] Docs Returned: Traders=${statsPayload.totalUsersCount}, Nodes=${statsPayload.totalNodesCount}, Orders=${statsPayload.pendingOrdersCount}`);
 
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
-    } catch (err: any) { 
-      console.error('[Admin-Stats] Fatal Exception:', err.message); 
-      toast({ variant: "destructive", title: "Sync Fault", description: err.message });
-    }
-  }, [isAuthenticated, isAuthorized, authLoading, toast]);
+    } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     setIsLoading(true);
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
-
-    // LOG CURRENT TAB TRANSITION
-    console.log(`[Admin-Navigation] Switching to Tab: ${activeTab} | Search: ${term || 'None'}`);
 
     if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
@@ -443,7 +411,7 @@ export default function AdminPage() {
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders')), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.submittedAt?.toDate?.()?.getTime() || 0; const bt = b.submittedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
         });
@@ -504,9 +472,68 @@ export default function AdminPage() {
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
   useEffect(() => {
-    const isVerified = localStorage.getItem('adminVerified') === 'true';
-    if (isVerified) setIsAuthenticated(true);
-  }, []);
+    if (isAuthenticated && isAuthorized && !authLoading) {
+      refreshStats();
+      // Also fetch users and orders for overview summary tables
+      const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+      });
+      const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
+        setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+      });
+      return () => { unsubUsers(); unsubOrders(); };
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
+
+  const handleViewUserByAccount = async (userId: string) => {
+    if (!userId) return;
+    setActionLoading(true);
+    try {
+      let userObj = tabData.users?.find((u: any) => u.id === userId);
+      if (!userObj) {
+        const snap = await getDoc(doc(db, 'users', userId));
+        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
+      }
+      if (userObj) {
+        try {
+          const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+          if (!accSnap.empty) {
+            const acc: DemoAccount = { id: accSnap.docs[0].id, ...(accSnap.docs[0].data() as Omit<DemoAccount, "id">) };
+            userObj = { ...userObj, _demoAccountId: acc.id, accountStatus: acc.status || '—', globalLiquidity: acc.globalLiquidity || acc.liquidity || '—', updatedAt: acc.updatedAt || null };
+            setNodeFilterId(acc.id);
+          }
+        } catch (e) { console.warn('demoAccounts fetch failed:', e); }
+        setSelectedUser(userObj);
+        setInspectionTab('overview');
+        setIsUserManagementOpen(true);
+      } else {
+        toast({ variant: "destructive", title: "Trader Not Found" });
+      }
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isUserManagementOpen) return;
+    if (nodeFilterId) {
+      const qT = query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId));
+      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+        return bTime - aTime;
+      })));
+      return () => unsubT();
+    } else if (selectedUser?.id) {
+      const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id));
+      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
+        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+        return bTime - aTime;
+      })));
+      return () => unsubT();
+    }
+  }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -579,56 +606,6 @@ export default function AdminPage() {
       toast({ title: "Featured payout saved." });
     } finally { setActionLoading(false); }
   };
-
-  const handleViewUserByAccount = async (userId: string) => {
-    if (!userId) return;
-    setActionLoading(true);
-    try {
-      let userObj = tabData.users?.find((u: any) => u.id === userId);
-      if (!userObj) {
-        const snap = await getDoc(doc(db, 'users', userId));
-        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
-      }
-      if (userObj) {
-        try {
-          const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
-          if (!accSnap.empty) {
-            const acc: DemoAccount = { id: accSnap.docs[0].id, ...(accSnap.docs[0].data() as Omit<DemoAccount, "id">) };
-            userObj = { ...userObj, _demoAccountId: acc.id, accountStatus: acc.status || '—', globalLiquidity: acc.globalLiquidity || acc.liquidity || '—', updatedAt: acc.updatedAt || null };
-            setNodeFilterId(acc.id);
-          }
-        } catch (e) { console.warn('demoAccounts fetch failed:', e); }
-        setSelectedUser(userObj);
-        setInspectionTab('overview');
-        setIsUserManagementOpen(true);
-      } else {
-        toast({ variant: "destructive", title: "Trader Not Found" });
-      }
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isUserManagementOpen) return;
-    if (nodeFilterId) {
-      const qT = query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId));
-      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      })));
-      return () => unsubT();
-    } else if (selectedUser?.id) {
-      const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id));
-      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      })));
-      return () => unsubT();
-    }
-  }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -1001,13 +978,13 @@ export default function AdminPage() {
           </DialogHeader>
 
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="w-full">
-            <div className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4">
+            <TabsList className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4 h-auto">
               {['overview', 'trades', 'breaches'].map(t => (
                 <TabsTrigger key={t} value={t} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all data-[state=active]:bg-primary data-[state=active]:text-black text-zinc-500 hover:text-white bg-transparent border-none shadow-none">
                   {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Trade History' : 'Breach Logs'}
                 </TabsTrigger>
               ))}
-            </div>
+            </TabsList>
 
             <TabsContent value="overview" className="m-0 space-y-6">
                   <div className="grid grid-cols-3 gap-4">
