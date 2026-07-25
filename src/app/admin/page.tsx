@@ -106,7 +106,7 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
   { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
   { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
   { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
@@ -341,15 +341,29 @@ export default function AdminPage() {
     if (!force && now - lastRefreshTimeRef.current < 10000) return;
 
     try {
-      const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
+      console.log(`[Admin-Stats] REFRESH TRIGGERED | Project: ${db.app.options.projectId}`);
+      
+      const fetchCount = async (collectionPath: string, constraints: any[] = []) => {
+        try {
+          const q = query(collection(db, collectionPath), ...constraints);
+          const snapSize = (await getCountFromServer(q)).data().count;
+          console.log(`[Audit] Collection: ${collectionPath} | Docs Found: ${snapSize}`);
+          return snapSize;
+        } catch (e: any) {
+          console.error(`[Audit-Error] Collection: ${collectionPath} | Reason: ${e.message}`);
+          toast({ variant: "destructive", title: `Audit Fail: ${collectionPath}`, description: e.message });
+          return 0;
+        }
+      };
+
       const results = await Promise.allSettled([
-        fetchCount(collection(db, 'users')),
-        fetchCount(collection(db, 'demoAccounts')),
-        fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
-        fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
+        fetchCount('users'),
+        fetchCount('demoAccounts'),
+        fetchCount('demoAccounts', [where('status', 'in', ['blown', 'breach', 'terminated'])]),
+        fetchCount('demoAccounts', [where('status', '==', 'passed')]),
+        fetchCount('orders', [where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])]),
         getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }),
-        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
+        fetchCount('users', [where('kycStatus', 'in', ['pending', 'verified', 'rejected'])])
       ]);
 
       const statsPayload: any = {};
@@ -366,8 +380,10 @@ export default function AdminPage() {
 
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
-    } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
-  }, [isAuthenticated, isAuthorized, authLoading]);
+    } catch (err: any) { 
+      console.error('[Admin-Stats] Fatal Fault:', err.message); 
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, toast]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -381,7 +397,7 @@ export default function AdminPage() {
       unsub = onSnapshot(q, (snap) => {
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
-      });
+      }, (e) => toast({ variant: "destructive", title: "Search Link Lost", description: e.message }));
       return () => unsub();
     }
 
@@ -390,55 +406,55 @@ export default function AdminPage() {
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "User Ledger Offline", description: e.message }));
         break;
       case 'trading-nodes':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Node Registry Offline", description: e.message }));
         break;
       case 'breaches':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Breach Monitor Offline", description: e.message }));
         break;
       case 'phase-passers':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed')), (snap) => {
           setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Passer Feed Offline", description: e.message }));
         break;
       case 'order-review':
         unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.submittedAt?.toDate?.()?.getTime() || 0; const bt = b.submittedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Order Review Offline", description: e.message }));
         break;
       case 'payout-hub':
         unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Payout Hub Offline", description: e.message }));
         break;
       case 'trades-payouts':
         unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Showcase Feed Offline", description: e.message }));
         break;
       case 'referral-audit':
         unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Referral Audit Offline", description: e.message }));
         break;
       case 'kyc-hub':
         unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "KYC Hub Offline", description: e.message }));
         break;
       case 'broadcasts':
         unsub = onSnapshot(collection(db, 'broadcasts'), (snap) => {
@@ -448,18 +464,18 @@ export default function AdminPage() {
             return bTime - aTime;
           }) }));
           setIsLoading(false);
-        });
+        }, (e) => toast({ variant: "destructive", title: "Broadcast History Offline", description: e.message }));
         break;
       case 'overview':
-        refreshStats();
+        refreshStats(true);
         {
           const uO = onSnapshot(collection(db, 'users'), (snap) => {
             setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
             setIsLoading(false);
-          });
+          }, (e) => toast({ variant: "destructive", title: "Overview User Sync Failed", description: e.message }));
           const oO = onSnapshot(collection(db, 'orders'), (snap) => {
             setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          });
+          }, (e) => toast({ variant: "destructive", title: "Overview Order Sync Failed", description: e.message }));
           unsub = () => { uO(); oO(); };
         }
         break;
@@ -469,19 +485,11 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, toast]);
 
   useEffect(() => {
     if (isAuthenticated && isAuthorized && !authLoading) {
-      refreshStats();
-      // Also fetch users and orders for overview summary tables
-      const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-        setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-      });
-      const unsubOrders = onSnapshot(collection(db, 'orders'), (snap) => {
-        setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-      });
-      return () => { unsubUsers(); unsubOrders(); };
+      refreshStats(true);
     }
   }, [isAuthenticated, isAuthorized, authLoading, refreshStats]);
 
