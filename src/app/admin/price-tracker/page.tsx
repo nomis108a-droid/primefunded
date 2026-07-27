@@ -25,7 +25,11 @@ import Link from 'next/link';
 import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, PriceScaleMode } from 'lightweight-charts';
 
 const SYMBOLS = [
-  "XAUUSD", "XAGUSD", "BTCUSD", "ETHUSD", "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD", "NZDUSD", "AUDUSD", "XPTUSD"
+  "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD",
+  "GBPUSD", "USDJPY", "AUDUSD", "USDCHF",
+  "USDCAD", "NZDUSD", "BTCUSD", "ETHUSD",
+  "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD",
+  "ADAUSD"
 ];
 
 const MiniChart = memo(({ history }: { history: number[] }) => {
@@ -206,8 +210,12 @@ export default function AdminPriceTracker() {
     const data = prices[sym];
     const hist = history[sym] || [];
     const isSelected = selectedSymbol === sym;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'XAGUSD'].includes(sym);
-    const precision = isForex ? 5 : 2;
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'XAGUSD', 'XPTUSD', 'XRPUSD', 'BNBUSD', 'DOGEUSD', 'ADAUSD'].includes(sym);
+    
+    let precision = 2;
+    if (isForex) precision = 5;
+    else if (sym === 'DOGEUSD') precision = 5;
+    else if (sym === 'XRPUSD' || sym === 'ADAUSD') precision = 4;
 
     return (
       <Card 
@@ -285,9 +293,9 @@ export default function AdminPriceTracker() {
           </div>
         </header>
 
-        {/* Top Symbols */}
+        {/* Top Symbols (Rows 1-3) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
-          {SYMBOLS.slice(0, 4).map(renderCard)}
+          {SYMBOLS.slice(0, 12).map(renderCard)}
         </div>
 
         {/* Primary Chart Area */}
@@ -310,9 +318,9 @@ export default function AdminPriceTracker() {
           <div ref={chartContainerRef} className="w-full h-[500px]" />
         </Card>
 
-        {/* Bottom Symbols */}
+        {/* Bottom Symbols (Rows 4-5) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-20">
-          {SYMBOLS.slice(4).map(renderCard)}
+          {SYMBOLS.slice(12).map(renderCard)}
         </div>
       </main>
     </div>
