@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Lock
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Lock, Filter, ArrowUpDown, ArrowUp, ArrowDown, Target, Hourglass, Smartphone, Laptop
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -30,7 +30,7 @@ import {
   cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
-import { format } from 'date-fns';
+import { format, isValid, differenceInSeconds } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
 import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
@@ -230,6 +230,28 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
   </div>
 ));
 
+/**
+ * Live duration timer component for open trades
+ */
+const LiveDurationTimer = memo(({ openedAt }: { openedAt: any }) => {
+  const [duration, setDuration] = useState('00m 00s');
+
+  useEffect(() => {
+    const startDate = getTradeDate(openedAt);
+    if (!startDate) return;
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const diff = differenceInSeconds(now, startDate);
+      setDuration(formatDuration(diff));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [openedAt]);
+
+  return <span className="font-mono text-emerald-400 animate-pulse">{duration}</span>;
+});
+
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -265,6 +287,12 @@ export default function AdminPage() {
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
+
+  // Trade History Tab Specific States
+  const [tradeSearch, setTradeSearch] = useState('');
+  const [tradeStatusFilter, setTradeStatusFilter] = useState('all');
+  const [tradeTypeFilter, setTradeTypeFilter] = useState('all');
+  const [tradeResultFilter, setTradeResultFilter] = useState('all');
 
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -593,6 +621,14 @@ export default function AdminPage() {
 
       setSelectedUser(merged);
       setNodeFilterId(accountData ? accountData.id : null);
+      
+      // Fetch full trade history for inspection
+      setTradesLoading(true);
+      const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'));
+      const tradesSnap = await getDocs(tradesQ);
+      setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setTradesLoading(false);
+
       setInspectionTab('overview');
       setIsUserManagementOpen(true);
     } catch (e: any) {
@@ -677,6 +713,50 @@ export default function AdminPage() {
       c.code.toLowerCase().includes(term)
     );
   }, [payoutForm.country]);
+
+  // Enhanced Trade History Filtering Logic
+  const filteredTrades = useMemo(() => {
+    return userTrades.filter(t => {
+      const matchesSearch = !tradeSearch || 
+        t.symbol?.toLowerCase().includes(tradeSearch.toLowerCase()) || 
+        t.id.toLowerCase().includes(tradeSearch.toLowerCase());
+      
+      const matchesStatus = tradeStatusFilter === 'all' || t.status === tradeStatusFilter;
+      const matchesType = tradeTypeFilter === 'all' || t.type === tradeTypeFilter;
+      
+      let matchesResult = true;
+      if (tradeResultFilter === 'win') matchesResult = (t.pnl || 0) > 0;
+      if (tradeResultFilter === 'loss') matchesResult = (t.pnl || 0) < 0;
+
+      return matchesSearch && matchesStatus && matchesType && matchesResult;
+    });
+  }, [userTrades, tradeSearch, tradeStatusFilter, tradeTypeFilter, tradeResultFilter]);
+
+  // Enhanced Trade Summary Stats
+  const tradeStats = useMemo(() => {
+    const closed = userTrades.filter(t => t.status === 'closed');
+    const winning = closed.filter(t => (t.pnl || 0) > 0);
+    const losing = closed.filter(t => (t.pnl || 0) < 0);
+    
+    const totalProfit = winning.reduce((acc, t) => acc + (t.pnl || 0), 0);
+    const totalLoss = losing.reduce((acc, t) => acc + (t.pnl || 0), 0);
+    
+    const durations = closed.map(t => calculateHoldingTimeSeconds(t.openedAt, t.closedAt));
+    const avgDuration = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
+    
+    return {
+      total: userTrades.length,
+      winning: winning.length,
+      losing: losing.length,
+      winRate: closed.length ? (winning.length / closed.length) * 100 : 0,
+      totalProfit,
+      totalLoss,
+      netProfit: totalProfit + totalLoss,
+      avgDuration,
+      largestWin: winning.length ? Math.max(...winning.map(t => t.pnl)) : 0,
+      largestLoss: losing.length ? Math.min(...losing.map(t => t.pnl)) : 0
+    };
+  }, [userTrades]);
 
   if (authLoading) return null;
 
@@ -962,7 +1042,7 @@ export default function AdminPage() {
             <DialogDescription className="sr-only">Configure detailed payout parameters for the leaderboard showcase.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => payoutForm.name = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
+             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
              <div className="space-y-2 relative">
                 <Label>Country</Label>
                 <div className="relative">
@@ -971,7 +1051,7 @@ export default function AdminPage() {
                     value={payoutForm.country} 
                     onChange={e => {
                       const val = e.target.value;
-                      payoutForm.country = val;
+                      setPayoutForm({...payoutForm, country: val});
                       setCountrySearchTerm(val);
                       setIsCountryAutocompleteOpen(true);
                     }}
@@ -993,8 +1073,7 @@ export default function AdminPage() {
                             type="button" 
                             onPointerDown={e => { 
                               e.preventDefault(); 
-                              payoutForm.country = c.name;
-                              payoutForm.countryFlag = c.flag;
+                              setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
                               setCountrySearchTerm(c.name);
                               setIsCountryAutocompleteOpen(false);
                             }}
@@ -1010,8 +1089,8 @@ export default function AdminPage() {
                 )}
              </div>
              <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => payoutForm.paidOut = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
-               <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => payoutForm.payoutsCount = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
+               <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+               <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
              </div>
              <div className="space-y-2"><Label>Proof Screenshot</Label><Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 border-zinc-800 text-xs" /></div>
           </div>
@@ -1023,15 +1102,15 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => giftForm.traderId = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
+            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => giftForm.size = parseInt(v)}>
+              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                   {[5, 10, 25, 50, 100, 200, 300].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
                 </SelectContent>
               </Select></div>
-              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => giftForm.plan = v}>
+              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => setGiftForm({...giftForm, plan: v})}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="1-Step Pro" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                   <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
@@ -1051,7 +1130,7 @@ export default function AdminPage() {
           <DialogHeader><DialogTitle>Reject KYC</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <Label>Rejection Reason</Label>
-            <Textarea value={kycRejectReason} onChange={e => kycRejectReason = e.target.value} placeholder="e.g. Blurry ID photo..." className="bg-zinc-900 border-zinc-800" />
+            <Textarea value={kycRejectReason} onChange={e => setKycRejectReason(e.target.value)} placeholder="e.g. Blurry ID photo..." className="bg-zinc-900 border-zinc-800" />
           </div>
           <DialogFooter>
              <Button variant="outline" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
@@ -1065,7 +1144,7 @@ export default function AdminPage() {
           <DialogHeader><DialogTitle>Reject Order</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <Label>Rejection Reason</Label>
-            <Textarea value={rejectReason} onChange={e => rejectReason = e.target.value} placeholder="e.g. Proof mismatch..." className="bg-zinc-900 border-zinc-800" />
+            <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. Proof mismatch..." className="bg-zinc-900 border-zinc-800" />
           </div>
           <DialogFooter>
              <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
@@ -1075,126 +1154,246 @@ export default function AdminPage() {
       </Dialog>
 
       <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
-        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-4xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <Eye className="w-5 h-5 text-primary" />
-              User Inspection — {selectedUser?.email || 'Unknown'}
-            </DialogTitle>
-            <DialogDescription>Trade node details, trade history, and breach logs.</DialogDescription>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <DialogTitle className="flex items-center gap-3 text-2xl">
+                  <Eye className="w-6 h-6 text-primary" />
+                  Institutional Audit — {selectedUser?.email || 'Unknown'}
+                </DialogTitle>
+                <DialogDescription className="text-zinc-500">Comprehensive forensic review of trader behavior and performance.</DialogDescription>
+              </div>
+              <Badge variant="outline" className="border-primary/20 bg-primary/5 text-primary h-8 px-4 font-black">
+                TRADER ID: {selectedUser?.traderId || selectedUser?.id?.slice(0,8)}
+              </Badge>
+            </div>
           </DialogHeader>
 
           <Tabs value={inspectionTab} onValueChange={setInspectionTab} className="w-full">
-            <TabsList className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-4 h-auto">
+            <TabsList className="flex gap-2 bg-secondary/30 p-1 rounded-xl w-fit border border-white/5 mb-6 h-auto">
               {['overview', 'trades', 'breaches'].map(t => (
-                <TabsTrigger key={t} value={t} className="px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all data-[state=active]:bg-primary data-[state=active]:text-black text-zinc-500 hover:text-white bg-transparent border-none shadow-none">
-                  {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Trade History' : 'Breach Logs'}
+                <TabsTrigger key={t} value={t} className="px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all data-[state=active]:bg-primary data-[state=active]:text-black text-zinc-500 hover:text-white bg-transparent border-none shadow-none">
+                  {t === 'overview' ? 'Trade Node' : t === 'trades' ? 'Audit History' : 'Breach Logs'}
                 </TabsTrigger>
               ))}
             </TabsList>
 
             <TabsContent value="overview" className="m-0 space-y-6">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                      {[
-                        { label: 'Email Address', value: selectedUser?.email },
-                        { label: 'Phone Identity', value: selectedUser?.phone || 'Not Provided' },
-                        { label: 'Country', value: selectedUser?.country },
-                        { label: 'Join Date', value: selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—' },
-                        { label: 'Account Status', value: selectedUser?.accountStatus ?? selectedUser?.status ?? (selectedUser?.id ? 'active' : 'No Account Node') },
-                        { label: 'Global Liquidity', value: (selectedUser?.globalLiquidity !== undefined && selectedUser?.globalLiquidity !== null) ? `$${Number(selectedUser.globalLiquidity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : (selectedUser?.balance !== undefined ? `$${Number(selectedUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—') },
-                        
-                        { label: 'Account Size', value: selectedUser?.startBalance ? `$${Number(selectedUser.startBalance).toLocaleString()}` : '—' },
-                        { 
-                          label: 'KYC Status', 
-                          value: (() => {
-                            const status = selectedUser?.kycStatus || 'none';
-                            if (status === 'none') return 'Not Submitted';
-                            return status.charAt(0).toUpperCase() + status.slice(1);
-                          })()
-                        },
-                        { 
-                          label: 'Plan Type', 
-                          value: selectedUser?.planType ? selectedUser.planType.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : '—' 
-                        },
-                        { 
-                          label: 'Balance', 
-                          value: selectedUser?.balance !== undefined ? `$${Number(selectedUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—' 
-                        },
-                        { 
-                          label: 'Equity', 
-                          value: selectedUser?.equity !== undefined ? `$${Number(selectedUser.equity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—' 
-                        },
-                        { 
-                          label: 'Phase', 
-                          value: selectedUser?.phase ? selectedUser.phase.replace(/(\D+)(\d+)/, '$1 $2').replace(/^\w/, (c: string) => c.toUpperCase()) : '—' 
-                        },
-                        { 
-                          label: 'Last Updated', 
-                          value: selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), "MMM d, yyyy '•' HH:mm 'UTC'") : '—' 
-                        }
+                        { label: 'Email Identity', value: selectedUser?.email, icon: Mail },
+                        { label: 'Verified Phone', value: selectedUser?.phone || 'Not Provided', icon: Phone },
+                        { label: 'Jurisdiction', value: selectedUser?.country, icon: Globe },
+                        { label: 'Enrollment', value: selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—', icon: Clock },
+                        { label: 'Current Status', value: selectedUser?.accountStatus ?? selectedUser?.status ?? 'active', icon: Activity },
+                        { label: 'Global Liquidity', value: `$${Number(selectedUser?.globalLiquidity || selectedUser?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`, icon: Wallet },
+                        { label: 'Allocation', value: selectedUser?.startBalance ? `$${Number(selectedUser.startBalance).toLocaleString()}` : '—', icon: Target },
+                        { label: 'KYC Protocol', value: (selectedUser?.kycStatus || 'none').toUpperCase(), icon: ShieldCheck },
+                        { label: 'Plan Category', value: selectedUser?.planType?.toUpperCase() || '—', icon: Megaphone },
+                        { label: 'Current Phase', value: selectedUser?.phase?.toUpperCase() || '—', icon: Trophy },
+                        { label: 'Node Sync', value: selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), "MMM d, HH:mm 'UTC'") : '—', icon: RefreshCw }
                      ].map(item => (
-                        <div key={item.label} className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
-                           <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{item.label}</p>
-                           <p className="text-sm font-bold text-white">{item.value || '—'}</p>
+                        <div key={item.label} className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 flex items-start gap-4">
+                           <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                             <item.icon size={16} />
+                           </div>
+                           <div>
+                             <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{item.label}</p>
+                             <p className="text-sm font-bold text-white truncate max-w-[150px]">{item.value || '—'}</p>
+                           </div>
                         </div>
                      ))}
                   </div>
             </TabsContent>
 
-            <TabsContent value="trades" className="m-0">
+            <TabsContent value="trades" className="m-0 space-y-8">
+              {/* Summary Analytics Row */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="p-4 rounded-xl bg-secondary/20 border border-white/5">
+                   <p className="text-[8px] font-black text-muted-foreground uppercase mb-1">Total Executions</p>
+                   <p className="text-xl font-headline font-bold text-white">{tradeStats.total}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                   <p className="text-[8px] font-black text-emerald-500 uppercase mb-1">Win Rate %</p>
+                   <p className="text-xl font-headline font-bold text-emerald-400">{tradeStats.winRate.toFixed(1)}%</p>
+                </div>
+                <div className="p-4 rounded-xl bg-secondary/20 border border-white/5">
+                   <p className="text-[8px] font-black text-muted-foreground uppercase mb-1">Net Profit</p>
+                   <p className={cn("text-xl font-headline font-bold", tradeStats.netProfit >= 0 ? "text-emerald-400" : "text-destructive")}>
+                     ${tradeStats.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                   </p>
+                </div>
+                <div className="p-4 rounded-xl bg-secondary/20 border border-white/5">
+                   <p className="text-[8px] font-black text-muted-foreground uppercase mb-1">Avg Duration</p>
+                   <p className="text-xl font-headline font-bold text-white">{formatDuration(tradeStats.avgDuration)}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-secondary/20 border border-white/5">
+                   <p className="text-[8px] font-black text-muted-foreground uppercase mb-1">Winning / Losing</p>
+                   <div className="flex items-end gap-1">
+                     <span className="text-xl font-headline font-bold text-emerald-400">{tradeStats.winning}</span>
+                     <span className="text-xs text-zinc-600 mb-1">/</span>
+                     <span className="text-xl font-headline font-bold text-destructive">{tradeStats.losing}</span>
+                   </div>
+                </div>
+              </div>
+
+              {/* Advanced Command Bar */}
+              <div className="flex flex-col md:flex-row items-center gap-4 bg-zinc-900/40 p-4 rounded-2xl border border-white/5">
+                 <div className="relative flex-1 w-full">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                    <Input 
+                      placeholder="Audit by Symbol or Trade ID..." 
+                      className="pl-10 bg-secondary/30 h-10 border-border/50 text-xs"
+                      value={tradeSearch}
+                      onChange={e => setTradeSearch(e.target.value)}
+                    />
+                 </div>
+                 <div className="flex gap-2 w-full md:w-auto">
+                    <Select value={tradeStatusFilter} onValueChange={setTradeStatusFilter}>
+                      <SelectTrigger className="h-10 bg-secondary/30 border-border/50 text-[10px] uppercase font-black w-[120px]"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                        <SelectItem value="all">ALL STATUS</SelectItem>
+                        <SelectItem value="open">OPEN ONLY</SelectItem>
+                        <SelectItem value="closed">CLOSED ONLY</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={tradeResultFilter} onValueChange={setTradeResultFilter}>
+                      <SelectTrigger className="h-10 bg-secondary/30 border-border/50 text-[10px] uppercase font-black w-[120px]"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                        <SelectItem value="all">ALL RESULTS</SelectItem>
+                        <SelectItem value="win">WINNING ONLY</SelectItem>
+                        <SelectItem value="loss">LOSING ONLY</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={tradeTypeFilter} onValueChange={setTradeTypeFilter}>
+                      <SelectTrigger className="h-10 bg-secondary/30 border-border/50 text-[10px] uppercase font-black w-[120px]"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                        <SelectItem value="all">ALL TYPES</SelectItem>
+                        <SelectItem value="buy">BUY ONLY</SelectItem>
+                        <SelectItem value="sell">SELL ONLY</SelectItem>
+                      </SelectContent>
+                    </Select>
+                 </div>
+              </div>
+
               {tradesLoading ? (
                 <div className="p-20 text-center flex flex-col items-center justify-center space-y-4">
                   <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
-                  <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Syncing Ledger...</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Scanning Ledger...</p>
                 </div>
-              ) : userTrades.length === 0 ? (
-                <div className="p-20 text-center flex flex-col items-center justify-center space-y-4 opacity-40">
-                  <History className="w-12 h-12" />
-                  <p className="text-sm font-black uppercase tracking-widest">No trade history available.</p>
+              ) : filteredTrades.length === 0 ? (
+                <div className="p-20 text-center flex flex-col items-center justify-center space-y-4 bg-secondary/5 rounded-[3rem] border border-dashed border-white/5 opacity-40">
+                  <History className="w-16 h-16" />
+                  <p className="text-sm font-black uppercase tracking-widest">No matching execution records found.</p>
                 </div>
               ) : (
-                <DataTable 
-                  loading={false} 
-                  data={userTrades} 
-                  columns={['SYMBOL', 'TYPE', 'LOTS', 'ENTRY', 'EXIT', 'P&L', 'STATUS', 'OPENED']} 
-                  renderRow={(trade) => (
-                    <tr key={trade.id} className="hover:bg-white/5 transition-colors">
-                      <td className="p-3 font-bold text-xs">{trade.symbol || '—'}</td>
-                      <td className="p-3 text-center">
-                        <Badge className={cn("text-[8px] font-black uppercase", (trade.type || '').toLowerCase() === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>
-                          {trade.type || '—'}
-                        </Badge>
-                      </td>
-                      <td className="p-3 text-xs font-mono">{trade.lots || '0.00'}</td>
-                      <td className="p-3 text-xs font-mono">${trade.openPrice?.toLocaleString() || '0.00'}</td>
-                      <td className="p-3 text-xs font-mono">{trade.closePrice ? `$${trade.closePrice.toLocaleString()}` : '—'}</td>
-                      <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                        ${Number(trade.pnl || 0).toFixed(2)}
-                      </td>
-                      <td className="p-3 text-center">
-                        <Badge className={cn("text-[8px] font-black uppercase", (trade.status || '').toUpperCase() === 'OPEN' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>
-                          {trade.status || '—'}
-                        </Badge>
-                      </td>
-                      <td className="p-3 text-[10px] text-muted-foreground">
-                        {trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : (trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : '—')}
-                      </td>
-                    </tr>
-                  )} 
-                />
+                <div className="bg-card/40 border border-white/5 rounded-2xl overflow-hidden">
+                  <ScrollArea className="w-full">
+                    <table className="w-full text-left border-collapse min-w-[1800px]">
+                      <thead className="bg-secondary/30 border-b border-white/5">
+                        <tr className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">
+                          <th className="p-4">Symbol</th>
+                          <th className="p-4">Type</th>
+                          <th className="p-4">Lots</th>
+                          <th className="p-4">Entry</th>
+                          <th className="p-4">Exit</th>
+                          <th className="p-4">Duration</th>
+                          <th className="p-4">Profit/Loss</th>
+                          <th className="p-4">PnL %</th>
+                          <th className="p-4">Commission</th>
+                          <th className="p-4">SL / TP</th>
+                          <th className="p-4">Status</th>
+                          <th className="p-4">Close Reason</th>
+                          <th className="p-4">Opened At (UTC)</th>
+                          <th className="p-4">Closed At (UTC)</th>
+                          <th className="p-4">Order ID</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {filteredTrades.map((t) => {
+                          const pnl = t.pnl || 0;
+                          const isClosed = t.status === 'closed';
+                          const pnlPct = t.openPrice ? ((pnl / (t.openPrice * t.lots * 100)) * 100) : 0; // Simplified % calc
+                          
+                          return (
+                            <tr key={t.id} className="hover:bg-white/[0.02] transition-colors text-[11px] font-medium group">
+                              <td className="p-4 font-bold text-white group-hover:text-primary transition-colors">{t.symbol}</td>
+                              <td className="p-4">
+                                <Badge className={cn("text-[8px] font-black uppercase h-5", t.type === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>
+                                  {t.type}
+                                </Badge>
+                              </td>
+                              <td className="p-4 font-mono text-zinc-400">{t.lots?.toFixed(2)}</td>
+                              <td className="p-4 font-mono text-zinc-500">${t.openPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                              <td className="p-4 font-mono text-zinc-200">
+                                {isClosed ? `$${t.closePrice?.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}
+                              </td>
+                              <td className="p-4">
+                                {isClosed ? (
+                                  <Badge variant="outline" className="h-6 px-2 text-[9px] border-zinc-800 text-zinc-500 font-mono">
+                                    {formatDuration(calculateHoldingTimeSeconds(t.openedAt, t.closedAt))}
+                                  </Badge>
+                                ) : (
+                                  <Badge className="h-6 px-2 text-[9px] bg-primary/10 text-primary border-primary/20 border">
+                                    LIVE · <LiveDurationTimer openedAt={t.openedAt} />
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className={cn("p-4 font-mono font-black", pnl >= 0 ? "text-emerald-400" : "text-destructive")}>
+                                {pnl >= 0 ? '+' : ''}${Math.abs(pnl).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </td>
+                              <td className={cn("p-4 font-mono font-bold", pnl >= 0 ? "text-emerald-500/70" : "text-destructive/70")}>
+                                {pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                              </td>
+                              <td className="p-4 font-mono text-destructive/60">-${Number(t.commission || 0).toFixed(2)}</td>
+                              <td className="p-4">
+                                <div className="flex flex-col gap-0.5 text-[9px] font-mono text-zinc-600">
+                                   <span>SL: {t.sl || 'None'}</span>
+                                   <span>TP: {t.tp || 'None'}</span>
+                                </div>
+                              </td>
+                              <td className="p-4">
+                                <Badge className={cn("text-[8px] font-black uppercase h-5", t.status === 'open' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>
+                                  {t.status}
+                                </Badge>
+                              </td>
+                              <td className="p-4 text-[9px] font-bold text-zinc-500 uppercase italic">
+                                {t.closeReason || (t.status === 'open' ? 'Position Running' : 'Manual Close')}
+                              </td>
+                              <td className="p-4 text-muted-foreground font-mono">
+                                {t.openedAt?.toDate ? format(t.openedAt.toDate(), "MMM d '•' HH:mm") : '—'}
+                              </td>
+                              <td className="p-4 text-muted-foreground font-mono">
+                                {t.closedAt?.toDate ? format(t.closedAt.toDate(), "MMM d '•' HH:mm") : '—'}
+                              </td>
+                              <td className="p-4 text-[10px] font-mono text-zinc-700 uppercase">{t.id}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <ScrollBar orientation="horizontal" />
+                  </ScrollArea>
+                </div>
               )}
             </TabsContent>
 
             <TabsContent value="breaches" className="m-0">
-              <DataTable loading={false} data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
-                <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
-                  <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
-                  <td className="p-4 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
-                  <td className="p-3 text-xs text-red-400">{b.breachReason || '—'}</td>
-                  <td className="p-3 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                </tr>
-              )} />
+              <DataTable 
+                loading={false} 
+                data={tabData.breaches.filter((b: any) => b.id === nodeFilterId || b.userId === selectedUser?.id || b.email === selectedUser?.email || b.userId === selectedUser?.userId)} 
+                columns={['ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} 
+                renderRow={(b) => (
+                  <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-mono text-[10px] text-zinc-400">{b.id}</td>
+                    <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
+                    <td className="p-4 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
+                    <td className="p-4 text-xs text-red-400 leading-relaxed max-w-md">{b.breachReason || '—'}</td>
+                    <td className="p-4 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+                  </tr>
+                )} 
+              />
             </TabsContent>
           </Tabs>
         </DialogContent>
