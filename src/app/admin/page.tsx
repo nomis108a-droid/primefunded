@@ -127,7 +127,9 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
           <Badge variant="outline" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground border-white/10">LIVE</Badge>
         </div>
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
-        <h3 className="text-2xl font-headline font-bold text-white group-hover:text-primary transition-colors">{value}</h3>
+        <h3 className="text-2xl font-headline font-bold text-white group-hover:text-primary transition-colors">
+          {value === -1 ? '...' : value}
+        </h3>
       </CardContent>
     </Card>
   );
@@ -205,7 +207,7 @@ const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, t
   <div className="space-y-8">
     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
       <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
-      <StatCard title="Total Volume" value={`$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
+      <StatCard title="Total Volume" value={stats.totalAum === -1 ? '...' : `$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
       <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
       <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
       <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
@@ -236,7 +238,7 @@ const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isL
 
 const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId, stats }: { users: any[], isLoading: boolean, onApprove: (id: string) => void, onReject: (id: string) => void, approvingUserId: string | null, stats: any }) => (
   <div className="space-y-6">
-    <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount} />
+    <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount === -1 ? '...' : stats.totalKycCount} />
     <DataTable loading={isLoading} data={users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
       <tr key={u.id} className="hover:bg-white/5 transition-colors">
         <td className="p-4 font-bold text-xs">{u.email}</td>
@@ -266,7 +268,7 @@ export default function AdminPage() {
   const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
   
   const [stats, setStats] = useState({ 
-    totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
+    totalUsersCount: -1, totalNodesCount: -1, totalAum: -1, pendingOrdersCount: -1, phasePassersCount: -1, totalLiquidationCount: -1, totalKycCount: -1 
   });
 
   const lastRefreshTimeRef = useRef(0);
@@ -321,13 +323,16 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     const now = Date.now();
-    // Throttle checks by using ref instead of stats dependency to prevent infinite loops
     if (!force && now - lastRefreshTimeRef.current < 10000) return;
 
     try {
-      const fetchCount = async (q: any) => {
+      const fetchCount = async (collName: string, q: any) => {
         try {
-          return (await getCountFromServer(q)).data().count;
+          const count = (await getCountFromServer(q)).data().count;
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[Admin-Stats] ${collName} count: ${count}`);
+          }
+          return count;
         } catch (e: any) {
           if (e.code === 'resource-exhausted') setIsQuotaExhausted(true);
           return null;
@@ -335,13 +340,13 @@ export default function AdminPage() {
       };
 
       const results = await Promise.allSettled([
-        fetchCount(collection(db, 'users')),
-        fetchCount(collection(db, 'demoAccounts')),
-        fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
-        fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
+        fetchCount('users', collection(db, 'users')),
+        fetchCount('demoAccounts', collection(db, 'demoAccounts')),
+        fetchCount('breaches', query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
+        fetchCount('passers', query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
+        fetchCount('orders', query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
         getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }),
-        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
+        fetchCount('kyc', query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
       const statsPayload: any = {};
@@ -377,6 +382,9 @@ export default function AdminPage() {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'), limit(100));
       unsub = onSnapshot(q, (snap) => {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[Admin-Listener] ${path} search results: ${snap.size}`);
+        }
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
       }, (err: any) => {
@@ -757,7 +765,7 @@ export default function AdminPage() {
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
 
           <TabsContent value="order-review" className="space-y-6">
-             <TabHeader title="Commerce: Order Review" count={tabData.orders?.length} onSearch={setSearchTerm} />
+             <TabHeader title="Commerce: Order Review" count={stats.pendingOrdersCount === -1 ? '...' : stats.pendingOrdersCount} onSearch={setSearchTerm} />
              <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'ACTIONS']} renderRow={(o) => (
                   <tr key={o.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{o.email}</td>
@@ -774,7 +782,7 @@ export default function AdminPage() {
 
         <TabsContent value="trading-nodes">
           <div className="space-y-6">
-            <TabHeader title="Trading Nodes" count={tabData.demoAccounts.length} onSearch={setSearchTerm} />
+            <TabHeader title="Trading Nodes" count={stats.totalNodesCount === -1 ? '...' : stats.totalNodesCount} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED', 'ACTIONS']} renderRow={(node) => (
               <tr key={node.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{node.email}</td>
@@ -792,7 +800,7 @@ export default function AdminPage() {
 
         <TabsContent value="breaches">
           <div className="space-y-6">
-            <TabHeader title="Breach Monitor" count={tabData.breaches.length} />
+            <TabHeader title="Breach Monitor" count={stats.totalLiquidationCount === -1 ? '...' : stats.totalLiquidationCount} />
             <DataTable loading={isLoading} data={tabData.breaches} columns={['TRADER', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
               <tr key={b.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{b.email}</td>
@@ -854,7 +862,7 @@ export default function AdminPage() {
 
         <TabsContent value="user-directory">
           <div className="space-y-6">
-            <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
+            <TabHeader title="User Directory" count={stats.totalUsersCount === -1 ? '...' : stats.totalUsersCount} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
               <tr key={u.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{u.name || u.displayName || '—'}</td>
@@ -1100,10 +1108,12 @@ export default function AdminPage() {
   );
 }
 
-function TabHeader({ title, count, onSearch }: { title: string, count?: number, onSearch?: (v: string) => void }) {
+function TabHeader({ title, count, onSearch }: { title: string, count?: number | string, onSearch?: (v: string) => void }) {
   return (
     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-      <h2 className="text-xl font-headline font-bold uppercase tracking-tight">{title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count})</span>}</h2>
+      <h2 className="text-xl font-headline font-bold uppercase tracking-tight">
+        {title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count === -1 ? '...' : count})</span>}
+      </h2>
       {onSearch && (
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
