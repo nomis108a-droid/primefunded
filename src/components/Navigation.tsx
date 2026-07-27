@@ -137,7 +137,8 @@ export const Navigation = memo(function Navigation() {
       '/referral',
       '/profile',
       '/payouts',
-      '/accounts'
+      '/accounts',
+      '/admin'
     ];
     routesToPrefetch.forEach(route => {
       router.prefetch(route);
@@ -193,10 +194,10 @@ export const Navigation = memo(function Navigation() {
             <nav className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-1">
               {isAdmin && (
                 <Link
-                  href="/admin/demo"
+                  href="/admin"
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-black uppercase tracking-tighter transition-all cursor-pointer border border-primary/20 mb-4 bg-primary/5",
-                    pathname === '/admin/demo' 
+                    pathname === '/admin' 
                       ? "bg-primary text-black border-primary" 
                       : "text-primary hover:bg-primary/20"
                   )}
