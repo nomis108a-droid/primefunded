@@ -1,7 +1,7 @@
 
 'use client';
 
-import { useEffect, useState, memo, useRef } from 'react';
+import { useEffect, useState, memo, useRef, useMemo } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,19 +10,25 @@ import {
   Zap,
   RefreshCw,
   ShieldCheck,
-  Fingerprint,
   Activity,
-  Target,
-  BarChart3,
-  Clock,
-  HeartPulse
+  HeartPulse,
+  Maximize,
+  Camera,
+  Crosshair as CrosshairIcon,
+  MousePointer2,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Search,
+  ChevronDown
 } from 'lucide-react';
 import { rtdb } from '@/lib/firebase';
 import { ref, onValue } from 'firebase/database';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
-import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, PriceScaleMode } from 'lightweight-charts';
+import { createChart, ColorType, CrosshairMode, IChartApi, ISeriesApi, PriceScaleMode, LineStyle, IPriceLine } from 'lightweight-charts';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const SYMBOLS = [
   "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD",
@@ -31,6 +37,13 @@ const SYMBOLS = [
   "SOLUSD", "XRPUSD", "BNBUSD", "DOGEUSD",
   "ADAUSD"
 ];
+
+const TIMEFRAMES = ["1S", "5S", "15S", "30S", "1M", "3M", "5M", "15M", "30M", "1H", "4H", "1D", "1W", "1MO"];
+
+const intervalMapping: Record<string, string> = {
+  "1M": "1min", "5M": "5min", "15M": "15min", "30M": "30min",
+  "1H": "1h", "4H": "4h", "1D": "1day", "1W": "1week", "1MO": "1month"
+};
 
 const MiniChart = memo(({ history }: { history: number[] }) => {
   if (!history || history.length < 2) return <div className="h-[40px] w-full border-b border-zinc-800" />;
@@ -56,17 +69,27 @@ export default function AdminPriceTracker() {
   const [prices, setPrices] = useState<Record<string, any>>({});
   const [history, setHistory] = useState<Record<string, number[]>>({}); 
   const [selectedSymbol, setSelectedSymbol] = useState("XAUUSD");
+  const [selectedTimeframe, setSelectedTimeframe] = useState("1M");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [currentTime, setCurrentTime] = useState("");
   const { toast } = useToast();
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
+  const priceLineRef = useRef<IPriceLine | null>(null);
   const candleState = useRef<{ time: number, open: number, high: number, low: number, close: number } | null>(null);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
     setIsAuthenticated(isVerified);
+    
+    const clockTimer = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now.toISOString().split('T')[1].split('.')[0] + " UTC");
+    }, 1000);
+    
+    return () => clearInterval(clockTimer);
   }, []);
 
   // 1. RTDB Global Listener
@@ -113,9 +136,9 @@ export default function AdminPriceTracker() {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11 },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
       width: chartContainerRef.current.clientWidth,
-      height: 500,
-      timeScale: { borderColor: '#27272a', timeVisible: true },
-      priceScale: { borderColor: '#27272a', mode: PriceScaleMode.Normal },
+      height: 600,
+      timeScale: { borderColor: '#27272a', timeVisible: true, secondsVisible: true },
+      priceScale: { borderColor: '#27272a', mode: PriceScaleMode.Normal, autoScale: true },
       crosshair: { mode: CrosshairMode.Normal },
     });
 
@@ -130,7 +153,7 @@ export default function AdminPriceTracker() {
       if (chartContainerRef.current && chartInstanceRef.current) {
         chartInstanceRef.current.applyOptions({ 
           width: chartContainerRef.current.clientWidth,
-          height: 500 
+          height: 600 
         });
       }
     };
@@ -144,21 +167,21 @@ export default function AdminPriceTracker() {
     };
   }, [isAuthenticated]);
 
-  // 3. Historical Data Fetch for Chart
+  // 3. Historical Data Fetch
   useEffect(() => {
     if (!seriesRef.current || !selectedSymbol) return;
     
-    // Clear candle state on symbol change to avoid jumps
     candleState.current = null;
+    const interval = intervalMapping[selectedTimeframe] || "1min";
 
-    fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=1min&limit=100`)
+    fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=${interval}&limit=200`)
       .then(res => res.json())
       .then(data => {
         if (data.candles && seriesRef.current) {
-          seriesRef.current.setData(data.candles);
+          const sorted = data.candles.sort((a: any, b: any) => a.time - b.time);
+          seriesRef.current.setData(sorted);
           
-          // Seed the current candle state from history
-          const last = data.candles[data.candles.length - 1];
+          const last = sorted[sorted.length - 1];
           if (last) {
             candleState.current = { ...last };
           }
@@ -166,39 +189,69 @@ export default function AdminPriceTracker() {
           chartInstanceRef.current?.timeScale().fitContent();
         }
       });
-  }, [selectedSymbol]);
+  }, [selectedSymbol, selectedTimeframe]);
 
-  // 4. Live Update Active Chart
+  // 4. Live Update active Chart and Price Line
   useEffect(() => {
     const live = prices[selectedSymbol];
     if (live && seriesRef.current && candleState.current) {
-      const time = Math.floor(Date.now() / 60000) * 60;
+      const isSeconds = selectedTimeframe.endsWith('S');
+      const intervalSec = isSeconds ? parseInt(selectedTimeframe) : (parseInt(selectedTimeframe) || 1) * 60;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const bucketTime = Math.floor(nowSec / intervalSec) * intervalSec;
+      
       const price = Number(live.price);
 
-      if (time > candleState.current.time) {
-        // Start a new 1-minute candle
+      if (bucketTime > candleState.current.time) {
         candleState.current = {
-          time,
+          time: bucketTime,
           open: price,
           high: price,
           low: price,
           close: price
         };
       } else {
-        // Update the current minute candle
         candleState.current.high = Math.max(candleState.current.high, price);
         candleState.current.low = Math.min(candleState.current.low, price);
         candleState.current.close = price;
       }
 
       seriesRef.current.update(candleState.current as any);
+
+      // Update Price Line
+      if (priceLineRef.current) {
+        seriesRef.current.removePriceLine(priceLineRef.current);
+      }
+      priceLineRef.current = seriesRef.current.createPriceLine({
+        price: price,
+        color: '#11b3f5',
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: 'LIVE',
+      });
     }
-  }, [prices, selectedSymbol]);
+  }, [prices, selectedSymbol, selectedTimeframe]);
+
+  const activeStats = useMemo(() => {
+    const live = prices[selectedSymbol];
+    if (!live) return { spread: "0.00", high: "---", low: "---", last: "---" };
+    const spread = Math.abs(live.ask - live.bid);
+    const hist = history[selectedSymbol] || [];
+    const high = hist.length ? Math.max(...hist) : live.price;
+    const low = hist.length ? Math.min(...hist) : live.price;
+    return {
+      spread: spread.toFixed(getPrecision(selectedSymbol)),
+      high: high.toLocaleString(undefined, { minimumFractionDigits: getPrecision(selectedSymbol) }),
+      low: low.toLocaleString(undefined, { minimumFractionDigits: getPrecision(selectedSymbol) }),
+      last: live.price.toLocaleString(undefined, { minimumFractionDigits: getPrecision(selectedSymbol) })
+    };
+  }, [prices, selectedSymbol, history]);
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
-        <Fingerprint className="w-12 h-12 text-primary/40 mb-4" />
+        <HeartPulse className="w-12 h-12 text-primary/40 mb-4" />
         <h2 className="text-xl font-headline font-bold text-white mb-2">Access Denied</h2>
         <p className="text-muted-foreground mb-8">Administrative credentials required to access the monitor.</p>
         <Button asChild><Link href="/admin">Return to Hub</Link></Button>
@@ -206,16 +259,19 @@ export default function AdminPriceTracker() {
     );
   }
 
+  function getPrecision(sym: string) {
+    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'XAGUSD', 'XPTUSD', 'XRPUSD', 'BNBUSD', 'DOGEUSD', 'ADAUSD'].includes(sym);
+    if (isForex) return 5;
+    if (sym === 'DOGEUSD') return 5;
+    if (sym === 'XRPUSD' || sym === 'ADAUSD') return 4;
+    return 2;
+  }
+
   const renderCard = (sym: string) => {
     const data = prices[sym];
     const hist = history[sym] || [];
     const isSelected = selectedSymbol === sym;
-    const isForex = !['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'XAGUSD', 'XPTUSD', 'XRPUSD', 'BNBUSD', 'DOGEUSD', 'ADAUSD'].includes(sym);
-    
-    let precision = 2;
-    if (isForex) precision = 5;
-    else if (sym === 'DOGEUSD') precision = 5;
-    else if (sym === 'XRPUSD' || sym === 'ADAUSD') precision = 4;
+    const precision = getPrecision(sym);
 
     return (
       <Card 
@@ -256,6 +312,16 @@ export default function AdminPriceTracker() {
     );
   };
 
+  const handleScreenshot = () => {
+    if (chartInstanceRef.current) {
+      const canvas = chartInstanceRef.current.takeScreenshot();
+      const link = document.createElement('a');
+      link.download = `primefunded-chart-${selectedSymbol}-${Date.now()}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-[#0a0a0a]">
       <Navigation />
@@ -293,36 +359,118 @@ export default function AdminPriceTracker() {
           </div>
         </header>
 
-        {/* Top Symbols (Rows 1-3) */}
+        {/* Top Symbols */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
           {SYMBOLS.slice(0, 12).map(renderCard)}
         </div>
 
-        {/* Primary Chart Area */}
-        <Card className="bg-zinc-950 border-zinc-800/80 mb-10 relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-full h-1 bg-primary/40 shadow-[0_0_15px_rgba(17,179,245,0.2)]" />
-          <div className="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-900/20">
-             <div className="flex items-center gap-3">
-               <Activity className="w-4 h-4 text-primary" />
-               <span className="font-headline font-black text-white uppercase tracking-wider">{selectedSymbol} <span className="text-zinc-600 font-bold ml-1 text-xs">Primary Execution Feed</span></span>
-             </div>
-             <div className="flex items-center gap-4">
-                <div className="flex flex-col items-end">
-                   <span className="text-[8px] font-black text-zinc-500 uppercase">Tick Capture</span>
-                   <span className="text-[10px] font-mono font-bold text-primary">{(prices[selectedSymbol]?.updatedAt ? new Date(prices[selectedSymbol].updatedAt).toLocaleTimeString() : 'WAITING...')}</span>
-                </div>
-                <div className="h-8 w-px bg-zinc-800" />
-                <Badge variant="secondary" className="bg-primary/10 text-primary uppercase font-black text-[9px] h-6 px-3">Real-Time Terminal</Badge>
-             </div>
-          </div>
-          <div ref={chartContainerRef} className="w-full h-[500px]" />
-        </Card>
+        {/* Real-Time Terminal Chart Section */}
+        <div className="flex flex-col gap-4 mb-10">
+          {/* Professional Toolbar Row */}
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-zinc-900/40 p-2 rounded-xl border border-zinc-800">
+            <div className="flex items-center gap-3">
+               <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
+                 <SelectTrigger className="w-[140px] bg-zinc-900 border-zinc-700 h-9 font-black uppercase text-[10px] tracking-widest">
+                   <SelectValue />
+                 </SelectTrigger>
+                 <SelectContent className="bg-zinc-900 border-zinc-700 text-white">
+                   {SYMBOLS.map(s => <SelectItem key={s} value={s} className="text-[10px] font-black">{s}</SelectItem>)}
+                 </SelectContent>
+               </Select>
+               
+               <div className="h-6 w-px bg-zinc-800" />
+               
+               <div className="flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[400px]">
+                 {TIMEFRAMES.map(tf => (
+                   <button
+                    key={tf}
+                    onClick={() => setSelectedTimeframe(tf)}
+                    className={cn(
+                      "px-2 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all whitespace-nowrap",
+                      selectedTimeframe === tf ? "bg-primary text-black" : "text-zinc-500 hover:text-white"
+                    )}
+                   >
+                     {tf}
+                   </button>
+                 ))}
+               </div>
+            </div>
 
-        {/* Bottom Symbols (Rows 4-5) */}
+            <div className="flex items-center gap-1.5">
+               <ToolbarButton icon={<CrosshairIcon size={14} />} onClick={() => chartInstanceRef.current?.applyOptions({ crosshair: { mode: CrosshairMode.Normal } })} />
+               <ToolbarButton icon={<MousePointer2 size={14} />} onClick={() => chartInstanceRef.current?.applyOptions({ crosshair: { mode: CrosshairMode.Magnet } })} />
+               <div className="h-6 w-px bg-zinc-800 mx-1" />
+               <ToolbarButton icon={<ZoomIn size={14} />} onClick={() => chartInstanceRef.current?.timeScale().zoomIn(0.1)} />
+               <ToolbarButton icon={<ZoomOut size={14} />} onClick={() => chartInstanceRef.current?.timeScale().zoomOut(0.1)} />
+               <ToolbarButton icon={<RotateCcw size={14} />} onClick={() => chartInstanceRef.current?.timeScale().resetTimeScale()} />
+               <div className="h-6 w-px bg-zinc-800 mx-1" />
+               <ToolbarButton icon={<Camera size={14} />} onClick={handleScreenshot} />
+               <ToolbarButton icon={<Maximize size={14} />} onClick={() => chartContainerRef.current?.requestFullscreen()} />
+            </div>
+          </div>
+
+          {/* Main Terminal Card */}
+          <Card className="bg-zinc-950 border-zinc-800/80 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-full h-1 bg-primary/40 shadow-[0_0_15px_rgba(17,179,245,0.2)]" />
+            
+            {/* Extended Trading Header */}
+            <div className="p-4 border-b border-zinc-900 flex flex-wrap justify-between items-center bg-zinc-900/20 gap-6">
+               <div className="flex flex-wrap items-center gap-8">
+                 <div className="flex items-center gap-3">
+                   <Activity className="w-4 h-4 text-primary" />
+                   <span className="font-headline font-black text-white uppercase tracking-wider text-sm">{selectedSymbol}</span>
+                   <Badge variant="outline" className="text-[8px] h-5 px-1.5 border-emerald-500/50 text-emerald-500 animate-pulse uppercase">LIVE</Badge>
+                 </div>
+                 
+                 <div className="flex gap-6 items-center">
+                    <HeaderStat label="BID" value={prices[selectedSymbol]?.bid || '---'} precision={getPrecision(selectedSymbol)} />
+                    <HeaderStat label="ASK" value={prices[selectedSymbol]?.ask || '---'} precision={getPrecision(selectedSymbol)} />
+                    <HeaderStat label="SPREAD" value={activeStats.spread} color="text-primary" />
+                    <HeaderStat label="LAST" value={activeStats.last} color="text-white" />
+                    <HeaderStat label="HIGH" value={activeStats.high} color="text-emerald-500" />
+                    <HeaderStat label="LOW" value={activeStats.low} color="text-red-500" />
+                 </div>
+               </div>
+
+               <div className="flex items-center gap-4">
+                  <div className="text-right">
+                     <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">UTC TIME</p>
+                     <p className="text-xs font-mono font-bold text-primary tabular-nums">{currentTime}</p>
+                  </div>
+                  <Badge variant="secondary" className="bg-primary/10 text-primary uppercase font-black text-[9px] h-6 px-3">UTC LIVE</Badge>
+               </div>
+            </div>
+
+            <div ref={chartContainerRef} className="w-full h-[600px] border-b border-zinc-900" />
+          </Card>
+        </div>
+
+        {/* Bottom Symbols */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-20">
           {SYMBOLS.slice(12).map(renderCard)}
         </div>
       </main>
+    </div>
+  );
+}
+
+function ToolbarButton({ icon, onClick }: { icon: any, onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-500 hover:text-primary hover:bg-white/5 transition-all"
+    >
+      {icon}
+    </button>
+  );
+}
+
+function HeaderStat({ label, value, precision, color = "text-zinc-400" }: { label: string, value: any, precision?: number, color?: string }) {
+  const displayValue = typeof value === 'number' && precision !== undefined ? value.toLocaleString(undefined, { minimumFractionDigits: precision }) : value;
+  return (
+    <div className="flex flex-col">
+      <span className="text-[8px] font-black text-zinc-600 uppercase tracking-tighter">{label}</span>
+      <span className={cn("text-[11px] font-mono font-black tabular-nums", color)}>{displayValue}</span>
     </div>
   );
 }
