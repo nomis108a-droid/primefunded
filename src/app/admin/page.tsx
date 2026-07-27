@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -16,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Lock, Filter, ArrowUpDown, ArrowUp, ArrowDown, Target, Hourglass, Smartphone, Laptop
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Lock, Filter, ArrowUpDown, ArrowUp, ArrowDown, Target, Hourglass, Smartphone, Laptop, Mail, Phone
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -921,7 +920,7 @@ export default function AdminPage() {
                 <td className="p-4 font-mono text-[10px] text-zinc-400">{b.id}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
                 <td className="p-4 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
-                <td className="p-4 text-xs text-red-400">{b.breachReason || '—'}</td>
+                <td className="p-4 text-xs text-red-400 leading-relaxed max-w-md">{b.breachReason || '—'}</td>
                 <td className="p-4 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
               </tr>
             )} />
