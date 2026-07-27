@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -9,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -462,7 +461,7 @@ export default function AdminPage() {
           setIsLoading(false);
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
-      case 'trades-payouts':
+      case 'trades-payout':
         unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
@@ -766,7 +765,7 @@ export default function AdminPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payout', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
                 <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
               ))}
             </TabsList>
@@ -843,7 +842,7 @@ export default function AdminPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="trades-payouts">
+        <TabsContent value="trades-payout">
           <div className="space-y-6">
             <div className="flex justify-between items-center"><TabHeader title="Trades Payouts" count={tabData.featuredPayouts.length} /><Button className="h-8 text-[10px] font-black bg-primary text-black" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-3 h-3 mr-1" /> ADD</Button></div>
             <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['TRADER', 'COUNTRY', 'PAID OUT ($)', 'PAYOUTS COUNT', 'PROOF', 'ACTIONS']} renderRow={(fp) => (
