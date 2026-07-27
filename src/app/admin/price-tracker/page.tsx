@@ -45,6 +45,15 @@ const intervalMapping: Record<string, string> = {
   "1H": "1h", "4H": "4h", "1D": "1day", "1W": "1week", "1MO": "1month"
 };
 
+const getIntervalSeconds = (tf: string) => {
+  const map: Record<string, number> = {
+    "1S": 1, "5S": 5, "15S": 15, "30S": 30,
+    "1M": 60, "3M": 180, "5M": 300, "15M": 900, "30M": 1800,
+    "1H": 3600, "4H": 14400, "1D": 86400, "1W": 604800, "1MO": 2592000
+  };
+  return map[tf] || 60;
+};
+
 const MiniChart = memo(({ history }: { history: number[] }) => {
   if (!history || history.length < 2) return <div className="h-[40px] w-full border-b border-zinc-800" />;
   const min = Math.min(...history);
@@ -72,6 +81,7 @@ export default function AdminPriceTracker() {
   const [selectedTimeframe, setSelectedTimeframe] = useState("1M");
   const [isSyncing, setIsSyncing] = useState(false);
   const [currentTime, setCurrentTime] = useState("");
+  const [candleCountdown, setCandleCountdown] = useState("00:00");
   const { toast } = useToast();
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -86,11 +96,25 @@ export default function AdminPriceTracker() {
     
     const clockTimer = setInterval(() => {
       const now = new Date();
+      const nowSec = Math.floor(now.getTime() / 1000);
       setCurrentTime(now.toISOString().split('T')[1].split('.')[0] + " UTC");
+
+      // Calculate Candle Countdown based on UTC synchronized boundaries
+      const intervalSec = getIntervalSeconds(selectedTimeframe);
+      const remaining = intervalSec - (nowSec % intervalSec);
+      
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      
+      // Pad minutes if it's over 99 (e.g. Daily/4H timeframes)
+      const mStr = m.toString().padStart(2, '0');
+      const sStr = s.toString().padStart(2, '0');
+      
+      setCandleCountdown(`${mStr}:${sStr}`);
     }, 1000);
     
     return () => clearInterval(clockTimer);
-  }, []);
+  }, [selectedTimeframe]);
 
   // 1. RTDB Global Listener
   useEffect(() => {
@@ -195,8 +219,7 @@ export default function AdminPriceTracker() {
   useEffect(() => {
     const live = prices[selectedSymbol];
     if (live && seriesRef.current && candleState.current) {
-      const isSeconds = selectedTimeframe.endsWith('S');
-      const intervalSec = isSeconds ? parseInt(selectedTimeframe) : (parseInt(selectedTimeframe) || 1) * 60;
+      const intervalSec = getIntervalSeconds(selectedTimeframe);
       const nowSec = Math.floor(Date.now() / 1000);
       const bucketTime = Math.floor(nowSec / intervalSec) * intervalSec;
       
@@ -444,6 +467,11 @@ export default function AdminPriceTracker() {
                   <div className="text-right">
                      <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">UTC TIME</p>
                      <p className="text-xs font-mono font-bold text-primary tabular-nums">{currentTime}</p>
+                  </div>
+                  <div className="h-8 w-px bg-zinc-800 mx-1 hidden sm:block" />
+                  <div className="text-right min-w-[60px] hidden sm:block">
+                     <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">New Candle</p>
+                     <p className="text-xs font-mono font-bold text-white tabular-nums">{candleCountdown}</p>
                   </div>
                   <Badge variant="secondary" className="bg-primary/10 text-primary uppercase font-black text-[9px] h-6 px-3">UTC LIVE</Badge>
                </div>
