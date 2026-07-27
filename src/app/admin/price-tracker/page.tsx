@@ -322,6 +322,14 @@ export default function AdminPriceTracker() {
     }
   };
 
+  const handleZoom = (factor: number) => {
+    const ts = chartInstanceRef.current?.timeScale();
+    if (ts) {
+      const currentSpacing = ts.options().barSpacing;
+      ts.applyOptions({ barSpacing: currentSpacing * factor });
+    }
+  };
+
   return (
     <div className="flex min-h-screen bg-[#0a0a0a]">
       <Navigation />
@@ -400,8 +408,8 @@ export default function AdminPriceTracker() {
                <ToolbarButton icon={<CrosshairIcon size={14} />} onClick={() => chartInstanceRef.current?.applyOptions({ crosshair: { mode: CrosshairMode.Normal } })} />
                <ToolbarButton icon={<MousePointer2 size={14} />} onClick={() => chartInstanceRef.current?.applyOptions({ crosshair: { mode: CrosshairMode.Magnet } })} />
                <div className="h-6 w-px bg-zinc-800 mx-1" />
-               <ToolbarButton icon={<ZoomIn size={14} />} onClick={() => chartInstanceRef.current?.timeScale().zoomIn(0.1)} />
-               <ToolbarButton icon={<ZoomOut size={14} />} onClick={() => chartInstanceRef.current?.timeScale().zoomOut(0.1)} />
+               <ToolbarButton icon={<ZoomIn size={14} />} onClick={() => handleZoom(1.2)} />
+               <ToolbarButton icon={<ZoomOut size={14} />} onClick={() => handleZoom(0.8)} />
                <ToolbarButton icon={<RotateCcw size={14} />} onClick={() => chartInstanceRef.current?.timeScale().resetTimeScale()} />
                <div className="h-6 w-px bg-zinc-800 mx-1" />
                <ToolbarButton icon={<Camera size={14} />} onClick={handleScreenshot} />
