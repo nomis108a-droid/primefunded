@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, AlertCircle
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -574,33 +574,58 @@ export default function AdminPage() {
   const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
     setActionLoading(true);
     try {
+      // 1. Initial Document Fetch
       let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
-      
-      const accountData: DemoAccount = accountSnap.exists() 
-        ? { id: accountSnap.id, ...(accountSnap.data() as Omit<DemoAccount, "id">) }
-        : { id: userIdOrAccountId, userId: userIdOrAccountId };
+      let userSnap;
+      let uid = '';
 
-      const uid = accountData.userId || userIdOrAccountId;
-      const userSnap = await getDoc(doc(db, 'users', uid));
-      
-      const userData: UserProfile = userSnap.exists()
-        ? { id: userSnap.id, ...(userSnap.data() as Omit<UserProfile, "id">) }
-        : { id: uid, email: '—' };
+      if (accountSnap.exists()) {
+        // Clicked from Trading Nodes or Account-based view
+        const accData = accountSnap.data();
+        uid = accData.userId;
+        userSnap = await getDoc(doc(db, 'users', uid));
+      } else {
+        // Clicked from User Directory (passed ID is UID)
+        uid = userIdOrAccountId;
+        userSnap = await getDoc(doc(db, 'users', uid));
+        // Re-query for associated account
+        const accQuery = query(collection(db, 'demoAccounts'), where('userId', '==', uid), limit(1));
+        const accsSnap = await getDocs(accQuery);
+        if (!accsSnap.empty) {
+          // Find most recently updated node
+          const sorted = accsSnap.docs.sort((a, b) => 
+            (b.data().updatedAt?.toMillis() || 0) - (a.data().updatedAt?.toMillis() || 0)
+          );
+          accountSnap = sorted[0] as any;
+        }
+      }
+
+      const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
+      const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log("[Admin-Inspect] Selected UID:", uid);
+        console.log("[Admin-Inspect] User doc path:", `users/${uid}`);
+        console.log("[Admin-Inspect] Trading Node exists:", !!accountData);
+        console.log("[Admin-Inspect] Fetched Name:", userData?.name || userData?.displayName);
+        console.log("[Admin-Inspect] Account Status:", accountData?.status);
+        console.log("[Admin-Inspect] Global Liquidity:", accountData?.balance);
+      }
 
       const merged = {
         ...userData,
         ...accountData,
-        accountStatus: accountData.status ?? "No Account Node",
-        globalLiquidity: accountData.balance ?? 0,
-        liquidity: accountData.equity ?? 0,
-        updatedAt: accountData.updatedAt ?? null
+        accountStatus: accountData ? (accountData.status || "active") : "No Account Node",
+        globalLiquidity: accountData ? (accountData.balance || 0) : null,
+        id: userData.id
       };
 
       setSelectedUser(merged);
-      setNodeFilterId(accountSnap.exists() ? accountSnap.id : null);
+      setNodeFilterId(accountData ? accountData.id : null);
       setInspectionTab('overview');
       setIsUserManagementOpen(true);
     } catch (e: any) {
+      if (process.env.NODE_ENV === 'development') console.error("[Admin-Inspect] Firestore Error:", e);
       toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
     } finally { setActionLoading(false); }
   }, [toast]);
@@ -756,7 +781,7 @@ export default function AdminPage() {
                 <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType}</td>
                 <td className="p-4 text-xs font-mono text-zinc-400">${node.startBalance?.toLocaleString() || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : node.status === 'passed' ? 'bg-blue-500/20 text-blue-500' : 'bg-red-500/20 text-red-500')}>{node.status}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : node.status === 'passed' ? 'bg-blue-500/20 text-blue-500' : node.status === 'red' ? 'bg-red-500/20 text-red-500' : 'bg-red-500/20 text-red-500')}>{node.status}</Badge></td>
                 <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
                 <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.userId)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
@@ -832,7 +857,7 @@ export default function AdminPage() {
             <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
               <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{u.displayName || '—'}</td>
+                <td className="p-4 font-bold text-xs">{u.name || u.displayName || '—'}</td>
                 <td className="p-4 text-xs text-zinc-300">{u.email}</td>
                 <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? 'bg-emerald-500/20 text-emerald-500' : u.kycStatus === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{u.kycStatus || 'none'}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
@@ -1003,7 +1028,7 @@ export default function AdminPage() {
                         { label: 'Country', value: selectedUser?.country },
                         { label: 'Join Date', value: selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—' },
                         { label: 'Account Status', value: selectedUser?.accountStatus },
-                        { label: 'Global Liquidity', value: selectedUser?.globalLiquidity ? `$${Number(selectedUser.globalLiquidity).toLocaleString()}` : '—' }
+                        { label: 'Global Liquidity', value: (selectedUser?.globalLiquidity !== undefined && selectedUser?.globalLiquidity !== null) ? `$${Number(selectedUser.globalLiquidity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—' }
                      ].map(item => (
                         <div key={item.label} className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
                            <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{item.label}</p>
