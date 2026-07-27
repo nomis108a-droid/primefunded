@@ -478,15 +478,19 @@ export default function AdminPage() {
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
-    if (isVerified) setIsAuthenticated(true);
+    const masterToken = document.cookie.includes('admin_master=93463962569392846256');
+    if (isVerified || masterToken) setIsAuthenticated(true);
+    else setShowAdminModal(true);
   }, []);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
       localStorage.setItem('adminVerified', 'true');
+      document.cookie = "admin_master=93463962569392846256; path=/; max-age=604800";
       setIsAuthenticated(true);
       setShowAdminModal(false);
+      setAdminError('');
     } else setAdminError('❌ Invalid credentials');
   };
 
@@ -556,7 +560,6 @@ export default function AdminPage() {
   const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
     setActionLoading(true);
     try {
-      // 1. Initial Document Fetch
       let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
       let userSnap;
       let uid = '';
@@ -676,6 +679,55 @@ export default function AdminPage() {
     );
   }, [payoutForm.country]);
 
+  if (authLoading) return null;
+
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <ShieldAlert className="w-16 h-16 text-destructive mb-6" />
+        <h1 className="text-3xl font-headline font-bold text-white mb-2">Unauthorized Access</h1>
+        <p className="text-muted-foreground max-w-md mb-8">This terminal is restricted to authorized administrative nodes only. Your identity has been flagged.</p>
+        <Button asChild><Link href="/dashboard">Return to Dashboard</Link></Button>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <Card className="w-full max-w-md bg-card/50 border-primary/20 backdrop-blur-xl">
+          <CardHeader className="text-center space-y-2">
+            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto text-primary border border-primary/20 mb-4">
+              <Lock className="w-8 h-8" />
+            </div>
+            <CardTitle className="text-2xl font-headline font-bold">Restricted Access</CardTitle>
+            <CardDescription>Enter the master key to unlock the administrative terminal.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleAdminAuth} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="master-key">Administrative Password</Label>
+                <Input 
+                  id="master-key" 
+                  type="password" 
+                  value={adminPasswordInput} 
+                  onChange={(e) => setAdminPasswordInput(e.target.value)}
+                  className="h-12 bg-secondary/50 border-border/50 text-center text-xl tracking-[0.5em]"
+                  placeholder="••••••••"
+                  autoFocus
+                />
+                {adminError && <p className="text-xs text-destructive font-bold text-center mt-2">{adminError}</p>}
+              </div>
+              <Button type="submit" className="w-full h-12 font-black text-lg cyan-box-glow bg-primary text-black">
+                Unlock Terminal <ArrowRight className="ml-2 w-5 h-5" />
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-background text-white">
       <Navigation />
@@ -689,11 +741,6 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center gap-4">
              <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3"><div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div><div><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p><p className="text-xs font-mono font-bold text-white">{instanceId}</p></div></div>
              <div className="flex gap-2">
-                <Button variant="outline" className="h-10 rounded-xl font-black bg-primary/10 text-primary border-primary/20 hover:bg-primary hover:text-black transition-all" asChild>
-                  <Link href="/admin/price-tracker">
-                    <HeartPulse className="w-4 h-4 mr-2" /> Price Synchronizer
-                  </Link>
-                </Button>
                 <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={handleResetHistory} disabled={actionLoading}><RotateCcw className="w-4 h-4 mr-2" /> Friday Rule Reset</Button>
                 <Button className="h-10 rounded-xl font-black bg-primary text-black" onClick={() => setIsGiftModalOpen(true)}>
                    <Gift className="w-4 h-4 mr-2" /> Gift Account
@@ -718,7 +765,7 @@ export default function AdminPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
+              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts', 'Price Synchronizer'].map(tab => (
                 <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
               ))}
             </TabsList>
@@ -864,8 +911,48 @@ export default function AdminPage() {
             )} />
           </div>
         </TabsContent>
+
+        <TabsContent value="price-synchronizer">
+          <div className="h-[600px] rounded-3xl border border-border bg-card/40 flex flex-col items-center justify-center p-12 text-center">
+             <HeartPulse className="w-16 h-16 text-primary mb-6 animate-pulse" />
+             <h2 className="text-3xl font-headline font-bold text-white mb-2 italic">Institutional Price Synchronizer</h2>
+             <p className="text-muted-foreground max-w-lg mb-8">This module provides high-frequency oversight of all liquidity providers and background risk engines.</p>
+             <Button className="font-black bg-primary text-black h-14 px-12 rounded-2xl shadow-lg shadow-primary/20" asChild>
+                <Link href="/admin/price-tracker">Enter Performance Monitor</Link>
+             </Button>
+          </div>
+        </TabsContent>
         </Tabs>
       </main>
+
+      {/* Admin Unlock Modal */}
+      <Dialog open={showAdminModal} onOpenChange={setShowAdminModal}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
+          <DialogHeader className="text-center space-y-2">
+            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto text-primary border border-primary/20 mb-4">
+              <Lock className="w-8 h-8" />
+            </div>
+            <DialogTitle className="text-2xl font-headline font-bold">Terminal Locked</DialogTitle>
+            <DialogDescription>Identity verified. Enter master key to provision session.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAdminAuth} className="space-y-6 pt-4">
+             <div className="space-y-2">
+                <Label htmlFor="auth-pwd">Master Administrative Password</Label>
+                <Input 
+                  id="auth-pwd"
+                  type="password" 
+                  value={adminPasswordInput} 
+                  onChange={e => setAdminPasswordInput(e.target.value)} 
+                  className="bg-zinc-900 border-zinc-800 h-12 text-center text-xl tracking-[0.5em]" 
+                  placeholder="••••••••"
+                  autoFocus
+                />
+                {adminError && <p className="text-xs text-destructive font-bold text-center mt-2">{adminError}</p>}
+             </div>
+             <Button type="submit" className="w-full h-12 font-black bg-primary text-black">UNLOCK MONITOR <ArrowRight className="ml-2 w-5 h-5" /></Button>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md">
