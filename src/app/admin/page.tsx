@@ -305,9 +305,6 @@ export default function AdminPage() {
       const fetchCount = async (collName: string, q: any) => {
         try {
           const count = (await getCountFromServer(q)).data().count;
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`[Admin-Stats] ${collName} count: ${count}`);
-          }
           return count;
         } catch (e: any) {
           if (e.code === 'resource-exhausted') setIsQuotaExhausted(true);
@@ -358,9 +355,6 @@ export default function AdminPage() {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
       const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'), limit(100));
       unsub = onSnapshot(q, (snap) => {
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`[Admin-Listener] ${path} search results: ${snap.size}`);
-        }
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
       }, (err: any) => {
@@ -458,13 +452,6 @@ export default function AdminPage() {
         unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)), (snap) => {
           const docs = snap.docs.map(d => {
             const data = d.data();
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`[Admin-Broadcast] ID: ${d.id}`, {
-                fields: Object.keys(data),
-                title: data.title || '—',
-                message: data.message || '—'
-              });
-            }
             return { id: d.id, ...data };
           });
           setTabData((prev: any) => ({ ...prev, broadcasts: docs }));
@@ -484,7 +471,7 @@ export default function AdminPage() {
       toast({ 
         variant: "destructive", 
         title: "Firestore Quota Exceeded", 
-        description: "The administrative data stream has been suspended to prevent overloading the backend. Please check your Google Cloud Console." 
+        description: "The administrative data stream has been suspended to protect project limits. Some data may be stale." 
       });
     }
   }, [isQuotaExhausted, toast]);
@@ -575,19 +562,15 @@ export default function AdminPage() {
       let uid = '';
 
       if (accountSnap.exists()) {
-        // Clicked from Trading Nodes or Account-based view
         const accData = accountSnap.data();
         uid = accData.userId;
         userSnap = await getDoc(doc(db, 'users', uid));
       } else {
-        // Clicked from User Directory (passed ID is UID)
         uid = userIdOrAccountId;
         userSnap = await getDoc(doc(db, 'users', uid));
-        // Re-query for associated account
         const accQuery = query(collection(db, 'demoAccounts'), where('userId', '==', uid), limit(1));
         const accsSnap = await getDocs(accQuery);
         if (!accsSnap.empty) {
-          // Find most recently updated node
           const sorted = accsSnap.docs.sort((a, b) => 
             (b.data().updatedAt?.toMillis() || 0) - (a.data().updatedAt?.toMillis() || 0)
           );
@@ -597,15 +580,6 @@ export default function AdminPage() {
 
       const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
       const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log("[Admin-Inspect] Selected UID:", uid);
-        console.log("[Admin-Inspect] User doc path:", `users/${uid}`);
-        console.log("[Admin-Inspect] Trading Node exists:", !!accountData);
-        console.log("[Admin-Inspect] Fetched Name:", userData?.name || userData?.displayName);
-        console.log("[Admin-Inspect] Account Status:", accountData?.status);
-        console.log("[Admin-Inspect] Global Liquidity:", accountData?.balance);
-      }
 
       const merged = {
         ...userData,
@@ -620,7 +594,6 @@ export default function AdminPage() {
       setInspectionTab('overview');
       setIsUserManagementOpen(true);
     } catch (e: any) {
-      if (process.env.NODE_ENV === 'development') console.error("[Admin-Inspect] Firestore Error:", e);
       toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
     } finally { setActionLoading(false); }
   }, [toast]);

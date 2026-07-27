@@ -233,6 +233,14 @@ export default function AdminPriceTracker() {
     }
   }, [prices, selectedSymbol, selectedTimeframe]);
 
+  const handleZoom = (factor: number) => {
+    const ts = chartInstanceRef.current?.timeScale();
+    if (ts) {
+      const currentSpacing = ts.options().barSpacing;
+      ts.applyOptions({ barSpacing: currentSpacing * factor });
+    }
+  };
+
   const activeStats = useMemo(() => {
     const live = prices[selectedSymbol];
     if (!live) return { spread: "0.00", high: "---", low: "---", last: "---" };
@@ -319,14 +327,6 @@ export default function AdminPriceTracker() {
       link.download = `primefunded-chart-${selectedSymbol}-${Date.now()}.png`;
       link.href = canvas.toDataURL();
       link.click();
-    }
-  };
-
-  const handleZoom = (factor: number) => {
-    const ts = chartInstanceRef.current?.timeScale();
-    if (ts) {
-      const currentSpacing = ts.options().barSpacing;
-      ts.applyOptions({ barSpacing: currentSpacing * factor });
     }
   };
 
