@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -32,7 +33,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit, type DocumentData } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -85,6 +86,30 @@ const COUNTRIES = [
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
   return { ...c, flag: String.fromCodePoint(...codePoints) };
 });
+
+interface UserProfile {
+  id: string;
+  email: string;
+  name?: string;
+  displayName?: string;
+  phone?: string;
+  country?: string;
+  kycStatus?: string;
+  createdAt?: any;
+  [key: string]: any;
+}
+
+interface DemoAccount {
+  id: string;
+  userId: string;
+  status?: string;
+  balance?: number;
+  equity?: number;
+  planType?: string;
+  startBalance?: number;
+  updatedAt?: any;
+  [key: string]: any;
+}
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colorMap: any = {
@@ -220,7 +245,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingKycUserId === u.id}>{approvingKycUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -238,6 +263,7 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
   
   const [stats, setStats] = useState({ 
     totalUsersCount: 0, totalNodesCount: 0, totalAum: 0, pendingOrdersCount: 0, phasePassersCount: 0, totalLiquidationCount: 0, totalKycCount: 0 
@@ -293,12 +319,21 @@ export default function AdminPage() {
   }, [searchTerm]);
 
   const refreshStats = useCallback(async (force = false) => {
-    if (!isAuthenticated || !isAuthorized || authLoading) return;
+    if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     const now = Date.now();
-    if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
+    // Throttle checks by using ref instead of stats dependency to prevent infinite loops
+    if (!force && now - lastRefreshTimeRef.current < 10000) return;
 
     try {
-      const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
+      const fetchCount = async (q: any) => {
+        try {
+          return (await getCountFromServer(q)).data().count;
+        } catch (e: any) {
+          if (e.code === 'resource-exhausted') setIsQuotaExhausted(true);
+          return null;
+        }
+      };
+
       const results = await Promise.allSettled([
         fetchCount(collection(db, 'users')),
         fetchCount(collection(db, 'demoAccounts')),
@@ -323,104 +358,123 @@ export default function AdminPage() {
         }
       });
 
-      setStats(prev => ({ ...prev, ...statsPayload }));
+      if (Object.keys(statsPayload).length > 0) {
+        setStats(prev => ({ ...prev, ...statsPayload }));
+      }
       lastRefreshTimeRef.current = now;
-    } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
-  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
+    } catch (err: any) { 
+      console.error('[Admin-Stats] Refresh fault:', err.message); 
+    }
+  }, [isAuthenticated, isAuthorized, authLoading, isQuotaExhausted]);
 
   useEffect(() => {
-    if (!isAuthenticated || !isAuthorized || authLoading) return;
+    if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     setIsLoading(true);
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
 
     if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
       const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
-      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'));
+      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'), limit(100));
       unsub = onSnapshot(q, (snap) => {
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
+      }, (err: any) => {
+        if (err.code === 'resource-exhausted') setIsQuotaExhausted(true);
       });
       return () => unsub();
     }
 
     switch (activeTab) {
-      case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
-          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, passers: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.updatedAt?.toDate?.()?.getTime() || 0; const bt = b.updatedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])), (snap) => {
-          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { const at = a.submittedAt?.toDate?.()?.getTime() || 0; const bt = b.submittedAt?.toDate?.()?.getTime() || 0; return bt - at; }) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'payout-hub':
-        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'trades-payouts':
-        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc')), (snap) => {
-          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'broadcasts':
-        unsub = onSnapshot(collection(db, 'broadcasts'), (snap) => {
-          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-            const aTime = a.sentAt?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
-            const bTime = b.sentAt?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
-            return bTime - aTime;
-          }) }));
-          setIsLoading(false);
-        });
-        break;
       case 'overview':
         refreshStats();
         {
-          const uO = onSnapshot(collection(db, 'users'), (snap) => {
+          const uO = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(10)), (snap) => {
             setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
             setIsLoading(false);
-          });
-          const oO = onSnapshot(collection(db, 'orders'), (snap) => {
+          }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+
+          const oO = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(10)), (snap) => {
             setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          });
+          }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+          
           unsub = () => { uO(); oO(); };
         }
+        break;
+      case 'user-directory':
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'trading-nodes':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'breaches':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
+          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { 
+            const at = a.updatedAt?.toDate?.()?.getTime() || 0; 
+            const bt = b.updatedAt?.toDate?.()?.getTime() || 0; 
+            return bt - at; 
+          }).slice(0, 100);
+          setTabData((prev: any) => ({ ...prev, breaches: docs }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'phase-passers':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed')), (snap) => {
+          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { 
+            const at = a.updatedAt?.toDate?.()?.getTime() || 0; 
+            const bt = b.updatedAt?.toDate?.()?.getTime() || 0; 
+            return bt - at; 
+          }).slice(0, 100);
+          setTabData((prev: any) => ({ ...prev, passers: docs }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'order-review':
+        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])), (snap) => {
+          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { 
+            const at = a.submittedAt?.toDate?.()?.getTime() || 0; 
+            const bt = b.submittedAt?.toDate?.()?.getTime() || 0; 
+            return bt - at; 
+          }).slice(0, 100);
+          setTabData((prev: any) => ({ ...prev, orders: docs }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'payout-hub':
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'trades-payouts':
+        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'referral-audit':
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'kyc-hub':
+        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        break;
+      case 'broadcasts':
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       default:
         refreshStats();
@@ -428,7 +482,17 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, isQuotaExhausted]);
+
+  useEffect(() => {
+    if (isQuotaExhausted) {
+      toast({ 
+        variant: "destructive", 
+        title: "Firestore Quota Exceeded", 
+        description: "The administrative data stream has been suspended to prevent overloading the backend. Please check your Google Cloud Console." 
+      });
+    }
+  }, [isQuotaExhausted, toast]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -507,111 +571,39 @@ export default function AdminPage() {
     } finally { setActionLoading(false); }
   };
 
-  const handleViewUserByAccount = async (userId: string) => {
-    if (!userId) return;
+  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
     setActionLoading(true);
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[Admin-Inspect] Selected UID: ${userId}`);
-      console.log(`[Admin-Inspect] Trading Node document path: demoAccounts where userId == ${userId}`);
-    }
-
     try {
-      let userObj = tabData.users?.find((u: any) => u.id === userId);
-      if (!userObj) {
-        const snap = await getDoc(doc(db, 'users', userId));
-        if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
-      }
-
-      if (userObj) {
-        try {
-          const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
-          
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`[Admin-Inspect] Document exists: ${!accSnap.empty}`);
-          }
-
-          if (!accSnap.empty) {
-            const accs = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            const latest: any = accs.sort((a: any, b: any) => {
-              const aTime = a.updatedAt?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
-              const bTime = b.updatedAt?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
-              return bTime - aTime;
-            })[0];
-
-            userObj = { 
-              ...userObj, 
-              _demoAccountId: latest.id, 
-              accountStatus: latest.status || 'active', 
-              globalLiquidity: latest.balance != null ? `$${Number(latest.balance).toLocaleString()}` : (latest.equity != null ? `$${Number(latest.equity).toLocaleString()}` : '$0.00'), 
-              updatedAt: latest.updatedAt || null 
-            };
-            setNodeFilterId(latest.id);
-
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`[Admin-Inspect] Account Status value: ${userObj.accountStatus}`);
-              console.log(`[Admin-Inspect] Global Liquidity value: ${userObj.globalLiquidity}`);
-            }
-          } else {
-            userObj = { ...userObj, accountStatus: 'No Account Node', globalLiquidity: '—' };
-          }
-        } catch (e: any) { 
-          console.warn('demoAccounts fetch failed:', e);
-          if (process.env.NODE_ENV === 'development') {
-            console.error(`[Admin-Inspect] Firestore error: ${e.message}`);
-          }
-          userObj = { ...userObj, accountStatus: 'Error fetching', globalLiquidity: '—' };
-        }
-
-        setSelectedUser(userObj);
-        setInspectionTab('overview');
-        setIsUserManagementOpen(true);
-      } else {
-        toast({ variant: "destructive", title: "Trader Not Found" });
-      }
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isUserManagementOpen || !selectedUser?.id) {
-      setUserTrades([]);
-      return;
-    }
-    
-    setTradesLoading(true);
-    const uid = selectedUser.id;
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[Admin-Inspect] selectedUser.id (UID): ${uid}`);
-      console.log(`[Admin-Inspect] nodeFilterId: ${nodeFilterId}`);
-      console.log(`[Admin-Inspect] Trade query path: demoTrades where userId == ${uid}`);
-    }
-
-    const qT = query(collection(db, 'demoTrades'), where('userId', '==', uid));
-    const unsubT = onSnapshot(qT, (snap) => {
-      const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
       
-      const sorted = trades.sort((a: any, b: any) => {
-        const at = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bt = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bt - at;
-      });
+      const accountData: DemoAccount = accountSnap.exists() 
+        ? { id: accountSnap.id, ...(accountSnap.data() as Omit<DemoAccount, "id">) }
+        : { id: userIdOrAccountId, userId: userIdOrAccountId };
 
-      setUserTrades(sorted);
-      setTradesLoading(false);
+      const uid = accountData.userId || userIdOrAccountId;
+      const userSnap = await getDoc(doc(db, 'users', uid));
+      
+      const userData: UserProfile = userSnap.exists()
+        ? { id: userSnap.id, ...(userSnap.data() as Omit<UserProfile, "id">) }
+        : { id: uid, email: '—' };
 
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[Admin-Inspect] Returned document count (trades): ${snap.size}`);
-      }
-    }, (err) => {
-      console.error("[Admin-Inspect] Trade history sync error:", err);
-      setTradesLoading(false);
-    });
+      const merged = {
+        ...userData,
+        ...accountData,
+        accountStatus: accountData.status ?? "No Account Node",
+        globalLiquidity: accountData.balance ?? 0,
+        liquidity: accountData.equity ?? 0,
+        updatedAt: accountData.updatedAt ?? null
+      };
 
-    return () => unsubT();
-  }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
+      setSelectedUser(merged);
+      setNodeFilterId(accountSnap.exists() ? accountSnap.id : null);
+      setInspectionTab('overview');
+      setIsUserManagementOpen(true);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
+    } finally { setActionLoading(false); }
+  }, [toast]);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -715,6 +707,16 @@ export default function AdminPage() {
           </div>
         </header>
 
+        {isQuotaExhausted && (
+          <div className="mb-8 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-4">
+            <AlertCircle className="text-destructive w-6 h-6" />
+            <div>
+              <p className="text-sm font-bold text-white">Firestore Quota Exceeded</p>
+              <p className="text-xs text-destructive/80">Real-time synchronization is temporarily suspended to protect project limits. Some data may be stale.</p>
+            </div>
+          </div>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <ScrollArea className="w-full">
             <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
@@ -736,7 +738,7 @@ export default function AdminPage() {
                     <td className="p-4 font-bold text-xs">{o.email}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{o.plan}</td>
                     <td className="p-4 text-xs font-mono text-zinc-400">{o.accountSize || '—'}</td>
-                    <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid != null ? `$${Number(o.amountPaid).toFixed(2)}` : (o.amount != null ? `$${Number(o.amount).toFixed(2)}` : '$0.00')}</td>
+                    <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid ? `$${Number(o.amountPaid).toFixed(2)}` : '$0.00'}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
                     <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
                     <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl, '_blank')}>PROOF</span> : null}</td>
@@ -825,19 +827,20 @@ export default function AdminPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="user-directory" className="space-y-6">
-             <TabHeader title="User Directory" count={tabData.users?.length} onSearch={setSearchTerm} />
-             <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
-                  <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-xs">{u.displayName || u.name || '—'}</td>
-                    <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
-                    <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? 'bg-emerald-500/20 text-emerald-500' : u.kycStatus === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{u.kycStatus || 'none'}</Badge></td>
-                    <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                    <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
-                  </tr>
-                )}
-             />
-          </TabsContent>
+        <TabsContent value="user-directory">
+          <div className="space-y-6">
+            <TabHeader title="User Directory" count={tabData.users.length} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
+              <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{u.displayName || '—'}</td>
+                <td className="p-4 text-xs text-zinc-300">{u.email}</td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? 'bg-emerald-500/20 text-emerald-500' : u.kycStatus === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{u.kycStatus || 'none'}</Badge></td>
+                <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
+                <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
+              </tr>
+            )} />
+          </div>
+        </TabsContent>
 
         <TabsContent value="broadcasts">
           <div className="space-y-6">
@@ -993,13 +996,20 @@ export default function AdminPage() {
             </TabsList>
 
             <TabsContent value="overview" className="m-0 space-y-6">
-                  <div className="grid grid-cols-3 gap-4">
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Email Address</p><p className="text-sm font-bold text-white">{selectedUser?.email || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Phone Identity</p><p className="text-sm font-bold text-white">{selectedUser?.phone || 'Not Provided'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Country</p><p className="text-sm font-bold text-white">{selectedUser?.country || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Join Date</p><p className="text-sm font-bold text-white">{selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Account Status</p><p className="text-sm font-bold text-white">{selectedUser?.accountStatus || '—'}</p></div>
-                     <div className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2"><p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Global Liquidity</p><p className="text-sm font-bold text-white">{selectedUser?.globalLiquidity || '—'}</p></div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                     {[
+                        { label: 'Email Address', value: selectedUser?.email },
+                        { label: 'Phone Identity', value: selectedUser?.phone || 'Not Provided' },
+                        { label: 'Country', value: selectedUser?.country },
+                        { label: 'Join Date', value: selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—' },
+                        { label: 'Account Status', value: selectedUser?.accountStatus },
+                        { label: 'Global Liquidity', value: selectedUser?.globalLiquidity ? `$${Number(selectedUser.globalLiquidity).toLocaleString()}` : '—' }
+                     ].map(item => (
+                        <div key={item.label} className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
+                           <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{item.label}</p>
+                           <p className="text-sm font-bold text-white">{item.value || '—'}</p>
+                        </div>
+                     ))}
                   </div>
             </TabsContent>
 

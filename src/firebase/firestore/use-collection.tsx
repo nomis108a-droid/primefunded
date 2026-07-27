@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useEffect, useState, useMemo, useRef } from 'react';
@@ -82,12 +83,11 @@ export function useCollection<T = DocumentData>(
             
             console.error(`[Firestore-Listener] Path: ${path} | Error:`, serverError.message || serverError);
             
-            // GLOBAL CIRCUIT BREAKER
+            // GLOBAL CIRCUIT BREAKER: Halt all listeners immediately on quota exhaustion
             if (serverError.code === 'resource-exhausted') {
               globalQuotaExhausted = true;
               setError(serverError);
               setLoading(false);
-              // Trigger a global UI event or context update if needed
               return;
             }
 
