@@ -63,7 +63,7 @@ const COUNTRIES = [
   { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
-  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
+  { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
   { name: "Micronesia", code: "FM" }, { name: "Moldova", code: "MD" }, { name: "Monaco", code: "MC" }, { name: "Mongolia", code: "MN" }, { name: "Montenegro", code: "ME" },
   { name: "Morocco", code: "MA" }, { name: "Mozambique", code: "MZ" }, { name: "Myanmar", code: "MM" }, { name: "Namibia", code: "NA" }, { name: "Nauru", code: "NR" },
   { name: "Nepal", code: "NP" }, { name: "Netherlands", code: "NL" }, { name: "New Zealand", code: "NZ" }, { name: "Nicaragua", code: "NI" }, { name: "Niger", code: "NE" },
@@ -220,7 +220,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingKycUserId === u.id}>{approvingKycUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -295,57 +295,38 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
-    if (!force && now - lastRefreshTimeRef.current < 10000) return;
+    if (!force && now - lastRefreshTimeRef.current < 10000 && stats.totalUsersCount > 0) return;
 
     try {
-      console.log(`[Admin-Stats] Refresh Initialized | Project: ${db.app.options.projectId}`);
-      
-      const fetchCount = async (collectionPath: string, constraints: any[] = []) => {
-        try {
-          const q = query(collection(db, collectionPath), ...constraints);
-          const snapSize = (await getCountFromServer(q)).data().count;
-          console.log(`[Dashboard Update] Collection: ${collectionPath} | Docs Found: ${snapSize}`);
-          return snapSize;
-        } catch (e: any) {
-          console.error(`[Dashboard Error] Collection: ${collectionPath} | Reason: ${e.message}`);
-          toast({ variant: "destructive", title: `Fetch Fail: ${collectionPath}`, description: e.message });
-          return null; // Return null so we don't overwrite with 0
-        }
-      };
-
+      const fetchCount = async (q: any) => (await getCountFromServer(q)).data().count;
       const results = await Promise.allSettled([
-        fetchCount('users'),
-        fetchCount('demoAccounts'),
-        fetchCount('demoAccounts', [where('status', 'in', ['blown', 'breach', 'terminated'])]),
-        fetchCount('demoAccounts', [where('status', '==', 'passed')]),
-        fetchCount('orders', [where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])]),
+        fetchCount(collection(db, 'users')),
+        fetchCount(collection(db, 'demoAccounts')),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
         getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }),
-        fetchCount('users', [where('kycStatus', 'in', ['pending', 'verified', 'rejected'])])
+        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
-      setStats(prev => {
-        const next = { ...prev };
-        results.forEach((r, i) => {
-          if (r.status === 'fulfilled' && r.value !== null) {
-            const val = r.value;
-            if (i === 0) next.totalUsersCount = val as number;
-            if (i === 1) next.totalNodesCount = val as number;
-            if (i === 2) next.totalLiquidationCount = val as number;
-            if (i === 3) next.phasePassersCount = val as number;
-            if (i === 4) next.pendingOrdersCount = val as number;
-            if (i === 5) next.totalAum = ((val as any)?.data?.()?.totalVolume || prev.totalAum) as number;
-            if (i === 6) next.totalKycCount = val as number;
-          }
-        });
-        console.log("Dashboard update", { source: 'refreshStats', stats: next });
-        return next;
+      const statsPayload: any = {};
+      results.forEach((r, i) => {
+        const val = r.status === 'fulfilled' ? r.value : null;
+        if (val !== null) {
+          if (i === 0) statsPayload.totalUsersCount = val;
+          if (i === 1) statsPayload.totalNodesCount = val;
+          if (i === 2) statsPayload.totalLiquidationCount = val;
+          if (i === 3) statsPayload.phasePassersCount = val;
+          if (i === 4) statsPayload.pendingOrdersCount = val;
+          if (i === 5) statsPayload.totalAum = (val as any)?.data?.()?.totalVolume || 0;
+          if (i === 6) statsPayload.totalKycCount = val;
+        }
       });
 
+      setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
-    } catch (err: any) { 
-      console.error('[Admin-Stats] Fatal Fault:', err.message); 
-    }
-  }, [isAuthenticated, isAuthorized, authLoading, toast]);
+    } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
+  }, [isAuthenticated, isAuthorized, authLoading]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -359,7 +340,7 @@ export default function AdminPage() {
       unsub = onSnapshot(q, (snap) => {
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
-      }, (e) => toast({ variant: "destructive", title: "Search Link Lost", description: e.message }));
+      });
       return () => unsub();
     }
 
@@ -429,16 +410,16 @@ export default function AdminPage() {
         });
         break;
       case 'overview':
-        refreshStats(true);
+        refreshStats();
         {
-          const uO = onSnapshot(collection(db, 'users'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const unsubO = onSnapshot(collection(db, 'orders'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
             setIsLoading(false);
           });
-          const oO = onSnapshot(collection(db, 'orders'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const unsubU = onSnapshot(collection(db, 'users'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           });
-          unsub = () => { uO(); oO(); };
+          unsub = () => { unsubO(); unsubU(); };
         }
         break;
       default:
@@ -447,7 +428,7 @@ export default function AdminPage() {
     }
 
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, toast]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -529,21 +510,51 @@ export default function AdminPage() {
   const handleViewUserByAccount = async (userId: string) => {
     if (!userId) return;
     setActionLoading(true);
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Admin-Inspect] Fetching user doc: users/${userId}`);
+    }
+
     try {
       let userObj = tabData.users?.find((u: any) => u.id === userId);
       if (!userObj) {
         const snap = await getDoc(doc(db, 'users', userId));
         if (snap.exists()) userObj = { id: snap.id, ...snap.data() };
       }
+
       if (userObj) {
         try {
           const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
           if (!accSnap.empty) {
-            const acc = { id: accSnap.docs[0].id, ...accSnap.docs[0].data() };
-            userObj = { ...userObj, _demoAccountId: acc.id, accountStatus: acc.status || '—', globalLiquidity: acc.globalLiquidity || acc.liquidity || '—', updatedAt: acc.updatedAt || null };
-            setNodeFilterId(acc.id);
+            const accs = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            const latest: any = accs.sort((a: any, b: any) => {
+              const at = a.updatedAt?.toDate?.()?.getTime() || 0;
+              const bt = b.updatedAt?.toDate?.()?.getTime() || 0;
+              return bt - at;
+            })[0];
+
+            userObj = { 
+              ...userObj, 
+              _demoAccountId: latest.id, 
+              accountStatus: latest.status || 'active', 
+              globalLiquidity: latest.balance != null ? `$${Number(latest.balance).toLocaleString()}` : '$0.00', 
+              updatedAt: latest.updatedAt || null 
+            };
+            setNodeFilterId(latest.id);
+
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[Admin-Inspect] Found node: demoAccounts/${latest.id}`);
+              console.log(`[Admin-Inspect] Status value: ${latest.status}`);
+              console.log(`[Admin-Inspect] Liquidity value: ${latest.balance}`);
+            }
+          } else {
+            userObj = { ...userObj, accountStatus: 'No active node', globalLiquidity: '$0.00' };
           }
-        } catch (e) { console.warn('demoAccounts fetch failed:', e); }
+        } catch (e) { 
+          console.warn('demoAccounts fetch failed:', e);
+          userObj = { ...userObj, accountStatus: 'Error fetching', globalLiquidity: '—' };
+        }
+
         setSelectedUser(userObj);
         setInspectionTab('overview');
         setIsUserManagementOpen(true);
@@ -556,25 +567,42 @@ export default function AdminPage() {
   };
 
   useEffect(() => {
-    if (!isUserManagementOpen) return;
-    if (nodeFilterId) {
-      const qT = query(collection(db, 'demoTrades'), where('accountId', '==', nodeFilterId));
-      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      })));
-      return () => unsubT();
-    } else if (selectedUser?.id) {
-      const qT = query(collection(db, 'demoTrades'), where('userId', '==', selectedUser.id));
-      const unsubT = onSnapshot(qT, (snap) => setUserTrades(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => {
-        const aTime = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
-        const bTime = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
-        return bTime - aTime;
-      })));
-      return () => unsubT();
+    if (!isUserManagementOpen || !selectedUser?.id) {
+      setUserTrades([]);
+      return;
     }
-  }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
+    
+    setTradesLoading(true);
+    const uid = selectedUser.id;
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[Admin-Inspect] Selected UID: ${uid}`);
+      console.log(`[Admin-Inspect] Trade query path: demoTrades where userId == ${uid}`);
+    }
+
+    const qT = query(collection(db, 'demoTrades'), where('userId', '==', uid));
+    const unsubT = onSnapshot(qT, (snap) => {
+      const trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      const sorted = trades.sort((a: any, b: any) => {
+        const at = a.openedAt?.toDate?.()?.getTime() || a.openTime?.toDate?.()?.getTime() || 0;
+        const bt = b.openedAt?.toDate?.()?.getTime() || b.openTime?.toDate?.()?.getTime() || 0;
+        return bt - at;
+      });
+
+      setUserTrades(sorted);
+      setTradesLoading(false);
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[Admin-Inspect] Returned document count (trades): ${snap.size}`);
+      }
+    }, (err) => {
+      console.error("[Admin-Inspect] Trade history sync error:", err);
+      setTradesLoading(false);
+    });
+
+    return () => unsubT();
+  }, [selectedUser?.id, isUserManagementOpen]);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -967,18 +995,38 @@ export default function AdminPage() {
             </TabsContent>
 
             <TabsContent value="trades" className="m-0">
-              <DataTable loading={tradesLoading} data={userTrades} columns={['INSTRUMENT', 'DIRECTION', 'UNITS', 'ENTRY', 'CURRENT', 'P&L', 'STATUS', 'OPENED']} renderRow={(trade) => (
-                <tr key={trade.id} className="hover:bg-white/5 transition-colors">
-                  <td className="p-3 font-bold text-xs">{trade.instrument || trade.pair || trade.symbol || '—'}</td>
-                  <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.direction || trade.side || trade.type || '').toLowerCase() === 'buy' || (trade.direction || trade.side || trade.type || '').toLowerCase() === 'long' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{trade.direction || trade.side || trade.type || '—'}</Badge></td>
-                  <td className="p-3 text-xs font-mono">{trade.units || trade.volume || trade.lots || '—'}</td>
-                  <td className="p-3 text-xs font-mono">{trade.price || trade.entryPrice || trade.openPrice || '—'}</td>
-                  <td className="p-3 text-xs font-mono">{trade.currentPrice || trade.marketPrice || '—'}</td>
-                  <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || trade.pl || trade.realizedPL || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>${Number(trade.pnl || trade.pl || trade.realizedPL || 0).toFixed(2)}</td>
-                  <td className="p-3 text-center"><Badge className={cn("text-[8px] font-black uppercase", (trade.state || trade.status || '').toUpperCase() === 'OPEN' || (trade.state || trade.status || '').toUpperCase() === 'FILL' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>{trade.state || trade.status || '—'}</Badge></td>
-                  <td className="p-3 text-[10px] text-muted-foreground">{trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : (trade.createdAt?.toDate ? format(trade.createdAt.toDate(), 'MMM d, HH:mm') : (trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : '—'))}</td>
-                </tr>
-              )} />
+              <DataTable 
+                loading={tradesLoading} 
+                data={userTrades} 
+                columns={['SYMBOL', 'TYPE', 'LOTS', 'ENTRY', 'EXIT', 'P&L', 'STATUS', 'OPENED']} 
+                renderRow={(trade) => (
+                  <tr key={trade.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-3 font-bold text-xs">{trade.symbol || '—'}</td>
+                    <td className="p-3 text-center">
+                      <Badge className={cn("text-[8px] font-black uppercase", (trade.type || '').toLowerCase() === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>
+                        {trade.type || '—'}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-xs font-mono">{trade.lots || '0.00'}</td>
+                    <td className="p-3 text-xs font-mono">${trade.openPrice?.toLocaleString() || '0.00'}</td>
+                    <td className="p-3 text-xs font-mono">{trade.closePrice ? `$${trade.closePrice.toLocaleString()}` : '—'}</td>
+                    <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                      ${Number(trade.pnl || 0).toFixed(2)}
+                    </td>
+                    <td className="p-3 text-center">
+                      <Badge className={cn("text-[8px] font-black uppercase", (trade.status || '').toUpperCase() === 'OPEN' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>
+                        {trade.status || '—'}
+                      </Badge>
+                    </td>
+                    <td className="p-3 text-[10px] text-muted-foreground">
+                      {trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : (trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : '—')}
+                    </td>
+                  </tr>
+                )} 
+              />
+              {userTrades.length === 0 && !tradesLoading && (
+                <div className="p-8 text-center text-xs text-zinc-500 italic">No trade history available.</div>
+              )}
             </TabsContent>
 
             <TabsContent value="breaches" className="m-0">
