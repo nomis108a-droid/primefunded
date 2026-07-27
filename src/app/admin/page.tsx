@@ -38,7 +38,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
-import Link from 'link';
+import Link from 'next/link';
 
 // Static Country List
 const COUNTRIES = [
@@ -222,7 +222,7 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
         <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
         <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
         <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveKyc(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
+          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
           <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
         </td>
       </tr>
@@ -962,7 +962,7 @@ export default function AdminPage() {
             <DialogDescription className="sr-only">Configure detailed payout parameters for the leaderboard showcase.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+             <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => payoutForm.name = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
              <div className="space-y-2 relative">
                 <Label>Country</Label>
                 <div className="relative">
@@ -971,7 +971,7 @@ export default function AdminPage() {
                     value={payoutForm.country} 
                     onChange={e => {
                       const val = e.target.value;
-                      setPayoutForm({...payoutForm, country: val});
+                      payoutForm.country = val;
                       setCountrySearchTerm(val);
                       setIsCountryAutocompleteOpen(true);
                     }}
@@ -993,7 +993,8 @@ export default function AdminPage() {
                             type="button" 
                             onPointerDown={e => { 
                               e.preventDefault(); 
-                              setPayoutForm(prev => ({ ...prev, country: c.name, countryFlag: c.flag }));
+                              payoutForm.country = c.name;
+                              payoutForm.countryFlag = c.flag;
                               setCountrySearchTerm(c.name);
                               setIsCountryAutocompleteOpen(false);
                             }}
@@ -1009,8 +1010,8 @@ export default function AdminPage() {
                 )}
              </div>
              <div className="grid grid-cols-2 gap-4">
-               <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
-               <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+               <div className="space-y-2"><Label>Paid Out ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => payoutForm.paidOut = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
+               <div className="space-y-2"><Label>Total Payouts Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => payoutForm.payoutsCount = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
              </div>
              <div className="space-y-2"><Label>Proof Screenshot</Label><Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 border-zinc-800 text-xs" /></div>
           </div>
@@ -1022,15 +1023,15 @@ export default function AdminPage() {
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
           <DialogHeader><DialogTitle>Provision Free Account</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => setGiftForm({...giftForm, traderId: e.target.value})} className="bg-zinc-900 border-zinc-800" /></div>
+            <div className="space-y-2"><Label>Trader ID or Email</Label><Input value={giftForm.traderId} onChange={e => giftForm.traderId = e.target.value} className="bg-zinc-900 border-zinc-800" /></div>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => setGiftForm({...giftForm, size: parseInt(v)})}>
+              <div className="space-y-2"><Label>Account Size</Label><Select onValueChange={v => giftForm.size = parseInt(v)}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="100k" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                   {[5, 10, 25, 50, 100, 200, 300].map(s => <SelectItem key={s} value={`${s*1000}`}>${s}k</SelectItem>)}
                 </SelectContent>
               </Select></div>
-              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+              <div className="space-y-2"><Label>Plan Type</Label><Select onValueChange={v => giftForm.plan = v}>
                 <SelectTrigger className="bg-zinc-900 border-zinc-800"><SelectValue placeholder="1-Step Pro" /></SelectTrigger>
                 <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
                   <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
@@ -1050,7 +1051,7 @@ export default function AdminPage() {
           <DialogHeader><DialogTitle>Reject KYC</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <Label>Rejection Reason</Label>
-            <Textarea value={kycRejectReason} onChange={e => setKycRejectReason(e.target.value)} placeholder="e.g. Blurry ID photo..." className="bg-zinc-900 border-zinc-800" />
+            <Textarea value={kycRejectReason} onChange={e => kycRejectReason = e.target.value} placeholder="e.g. Blurry ID photo..." className="bg-zinc-900 border-zinc-800" />
           </div>
           <DialogFooter>
              <Button variant="outline" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
@@ -1064,7 +1065,7 @@ export default function AdminPage() {
           <DialogHeader><DialogTitle>Reject Order</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <Label>Rejection Reason</Label>
-            <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. Proof mismatch..." className="bg-zinc-900 border-zinc-800" />
+            <Textarea value={rejectReason} onChange={e => rejectReason = e.target.value} placeholder="e.g. Proof mismatch..." className="bg-zinc-900 border-zinc-800" />
           </div>
           <DialogFooter>
              <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
