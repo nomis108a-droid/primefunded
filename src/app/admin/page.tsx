@@ -1101,7 +1101,37 @@ export default function AdminPage() {
                         { label: 'Country', value: selectedUser?.country },
                         { label: 'Join Date', value: selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—' },
                         { label: 'Account Status', value: selectedUser?.accountStatus ?? selectedUser?.status ?? (selectedUser?.id ? 'active' : 'No Account Node') },
-                        { label: 'Global Liquidity', value: (selectedUser?.globalLiquidity !== undefined && selectedUser?.globalLiquidity !== null) ? `$${Number(selectedUser.globalLiquidity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : (selectedUser?.balance !== undefined ? `$${Number(selectedUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—') }
+                        { label: 'Global Liquidity', value: (selectedUser?.globalLiquidity !== undefined && selectedUser?.globalLiquidity !== null) ? `$${Number(selectedUser.globalLiquidity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : (selectedUser?.balance !== undefined ? `$${Number(selectedUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—') },
+                        
+                        { label: 'Account Size', value: selectedUser?.startBalance ? `$${Number(selectedUser.startBalance).toLocaleString()}` : '—' },
+                        { 
+                          label: 'KYC Status', 
+                          value: (() => {
+                            const status = selectedUser?.kycStatus || 'none';
+                            if (status === 'none') return 'Not Submitted';
+                            return status.charAt(0).toUpperCase() + status.slice(1);
+                          })()
+                        },
+                        { 
+                          label: 'Plan Type', 
+                          value: selectedUser?.planType ? selectedUser.planType.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : '—' 
+                        },
+                        { 
+                          label: 'Balance', 
+                          value: selectedUser?.balance !== undefined ? `$${Number(selectedUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—' 
+                        },
+                        { 
+                          label: 'Equity', 
+                          value: selectedUser?.equity !== undefined ? `$${Number(selectedUser.equity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—' 
+                        },
+                        { 
+                          label: 'Phase', 
+                          value: selectedUser?.phase ? selectedUser.phase.replace(/(\D+)(\d+)/, '$1 $2').replace(/^\w/, (c: string) => c.toUpperCase()) : '—' 
+                        },
+                        { 
+                          label: 'Last Updated', 
+                          value: selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), "MMM d, yyyy '•' HH:mm 'UTC'") : '—' 
+                        }
                      ].map(item => (
                         <div key={item.label} className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
                            <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{item.label}</p>
