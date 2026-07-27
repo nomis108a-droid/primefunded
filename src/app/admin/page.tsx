@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -108,6 +108,8 @@ interface DemoAccount {
   planType?: string;
   startBalance?: number;
   updatedAt?: any;
+  accountStatus?: string;
+  globalLiquidity?: number;
   [key: string]: any;
 }
 
@@ -480,7 +482,18 @@ export default function AdminPage() {
         break;
       case 'broadcasts':
         unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const docs = snap.docs.map(d => {
+            const data = d.data();
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[Admin-Broadcast] ID: ${d.id}`, {
+                fields: Object.keys(data),
+                title: data.title || '—',
+                message: data.message || '—'
+              });
+            }
+            return { id: d.id, ...data };
+          });
+          setTabData((prev: any) => ({ ...prev, broadcasts: docs }));
           setIsLoading(false);
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
@@ -878,9 +891,10 @@ export default function AdminPage() {
         <TabsContent value="broadcasts">
           <div className="space-y-6">
             <TabHeader title="Broadcasts" count={tabData.broadcasts.length} />
-            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['MESSAGE', 'TYPE', 'SENT BY', 'SENT AT']} renderRow={(b) => (
+            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['TITLE', 'MESSAGE', 'TYPE', 'SENT BY', 'SENT AT']} renderRow={(b) => (
               <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 text-xs max-w-[300px] truncate">{b.message}</td>
+                <td className="p-4 font-bold text-xs">{b.title || '—'}</td>
+                <td className="p-4 text-xs max-w-[400px] leading-relaxed whitespace-pre-wrap">{b.message}</td>
                 <td className="p-4 text-[10px] uppercase text-zinc-400">{b.type || '—'}</td>
                 <td className="p-4 text-xs text-zinc-300">{b.sentBy || 'admin'}</td>
                 <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
@@ -1035,8 +1049,8 @@ export default function AdminPage() {
                         { label: 'Phone Identity', value: selectedUser?.phone || 'Not Provided' },
                         { label: 'Country', value: selectedUser?.country },
                         { label: 'Join Date', value: selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—' },
-                        { label: 'Account Status', value: selectedUser?.accountStatus },
-                        { label: 'Global Liquidity', value: (selectedUser?.globalLiquidity !== undefined && selectedUser?.globalLiquidity !== null) ? `$${Number(selectedUser.globalLiquidity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—' }
+                        { label: 'Account Status', value: selectedUser?.accountStatus ?? selectedUser?.status ?? (selectedUser?.id ? 'active' : 'No Account Node') },
+                        { label: 'Global Liquidity', value: (selectedUser?.globalLiquidity !== undefined && selectedUser?.globalLiquidity !== null) ? `$${Number(selectedUser.globalLiquidity).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : (selectedUser?.balance !== undefined ? `$${Number(selectedUser.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—') }
                      ].map(item => (
                         <div key={item.label} className="p-4 rounded-xl bg-zinc-900/50 border border-white/5 space-y-2">
                            <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">{item.label}</p>
