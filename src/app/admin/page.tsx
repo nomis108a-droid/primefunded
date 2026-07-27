@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse, AlertCircle
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Lock
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -916,7 +916,7 @@ export default function AdminPage() {
           <div className="h-[600px] rounded-3xl border border-border bg-card/40 flex flex-col items-center justify-center p-12 text-center">
              <HeartPulse className="w-16 h-16 text-primary mb-6 animate-pulse" />
              <h2 className="text-3xl font-headline font-bold text-white mb-2 italic">Institutional Price Synchronizer</h2>
-             <p className="text-muted-foreground max-w-lg mb-8">This module provides high-frequency oversight of all liquidity providers and background risk engines.</p>
+             <p className="text-muted-foreground max-lg mb-8">This module provides high-frequency oversight of all liquidity providers and background risk engines.</p>
              <Button className="font-black bg-primary text-black h-14 px-12 rounded-2xl shadow-lg shadow-primary/20" asChild>
                 <Link href="/admin/price-tracker">Enter Performance Monitor</Link>
              </Button>
@@ -1158,7 +1158,7 @@ export default function AdminPage() {
                 <tr key={b.id} className="hover:bg-white/5 transition-colors">
                   <td className="p-3 font-mono text-[10px] text-zinc-400">{b.id}</td>
                   <td className="p-3 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
-                  <td className="p-3 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
+                  <td className="p-4 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
                   <td className="p-3 text-xs text-red-400">{b.breachReason || '—'}</td>
                   <td className="p-3 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
                 </tr>
