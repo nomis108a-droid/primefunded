@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse, AlertCircle
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -33,7 +33,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit, type DocumentData } from 'firebase/firestore';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
@@ -86,32 +86,6 @@ const COUNTRIES = [
   const codePoints = c.code.toUpperCase().split("").map(char => 127397 + char.charCodeAt(0));
   return { ...c, flag: String.fromCodePoint(...codePoints) };
 });
-
-interface UserProfile {
-  id: string;
-  email: string;
-  name?: string;
-  displayName?: string;
-  phone?: string;
-  country?: string;
-  kycStatus?: string;
-  createdAt?: any;
-  [key: string]: any;
-}
-
-interface DemoAccount {
-  id: string;
-  userId: string;
-  status?: string;
-  balance?: number;
-  equity?: number;
-  planType?: string;
-  startBalance?: number;
-  updatedAt?: any;
-  accountStatus?: string;
-  globalLiquidity?: number;
-  [key: string]: any;
-}
 
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colorMap: any = {
@@ -807,7 +781,17 @@ export default function AdminPage() {
                 <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
                 <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType}</td>
                 <td className="p-4 text-xs font-mono text-zinc-400">${node.startBalance?.toLocaleString() || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", node.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : node.status === 'passed' ? 'bg-blue-500/20 text-blue-500' : node.status === 'red' ? 'bg-red-500/20 text-red-500' : node.status === 'red' ? 'bg-red-500/20 text-red-500')}>{node.status}</Badge></td>
+                <td className="p-4 text-center">
+                  <Badge className={cn(
+                    "text-[8px] font-black uppercase",
+                    node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
+                    node.status === 'passed' ? "bg-blue-500/20 text-blue-500" :
+                    (node.status === 'blown' || node.status === 'breach' || node.status === 'terminated') ? "bg-red-500/20 text-red-500" :
+                    "bg-zinc-500/20 text-zinc-400"
+                  )}>
+                    {node.status}
+                  </Badge>
+                </td>
                 <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
                 <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.userId)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
