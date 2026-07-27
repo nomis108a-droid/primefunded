@@ -58,6 +58,7 @@ export default function AdminPriceTracker() {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<any> | null>(null);
+  const candleState = useRef<{ time: number, open: number, high: number, low: number, close: number } | null>(null);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -108,7 +109,7 @@ export default function AdminPriceTracker() {
       layout: { background: { type: ColorType.Solid, color: '#09090b' }, textColor: '#71717a', fontSize: 11 },
       grid: { vertLines: { color: '#18181b' }, horzLines: { color: '#18181b' } },
       width: chartContainerRef.current.clientWidth,
-      height: 400,
+      height: 500,
       timeScale: { borderColor: '#27272a', timeVisible: true },
       priceScale: { borderColor: '#27272a', mode: PriceScaleMode.Normal },
       crosshair: { mode: CrosshairMode.Normal },
@@ -123,13 +124,18 @@ export default function AdminPriceTracker() {
 
     const handleResize = () => {
       if (chartContainerRef.current && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+        chartInstanceRef.current.applyOptions({ 
+          width: chartContainerRef.current.clientWidth,
+          height: 500 
+        });
       }
     };
-    window.addEventListener('resize', handleResize);
+    
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(chartContainerRef.current);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       chart.remove();
     };
   }, [isAuthenticated]);
@@ -137,12 +143,22 @@ export default function AdminPriceTracker() {
   // 3. Historical Data Fetch for Chart
   useEffect(() => {
     if (!seriesRef.current || !selectedSymbol) return;
+    
+    // Clear candle state on symbol change to avoid jumps
+    candleState.current = null;
 
     fetch(`/api/terminal/candles?symbol=${selectedSymbol}&interval=1min&limit=100`)
       .then(res => res.json())
       .then(data => {
         if (data.candles && seriesRef.current) {
           seriesRef.current.setData(data.candles);
+          
+          // Seed the current candle state from history
+          const last = data.candles[data.candles.length - 1];
+          if (last) {
+            candleState.current = { ...last };
+          }
+          
           chartInstanceRef.current?.timeScale().fitContent();
         }
       });
@@ -151,15 +167,27 @@ export default function AdminPriceTracker() {
   // 4. Live Update Active Chart
   useEffect(() => {
     const live = prices[selectedSymbol];
-    if (live && seriesRef.current) {
-      const lastCandleTime = Math.floor(Date.now() / 60000) * 60;
-      seriesRef.current.update({
-        time: lastCandleTime as any,
-        open: live.price, // Simple approximation for admin view
-        high: live.price,
-        low: live.price,
-        close: live.price
-      });
+    if (live && seriesRef.current && candleState.current) {
+      const time = Math.floor(Date.now() / 60000) * 60;
+      const price = Number(live.price);
+
+      if (time > candleState.current.time) {
+        // Start a new 1-minute candle
+        candleState.current = {
+          time,
+          open: price,
+          high: price,
+          low: price,
+          close: price
+        };
+      } else {
+        // Update the current minute candle
+        candleState.current.high = Math.max(candleState.current.high, price);
+        candleState.current.low = Math.min(candleState.current.low, price);
+        candleState.current.close = price;
+      }
+
+      seriesRef.current.update(candleState.current as any);
     }
   }, [prices, selectedSymbol]);
 
@@ -279,7 +307,7 @@ export default function AdminPriceTracker() {
                 <Badge variant="secondary" className="bg-primary/10 text-primary uppercase font-black text-[9px] h-6 px-3">Real-Time Terminal</Badge>
              </div>
           </div>
-          <div ref={chartContainerRef} className="w-full" />
+          <div ref={chartContainerRef} className="w-full h-[500px]" />
         </Card>
 
         {/* Bottom Symbols */}
