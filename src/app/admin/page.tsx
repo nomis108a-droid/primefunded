@@ -326,7 +326,7 @@ export default function AdminPage() {
       setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
     } catch (err: any) { console.error('[Admin-Stats] Refresh fault:', err.message); }
-  }, [isAuthenticated, isAuthorized, authLoading]);
+  }, [isAuthenticated, isAuthorized, authLoading, stats.totalUsersCount]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading) return;
@@ -412,14 +412,14 @@ export default function AdminPage() {
       case 'overview':
         refreshStats();
         {
-          const unsubO = onSnapshot(collection(db, 'orders'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const uO = onSnapshot(collection(db, 'users'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
             setIsLoading(false);
           });
-          const unsubU = onSnapshot(collection(db, 'users'), (snap) => {
-            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          const oO = onSnapshot(collection(db, 'orders'), (snap) => {
+            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           });
-          unsub = () => { unsubO(); unsubU(); };
+          unsub = () => { uO(); oO(); };
         }
         break;
       default:
@@ -512,7 +512,8 @@ export default function AdminPage() {
     setActionLoading(true);
     
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Admin-Inspect] Fetching user doc: users/${userId}`);
+      console.log(`[Admin-Inspect] Selected UID: ${userId}`);
+      console.log(`[Admin-Inspect] Trading Node document path: demoAccounts where userId == ${userId}`);
     }
 
     try {
@@ -525,33 +526,40 @@ export default function AdminPage() {
       if (userObj) {
         try {
           const accSnap = await getDocs(query(collection(db, 'demoAccounts'), where('userId', '==', userId)));
+          
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[Admin-Inspect] Document exists: ${!accSnap.empty}`);
+          }
+
           if (!accSnap.empty) {
             const accs = accSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             const latest: any = accs.sort((a: any, b: any) => {
-              const at = a.updatedAt?.toDate?.()?.getTime() || 0;
-              const bt = b.updatedAt?.toDate?.()?.getTime() || 0;
-              return bt - at;
+              const aTime = a.updatedAt?.toDate?.()?.getTime() || a.createdAt?.toDate?.()?.getTime() || 0;
+              const bTime = b.updatedAt?.toDate?.()?.getTime() || b.createdAt?.toDate?.()?.getTime() || 0;
+              return bTime - aTime;
             })[0];
 
             userObj = { 
               ...userObj, 
               _demoAccountId: latest.id, 
               accountStatus: latest.status || 'active', 
-              globalLiquidity: latest.balance != null ? `$${Number(latest.balance).toLocaleString()}` : '$0.00', 
+              globalLiquidity: latest.balance != null ? `$${Number(latest.balance).toLocaleString()}` : (latest.equity != null ? `$${Number(latest.equity).toLocaleString()}` : '$0.00'), 
               updatedAt: latest.updatedAt || null 
             };
             setNodeFilterId(latest.id);
 
             if (process.env.NODE_ENV === 'development') {
-              console.log(`[Admin-Inspect] Found node: demoAccounts/${latest.id}`);
-              console.log(`[Admin-Inspect] Status value: ${latest.status}`);
-              console.log(`[Admin-Inspect] Liquidity value: ${latest.balance}`);
+              console.log(`[Admin-Inspect] Account Status value: ${userObj.accountStatus}`);
+              console.log(`[Admin-Inspect] Global Liquidity value: ${userObj.globalLiquidity}`);
             }
           } else {
-            userObj = { ...userObj, accountStatus: 'No active node', globalLiquidity: '$0.00' };
+            userObj = { ...userObj, accountStatus: 'No Account Node', globalLiquidity: '—' };
           }
-        } catch (e) { 
+        } catch (e: any) { 
           console.warn('demoAccounts fetch failed:', e);
+          if (process.env.NODE_ENV === 'development') {
+            console.error(`[Admin-Inspect] Firestore error: ${e.message}`);
+          }
           userObj = { ...userObj, accountStatus: 'Error fetching', globalLiquidity: '—' };
         }
 
@@ -576,7 +584,8 @@ export default function AdminPage() {
     const uid = selectedUser.id;
     
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Admin-Inspect] Selected UID: ${uid}`);
+      console.log(`[Admin-Inspect] selectedUser.id (UID): ${uid}`);
+      console.log(`[Admin-Inspect] nodeFilterId: ${nodeFilterId}`);
       console.log(`[Admin-Inspect] Trade query path: demoTrades where userId == ${uid}`);
     }
 
@@ -602,7 +611,7 @@ export default function AdminPage() {
     });
 
     return () => unsubT();
-  }, [selectedUser?.id, isUserManagementOpen]);
+  }, [selectedUser?.id, isUserManagementOpen, nodeFilterId]);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -995,37 +1004,46 @@ export default function AdminPage() {
             </TabsContent>
 
             <TabsContent value="trades" className="m-0">
-              <DataTable 
-                loading={tradesLoading} 
-                data={userTrades} 
-                columns={['SYMBOL', 'TYPE', 'LOTS', 'ENTRY', 'EXIT', 'P&L', 'STATUS', 'OPENED']} 
-                renderRow={(trade) => (
-                  <tr key={trade.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-3 font-bold text-xs">{trade.symbol || '—'}</td>
-                    <td className="p-3 text-center">
-                      <Badge className={cn("text-[8px] font-black uppercase", (trade.type || '').toLowerCase() === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>
-                        {trade.type || '—'}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-xs font-mono">{trade.lots || '0.00'}</td>
-                    <td className="p-3 text-xs font-mono">${trade.openPrice?.toLocaleString() || '0.00'}</td>
-                    <td className="p-3 text-xs font-mono">{trade.closePrice ? `$${trade.closePrice.toLocaleString()}` : '—'}</td>
-                    <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>
-                      ${Number(trade.pnl || 0).toFixed(2)}
-                    </td>
-                    <td className="p-3 text-center">
-                      <Badge className={cn("text-[8px] font-black uppercase", (trade.status || '').toUpperCase() === 'OPEN' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>
-                        {trade.status || '—'}
-                      </Badge>
-                    </td>
-                    <td className="p-3 text-[10px] text-muted-foreground">
-                      {trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : (trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : '—')}
-                    </td>
-                  </tr>
-                )} 
-              />
-              {userTrades.length === 0 && !tradesLoading && (
-                <div className="p-8 text-center text-xs text-zinc-500 italic">No trade history available.</div>
+              {tradesLoading ? (
+                <div className="p-20 text-center flex flex-col items-center justify-center space-y-4">
+                  <Loader2 className="w-10 h-10 animate-spin text-primary/40" />
+                  <p className="text-xs font-black uppercase tracking-widest text-muted-foreground">Syncing Ledger...</p>
+                </div>
+              ) : userTrades.length === 0 ? (
+                <div className="p-20 text-center flex flex-col items-center justify-center space-y-4 opacity-40">
+                  <History className="w-12 h-12" />
+                  <p className="text-sm font-black uppercase tracking-widest">No trade history available.</p>
+                </div>
+              ) : (
+                <DataTable 
+                  loading={false} 
+                  data={userTrades} 
+                  columns={['SYMBOL', 'TYPE', 'LOTS', 'ENTRY', 'EXIT', 'P&L', 'STATUS', 'OPENED']} 
+                  renderRow={(trade) => (
+                    <tr key={trade.id} className="hover:bg-white/5 transition-colors">
+                      <td className="p-3 font-bold text-xs">{trade.symbol || '—'}</td>
+                      <td className="p-3 text-center">
+                        <Badge className={cn("text-[8px] font-black uppercase", (trade.type || '').toLowerCase() === 'buy' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>
+                          {trade.type || '—'}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-xs font-mono">{trade.lots || '0.00'}</td>
+                      <td className="p-3 text-xs font-mono">${trade.openPrice?.toLocaleString() || '0.00'}</td>
+                      <td className="p-3 text-xs font-mono">{trade.closePrice ? `$${trade.closePrice.toLocaleString()}` : '—'}</td>
+                      <td className={cn("p-3 text-xs font-mono font-bold", (trade.pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                        ${Number(trade.pnl || 0).toFixed(2)}
+                      </td>
+                      <td className="p-3 text-center">
+                        <Badge className={cn("text-[8px] font-black uppercase", (trade.status || '').toUpperCase() === 'OPEN' ? 'bg-blue-500/20 text-blue-500' : 'bg-zinc-500/20 text-zinc-400')}>
+                          {trade.status || '—'}
+                        </Badge>
+                      </td>
+                      <td className="p-3 text-[10px] text-muted-foreground">
+                        {trade.openedAt?.toDate ? format(trade.openedAt.toDate(), 'MMM d, HH:mm') : (trade.openTime?.toDate ? format(trade.openTime.toDate(), 'MMM d, HH:mm') : '—')}
+                      </td>
+                    </tr>
+                  )} 
+                />
               )}
             </TabsContent>
 
