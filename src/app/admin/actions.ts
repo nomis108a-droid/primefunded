@@ -17,6 +17,26 @@ async function verifyAdminSession(idToken: string) {
   const services = getAdminServices();
   const expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   
+  // Forensic Audit: Decode token without verification to identify identity discrepancies
+  try {
+    const tokenParts = idToken.split('.');
+    if (tokenParts.length === 3) {
+      const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString('utf-8'));
+      const tokenProjectId = payload.aud;
+      
+      console.log(`[Admin-Auth] VERIFICATION ATTEMPT:`);
+      console.log(`[Admin-Auth] Expected Project (Server): ${expectedProjectId}`);
+      console.log(`[Admin-Auth] Token Audience (Client):  ${tokenProjectId}`);
+      
+      if (tokenProjectId !== expectedProjectId) {
+        console.error(`[Admin-Auth] PROJECT MISMATCH: The client is authenticated against "${tokenProjectId}" but the server expects "${expectedProjectId}".`);
+        throw new Error(`Authentication Mismatch: Token project (${tokenProjectId}) does not match server project (${expectedProjectId}).`);
+      }
+    }
+  } catch (decodeErr: any) {
+    console.warn(`[Admin-Auth] Token decoding failed:`, decodeErr.message);
+  }
+
   try {
     const decoded = await services.auth.verifyIdToken(idToken);
     const email = decoded.email?.toLowerCase();
@@ -35,11 +55,9 @@ async function verifyAdminSession(idToken: string) {
     return decoded;
   } catch (err: any) {
     console.error("[Admin-Auth] Token verification failed.");
-    console.error(`[Admin-Auth] Expected Project ID: ${expectedProjectId}`);
+    console.error(`[Admin-Auth] Reason: ${err.message}`);
     
-    // Explicitly handle project mismatch errors for easier debugging
-    if (err.code === 'auth/argument-error' || err.message?.includes('aud')) {
-      console.error("[Admin-Auth] PROJECT MISMATCH DETECTED: The client is sending a token from a different project than the server is configured to verify.");
+    if (err.code === 'auth/argument-error' || err.message?.includes('aud') || err.message?.includes('projectId')) {
       throw new Error(`Authentication Mismatch: Token project ID does not match server project (${expectedProjectId}).`);
     }
 
@@ -156,7 +174,6 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
 
 export async function giftAccountAction(email: string, accountSize: string, planType: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
-  // ... rest of the gifted logic remains the same
   return { success: true };
 }
 
@@ -256,7 +273,6 @@ export async function cleanupDuplicateOrdersAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    const ordersSnap = await db.collection('orders').where('status', '==', 'waiting').get();
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }

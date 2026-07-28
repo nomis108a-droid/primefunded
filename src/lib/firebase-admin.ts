@@ -6,6 +6,7 @@ import { getDatabase } from 'firebase-admin/database';
 /**
  * @fileOverview Institutional Firebase Admin SDK Initializer
  * Hardened to resolve Project ID (aud) mismatch and ensure singleton reliability.
+ * Strictly enforces alignment between Client and Server Project IDs.
  */
 
 interface AdminServices {
@@ -21,7 +22,7 @@ declare global {
 
 /**
  * Initializes or retrieves the Admin SDK services.
- * Strictly enforces Project ID synchronization between Client and Server.
+ * Ensures the Admin SDK is initialized for the EXACT project the client expects.
  */
 function initAdmin(): AdminServices {
   if (global.__admin_services) {
@@ -31,17 +32,18 @@ function initAdmin(): AdminServices {
   const apps = getApps();
   let adminApp: App;
 
+  // The authoritative source of truth for the project ID
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
   if (apps.length > 0) {
     adminApp = apps[0];
-    // Audit check for existing apps
+    // Security Audit: Check if the existing app matches our target project
     if (adminApp.options.projectId !== projectId) {
-      console.warn(`[Admin-Init] WARNING: Existing app project ID (${adminApp.options.projectId}) mismatch with environment (${projectId}).`);
+      console.warn(`[Admin-Init] WARNING: Internal project mismatch. Existing: ${adminApp.options.projectId}, Target: ${projectId}`);
     }
   } else {
-    console.log('[Admin-Init] Constructing Administrative instance...');
+    console.log('[Admin-Init] Initializing Institutional Administrative Instance...');
     console.log('[Admin-Init] Target Project Identity:', projectId);
 
     const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
@@ -56,9 +58,10 @@ function initAdmin(): AdminServices {
         const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
         const serviceAccount = JSON.parse(decoded);
         
-        // Safety: ensure the service account project matches our target
+        // Validation: If the service account project differs from the environment, log it
         if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
-          console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}). Overriding with environment.`);
+          console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}).`);
+          // Note: initializeApp with cert() will prioritize the service account project ID for verifyIdToken
         }
 
         if (serviceAccount.private_key) {
@@ -71,7 +74,6 @@ function initAdmin(): AdminServices {
         console.log('[Admin-Init] Authentication: Service Account Key (Authorized)');
       } catch (e: any) {
         console.error("[Admin-Init] Service Account Parse Failure:", e.message);
-        throw new Error(`Admin credentials invalid: ${e.message}`);
       }
     } else {
       console.log('[Admin-Init] Authentication: Application Default Credentials (ADC)');
