@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Target, Hourglass, Smartphone, Laptop, Mail, Phone, Lock
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Target, Hourglass, Mail, Phone, Lock
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -38,6 +38,7 @@ import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
 // Static Country List
 const COUNTRIES = [
@@ -543,16 +544,6 @@ export default function AdminPage() {
 
     return () => unsub();
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, isQuotaExhausted]);
-
-  useEffect(() => {
-    if (isQuotaExhausted) {
-      toast({ 
-        variant: "destructive", 
-        title: "Firestore Quota Exceeded", 
-        description: "The administrative data stream has been suspended to protect project limits. Some data may be stale." 
-      });
-    }
-  }, [isQuotaExhausted, toast]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
@@ -1394,7 +1385,7 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                     <ScrollBar orientation="horizontal" />
-                  </Area>
+                  </ScrollArea>
                 </div>
               )}
             </TabsContent>
