@@ -1,3 +1,4 @@
+
 import { getApps, initializeApp, cert, applicationDefault, type App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
@@ -27,7 +28,9 @@ declare global {
  */
 function initAdmin(): AdminServices {
   // 1. Return cached services if available
-  if (global.__admin_services) return global.__admin_services;
+  if (global.__admin_services) {
+    return global.__admin_services;
+  }
 
   // 2. Check for existing apps to prevent "already exists" errors
   const apps = getApps();
@@ -35,7 +38,7 @@ function initAdmin(): AdminServices {
 
   if (apps.length > 0) {
     adminApp = apps[0];
-    console.log("[Admin-Init] Reusing existing administrative context");
+    console.log("[Admin-Init] Context Established: Reusing existing instance.");
   } else {
     // 3. Perform fresh initialization
     const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
@@ -43,9 +46,10 @@ function initAdmin(): AdminServices {
 
     let credential;
 
-    // PATH A: Use Explicit Service Account Key (Bypasses Metadata Server lookup)
+    // PATH A: Use Explicit Service Account Key (Highest Priority - Bypasses Metadata Server)
     if (b64Key && b64Key.trim() !== '') {
       try {
+        console.log("[Admin-Init] Initializing via explicit Service Account Key...");
         const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
         const serviceAccount = JSON.parse(decoded);
         
@@ -56,29 +60,30 @@ function initAdmin(): AdminServices {
         }
         
         credential = cert(serviceAccount);
-        console.log(`[Admin-Init] Master session established via Service Account Key`);
+        console.log(`[Admin-Init] SUCCESS: Master session established via cert().`);
       } catch (e: any) {
-        console.error("[Admin-Init] FAILED: Service Account Key is malformed:", e.message);
+        console.error("[Admin-Init] FAILURE: Service Account Key is malformed or invalid:", e.message);
       }
     }
 
-    // PATH B: Fallback to Application Default Credentials ONLY in recognized GCP environments
+    // PATH B: Fallback to Application Default Credentials
     if (!credential) {
       const isGCP = !!(process.env.GCP_PROJECT || process.env.K_SERVICE || process.env.FIREBASE_CONFIG || process.env.GOOGLE_CLOUD_PROJECT);
       if (isGCP) {
         try {
+          console.log("[Admin-Init] Initializing via Application Default Credentials (ADC)...");
           credential = applicationDefault();
-          console.log("[Admin-Init] Detected GCP environment, using Application Default Credentials");
+          console.log("[Admin-Init] SUCCESS: Established via applicationDefault().");
         } catch (e: any) {
-          console.error("[Admin-Init] ADC lookup failed:", e.message);
+          console.error("[Admin-Init] FAILURE: ADC initialization failed:", e.message);
         }
       } else {
-        console.warn("[Admin-Init] Local development detected. Metadata lookup bypassed to prevent timeout.");
+        console.warn("[Admin-Init] WARNING: Local/Studio environment detected without Service Account Key. Metadata lookup (ADC) is likely to fail.");
       }
     }
 
     if (!credential) {
-      throw new Error('Administrative services initialization failed: No valid credentials provided.');
+      throw new Error('Administrative services initialization failed: No valid credentials (B64 key or ADC) provided.');
     }
 
     try {
@@ -87,7 +92,7 @@ function initAdmin(): AdminServices {
         databaseURL
       });
     } catch (err: any) {
-      console.error("[Admin-Init] CRITICAL: Admin SDK failed to start:", err.message);
+      console.error("[Admin-Init] CRITICAL ERROR: App initialization failed:", err.message);
       throw new Error(`Admin service initialization failed: ${err.message}`);
     }
   }
