@@ -27,22 +27,28 @@ export async function verifyAdminAuth() {
  * Validates the Firebase ID Token and checks for admin privileges.
  */
 async function verifyAdminSession(idToken: string) {
-  if (!idToken) throw new Error("Please sign in as Administrator.");
+  if (!idToken) throw new Error("Authentication token is required.");
+  
   const auth = getAdminAuth();
-  if (!auth) throw new Error("Admin services unavailable");
-
+  
   try {
     const decoded = await auth.verifyIdToken(idToken);
     const email = decoded.email?.toLowerCase();
+    
+    if (!email) throw new Error("Identity verification failed: Email missing from token.");
+
     const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
 
-    if (!email || !adminList.includes(email)) {
+    if (!adminList.includes(email)) {
+      console.warn(`[Admin-Auth] Unauthorized access attempt by: ${email}`);
       throw new Error("Administrator permission required.");
     }
+    
     return decoded;
   } catch (err: any) {
-    if (err.code === 'auth/id-token-expired') throw new Error("Session expired. Please re-login.");
-    throw new Error("Administrator permission required.");
+    console.error("[Admin-Auth] Token Verification Error:", err.message);
+    if (err.code === 'auth/id-token-expired') throw new Error("Session expired. Please sign in again.");
+    throw new Error(`Authorization failed: ${err.message}`);
   }
 }
 
@@ -50,7 +56,6 @@ export async function updateGlobalSettingsAction(settings: any) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    if (!db) return { success: false, error: "Database unavailable" };
     await db.collection('settings').doc('payments').set(settings, { merge: true });
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
@@ -70,7 +75,6 @@ export async function giftAccountAction(email: string, accountSize: string, plan
   try {
     const db = getAdminDb();
     const auth = getAdminAuth();
-    if (!db || !auth) return { success: false, error: "Admin services offline." };
 
     const targetEmail = (email || "").trim().toLowerCase();
     if (!targetEmail) return { success: false, error: "Email is required." };
@@ -165,7 +169,6 @@ export async function approveManualOrderAction(id: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    if (!db) throw new Error("Database unavailable");
     const orderRef = db.collection('orders').doc(id);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
@@ -198,7 +201,6 @@ export async function updateOrderStatusAction(id: string, status: string, reason
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    if (!db) throw new Error("Admin DB unavailable");
     
     const orderRef = db.collection('orders').doc(id);
     const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
@@ -212,7 +214,6 @@ export async function resetSingleAccountAction(accountId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    if (!db) throw new Error("Admin DB unavailable");
     
     const accountRef = db.collection('demoAccounts').doc(accountId);
     const accountSnap = await accountRef.get();
@@ -241,7 +242,6 @@ export async function resetAllHistoryAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    if (!db) throw new Error("Admin DB unavailable");
     
     const tradesSnap = await db.collection('demoTrades').get();
     const batch = db.batch();
@@ -258,7 +258,6 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    if (!db) return { success: false, error: "Database unavailable" };
     
     await db.collection('broadcasts').add({ ...data, sentAt: FieldValue.serverTimestamp() });
     
@@ -290,16 +289,21 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
  * Institutional KYC Action with Audit Logging
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
+  console.log(`[KYC-Action] Received request for userId: ${userId}, status: ${status}`);
   try {
     // 1. Authorization Gate - Verify Session
     const adminUser = await verifyAdminSession(idToken);
     
     const db = getAdminDb();
-    if (!db) throw new Error("Admin services unavailable");
+    const auth = getAdminAuth();
 
     const userRef = db.collection('users').doc(userId);
     const userSnap = await userRef.get();
-    if (!userSnap.exists) throw new Error("KYC record not found.");
+    
+    if (!userSnap.exists) {
+      console.error(`[KYC-Action] User document not found: ${userId}`);
+      throw new Error("KYC record not found in database.");
+    }
     
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
@@ -327,10 +331,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     
     // Set Custom Claims for Verified Users via Admin SDK
     if (status === 'verified') {
-      const auth = getAdminAuth();
-      if (auth) {
-        await auth.setCustomUserClaims(userId, { kycVerified: true });
-      }
+      await auth.setCustomUserClaims(userId, { kycVerified: true });
     }
     
     // Create notification
@@ -357,9 +358,10 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     });
     
     await batch.commit();
+    console.log(`[KYC-Action] Successfully updated status for ${userId} to ${status}`);
     return { success: true };
   } catch (err: any) { 
-    console.error('[Admin-KYC-Action] Failure:', err.message);
+    console.error('[KYC-Action] Fatal Failure:', err.message);
     return { success: false, error: err.message }; 
   }
 }
@@ -368,8 +370,6 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    if (!db) throw new Error("Admin DB unavailable");
-    
     await db.collection('payouts').doc(payoutId).update({ status, updatedAt: FieldValue.serverTimestamp() });
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
@@ -379,8 +379,6 @@ export async function cleanupDuplicateOrdersAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    if (!db) throw new Error("Admin DB unavailable");
-    
     const ordersSnap = await db.collection('orders').where('status', '==', 'waiting').get();
     // Logic for cleanup of expired waiting orders...
     return { success: true };
