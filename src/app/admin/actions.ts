@@ -7,7 +7,7 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
- * SECURITY HELPER: Admin Verification
+ * SECURITY HELPER: Admin Verification (Legacy)
  * Checks for the master key session cookie established in the terminal.
  */
 export async function verifyAdminAuth() {
@@ -20,6 +20,30 @@ export async function verifyAdminAuth() {
     
     return false; 
   } catch (error) { return false; }
+}
+
+/**
+ * Institutional Admin Session Verification
+ * Validates the Firebase ID Token and checks for admin privileges.
+ */
+async function verifyAdminSession(idToken: string) {
+  if (!idToken) throw new Error("Please sign in as Administrator.");
+  const auth = getAdminAuth();
+  if (!auth) throw new Error("Admin services unavailable");
+
+  try {
+    const decoded = await auth.verifyIdToken(idToken);
+    const email = decoded.email?.toLowerCase();
+    const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
+
+    if (!email || !adminList.includes(email)) {
+      throw new Error("Administrator permission required.");
+    }
+    return decoded;
+  } catch (err: any) {
+    if (err.code === 'auth/id-token-expired') throw new Error("Session expired. Please re-login.");
+    throw new Error("Administrator permission required.");
+  }
 }
 
 export async function updateGlobalSettingsAction(settings: any) {
@@ -265,27 +289,22 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 /**
  * Institutional KYC Action with Audit Logging
  */
-export async function updateKycStatusAction(userId: string, status: string, reason?: string, adminEmail?: string, adminId?: string) {
+export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
   try {
-    // 1. Authorization Gate
-    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized: Master Token Missing" };
+    // 1. Authorization Gate - Verify Session
+    const adminUser = await verifyAdminSession(idToken);
     
     const db = getAdminDb();
     if (!db) throw new Error("Admin services unavailable");
 
-    // 2. Secondary Role Verification
-    if (adminEmail && !ADMIN_EMAILS.map(e => e.toLowerCase()).includes(adminEmail.toLowerCase())) {
-       return { success: false, error: "Unauthorized: Individual identity not permitted." };
-    }
-
     const userRef = db.collection('users').doc(userId);
     const userSnap = await userRef.get();
-    if (!userSnap.exists) throw new Error("Trader profile not found.");
+    if (!userSnap.exists) throw new Error("KYC record not found.");
     
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
 
-    // 3. Execution via Atomic Batch
+    // 2. Execution via Atomic Batch
     const batch = db.batch();
     
     const updates: any = { 
@@ -293,8 +312,16 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       kycVerified: status === 'verified', 
       updatedAt: FieldValue.serverTimestamp() 
     };
-    if (reason) updates.kycRejectionReason = reason;
-    else if (status === 'verified') updates.kycRejectionReason = null;
+
+    if (status === 'verified') {
+      updates.approvedAt = FieldValue.serverTimestamp();
+      updates.approvedBy = adminUser.email;
+      updates.kycRejectionReason = null;
+    } else if (status === 'rejected') {
+      updates.rejectedAt = FieldValue.serverTimestamp();
+      updates.rejectedBy = adminUser.email;
+      updates.kycRejectionReason = reason || "Documents invalid or unclear.";
+    }
     
     batch.update(userRef, updates);
     
@@ -316,11 +343,11 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // 4. Institutional Audit Logging
+    // 3. Institutional Audit Logging
     const auditRef = db.collection('kyc_audit_logs').doc();
     batch.set(auditRef, {
-      adminId: adminId || 'unknown',
-      adminEmail: adminEmail || 'unknown',
+      adminId: adminUser.uid,
+      adminEmail: adminUser.email,
       userId,
       userEmail: userData.email || 'unknown',
       previousStatus: prevStatus,

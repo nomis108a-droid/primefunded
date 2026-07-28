@@ -371,6 +371,58 @@ export default function AdminPage() {
     }
   }, [isAuthenticated, isAuthorized, authLoading, isQuotaExhausted]);
 
+  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
+    setActionLoading(true);
+    try {
+      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
+      let userSnap;
+      let uid = '';
+
+      if (accountSnap.exists()) {
+        const accData = accountSnap.data();
+        uid = accData.userId;
+        userSnap = await getDoc(doc(db, 'users', uid));
+      } else {
+        uid = userIdOrAccountId;
+        userSnap = await getDoc(doc(db, 'users', uid));
+        const accQuery = query(collection(db, 'demoAccounts'), where('userId', '==', uid), limit(1));
+        const accsSnap = await getDocs(accQuery);
+        if (!accsSnap.empty) {
+          const sorted = accsSnap.docs.sort((a, b) => 
+            (b.data().updatedAt?.toMillis() || 0) - (a.data().updatedAt?.toMillis() || 0)
+          );
+          accountSnap = sorted[0] as any;
+        }
+      }
+
+      const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
+      const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
+
+      const merged = {
+        ...userData,
+        ...accountData,
+        accountStatus: accountData ? (accountData.status || "active") : "No Account Node",
+        globalLiquidity: accountData ? (accountData.balance || 0) : null,
+        id: userData.id
+      };
+
+      setSelectedUser(merged);
+      setNodeFilterId(accountData ? accountData.id : null);
+      
+      // Fetch full trade history for inspection
+      setTradesLoading(true);
+      const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'));
+      const tradesSnap = await getDocs(tradesQ);
+      setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setTradesLoading(false);
+
+      setInspectionTab('overview');
+      setIsUserManagementOpen(true);
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
+    } finally { setActionLoading(false); }
+  }, [toast]);
+
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     setIsLoading(true);
@@ -530,9 +582,14 @@ export default function AdminPage() {
   }, [refreshStats, toast]);
 
   const handleApproveKyc = useCallback(async (userId: string) => {
+    if (!user) {
+      toast({ variant: "destructive", title: "Please sign in as Administrator." });
+      return;
+    }
     setApprovingKycUserId(userId);
     try {
-      const res = await updateKycStatusAction(userId, 'verified', undefined, user?.email || 'unknown', user?.uid || 'unknown');
+      const idToken = await user.getIdToken();
+      const res = await updateKycStatusAction(idToken, userId, 'verified');
       if (res.success) { 
         toast({ title: "KYC Approved Successfully" }); 
         refreshStats(true); 
@@ -541,17 +598,24 @@ export default function AdminPage() {
         }
       }
       else toast({ variant: "destructive", title: "Failed", description: res.error });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Failed", description: e.message });
     } finally { setApprovingKycUserId(null); }
-  }, [refreshStats, toast, user, selectedUser]);
+  }, [refreshStats, toast, user, selectedUser, handleViewUserByAccount]);
 
   const handleRejectKyc = async () => {
     if (!kycRejectingUserId || !kycRejectReason.trim()) {
       toast({ variant: "destructive", title: "Reason Required" });
       return;
     }
+    if (!user) {
+      toast({ variant: "destructive", title: "Please sign in as Administrator." });
+      return;
+    }
     setActionLoading(true);
     try {
-      const res = await updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason.trim(), user?.email || 'unknown', user?.uid || 'unknown');
+      const idToken = await user.getIdToken();
+      const res = await updateKycStatusAction(idToken, kycRejectingUserId, 'rejected', kycRejectReason.trim());
       if (res.success) {
         toast({ title: "KYC Rejected Successfully" });
         setIsKycRejectModalOpen(false);
@@ -562,7 +626,7 @@ export default function AdminPage() {
           handleViewUserByAccount(kycRejectingUserId);
         }
       } else {
-        throw new Error(res.error || "Rejection failed");
+        toast({ variant: "destructive", title: "Failed", description: res.error });
       }
     } catch (e: any) {
       toast({ variant: "destructive", title: "Failed", description: e.message });
@@ -588,58 +652,6 @@ export default function AdminPage() {
       toast({ title: "Featured payout saved." });
     } finally { setActionLoading(false); }
   };
-
-  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
-    setActionLoading(true);
-    try {
-      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
-      let userSnap;
-      let uid = '';
-
-      if (accountSnap.exists()) {
-        const accData = accountSnap.data();
-        uid = accData.userId;
-        userSnap = await getDoc(doc(db, 'users', uid));
-      } else {
-        uid = userIdOrAccountId;
-        userSnap = await getDoc(doc(db, 'users', uid));
-        const accQuery = query(collection(db, 'demoAccounts'), where('userId', '==', uid), limit(1));
-        const accsSnap = await getDocs(accQuery);
-        if (!accsSnap.empty) {
-          const sorted = accsSnap.docs.sort((a, b) => 
-            (b.data().updatedAt?.toMillis() || 0) - (a.data().updatedAt?.toMillis() || 0)
-          );
-          accountSnap = sorted[0] as any;
-        }
-      }
-
-      const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
-      const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
-
-      const merged = {
-        ...userData,
-        ...accountData,
-        accountStatus: accountData ? (accountData.status || "active") : "No Account Node",
-        globalLiquidity: accountData ? (accountData.balance || 0) : null,
-        id: userData.id
-      };
-
-      setSelectedUser(merged);
-      setNodeFilterId(accountData ? accountData.id : null);
-      
-      // Fetch full trade history for inspection
-      setTradesLoading(true);
-      const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'));
-      const tradesSnap = await getDocs(tradesQ);
-      setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setTradesLoading(false);
-
-      setInspectionTab('overview');
-      setIsUserManagementOpen(true);
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
-    } finally { setActionLoading(false); }
-  }, [toast]);
 
   const handleResetHistory = useCallback(async () => {
     if (!confirm('CRITICAL: This will PERMANENTLY DELETE all trade history for all users. Continue?')) return;
@@ -1382,7 +1394,7 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                     <ScrollBar orientation="horizontal" />
-                  </ScrollArea>
+                  </Area>
                 </div>
               )}
             </TabsContent>
