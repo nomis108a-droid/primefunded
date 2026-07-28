@@ -1,4 +1,4 @@
-import { getApps, initializeApp, cert, type App, credential } from 'firebase-admin/app';
+import { getApps, initializeApp, cert, applicationDefault, type App } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
@@ -73,7 +73,7 @@ function initAdmin(): AdminServices {
   // 2. Fallback to Application Default Credentials (critical for GCP/App Hosting)
   if (!config.credential) {
     console.log("[Admin-Init] No Service Account key provided. Falling back to Application Default Credentials.");
-    config.credential = credential.applicationDefault();
+    config.credential = applicationDefault();
   }
 
   try {
