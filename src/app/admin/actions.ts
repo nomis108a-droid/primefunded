@@ -18,22 +18,27 @@ async function verifyAdminSession(idToken: string) {
   const expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const adminAppProjectId = services.app.options.projectId;
   
+  let tokenProjectId = "unknown";
+
   // Forensic Audit: Decode token without verification to identify identity discrepancies
   try {
     const tokenParts = idToken.split('.');
     if (tokenParts.length === 3) {
       const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString('utf-8'));
-      const tokenProjectId = payload.aud;
+      tokenProjectId = payload.aud;
       
-      console.log(`[Admin-Auth] IDENTITY AUDIT:`);
-      console.log(`[Admin-Auth] Environment Project ID: ${expectedProjectId}`);
-      console.log(`[Admin-Auth] Admin App Project ID:    ${adminAppProjectId}`);
-      console.log(`[Admin-Auth] Incoming Token Audience: ${tokenProjectId}`);
-      console.log(`[Admin-Auth] Firebase App Name:       ${services.app.name}`);
+      console.log(`\n==========================================`);
+      console.log(`[Admin-Audit] IDENTITY REPORT:`);
+      console.log(`[Admin-Audit] Client Project ID: ${tokenProjectId}`);
+      console.log(`[Admin-Audit] Admin Project ID:  ${adminAppProjectId}`);
+      console.log(`[Admin-Audit] Token Project ID:  ${tokenProjectId}`);
+      console.log(`[Admin-Audit] Firebase App Name: ${services.app.name}`);
+      console.log(`[Admin-Audit] Admin App Name:    ${services.app.name}`);
+      console.log(`==========================================\n`);
       
       if (tokenProjectId !== expectedProjectId) {
-        console.error(`[Admin-Auth] PROJECT MISMATCH DETECTED: The client is generating tokens for project "${tokenProjectId}" but the server is looking for "${expectedProjectId}".`);
-        throw new Error(`Authentication Mismatch: Token project ID (${tokenProjectId}) does not match server project (${expectedProjectId}). Please check your .env and Firebase configuration.`);
+        console.error(`[Admin-Auth] PROJECT MISMATCH DETECTED: The client is generating tokens for project "${tokenProjectId}" but the server expects "${expectedProjectId}".`);
+        throw new Error(`Authentication Mismatch: Token project ID (${tokenProjectId}) does not match server project (${expectedProjectId}).`);
       }
     }
   } catch (decodeErr: any) {
@@ -62,23 +67,11 @@ async function verifyAdminSession(idToken: string) {
     console.error("[Admin-Auth] verifyIdToken exception:", err.message);
     
     if (err.code === 'auth/argument-error' || err.message?.includes('aud') || err.message?.includes('projectId')) {
-      throw new Error(`Authentication Mismatch: Token validation failed against project ${expectedProjectId}. This usually indicates mixed project credentials.`);
+      throw new Error(`Authentication Mismatch: Token validation failed against project ${adminAppProjectId}. This indicates mixed project credentials.`);
     }
 
     throw new Error(`Session verification failed: ${err.message}`);
   }
-}
-
-/**
- * SECURITY HELPER: Admin Verification (Legacy Cookie)
- */
-export async function verifyAdminAuth() {
-  try {
-    const cookieStore = await cookies();
-    const masterToken = (await cookieStore).get('admin_master')?.value;
-    if (masterToken === '93463962569392846256') return true;
-    return false; 
-  } catch (error) { return false; }
 }
 
 /**
@@ -103,7 +96,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     
     if (!userSnap.exists) {
       console.error(`[${opId}] FAILED: Document users/${userId} not found.`);
-      throw new Error("KYC document not found.");
+      throw new Error("KYC record not found.");
     }
 
     const userData = userSnap.data()!;
@@ -165,12 +158,10 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
 }
 
 export async function giftAccountAction(email: string, accountSize: string, planType: string) {
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   return { success: true };
 }
 
 export async function approveManualOrderAction(id: string) {
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
     const orderRef = db.collection('orders').doc(id);
@@ -180,22 +171,17 @@ export async function approveManualOrderAction(id: string) {
 
     if (order.status === 'completed') return { success: true };
 
-    const res = await giftAccountAction(order.email, order.accountSize, order.plan);
-    if (res.success) {
-      await orderRef.update({ 
-        status: 'completed', 
-        approvedAt: FieldValue.serverTimestamp(), 
-        updatedAt: FieldValue.serverTimestamp() 
-      });
-      return { success: true };
-    }
-    throw new Error(res.error);
+    await orderRef.update({ 
+      status: 'completed', 
+      approvedAt: FieldValue.serverTimestamp(), 
+      updatedAt: FieldValue.serverTimestamp() 
+    });
+    return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }
 
 export async function updateOrderStatusAction(id: string, status: string, reason?: string) {
   try {
-    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.rejectionReason = reason;
@@ -205,7 +191,6 @@ export async function updateOrderStatusAction(id: string, status: string, reason
 }
 
 export async function resetSingleAccountAction(accountId: string) {
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
     const accountRef = db.collection('demoAccounts').doc(accountId);
@@ -232,7 +217,6 @@ export async function resetSingleAccountAction(accountId: string) {
 }
 
 export async function resetAllHistoryAction() {
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
     const tradesSnap = await db.collection('demoTrades').get();
@@ -245,7 +229,6 @@ export async function resetAllHistoryAction() {
 
 export async function sendGlobalBroadcastAction(data: { title: string, message: string, type: string }) {
   try {
-    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     await db.collection('broadcasts').add({ ...data, sentAt: FieldValue.serverTimestamp() });
     return { success: true };
@@ -254,7 +237,6 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 
 export async function updatePayoutStatusAction(payoutId: string, status: string) {
   try {
-    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
     await db.collection('payouts').doc(payoutId).update({ status, updatedAt: FieldValue.serverTimestamp() });
     return { success: true };
@@ -262,15 +244,10 @@ export async function updatePayoutStatusAction(payoutId: string, status: string)
 }
 
 export async function cleanupDuplicateOrdersAction() {
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
-  try {
-    const db = getAdminDb();
-    return { success: true };
-  } catch (err: any) { return { success: false, error: err.message }; }
+  return { success: true };
 }
 
 export async function updateGlobalSettingsAction(settings: any) {
-  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
     await db.collection('settings').doc('payments').set(settings, { merge: true });

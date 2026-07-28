@@ -36,62 +36,71 @@ function initAdmin(): AdminServices {
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
+  if (!projectId) {
+    console.error("[Admin-Init] FATAL: NEXT_PUBLIC_FIREBASE_PROJECT_ID is not configured.");
+    throw new Error("NEXT_PUBLIC_FIREBASE_PROJECT_ID is missing.");
+  }
+
   if (apps.length > 0) {
-    adminApp = apps[0];
+    adminApp = apps.find(app => app.options.projectId === projectId) || apps[0];
+    
     // Security Audit: Check if the existing app matches our target project
     if (adminApp.options.projectId !== projectId) {
-      console.warn(`[Admin-Init] WARNING: Internal project mismatch. Existing: ${adminApp.options.projectId}, Target: ${projectId}`);
+      console.warn(`[Admin-Init] WARNING: Project ID mismatch. SDK is using "${adminApp.options.projectId}" but client expects "${projectId}". Re-initializing...`);
+    } else {
+      global.__admin_services = {
+        app: adminApp,
+        db: getFirestore(adminApp),
+        auth: getAuth(adminApp),
+        rtdb: getDatabase(adminApp)
+      };
+      return global.__admin_services;
+    }
+  }
+
+  console.log('[Admin-Init] Initializing Institutional Administrative Instance...');
+  console.log('[Admin-Init] Target Project Identity:', projectId);
+
+  const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
+
+  // CRITICAL: Explicitly pass projectId in the options to ensure verifyIdToken 
+  // checks the correct 'aud' (audience) claim regardless of the credential source.
+  let options: any = {
+    projectId,
+    databaseURL
+  };
+
+  if (b64Key && b64Key.trim() !== '') {
+    try {
+      const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
+      const serviceAccount = JSON.parse(decoded);
+      
+      // Validation: If the service account project differs from the environment, log it
+      if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
+        console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}). Overriding to environment ID.`);
+      }
+
+      if (serviceAccount.private_key) {
+        serviceAccount.private_key = serviceAccount.private_key
+          .replace(/\\n/g, '\n')
+          .trim();
+      }
+      
+      options.credential = cert(serviceAccount);
+      console.log('[Admin-Init] Authentication: Service Account Key (Authorized)');
+    } catch (e: any) {
+      console.error("[Admin-Init] Service Account Parse Failure:", e.message);
     }
   } else {
-    console.log('[Admin-Init] Initializing Institutional Administrative Instance...');
-    console.log('[Admin-Init] Target Project Identity:', projectId);
+    console.log('[Admin-Init] Authentication: Application Default Credentials (ADC)');
+  }
 
-    const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
-
-    // CRITICAL: Explicitly pass projectId in the options to ensure verifyIdToken 
-    // checks the correct 'aud' (audience) claim regardless of the credential source.
-    let options: any = {
-      projectId,
-      databaseURL
-    };
-
-    if (b64Key && b64Key.trim() !== '') {
-      try {
-        const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
-        const serviceAccount = JSON.parse(decoded);
-        
-        // Validation: If the service account project differs from the environment, log it
-        if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
-          console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}). Overriding to environment.`);
-        }
-
-        if (serviceAccount.private_key) {
-          serviceAccount.private_key = serviceAccount.private_key
-            .replace(/\\n/g, '\n')
-            .trim();
-        }
-        
-        options.credential = cert(serviceAccount);
-        console.log('[Admin-Init] Authentication: Service Account Key (Authorized)');
-      } catch (e: any) {
-        console.error("[Admin-Init] Service Account Parse Failure:", e.message);
-      }
-    } else {
-      console.log('[Admin-Init] Authentication: Application Default Credentials (ADC)');
-    }
-
-    try {
-      // Final guard: Ensure projectId is NEVER undefined here
-      if (!options.projectId) {
-        throw new Error("NEXT_PUBLIC_FIREBASE_PROJECT_ID is not configured in the environment.");
-      }
-
-      adminApp = initializeApp(options);
-      console.log('[Admin-Init] Success: Admin SDK bound to project:', adminApp.options.projectId);
-    } catch (err: any) {
-      console.error("[Admin-Init] Initialization Fault:", err.message);
-      throw new Error(`Admin initialization failed: ${err.message}`);
-    }
+  try {
+    adminApp = initializeApp(options, `Admin-${Date.now()}`);
+    console.log('[Admin-Init] Success: Admin SDK bound to project:', adminApp.options.projectId);
+  } catch (err: any) {
+    console.error("[Admin-Init] Initialization Fault:", err.message);
+    throw new Error(`Admin initialization failed: ${err.message}`);
   }
 
   global.__admin_services = {
