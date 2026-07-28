@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -60,7 +61,7 @@ const COUNTRIES = [
   { name: "Indonesia", code: "ID" }, { name: "Iran", code: "IR" }, { name: "Iraq", code: "IQ" }, { name: "Ireland", code: "IE" }, { name: "Israel", code: "IL" },
   { name: "Italy", code: "IT" }, { name: "Jamaica", code: "JM" }, { name: "Japan", code: "JP" }, { name: "Jordan", code: "JO" }, { name: "Kazakhstan", code: "KZ" },
   { name: "Kenya", code: "KE" }, { name: "Kiribati", code: "KI" }, { name: "Korea, North", code: "KP" }, { name: "Korea, South", code: "KR" }, { name: "Kuwait", code: "KW" },
-  { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
+  { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Lotvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
   { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
@@ -579,7 +580,7 @@ export default function AdminPage() {
     }
     setApprovingKycUserId(userId);
     try {
-      const idToken = await user.getIdToken();
+      const idToken = await user.getIdToken(true);
       const res = await updateKycStatusAction(idToken, userId, 'verified');
       if (res.success) { 
         toast({ title: "KYC Approved Successfully" }); 
@@ -605,7 +606,7 @@ export default function AdminPage() {
     }
     setActionLoading(true);
     try {
-      const idToken = await user.getIdToken();
+      const idToken = await user.getIdToken(true);
       const res = await updateKycStatusAction(idToken, kycRejectingUserId, 'rejected', kycRejectReason.trim());
       if (res.success) {
         toast({ title: "KYC Rejected Successfully" });

@@ -224,36 +224,37 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 }
 
 /**
- * Institutional KYC Action with Audit Logging
- * Specialized to handle the "approved"/"rejected" flow with correct schema mapping.
+ * Institutional KYC Action with Forensic Logging
+ * Specialized to handle the "approved"/"rejected" flow with extreme diagnostic tracing.
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
-  console.log(`[KYC-Action] >>> INCOMING REQUEST: Operation=${status}, TargetUID=${userId}`);
+  const opId = Math.random().toString(36).substring(7).toUpperCase();
+  console.log(`[KYC-Action][${opId}] >>> INCOMING REQUEST: Operation=${status}, TargetUID=${userId}`);
   
   try {
     // 1. Verify Administrative Credentials
-    console.log(`[KYC-Action] 1. Verifying admin session...`);
+    console.log(`[KYC-Action][${opId}] 1. Validating identity token...`);
     const adminUser = await verifyAdminSession(idToken);
     const adminEmail = adminUser.email!;
     
     // 2. Initialize Database Context
-    console.log(`[KYC-Action] 2. Initializing database context...`);
+    console.log(`[KYC-Action][${opId}] 2. Acquiring database services...`);
     const services = getAdminServices();
     const db = services.db;
     
     // 3. Document Integrity Check
     const userRef = db.collection('users').doc(userId);
-    console.log(`[KYC-Action] 3. Fetching user document: ${userRef.path}`);
+    console.log(`[KYC-Action][${opId}] 3. Audit check on path: ${userRef.path}`);
     const userSnap = await userRef.get();
     
     if (!userSnap.exists) {
-      console.error(`[KYC-Action] CRITICAL: User document ${userId} not found in 'users' collection.`);
-      return { success: false, error: "Failed to update KYC status." };
+      console.error(`[KYC-Action][${opId}] CRITICAL: Document 'users/${userId}' was not found. Verification halted.`);
+      return { success: false, error: "Failed to update KYC status: Trader record not found." };
     }
 
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
-    console.log(`[KYC-Action] User Found: ${userData.email} (Previous Status: ${prevStatus})`);
+    console.log(`[KYC-Action][${opId}] Record found for: ${userData.email} (Previous Status: ${prevStatus})`);
 
     // 4. Schema Mapping & Payloads
     // Status normalization for DB schema (enum: "none", "pending", "verified", "rejected")
@@ -275,7 +276,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
       updates.kycRejectionReason = reason || "Documents invalid or unclear.";
     }
     
-    console.log(`[KYC-Action] 4. Preparing atomic update:`, JSON.stringify(updates));
+    console.log(`[KYC-Action][${opId}] 4. Generating atomic payload:`, JSON.stringify(updates));
 
     // 5. Atomic Commit Cycle
     const batch = db.batch();
@@ -302,27 +303,28 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
       previousStatus: prevStatus,
       newStatus: finalStatus,
       reason: reason || null,
-      timestamp: FieldValue.serverTimestamp()
+      timestamp: FieldValue.serverTimestamp(),
+      operationId: opId
     });
     
-    console.log(`[KYC-Action] 5. Executing batch commit...`);
+    console.log(`[KYC-Action][${opId}] 5. Committing batch to Firestore...`);
     await batch.commit();
 
     // 6. Post-Commit Security Extensions
     if (finalStatus === 'verified') {
-      console.log(`[KYC-Action] 6. Setting custom claims...`);
+      console.log(`[KYC-Action][${opId}] 6. Provisioning custom security claims...`);
       try {
         await services.auth.setCustomUserClaims(userId, { kycVerified: true });
       } catch (claimErr: any) {
-        console.warn(`[KYC-Action] Warning: Custom claims failed to propagate: ${claimErr.message}`);
+        console.warn(`[KYC-Action][${opId}] Warning: Custom claims failed to propagate: ${claimErr.message}`);
       }
     }
     
-    console.log(`[KYC-Action] COMPLETED: User=${userId}, Status=${finalStatus}`);
+    console.log(`[KYC-Action][${opId}] COMPLETED SUCCESSFULY`);
     return { success: true };
 
   } catch (err: any) { 
-    console.error('[KYC-Action] FATAL EXCEPTION:', err.message);
+    console.error(`[KYC-Action][${opId}] FATAL EXCEPTION:`, err.message);
     if (err.stack) console.error(err.stack);
     return { success: false, error: "Failed to update KYC status." }; 
   }
