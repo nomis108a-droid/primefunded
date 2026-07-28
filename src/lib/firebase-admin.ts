@@ -48,6 +48,8 @@ function initAdmin(): AdminServices {
 
     const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
 
+    // CRITICAL: Explicitly pass projectId in the options to ensure verifyIdToken 
+    // checks the correct 'aud' (audience) claim regardless of the credential source.
     let options: any = {
       projectId,
       databaseURL
@@ -60,8 +62,7 @@ function initAdmin(): AdminServices {
         
         // Validation: If the service account project differs from the environment, log it
         if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
-          console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}).`);
-          // Note: initializeApp with cert() will prioritize the service account project ID for verifyIdToken
+          console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}). Overriding to environment.`);
         }
 
         if (serviceAccount.private_key) {
@@ -80,6 +81,11 @@ function initAdmin(): AdminServices {
     }
 
     try {
+      // Final guard: Ensure projectId is NEVER undefined here
+      if (!options.projectId) {
+        throw new Error("NEXT_PUBLIC_FIREBASE_PROJECT_ID is not configured in the environment.");
+      }
+
       adminApp = initializeApp(options);
       console.log('[Admin-Init] Success: Admin SDK bound to project:', adminApp.options.projectId);
     } catch (err: any) {

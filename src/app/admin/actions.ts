@@ -16,6 +16,7 @@ async function verifyAdminSession(idToken: string) {
   
   const services = getAdminServices();
   const expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const adminAppProjectId = services.app.options.projectId;
   
   // Forensic Audit: Decode token without verification to identify identity discrepancies
   try {
@@ -24,44 +25,47 @@ async function verifyAdminSession(idToken: string) {
       const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString('utf-8'));
       const tokenProjectId = payload.aud;
       
-      console.log(`[Admin-Auth] VERIFICATION ATTEMPT:`);
-      console.log(`[Admin-Auth] Expected Project (Server): ${expectedProjectId}`);
-      console.log(`[Admin-Auth] Token Audience (Client):  ${tokenProjectId}`);
+      console.log(`[Admin-Auth] IDENTITY AUDIT:`);
+      console.log(`[Admin-Auth] Environment Project ID: ${expectedProjectId}`);
+      console.log(`[Admin-Auth] Admin App Project ID:    ${adminAppProjectId}`);
+      console.log(`[Admin-Auth] Incoming Token Audience: ${tokenProjectId}`);
+      console.log(`[Admin-Auth] Firebase App Name:       ${services.app.name}`);
       
       if (tokenProjectId !== expectedProjectId) {
-        console.error(`[Admin-Auth] PROJECT MISMATCH: The client is authenticated against "${tokenProjectId}" but the server expects "${expectedProjectId}".`);
-        throw new Error(`Authentication Mismatch: Token project (${tokenProjectId}) does not match server project (${expectedProjectId}).`);
+        console.error(`[Admin-Auth] PROJECT MISMATCH DETECTED: The client is generating tokens for project "${tokenProjectId}" but the server is looking for "${expectedProjectId}".`);
+        throw new Error(`Authentication Mismatch: Token project ID (${tokenProjectId}) does not match server project (${expectedProjectId}). Please check your .env and Firebase configuration.`);
       }
     }
   } catch (decodeErr: any) {
-    console.warn(`[Admin-Auth] Token decoding failed:`, decodeErr.message);
+    if (decodeErr.message.includes('Authentication Mismatch')) throw decodeErr;
+    console.warn(`[Admin-Auth] Forensic decoding failed:`, decodeErr.message);
   }
 
   try {
+    // Verify the token using the Admin SDK
     const decoded = await services.auth.verifyIdToken(idToken);
     const email = decoded.email?.toLowerCase();
     
     if (!email) {
-      throw new Error("Authentication failed: Email missing from token.");
+      throw new Error("Authentication failed: Email missing from token identity.");
     }
 
     const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
 
     if (!adminList.includes(email)) {
-      console.warn(`[Admin-Auth] UNAUTHORIZED: Access attempt by: ${email}`);
+      console.warn(`[Admin-Auth] UNAUTHORIZED ACCESS: Identity ${email} attempted admin write.`);
       throw new Error("Administrator permission required.");
     }
     
     return decoded;
   } catch (err: any) {
-    console.error("[Admin-Auth] Token verification failed.");
-    console.error(`[Admin-Auth] Reason: ${err.message}`);
+    console.error("[Admin-Auth] verifyIdToken exception:", err.message);
     
     if (err.code === 'auth/argument-error' || err.message?.includes('aud') || err.message?.includes('projectId')) {
-      throw new Error(`Authentication Mismatch: Token project ID does not match server project (${expectedProjectId}).`);
+      throw new Error(`Authentication Mismatch: Token validation failed against project ${expectedProjectId}. This usually indicates mixed project credentials.`);
     }
 
-    throw new Error(`Session error: ${err.message}`);
+    throw new Error(`Session verification failed: ${err.message}`);
   }
 }
 
@@ -83,17 +87,15 @@ export async function verifyAdminAuth() {
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
   const opId = `KYC-${Math.random().toString(36).substring(7).toUpperCase()}`;
-  console.log(`[${opId}] Operation started: ${status} for user ${userId}`);
+  console.log(`[${opId}] KYC Operation Sequence Started: ${status} for ${userId}`);
 
   try {
-    // 1. Verify Administrative Credentials
+    // 1. Verify Administrative Credentials & Project Identity
     const adminUser = await verifyAdminSession(idToken);
     const adminEmail = adminUser.email!;
-    const adminUid = adminUser.uid;
     
     // 2. Initialize Database Context
-    const services = getAdminServices();
-    const db = services.db;
+    const db = getAdminDb();
     
     // 3. Document Integrity Check
     const userRef = db.collection('users').doc(userId);
@@ -101,13 +103,13 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     
     if (!userSnap.exists) {
       console.error(`[${opId}] FAILED: Document users/${userId} not found.`);
-      return { success: false, error: "KYC document not found" };
+      throw new Error("KYC document not found.");
     }
 
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
 
-    // 4. Schema Mapping
+    // 4. Schema Mapping (Approve -> verified, Reject -> rejected)
     const isApproving = status === 'approved' || status === 'verified';
     const finalStatus = isApproving ? 'verified' : 'rejected';
     
@@ -138,12 +140,11 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // Record Forensic Audit Log
+    // Record Institutional Audit Log
     const auditRef = db.collection('kyc_audit_logs').doc();
     batch.set(auditRef, {
       opId,
       adminEmail,
-      adminUid,
       userId,
       userEmail: userData.email || 'unknown',
       previousStatus: prevStatus,
@@ -153,16 +154,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     });
     
     await batch.commit();
-    console.log(`[${opId}] Success: KYC status updated to ${finalStatus}`);
-
-    // 6. Provision custom security claims
-    if (isApproving) {
-      try {
-        await services.auth.setCustomUserClaims(userId, { kycVerified: true });
-      } catch (claimErr: any) {
-        console.warn(`[${opId}] Warning: Custom claims failed: ${claimErr.message}`);
-      }
-    }
+    console.log(`[${opId}] SUCCESS: Firestore updated to ${finalStatus}`);
     
     return { success: true };
 
