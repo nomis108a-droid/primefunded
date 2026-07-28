@@ -36,7 +36,7 @@ async function verifyAdminSession(idToken: string) {
     return decoded;
   } catch (err: any) {
     console.error("[Admin-Auth] Token verification failed:", err.message);
-    throw new Error("Authentication failed: Invalid session.");
+    throw new Error(`Session error: ${err.message}`);
   }
 }
 
@@ -46,7 +46,7 @@ async function verifyAdminSession(idToken: string) {
 export async function verifyAdminAuth() {
   try {
     const cookieStore = await cookies();
-    const masterToken = cookieStore.get('admin_master')?.value;
+    const masterToken = (await cookieStore).get('admin_master')?.value;
     if (masterToken === '93463962569392846256') return true;
     return false; 
   } catch (error) { return false; }
@@ -221,26 +221,33 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
  * Updates trader status and provides forensic audit logging.
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
+  const opId = `KYC-${Math.random().toString(36).substring(7).toUpperCase()}`;
+  console.log(`[${opId}] Operation started: ${status} for user ${userId}`);
+
   try {
     // 1. Verify Administrative Credentials
     const adminUser = await verifyAdminSession(idToken);
     const adminEmail = adminUser.email!;
     const adminUid = adminUser.uid;
+    console.log(`[${opId}] Admin verified: ${adminEmail}`);
     
     // 2. Initialize Database Context
     const services = getAdminServices();
     const db = services.db;
     
     // 3. Document Integrity Check
+    // Collection mapping: Users exist in the 'users' collection per backend.json
     const userRef = db.collection('users').doc(userId);
     const userSnap = await userRef.get();
     
     if (!userSnap.exists) {
-      return { success: false, error: "Document not found" };
+      console.error(`[${opId}] FAILED: Document users/${userId} not found.`);
+      return { success: false, error: "KYC document not found" };
     }
 
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
+    console.log(`[${opId}] Current status: ${prevStatus}`);
 
     // 4. Schema Mapping (uses 'verified' for approved state per project blueprint)
     const isApproving = status === 'approved' || status === 'verified';
@@ -261,6 +268,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     };
 
     // 5. Atomic Commit Cycle
+    console.log(`[${opId}] Committing update to Firestore...`);
     const batch = db.batch();
     batch.update(userRef, updates);
     
@@ -277,6 +285,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     // Record Forensic Audit Log
     const auditRef = db.collection('kyc_audit_logs').doc();
     batch.set(auditRef, {
+      opId,
       adminEmail,
       adminUid,
       userId,
@@ -288,22 +297,24 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     });
     
     await batch.commit();
+    console.log(`[${opId}] Success: KYC status updated to ${finalStatus}`);
 
     // 6. Provision custom security claims
     if (isApproving) {
       try {
         await services.auth.setCustomUserClaims(userId, { kycVerified: true });
+        console.log(`[${opId}] Custom claims propagated.`);
       } catch (claimErr: any) {
-        console.warn(`[KYC-Action] Warning: Custom claims failed to propagate: ${claimErr.message}`);
+        console.warn(`[${opId}] Warning: Custom claims failed: ${claimErr.message}`);
       }
     }
     
     return { success: true };
 
   } catch (err: any) { 
-    console.error("KYC Update Error", err);
+    console.error(`[${opId}] FATAL ERROR:`, err);
     if (err.message?.includes('PERMISSION_DENIED')) return { success: false, error: "Permission denied" };
-    return { success: false, error: "Failed to update KYC status." }; 
+    return { success: false, error: err.message || "Failed to update KYC status." }; 
   }
 }
 

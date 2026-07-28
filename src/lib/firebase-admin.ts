@@ -29,16 +29,25 @@ function initAdmin(): AdminServices {
     return global.__admin_services;
   }
 
+  console.log('[Admin-Init] Initializing fresh Administrative instance...');
+
   // 2. Check for existing apps to prevent "already exists" errors
   const apps = getApps();
   let adminApp: App;
 
   if (apps.length > 0) {
+    console.log('[Admin-Init] Reusing existing Firebase App instance.');
     adminApp = apps[0];
   } else {
     // 3. Perform fresh initialization
     const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
     const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+
+    console.log('[Admin-Init] Checking environment configuration...');
+    
+    if (!b64Key) {
+      console.warn('[Admin-Init] WARNING: FIREBASE_SERVICE_ACCOUNT_KEY_B64 is missing. Falling back to environment identity.');
+    }
 
     let options: any = {
       databaseURL
@@ -57,15 +66,16 @@ function initAdmin(): AdminServices {
         }
         
         options.credential = cert(serviceAccount);
+        console.log('[Admin-Init] Credential Source: Service Account Key (Bypass Metadata)');
       } catch (e: any) {
-        console.error("[Admin-Init] Service Account Key Parse Failure:", e.message);
+        console.error("[Admin-Init] FATAL: Service Account Key Parse Failure:", e.message);
+        throw new Error(`Admin credentials invalid: ${e.message}`);
       }
     }
 
     try {
-      // In Studio/App Hosting, if credentials aren't provided explicitly,
-      // initializeApp() with no credential key will attempt to use environment identity.
       adminApp = initializeApp(options);
+      console.log('[Admin-Init] Success: Admin SDK initialized for project:', adminApp.options.projectId);
     } catch (err: any) {
       console.error("[Admin-Init] CRITICAL ERROR: App initialization failed:", err.message);
       throw new Error(`Admin initialization failed: ${err.message}`);

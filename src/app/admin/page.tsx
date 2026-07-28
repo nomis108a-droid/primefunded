@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -463,12 +462,14 @@ export default function AdminPage() {
         unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'trading-nodes':
         unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'breaches':
@@ -480,6 +481,7 @@ export default function AdminPage() {
           }).slice(0, 100);
           setTabData((prev: any) => ({ ...prev, breaches: docs }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'phase-passers':
@@ -491,6 +493,7 @@ export default function AdminPage() {
           }).slice(0, 100);
           setTabData((prev: any) => ({ ...prev, passers: docs }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'order-review':
@@ -502,30 +505,35 @@ export default function AdminPage() {
           }).slice(0, 100);
           setTabData((prev: any) => ({ ...prev, orders: docs }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'payout-hub':
         unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'trades-payouts':
         unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'referral-audit':
         unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'kyc-hub':
         unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'broadcasts':
@@ -536,6 +544,7 @@ export default function AdminPage() {
           });
           setTabData((prev: any) => ({ ...prev, broadcasts: docs }));
           setIsLoading(false);
+          refreshStats();
         }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       default:
