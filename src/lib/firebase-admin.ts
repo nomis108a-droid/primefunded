@@ -4,10 +4,10 @@ import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 
 /**
- * @fileOverview Institutional Firebase Admin SDK Configuration
+ * @fileOverview Institutional Firebase Admin SDK Initializer
  * Hardened for Production: Ensures reliable administrative access using a global singleton
- * to prevent initialization conflicts during server-side hot-reloads.
- * Prioritizes Service Account Keys to avoid metadata plugin token refresh issues.
+ * to prevent initialization conflicts. Prioritizes Service Account Keys to avoid 
+ * metadata plugin token refresh timeouts in non-GCP environments.
  */
 
 interface AdminServices {
@@ -23,20 +23,19 @@ declare global {
 }
 
 /**
- * Initializes or retrieves the Admin SDK services.
- * Throws a descriptive error if initialization is impossible.
+ * Initializes or retrieves the Admin SDK services as a stable singleton.
  */
 function initAdmin(): AdminServices {
-  // 1. Return cached services if available (Singleton Pattern)
+  // 1. Return cached services if available
   if (global.__admin_services) return global.__admin_services;
 
-  // 2. Check for existing apps to prevent "already exists" errors during HMR
+  // 2. Check for existing apps to prevent "already exists" errors
   const apps = getApps();
   let adminApp: App;
 
   if (apps.length > 0) {
     adminApp = apps[0];
-    console.log("[Admin-Init] Reusing existing Firebase Admin instance");
+    console.log("[Admin-Init] Reusing existing administrative context");
   } else {
     // 3. Perform fresh initialization
     const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
@@ -44,7 +43,7 @@ function initAdmin(): AdminServices {
 
     let credential;
 
-    // PATH A: Use Explicit Service Account Key (Most reliable, avoids metadata lookup)
+    // PATH A: Use Explicit Service Account Key (Bypasses Metadata Server lookup)
     if (b64Key && b64Key.trim() !== '') {
       try {
         const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
@@ -57,16 +56,29 @@ function initAdmin(): AdminServices {
         }
         
         credential = cert(serviceAccount);
-        console.log(`[Admin-Init] Master session established via Service Account: ${serviceAccount.client_email}`);
+        console.log(`[Admin-Init] Master session established via Service Account Key`);
       } catch (e: any) {
         console.error("[Admin-Init] FAILED: Service Account Key is malformed:", e.message);
       }
     }
 
-    // PATH B: Fallback to Application Default Credentials (ADC)
+    // PATH B: Fallback to Application Default Credentials ONLY in recognized GCP environments
     if (!credential) {
-      console.log("[Admin-Init] Service Account Key missing. Falling back to Application Default Credentials.");
-      credential = applicationDefault();
+      const isGCP = !!(process.env.GCP_PROJECT || process.env.K_SERVICE || process.env.FIREBASE_CONFIG || process.env.GOOGLE_CLOUD_PROJECT);
+      if (isGCP) {
+        try {
+          credential = applicationDefault();
+          console.log("[Admin-Init] Detected GCP environment, using Application Default Credentials");
+        } catch (e: any) {
+          console.error("[Admin-Init] ADC lookup failed:", e.message);
+        }
+      } else {
+        console.warn("[Admin-Init] Local development detected. Metadata lookup bypassed to prevent timeout.");
+      }
+    }
+
+    if (!credential) {
+      throw new Error('Administrative services initialization failed: No valid credentials provided.');
     }
 
     try {
@@ -93,19 +105,11 @@ function initAdmin(): AdminServices {
 
 /**
  * Service Provider Getters
- * Standardized access points for the Administrative Terminal.
  */
 export const getAdminDb = () => initAdmin().db;
 export const getAdminAuth = () => initAdmin().auth;
 export const getAdminRtdb = () => initAdmin().rtdb;
-
-export function getAdminServices() {
-  try {
-    return initAdmin();
-  } catch (e) {
-    return null;
-  }
-}
+export const getAdminServices = () => initAdmin();
 
 export const isFirebaseAdminConfigured = () => {
   try {

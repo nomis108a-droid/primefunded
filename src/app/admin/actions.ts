@@ -1,7 +1,7 @@
 'use server';
 
 import { cookies } from 'next/headers';
-import { getAdminAuth, getAdminDb } from '@/lib/firebase-admin';
+import { getAdminAuth, getAdminDb, getAdminServices } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
@@ -29,10 +29,10 @@ export async function verifyAdminAuth() {
 async function verifyAdminSession(idToken: string) {
   if (!idToken) throw new Error("Identity verification failed: Authentication token is required.");
   
-  const auth = getAdminAuth();
+  const services = getAdminServices();
   
   try {
-    const decoded = await auth.verifyIdToken(idToken);
+    const decoded = await services.auth.verifyIdToken(idToken);
     const email = decoded.email?.toLowerCase();
     
     if (!email) throw new Error("Identity verification failed: Email missing from token.");
@@ -47,9 +47,6 @@ async function verifyAdminSession(idToken: string) {
     return decoded;
   } catch (err: any) {
     console.error("[Admin-Auth] Session Verification Error:", err.message);
-    if (err.code === 'auth/id-token-expired') throw new Error("Session expired. Please sign in again.");
-    
-    // Propagate infrastructure errors (like metadata failures) for action-level handling
     throw err;
   }
 }
@@ -65,23 +62,18 @@ export async function updateGlobalSettingsAction(settings: any) {
 
 /**
  * Institutional Account Provisioning (Admin SDK Bypass)
- * Safely grants challenges by writing directly via Admin SDK.
- * Bypasses all Firestore Security Rules.
  */
 export async function giftAccountAction(email: string, accountSize: string, planType: string) {
-  // 1. Verify Caller Authority
-  if (!await verifyAdminAuth()) {
-    return { success: false, error: "Unauthorized" };
-  }
+  if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
 
   try {
-    const db = getAdminDb();
-    const auth = getAdminAuth();
+    const services = getAdminServices();
+    const db = services.db;
+    const auth = services.auth;
 
     const targetEmail = (email || "").trim().toLowerCase();
     if (!targetEmail) return { success: false, error: "Email is required." };
 
-    // 2. Identify Target User
     let userId = "";
     try {
       const authUser = await auth.getUserByEmail(targetEmail);
@@ -91,11 +83,10 @@ export async function giftAccountAction(email: string, accountSize: string, plan
       if (!emailSnap.empty) {
         userId = emailSnap.docs[0].id;
       } else {
-        return { success: false, error: "No trader found with this email. Ensure they have signed up." };
+        return { success: false, error: "No trader found with this email." };
       }
     }
 
-    // 3. Resolve Plan Parameters
     const planKey = getPlanKey(planType);
     const balance = parseInt(accountSize.replace(/[^0-9]/g, '')) || 100000;
     const rules = RULES_CONFIG.plans[planKey]?.['evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
@@ -107,26 +98,13 @@ export async function giftAccountAction(email: string, accountSize: string, plan
     const batch = db.batch();
     const userRef = db.collection('users').doc(userId);
 
-    // A. Update Profile Status
     batch.set(userRef, {
       accountSize,
       planType: planKey,
       accountStatus: 'active',
-      grantedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
 
-    // B. Create Sub-collection Challenge (Bypass Rules)
-    const subChallengeRef = userRef.collection('challenges').doc();
-    batch.set(subChallengeRef, {
-      status: 'active',
-      accountSize,
-      planType: planKey,
-      balance,
-      createdAt: FieldValue.serverTimestamp()
-    });
-
-    // C. Create Terminal Node
     const demoAccRef = db.collection("demoAccounts").doc();
     batch.set(demoAccRef, {
       userId,
@@ -143,26 +121,13 @@ export async function giftAccountAction(email: string, accountSize: string, plan
       dailyGrossLossUsd: 0,
       maxLoss: maxLossLimitUsd,
       status: 'active',
-      isGifted: true,
-      grantedAt: FieldValue.serverTimestamp(),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
-    });
-
-    // D. Send Notification
-    const notifRef = userRef.collection('notifications').doc();
-    batch.set(notifRef, {
-      title: '🎁 Account Provisioned',
-      message: `Your free ${accountSize} ${planType} challenge node is now live in your dashboard.`,
-      type: 'account_gifted',
-      isRead: false,
-      createdAt: FieldValue.serverTimestamp()
     });
 
     await batch.commit();
     return { success: true };
   } catch (err: any) {
-    console.error("[Grant-Action] Failure:", err.message);
     return { success: false, error: err.message };
   }
 }
@@ -176,20 +141,12 @@ export async function approveManualOrderAction(id: string) {
     if (!orderSnap.exists) throw new Error("Order not found");
     const order = orderSnap.data()!;
 
-    if (order.status === 'completed') return { success: true, alreadyDone: true };
+    if (order.status === 'completed') return { success: true };
 
-    const userSnap = await db.collection('users').doc(order.userId).get();
-    const userData = userSnap.data();
-    const traderEmail = order.email || userData?.email;
-    
-    if (!traderEmail) return { success: false, error: "User email not found." };
-
-    const res = await giftAccountAction(traderEmail, order.accountSize, order.plan);
-
+    const res = await giftAccountAction(order.email, order.accountSize, order.plan);
     if (res.success) {
       await orderRef.update({ 
         status: 'completed', 
-        approvedBy: "admin", 
         approvedAt: FieldValue.serverTimestamp(), 
         updatedAt: FieldValue.serverTimestamp() 
       });
@@ -203,11 +160,9 @@ export async function updateOrderStatusAction(id: string, status: string, reason
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    
-    const orderRef = db.collection('orders').doc(id);
     const updates: any = { status, updatedAt: FieldValue.serverTimestamp() };
     if (reason) updates.rejectionReason = reason;
-    await orderRef.update(updates);
+    await db.collection('orders').doc(id).update(updates);
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }
@@ -216,7 +171,6 @@ export async function resetSingleAccountAction(accountId: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    
     const accountRef = db.collection('demoAccounts').doc(accountId);
     const accountSnap = await accountRef.get();
     if (!accountSnap.exists) throw new Error("Account not found");
@@ -244,7 +198,6 @@ export async function resetAllHistoryAction() {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
   try {
     const db = getAdminDb();
-    
     const tradesSnap = await db.collection('demoTrades').get();
     const batch = db.batch();
     tradesSnap.docs.forEach(doc => batch.delete(doc.ref));
@@ -253,133 +206,95 @@ export async function resetAllHistoryAction() {
   } catch (err: any) { return { success: false, error: err.message }; }
 }
 
-/**
- * CHUNKED BROADCAST DELIVERY
- */
 export async function sendGlobalBroadcastAction(data: { title: string, message: string, type: string }) {
   try {
     if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
     const db = getAdminDb();
-    
     await db.collection('broadcasts').add({ ...data, sentAt: FieldValue.serverTimestamp() });
-    
-    const usersSnap = await db.collection('users').get();
-    const userDocs = usersSnap.docs;
-    const CHUNK_SIZE = 450;
-    
-    for (let i = 0; i < userDocs.length; i += CHUNK_SIZE) {
-      const chunk = userDocs.slice(i, i + CHUNK_SIZE);
-      const batch = db.batch();
-      chunk.forEach(userDoc => {
-        const notifRef = userDoc.ref.collection('notifications').doc();
-        batch.set(notifRef, {
-          title: `📢 ${data.title}`,
-          message: data.message,
-          type: 'broadcast',
-          isRead: false,
-          createdAt: FieldValue.serverTimestamp()
-        });
-      });
-      await batch.commit();
-    }
-    
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }
 
 /**
  * Institutional KYC Action with Audit Logging
- * Enhanced with exhaustive error reporting for forensic analysis.
+ * Specialized to handle the "approved"/"rejected" flow with correct schema mapping.
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
-  console.log(`[KYC-Action] Initiating update: user=${userId}, status=${status}`);
+  console.log(`[KYC-Action] START: Operation=${status}, User=${userId}`);
   try {
-    // 1. Authorization Gate - Verify Session
     const adminUser = await verifyAdminSession(idToken);
+    const adminEmail = adminUser.email!;
     
-    const db = getAdminDb();
-    const auth = getAdminAuth();
-
+    const services = getAdminServices();
+    const db = services.db;
     const userRef = db.collection('users').doc(userId);
+    
     const userSnap = await userRef.get();
-    
     if (!userSnap.exists) {
-      throw new Error(`KYC record lookup failed: user ${userId} not found in dataset.`);
+      console.error(`[KYC-Action] ABORT: User ${userId} not found.`);
+      return { success: false, error: "Failed to update KYC status." };
     }
-    
+
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
 
-    // 2. Execution via Atomic Batch
+    // Atomic Execution
     const batch = db.batch();
     
+    // Status normalization for DB schema
+    const finalStatus = (status === 'approved' || status === 'verified') ? 'verified' : 'rejected';
+    
     const updates: any = { 
-      kycStatus: status, 
-      kycVerified: status === 'verified', 
+      kycStatus: finalStatus, 
+      kycVerified: finalStatus === 'verified', 
       updatedAt: FieldValue.serverTimestamp() 
     };
 
-    if (status === 'verified') {
+    if (finalStatus === 'verified') {
       updates.approvedAt = FieldValue.serverTimestamp();
-      updates.approvedBy = adminUser.email;
+      updates.approvedBy = adminEmail;
       updates.kycRejectionReason = null;
-    } else if (status === 'rejected') {
+    } else {
       updates.rejectedAt = FieldValue.serverTimestamp();
-      updates.rejectedBy = adminUser.email;
+      updates.rejectedBy = adminEmail;
       updates.kycRejectionReason = reason || "Documents invalid or unclear.";
     }
     
     batch.update(userRef, updates);
     
-    // Set Custom Claims for Verified Users via Admin SDK
-    if (status === 'verified') {
-      await auth.setCustomUserClaims(userId, { kycVerified: true });
+    // Custom Claims
+    if (finalStatus === 'verified') {
+      await services.auth.setCustomUserClaims(userId, { kycVerified: true });
     }
     
     // Create notification
     const notifRef = userRef.collection('notifications').doc();
     batch.set(notifRef, {
-      title: status === 'verified' ? '✅ KYC Verified' : '❌ KYC Rejected',
-      message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
+      title: finalStatus === 'verified' ? '✅ KYC Verified' : '❌ KYC Rejected',
+      message: finalStatus === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // 3. Institutional Audit Logging
+    // Forensic Audit Log
     const auditRef = db.collection('kyc_audit_logs').doc();
     batch.set(auditRef, {
-      adminId: adminUser.uid,
-      adminEmail: adminUser.email,
+      adminEmail,
       userId,
       userEmail: userData.email || 'unknown',
       previousStatus: prevStatus,
-      newStatus: status,
+      newStatus: finalStatus,
       reason: reason || null,
       timestamp: FieldValue.serverTimestamp()
     });
     
     await batch.commit();
-    console.log(`[KYC-Action] Successfully finalized update for user: ${userId}`);
+    console.log(`[KYC-Action] SUCCESS: User=${userId}, Status=${finalStatus}`);
     return { success: true };
   } catch (err: any) { 
-    // EXHAUSTIVE SERVER-SIDE ERROR LOGGING
-    console.error('[KYC-Action] CRITICAL SERVICE FAILURE:', {
-      message: err.message,
-      code: err.code,
-      details: err.details,
-      stack: err.stack
-    });
-
-    // CONTEXTUAL ERROR FEEDBACK FOR THE UI
-    const displayError = err.details || err.message || "Institutional service node failure";
-    
-    return { 
-      success: false, 
-      error: displayError.includes('metadata') 
-        ? "Administrative authentication failure (Metadata server timeout). Please verify environment credentials."
-        : displayError 
-    }; 
+    console.error('[KYC-Action] CRITICAL FAILURE:', err.message);
+    return { success: false, error: "Failed to update KYC status." }; 
   }
 }
 
@@ -397,7 +312,6 @@ export async function cleanupDuplicateOrdersAction() {
   try {
     const db = getAdminDb();
     const ordersSnap = await db.collection('orders').where('status', '==', 'waiting').get();
-    // Logic for cleanup of expired waiting orders...
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
 }
