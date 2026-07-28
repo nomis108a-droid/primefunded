@@ -1,4 +1,3 @@
-
 'use server';
 
 import { cookies } from 'next/headers';
@@ -8,29 +7,13 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 /**
- * SECURITY HELPER: Admin Verification (Legacy)
- * Checks for the master key session cookie established in the terminal.
- */
-export async function verifyAdminAuth() {
-  try {
-    const cookieStore = await cookies();
-    const masterToken = cookieStore.get('admin_master')?.value;
-    
-    // The master key established in Admin Terminal
-    if (masterToken === '93463962569392846256') return true;
-    
-    return false; 
-  } catch (error) { return false; }
-}
-
-/**
  * Institutional Admin Session Verification
  * Validates the Firebase ID Token and checks for admin privileges.
  */
 async function verifyAdminSession(idToken: string) {
   if (!idToken) {
     console.error("[Admin-Auth] FAILED: No ID token provided.");
-    throw new Error("Identity verification failed: Authentication token is required.");
+    throw new Error("Authentication failed: No identity token provided.");
   }
   
   const services = getAdminServices();
@@ -40,8 +23,7 @@ async function verifyAdminSession(idToken: string) {
     const email = decoded.email?.toLowerCase();
     
     if (!email) {
-      console.error("[Admin-Auth] FAILED: Email missing from token.");
-      throw new Error("Identity verification failed: Email missing from token.");
+      throw new Error("Authentication failed: Email missing from token.");
     }
 
     const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
@@ -51,12 +33,23 @@ async function verifyAdminSession(idToken: string) {
       throw new Error("Administrator permission required.");
     }
     
-    console.log(`[Admin-Auth] SUCCESS: Session verified for ${email}`);
     return decoded;
   } catch (err: any) {
-    console.error("[Admin-Auth] CRITICAL ERROR during token verification:", err.message);
-    throw err;
+    console.error("[Admin-Auth] Token verification failed:", err.message);
+    throw new Error("Authentication failed: Invalid session.");
   }
+}
+
+/**
+ * SECURITY HELPER: Admin Verification (Legacy Cookie)
+ */
+export async function verifyAdminAuth() {
+  try {
+    const cookieStore = await cookies();
+    const masterToken = cookieStore.get('admin_master')?.value;
+    if (masterToken === '93463962569392846256') return true;
+    return false; 
+  } catch (error) { return false; }
 }
 
 export async function updateGlobalSettingsAction(settings: any) {
@@ -69,7 +62,7 @@ export async function updateGlobalSettingsAction(settings: any) {
 }
 
 /**
- * Institutional Account Provisioning (Admin SDK Bypass)
+ * Institutional Account Provisioning
  */
 export async function giftAccountAction(email: string, accountSize: string, planType: string) {
   if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
@@ -224,108 +217,92 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 }
 
 /**
- * Institutional KYC Action with Forensic Logging
- * Specialized to handle the "approved"/"rejected" flow with extreme diagnostic tracing.
+ * Institutional KYC Action
+ * Updates trader status and provides forensic audit logging.
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
-  const opId = Math.random().toString(36).substring(7).toUpperCase();
-  console.log(`[KYC-Action][${opId}] >>> INCOMING REQUEST: Operation=${status}, TargetUID=${userId}`);
-  
   try {
     // 1. Verify Administrative Credentials
-    console.log(`[KYC-Action][${opId}] 1. Validating identity token...`);
     const adminUser = await verifyAdminSession(idToken);
     const adminEmail = adminUser.email!;
+    const adminUid = adminUser.uid;
     
     // 2. Initialize Database Context
-    console.log(`[KYC-Action][${opId}] 2. Acquiring database services...`);
     const services = getAdminServices();
     const db = services.db;
     
     // 3. Document Integrity Check
     const userRef = db.collection('users').doc(userId);
-    console.log(`[KYC-Action][${opId}] 3. Audit check on path: ${userRef.path}`);
     const userSnap = await userRef.get();
     
     if (!userSnap.exists) {
-      console.error(`[KYC-Action][${opId}] CRITICAL: Document 'users/${userId}' was not found. Verification halted.`);
-      return { success: false, error: "Failed to update KYC status: Trader record not found." };
+      return { success: false, error: "Document not found" };
     }
 
     const userData = userSnap.data()!;
     const prevStatus = userData.kycStatus || 'none';
-    console.log(`[KYC-Action][${opId}] Record found for: ${userData.email} (Previous Status: ${prevStatus})`);
 
-    // 4. Schema Mapping & Payloads
-    // Status normalization for DB schema (enum: "none", "pending", "verified", "rejected")
-    const finalStatus = (status === 'approved' || status === 'verified') ? 'verified' : 'rejected';
+    // 4. Schema Mapping (uses 'verified' for approved state per project blueprint)
+    const isApproving = status === 'approved' || status === 'verified';
+    const finalStatus = isApproving ? 'verified' : 'rejected';
     
     const updates: any = { 
       kycStatus: finalStatus, 
-      kycVerified: finalStatus === 'verified', 
-      updatedAt: FieldValue.serverTimestamp() 
+      kycVerified: isApproving, 
+      updatedAt: FieldValue.serverTimestamp(),
+      kycReviewedAt: FieldValue.serverTimestamp(),
+      kycReviewedBy: adminUid,
+      // Store descriptive fields for audit
+      approvedAt: isApproving ? FieldValue.serverTimestamp() : (userData.approvedAt || null),
+      approvedBy: isApproving ? adminEmail : (userData.approvedBy || null),
+      rejectedAt: !isApproving ? FieldValue.serverTimestamp() : (userData.rejectedAt || null),
+      rejectedBy: !isApproving ? adminEmail : (userData.rejectedBy || null),
+      kycRejectionReason: !isApproving ? (reason || "Documents invalid or unclear.") : null
     };
-
-    if (finalStatus === 'verified') {
-      updates.approvedAt = FieldValue.serverTimestamp();
-      updates.approvedBy = adminEmail;
-      updates.kycRejectionReason = null;
-    } else {
-      updates.rejectedAt = FieldValue.serverTimestamp();
-      updates.rejectedBy = adminEmail;
-      updates.kycRejectionReason = reason || "Documents invalid or unclear.";
-    }
-    
-    console.log(`[KYC-Action][${opId}] 4. Generating atomic payload:`, JSON.stringify(updates));
 
     // 5. Atomic Commit Cycle
     const batch = db.batch();
-    
-    // A. Update Main Profile
     batch.update(userRef, updates);
     
-    // B. Create Internal System Notification
+    // Create Internal System Notification
     const notifRef = userRef.collection('notifications').doc();
     batch.set(notifRef, {
-      title: finalStatus === 'verified' ? '✅ KYC Verified' : '❌ KYC Rejected',
-      message: finalStatus === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
+      title: isApproving ? '✅ KYC Verified' : '❌ KYC Rejected',
+      message: isApproving ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });
 
-    // C. Record Forensic Audit Log
+    // Record Forensic Audit Log
     const auditRef = db.collection('kyc_audit_logs').doc();
     batch.set(auditRef, {
       adminEmail,
+      adminUid,
       userId,
       userEmail: userData.email || 'unknown',
       previousStatus: prevStatus,
       newStatus: finalStatus,
       reason: reason || null,
-      timestamp: FieldValue.serverTimestamp(),
-      operationId: opId
+      timestamp: FieldValue.serverTimestamp()
     });
     
-    console.log(`[KYC-Action][${opId}] 5. Committing batch to Firestore...`);
     await batch.commit();
 
-    // 6. Post-Commit Security Extensions
-    if (finalStatus === 'verified') {
-      console.log(`[KYC-Action][${opId}] 6. Provisioning custom security claims...`);
+    // 6. Provision custom security claims
+    if (isApproving) {
       try {
         await services.auth.setCustomUserClaims(userId, { kycVerified: true });
       } catch (claimErr: any) {
-        console.warn(`[KYC-Action][${opId}] Warning: Custom claims failed to propagate: ${claimErr.message}`);
+        console.warn(`[KYC-Action] Warning: Custom claims failed to propagate: ${claimErr.message}`);
       }
     }
     
-    console.log(`[KYC-Action][${opId}] COMPLETED SUCCESSFULY`);
     return { success: true };
 
   } catch (err: any) { 
-    console.error(`[KYC-Action][${opId}] FATAL EXCEPTION:`, err.message);
-    if (err.stack) console.error(err.stack);
+    console.error("KYC Update Error", err);
+    if (err.message?.includes('PERMISSION_DENIED')) return { success: false, error: "Permission denied" };
     return { success: false, error: "Failed to update KYC status." }; 
   }
 }
