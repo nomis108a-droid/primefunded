@@ -513,7 +513,7 @@ export default function AdminPage() {
     e.preventDefault();
     if (adminPasswordInput === '93463962569392846256') {
       localStorage.setItem('adminVerified', 'true');
-      document.cookie = "admin_master=93463962569392846256; path=/; max-age=604800";
+      document.cookie = "admin_master=93463962569392846256; path=/; max-age=604800; SameSite=Lax; Secure";
       setIsAuthenticated(true);
       setShowAdminModal(false);
       setAdminError('');
@@ -532,14 +532,17 @@ export default function AdminPage() {
   const handleApproveKyc = useCallback(async (userId: string) => {
     setApprovingKycUserId(userId);
     try {
-      const res = await updateKycStatusAction(userId, 'verified');
+      const res = await updateKycStatusAction(userId, 'verified', undefined, user?.email || 'unknown', user?.uid || 'unknown');
       if (res.success) { 
-        toast({ title: "KYC Verified", description: "Trader identity has been approved." }); 
+        toast({ title: "KYC Approved Successfully" }); 
         refreshStats(true); 
+        if (selectedUser?.id === userId) {
+          handleViewUserByAccount(userId);
+        }
       }
       else toast({ variant: "destructive", title: "Failed", description: res.error });
     } finally { setApprovingKycUserId(null); }
-  }, [refreshStats, toast]);
+  }, [refreshStats, toast, user, selectedUser]);
 
   const handleRejectKyc = async () => {
     if (!kycRejectingUserId || !kycRejectReason.trim()) {
@@ -548,13 +551,16 @@ export default function AdminPage() {
     }
     setActionLoading(true);
     try {
-      const res = await updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason.trim());
+      const res = await updateKycStatusAction(kycRejectingUserId, 'rejected', kycRejectReason.trim(), user?.email || 'unknown', user?.uid || 'unknown');
       if (res.success) {
-        toast({ title: "KYC Rejected", description: "Trader has been notified with the reason." });
+        toast({ title: "KYC Rejected Successfully" });
         setIsKycRejectModalOpen(false);
         setKycRejectingUserId(null);
         setKycRejectReason('');
         refreshStats(true);
+        if (selectedUser?.id === kycRejectingUserId) {
+          handleViewUserByAccount(kycRejectingUserId);
+        }
       } else {
         throw new Error(res.error || "Rejection failed");
       }

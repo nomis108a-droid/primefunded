@@ -263,14 +263,31 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 }
 
 /**
- * Hardened KYC Action
+ * Institutional KYC Action with Audit Logging
  */
-export async function updateKycStatusAction(userId: string, status: string, reason?: string) {
+export async function updateKycStatusAction(userId: string, status: string, reason?: string, adminEmail?: string, adminId?: string) {
   try {
-    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized" };
+    // 1. Authorization Gate
+    if (!await verifyAdminAuth()) return { success: false, error: "Unauthorized: Master Token Missing" };
+    
     const db = getAdminDb();
     if (!db) throw new Error("Admin services unavailable");
 
+    // 2. Secondary Role Verification
+    if (adminEmail && !ADMIN_EMAILS.map(e => e.toLowerCase()).includes(adminEmail.toLowerCase())) {
+       return { success: false, error: "Unauthorized: Individual identity not permitted." };
+    }
+
+    const userRef = db.collection('users').doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) throw new Error("Trader profile not found.");
+    
+    const userData = userSnap.data()!;
+    const prevStatus = userData.kycStatus || 'none';
+
+    // 3. Execution via Atomic Batch
+    const batch = db.batch();
+    
     const updates: any = { 
       kycStatus: status, 
       kycVerified: status === 'verified', 
@@ -279,7 +296,7 @@ export async function updateKycStatusAction(userId: string, status: string, reas
     if (reason) updates.kycRejectionReason = reason;
     else if (status === 'verified') updates.kycRejectionReason = null;
     
-    await db.collection('users').doc(userId).update(updates);
+    batch.update(userRef, updates);
     
     // Set Custom Claims for Verified Users via Admin SDK
     if (status === 'verified') {
@@ -289,16 +306,33 @@ export async function updateKycStatusAction(userId: string, status: string, reas
       }
     }
     
-    await db.collection('users').doc(userId).collection('notifications').add({
+    // Create notification
+    const notifRef = userRef.collection('notifications').doc();
+    batch.set(notifRef, {
       title: status === 'verified' ? '✅ KYC Verified' : '❌ KYC Rejected',
       message: status === 'verified' ? 'Your identity verification has been approved.' : `Your KYC was rejected. Reason: ${reason}`,
       type: 'kyc_update',
       isRead: false,
       createdAt: FieldValue.serverTimestamp()
     });
+
+    // 4. Institutional Audit Logging
+    const auditRef = db.collection('kyc_audit_logs').doc();
+    batch.set(auditRef, {
+      adminId: adminId || 'unknown',
+      adminEmail: adminEmail || 'unknown',
+      userId,
+      userEmail: userData.email || 'unknown',
+      previousStatus: prevStatus,
+      newStatus: status,
+      reason: reason || null,
+      timestamp: FieldValue.serverTimestamp()
+    });
     
+    await batch.commit();
     return { success: true };
   } catch (err: any) { 
+    console.error('[Admin-KYC-Action] Failure:', err.message);
     return { success: false, error: err.message }; 
   }
 }
