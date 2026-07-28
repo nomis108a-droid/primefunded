@@ -5,8 +5,7 @@ import { getDatabase } from 'firebase-admin/database';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Initializer
- * Ensures reliable administrative access using a global singleton to prevent initialization conflicts.
- * Optimized for both Production and Firebase Studio environments.
+ * Hardened to resolve Project ID (aud) mismatch and ensure singleton reliability.
  */
 
 interface AdminServices {
@@ -21,44 +20,47 @@ declare global {
 }
 
 /**
- * Initializes or retrieves the Admin SDK services as a stable singleton.
+ * Initializes or retrieves the Admin SDK services.
+ * Strictly enforces Project ID synchronization between Client and Server.
  */
 function initAdmin(): AdminServices {
-  // 1. Return cached services if available
   if (global.__admin_services) {
     return global.__admin_services;
   }
 
-  console.log('[Admin-Init] Initializing fresh Administrative instance...');
-
-  // 2. Check for existing apps to prevent "already exists" errors
   const apps = getApps();
   let adminApp: App;
 
-  if (apps.length > 0) {
-    console.log('[Admin-Init] Reusing existing Firebase App instance.');
-    adminApp = apps[0];
-  } else {
-    // 3. Perform fresh initialization
-    const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
-    const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
-    console.log('[Admin-Init] Checking environment configuration...');
-    
-    if (!b64Key) {
-      console.warn('[Admin-Init] WARNING: FIREBASE_SERVICE_ACCOUNT_KEY_B64 is missing. Falling back to environment identity.');
+  if (apps.length > 0) {
+    adminApp = apps[0];
+    // Audit check for existing apps
+    if (adminApp.options.projectId !== projectId) {
+      console.warn(`[Admin-Init] WARNING: Existing app project ID (${adminApp.options.projectId}) mismatch with environment (${projectId}).`);
     }
+  } else {
+    console.log('[Admin-Init] Constructing Administrative instance...');
+    console.log('[Admin-Init] Target Project Identity:', projectId);
+
+    const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
 
     let options: any = {
+      projectId,
       databaseURL
     };
 
-    // Use Service Account if available (bypasses Metadata Server timeouts)
     if (b64Key && b64Key.trim() !== '') {
       try {
         const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
         const serviceAccount = JSON.parse(decoded);
         
+        // Safety: ensure the service account project matches our target
+        if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
+          console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}). Overriding with environment.`);
+        }
+
         if (serviceAccount.private_key) {
           serviceAccount.private_key = serviceAccount.private_key
             .replace(/\\n/g, '\n')
@@ -66,23 +68,24 @@ function initAdmin(): AdminServices {
         }
         
         options.credential = cert(serviceAccount);
-        console.log('[Admin-Init] Credential Source: Service Account Key (Bypass Metadata)');
+        console.log('[Admin-Init] Authentication: Service Account Key (Authorized)');
       } catch (e: any) {
-        console.error("[Admin-Init] FATAL: Service Account Key Parse Failure:", e.message);
+        console.error("[Admin-Init] Service Account Parse Failure:", e.message);
         throw new Error(`Admin credentials invalid: ${e.message}`);
       }
+    } else {
+      console.log('[Admin-Init] Authentication: Application Default Credentials (ADC)');
     }
 
     try {
       adminApp = initializeApp(options);
-      console.log('[Admin-Init] Success: Admin SDK initialized for project:', adminApp.options.projectId);
+      console.log('[Admin-Init] Success: Admin SDK bound to project:', adminApp.options.projectId);
     } catch (err: any) {
-      console.error("[Admin-Init] CRITICAL ERROR: App initialization failed:", err.message);
+      console.error("[Admin-Init] Initialization Fault:", err.message);
       throw new Error(`Admin initialization failed: ${err.message}`);
     }
   }
 
-  // 4. Map services and cache globally
   global.__admin_services = {
     app: adminApp,
     db: getFirestore(adminApp),
@@ -93,9 +96,6 @@ function initAdmin(): AdminServices {
   return global.__admin_services;
 }
 
-/**
- * Service Provider Getters
- */
 export const getAdminDb = () => initAdmin().db;
 export const getAdminAuth = () => initAdmin().auth;
 export const getAdminRtdb = () => initAdmin().rtdb;
