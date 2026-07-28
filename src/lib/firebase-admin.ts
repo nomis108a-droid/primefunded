@@ -7,7 +7,7 @@ import { getDatabase } from 'firebase-admin/database';
  * @fileOverview Institutional Firebase Admin SDK Configuration
  * Hardened for Production: Ensures reliable administrative access using a global singleton
  * to prevent initialization conflicts during server-side hot-reloads.
- * Supports both Base64 service account keys and Application Default Credentials.
+ * Prioritizes Service Account Keys to avoid metadata plugin token refresh issues.
  */
 
 interface AdminServices {
@@ -27,75 +27,73 @@ declare global {
  * Throws a descriptive error if initialization is impossible.
  */
 function initAdmin(): AdminServices {
+  // 1. Return cached services if available (Singleton Pattern)
   if (global.__admin_services) return global.__admin_services;
 
+  // 2. Check for existing apps to prevent "already exists" errors during HMR
   const apps = getApps();
+  let adminApp: App;
+
   if (apps.length > 0) {
-    const adminApp = apps[0];
-    global.__admin_services = {
-      app: adminApp,
-      db: getFirestore(adminApp),
-      auth: getAuth(adminApp),
-      rtdb: getDatabase(adminApp)
-    };
-    return global.__admin_services;
-  }
+    adminApp = apps[0];
+    console.log("[Admin-Init] Reusing existing Firebase Admin instance");
+  } else {
+    // 3. Perform fresh initialization
+    const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
+    const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
 
-  // Configuration Resolve
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
-  const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
-  const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
+    let credential;
 
-  let config: any = {
-    projectId,
-    databaseURL
-  };
-
-  // 1. Attempt to use provided Service Account Key
-  if (b64Key && b64Key.trim() !== '') {
-    try {
-      const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
-      const serviceAccount = JSON.parse(decoded);
-      
-      if (serviceAccount.private_key) {
-        serviceAccount.private_key = serviceAccount.private_key
-          .replace(/\\n/g, '\n')
-          .trim();
+    // PATH A: Use Explicit Service Account Key (Most reliable, avoids metadata lookup)
+    if (b64Key && b64Key.trim() !== '') {
+      try {
+        const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
+        const serviceAccount = JSON.parse(decoded);
+        
+        if (serviceAccount.private_key) {
+          serviceAccount.private_key = serviceAccount.private_key
+            .replace(/\\n/g, '\n')
+            .trim();
+        }
+        
+        credential = cert(serviceAccount);
+        console.log(`[Admin-Init] Master session established via Service Account: ${serviceAccount.client_email}`);
+      } catch (e: any) {
+        console.error("[Admin-Init] FAILED: Service Account Key is malformed:", e.message);
       }
-      
-      config.credential = cert(serviceAccount);
-      console.log(`[Admin-Init] Establishing Master session via Service Account: ${serviceAccount.client_email}`);
-    } catch (e: any) {
-      console.error("[Admin-Init] Failed to parse B64 Service Account key:", e.message);
+    }
+
+    // PATH B: Fallback to Application Default Credentials (ADC)
+    if (!credential) {
+      console.log("[Admin-Init] Service Account Key missing. Falling back to Application Default Credentials.");
+      credential = applicationDefault();
+    }
+
+    try {
+      adminApp = initializeApp({
+        credential,
+        databaseURL
+      });
+    } catch (err: any) {
+      console.error("[Admin-Init] CRITICAL: Admin SDK failed to start:", err.message);
+      throw new Error(`Admin service initialization failed: ${err.message}`);
     }
   }
 
-  // 2. Fallback to Application Default Credentials (critical for GCP/App Hosting)
-  if (!config.credential) {
-    console.log("[Admin-Init] No Service Account key provided. Falling back to Application Default Credentials.");
-    config.credential = applicationDefault();
-  }
+  // 4. Map services and cache globally
+  global.__admin_services = {
+    app: adminApp,
+    db: getFirestore(adminApp),
+    auth: getAuth(adminApp),
+    rtdb: getDatabase(adminApp)
+  };
 
-  try {
-    const adminApp = initializeApp(config);
-
-    global.__admin_services = {
-      app: adminApp,
-      db: getFirestore(adminApp),
-      auth: getAuth(adminApp),
-      rtdb: getDatabase(adminApp)
-    };
-
-    return global.__admin_services;
-  } catch (err: any) {
-    console.error("[Admin-Init] CRITICAL INITIALIZATION FAILURE:", err.message);
-    throw new Error(`Admin service initialization failed: ${err.message}`);
-  }
+  return global.__admin_services;
 }
 
 /**
  * Service Provider Getters
- * These will throw descriptive errors if the Admin SDK is not properly configured.
+ * Standardized access points for the Administrative Terminal.
  */
 export const getAdminDb = () => initAdmin().db;
 export const getAdminAuth = () => initAdmin().auth;

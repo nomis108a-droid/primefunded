@@ -27,7 +27,7 @@ export async function verifyAdminAuth() {
  * Validates the Firebase ID Token and checks for admin privileges.
  */
 async function verifyAdminSession(idToken: string) {
-  if (!idToken) throw new Error("Authentication token is required.");
+  if (!idToken) throw new Error("Identity verification failed: Authentication token is required.");
   
   const auth = getAdminAuth();
   
@@ -46,9 +46,11 @@ async function verifyAdminSession(idToken: string) {
     
     return decoded;
   } catch (err: any) {
-    console.error("[Admin-Auth] Token Verification Error:", err.message);
+    console.error("[Admin-Auth] Session Verification Error:", err.message);
     if (err.code === 'auth/id-token-expired') throw new Error("Session expired. Please sign in again.");
-    throw new Error(`Authorization failed: ${err.message}`);
+    
+    // Propagate infrastructure errors (like metadata failures) for action-level handling
+    throw err;
   }
 }
 
@@ -287,9 +289,10 @@ export async function sendGlobalBroadcastAction(data: { title: string, message: 
 
 /**
  * Institutional KYC Action with Audit Logging
+ * Enhanced with exhaustive error reporting for forensic analysis.
  */
 export async function updateKycStatusAction(idToken: string, userId: string, status: string, reason?: string) {
-  console.log(`[KYC-Action] Received request for userId: ${userId}, status: ${status}`);
+  console.log(`[KYC-Action] Initiating update: user=${userId}, status=${status}`);
   try {
     // 1. Authorization Gate - Verify Session
     const adminUser = await verifyAdminSession(idToken);
@@ -301,8 +304,7 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     const userSnap = await userRef.get();
     
     if (!userSnap.exists) {
-      console.error(`[KYC-Action] User document not found: ${userId}`);
-      throw new Error("KYC record not found in database.");
+      throw new Error(`KYC record lookup failed: user ${userId} not found in dataset.`);
     }
     
     const userData = userSnap.data()!;
@@ -358,11 +360,26 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
     });
     
     await batch.commit();
-    console.log(`[KYC-Action] Successfully updated status for ${userId} to ${status}`);
+    console.log(`[KYC-Action] Successfully finalized update for user: ${userId}`);
     return { success: true };
   } catch (err: any) { 
-    console.error('[KYC-Action] Fatal Failure:', err.message);
-    return { success: false, error: err.message }; 
+    // EXHAUSTIVE SERVER-SIDE ERROR LOGGING
+    console.error('[KYC-Action] CRITICAL SERVICE FAILURE:', {
+      message: err.message,
+      code: err.code,
+      details: err.details,
+      stack: err.stack
+    });
+
+    // CONTEXTUAL ERROR FEEDBACK FOR THE UI
+    const displayError = err.details || err.message || "Institutional service node failure";
+    
+    return { 
+      success: false, 
+      error: displayError.includes('metadata') 
+        ? "Administrative authentication failure (Metadata server timeout). Please verify environment credentials."
+        : displayError 
+    }; 
   }
 }
 
