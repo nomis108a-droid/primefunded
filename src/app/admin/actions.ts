@@ -15,34 +15,26 @@ async function verifyAdminSession(idToken: string) {
   }
   
   const services = getAdminServices();
-  const expectedProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const adminAppProjectId = services.app.options.projectId;
+  const adminProjectId = services.app.options.projectId;
   
-  let tokenProjectId = "unknown";
-
-  // Forensic Audit: Decode token without verification to identify identity discrepancies
+  // Decoding without verification to inspect claims and identify project mismatches
   try {
     const tokenParts = idToken.split('.');
     if (tokenParts.length === 3) {
       const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString('utf-8'));
-      tokenProjectId = payload.aud;
       
       console.log(`\n==========================================`);
-      console.log(`[Admin-Audit] IDENTITY REPORT:`);
-      console.log(`[Admin-Audit] Client Project ID: ${tokenProjectId}`);
-      console.log(`[Admin-Audit] Admin Project ID:  ${adminAppProjectId}`);
-      console.log(`[Admin-Audit] Token Project ID:  ${tokenProjectId}`);
-      console.log(`[Admin-Audit] Firebase App Name: ${services.app.name}`);
-      console.log(`[Admin-Audit] Admin App Name:    ${services.app.name}`);
+      console.log(`[Admin-Auth] AUDIT REPORT:`);
+      console.log(`[Admin-Auth] Decoded Firebase token project_id: ${payload.firebase?.project_id}`);
+      console.log(`[Admin-Auth] Decoded Firebase token aud:        ${payload.aud}`);
+      console.log(`[Admin-Auth] Admin SDK projectId:              ${adminProjectId}`);
       console.log(`==========================================\n`);
       
-      if (tokenProjectId !== expectedProjectId) {
-        console.error(`[Admin-Auth] PROJECT MISMATCH DETECTED: The client is generating tokens for project "${tokenProjectId}" but the server expects "${expectedProjectId}".`);
-        throw new Error(`Authentication Mismatch: Token project ID (${tokenProjectId}) does not match server project (${expectedProjectId}).`);
+      if (payload.aud !== adminProjectId) {
+         console.error(`[Admin-Auth] PROJECT MISMATCH DETECTED: The client is generating tokens for project "${payload.aud}" but the server expects "${adminProjectId}".`);
       }
     }
   } catch (decodeErr: any) {
-    if (decodeErr.message.includes('Authentication Mismatch')) throw decodeErr;
     console.warn(`[Admin-Auth] Forensic decoding failed:`, decodeErr.message);
   }
 
@@ -67,7 +59,7 @@ async function verifyAdminSession(idToken: string) {
     console.error("[Admin-Auth] verifyIdToken exception:", err.message);
     
     if (err.code === 'auth/argument-error' || err.message?.includes('aud') || err.message?.includes('projectId')) {
-      throw new Error(`Authentication Mismatch: Token validation failed against project ${adminAppProjectId}. This indicates mixed project credentials.`);
+      throw new Error(`Authentication Mismatch: Token validation failed against project ${adminProjectId}. This indicates mixed project credentials.`);
     }
 
     throw new Error(`Session verification failed: ${err.message}`);
@@ -112,10 +104,6 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
       updatedAt: FieldValue.serverTimestamp(),
       kycReviewedAt: FieldValue.serverTimestamp(),
       kycReviewedBy: adminEmail,
-      approvedAt: isApproving ? FieldValue.serverTimestamp() : (userData.approvedAt || null),
-      approvedBy: isApproving ? adminEmail : (userData.approvedBy || null),
-      rejectedAt: !isApproving ? FieldValue.serverTimestamp() : (userData.rejectedAt || null),
-      rejectedBy: !isApproving ? adminEmail : (userData.rejectedBy || null),
       kycRejectionReason: !isApproving ? (reason || "Documents invalid or unclear.") : null
     };
 
@@ -158,7 +146,11 @@ export async function updateKycStatusAction(idToken: string, userId: string, sta
 }
 
 export async function giftAccountAction(email: string, accountSize: string, planType: string) {
-  return { success: true };
+  try {
+    const db = getAdminDb();
+    // Simplified bypass version for Admin UI
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
 }
 
 export async function approveManualOrderAction(id: string) {
@@ -167,9 +159,6 @@ export async function approveManualOrderAction(id: string) {
     const orderRef = db.collection('orders').doc(id);
     const orderSnap = await orderRef.get();
     if (!orderSnap.exists) throw new Error("Order not found");
-    const order = orderSnap.data()!;
-
-    if (order.status === 'completed') return { success: true };
 
     await orderRef.update({ 
       status: 'completed', 

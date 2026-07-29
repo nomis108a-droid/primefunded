@@ -5,8 +5,7 @@ import { getDatabase } from 'firebase-admin/database';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Initializer
- * Hardened to resolve Project ID (aud) mismatch and ensure singleton reliability.
- * Strictly enforces alignment between Client and Server Project IDs.
+ * Hardened to support multiple credential sources and ensure singleton reliability.
  */
 
 interface AdminServices {
@@ -22,7 +21,7 @@ declare global {
 
 /**
  * Initializes or retrieves the Admin SDK services.
- * Ensures the Admin SDK is initialized for the EXACT project the client expects.
+ * Implements a singleton pattern to avoid "already initialized" errors.
  */
 function initAdmin(): AdminServices {
   if (global.__admin_services) {
@@ -30,87 +29,82 @@ function initAdmin(): AdminServices {
   }
 
   const apps = getApps();
-  let adminApp: App;
+  const fallbackProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
 
-  // The authoritative source of truth for the project ID
-  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-  const databaseURL = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL;
-
-  if (!projectId) {
-    console.error("[Admin-Init] FATAL: NEXT_PUBLIC_FIREBASE_PROJECT_ID is not configured.");
-    throw new Error("NEXT_PUBLIC_FIREBASE_PROJECT_ID is missing.");
-  }
-
+  // If already initialized by another process or earlier in the lifecycle
   if (apps.length > 0) {
-    adminApp = apps.find(app => app.options.projectId === projectId) || apps[0];
-    
-    // Security Audit: Check if the existing app matches our target project
-    if (adminApp.options.projectId !== projectId) {
-      console.warn(`[Admin-Init] WARNING: Project ID mismatch. SDK is using "${adminApp.options.projectId}" but client expects "${projectId}". Re-initializing...`);
-    } else {
-      global.__admin_services = {
-        app: adminApp,
-        db: getFirestore(adminApp),
-        auth: getAuth(adminApp),
-        rtdb: getDatabase(adminApp)
-      };
-      return global.__admin_services;
-    }
+    const existingApp = apps.find(a => a.options.projectId === fallbackProjectId) || apps[0];
+    global.__admin_services = {
+      app: existingApp,
+      db: getFirestore(existingApp),
+      auth: getAuth(existingApp),
+      rtdb: getDatabase(existingApp)
+    };
+    return global.__admin_services;
   }
 
-  console.log('[Admin-Init] Initializing Institutional Administrative Instance...');
-  console.log('[Admin-Init] Target Project Identity:', projectId);
+  let credential;
+  let projectId = fallbackProjectId;
+  let clientEmail = 'environment-default';
 
+  // 1. Priority: Base64 Service Account
   const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
-
-  // CRITICAL: Explicitly pass projectId in the options to ensure verifyIdToken 
-  // checks the correct 'aud' (audience) claim regardless of the credential source.
-  let options: any = {
-    projectId,
-    databaseURL
-  };
-
   if (b64Key && b64Key.trim() !== '') {
     try {
-      const decoded = Buffer.from(b64Key, 'base64').toString('utf-8');
-      const serviceAccount = JSON.parse(decoded);
-      
-      // Validation: If the service account project differs from the environment, log it
-      if (serviceAccount.project_id && serviceAccount.project_id !== projectId) {
-        console.warn(`[Admin-Init] CRITICAL: Service account project (${serviceAccount.project_id}) differs from environment (${projectId}). Overriding to environment ID.`);
+      const decoded = JSON.parse(Buffer.from(b64Key, 'base64').toString('utf-8'));
+      if (decoded.private_key) {
+        decoded.private_key = decoded.private_key.replace(/\\n/g, '\n').trim();
       }
-
-      if (serviceAccount.private_key) {
-        serviceAccount.private_key = serviceAccount.private_key
-          .replace(/\\n/g, '\n')
-          .trim();
-      }
-      
-      options.credential = cert(serviceAccount);
-      console.log('[Admin-Init] Authentication: Service Account Key (Authorized)');
+      credential = cert(decoded);
+      projectId = decoded.project_id || projectId;
+      clientEmail = decoded.client_email || clientEmail;
     } catch (e: any) {
-      console.error("[Admin-Init] Service Account Parse Failure:", e.message);
+      console.error("[Admin-Init] B64 Parse Failed:", e.message);
     }
-  } else {
-    console.log('[Admin-Init] Authentication: Application Default Credentials (ADC)');
   }
+
+  // 2. Secondary: Discrete Environment Variables
+  if (!credential) {
+    const envProjectId = process.env.FIREBASE_PROJECT_ID;
+    const envEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const envKey = process.env.FIREBASE_PRIVATE_KEY;
+
+    if (envProjectId && envEmail && envKey) {
+      credential = cert({
+        projectId: envProjectId,
+        clientEmail: envEmail,
+        privateKey: envKey.replace(/\\n/g, '\n')
+      });
+      projectId = envProjectId;
+      clientEmail = envEmail;
+    }
+  }
+
+  // Logging critical info before initialization as requested
+  console.log(`[Admin-Init] Initializing Institutional Admin SDK`);
+  console.log(`[Admin-Init] Admin Project ID: ${projectId}`);
+  console.log(`[Admin-Init] Admin Client Email: ${clientEmail}`);
 
   try {
-    adminApp = initializeApp(options, `Admin-${Date.now()}`);
-    console.log('[Admin-Init] Success: Admin SDK bound to project:', adminApp.options.projectId);
+    // CRITICAL: Explicitly pass projectId to ensure consistency with Client SDK tokens
+    const app = initializeApp({
+      credential,
+      projectId,
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL
+    }, `Admin-${Date.now()}`);
+
+    global.__admin_services = {
+      app,
+      db: getFirestore(app),
+      auth: getAuth(app),
+      rtdb: getDatabase(app)
+    };
   } catch (err: any) {
-    console.error("[Admin-Init] Initialization Fault:", err.message);
-    throw new Error(`Admin initialization failed: ${err.message}`);
+    console.error("[Admin-Init] Fatal Initialization Error:", err.message);
+    throw err;
   }
 
-  global.__admin_services = {
-    app: adminApp,
-    db: getFirestore(adminApp),
-    auth: getAuth(adminApp),
-    rtdb: getDatabase(adminApp)
-  };
-
-  return global.__admin_services;
+  return global.__admin_services!;
 }
 
 export const getAdminDb = () => initAdmin().db;
