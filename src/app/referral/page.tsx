@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useMemo, useState, useEffect, memo } from 'react';
@@ -27,7 +26,8 @@ import {
   ExternalLink,
   ShieldAlert,
   AlertTriangle,
-  Info
+  Info,
+  BookOpen
 } from 'lucide-react';
 import { useCollection } from '@/firebase';
 import { query, collection, orderBy, where, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -249,7 +249,6 @@ export default function ReferralPage() {
             </Card>
           </div>
 
-          {/* Referral Program Terms Section */}
           <section className="mb-16">
             <div className="flex items-center gap-3 mb-10">
                <BookOpen className="text-primary w-6 h-6" />
