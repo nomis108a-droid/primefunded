@@ -137,44 +137,53 @@ export default function ChallengesPage() {
   const { toast } = useToast();
   const router = useRouter();
 
+  const isInstantPlan = selectedPlan.startsWith('instant');
+
   useEffect(() => {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
   useEffect(() => {
+    // 1. Initial Load: Check if user is already associated with a referrer
     if (userData?.referredBy && !isApplied) {
       setIsApplied(true);
-      // Try to find the referrer's code to display
-      const findCode = async () => {
-        const docRef = doc(db, 'users', userData.referredBy);
-        const snap = await getDocs(query(collection(db, 'users'), where('uid', '==', userData.referredBy)));
-        if (!snap.empty) {
-          setReferralInput(snap.docs[0].data().referralCode);
-        }
-      };
-      findCode();
+    } 
+    
+    // 2. Local Storage check: If they clicked a link but haven't applied yet
+    const storedCode = localStorage.getItem('pf_referral_code');
+    if (storedCode && !isApplied && !userData?.referredBy) {
+      setReferralInput(storedCode);
+      handleApplyReferral(storedCode);
     }
-  }, [userData]);
+  }, [userData, isApplied]);
 
-  const handleApplyReferral = async () => {
-    if (!user || !referralInput || isApplied) return;
+  const handleApplyReferral = async (manualCode?: string) => {
+    const codeToUse = (manualCode || referralInput).trim().toUpperCase();
+    if (!user || !codeToUse || isApplied) return;
+    
     setIsValidating(true);
     setErrorMessage('');
 
     try {
-      const referrerUid = await validateReferralCode(referralInput);
+      const referrerUid = await validateReferralCode(codeToUse);
       if (!referrerUid) {
         setErrorMessage('Invalid referral code.');
-        toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist." });
+        if (!manualCode) {
+           toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist." });
+        }
       } else if (referrerUid === user.uid) {
         setErrorMessage('You cannot refer yourself.');
-        toast({ variant: "destructive", title: "Self-Referral", description: "You cannot use your own code." });
+        if (!manualCode) {
+          toast({ variant: "destructive", title: "Self-Referral", description: "You cannot use your own code." });
+        }
       } else {
         await updateDoc(doc(db, 'users', user.uid), {
           referredBy: referrerUid,
           updatedAt: serverTimestamp()
         });
         setIsApplied(true);
+        // Ensure it's stored for future page loads
+        localStorage.setItem('pf_referral_code', codeToUse);
         toast({ title: "Referral Applied!", description: "10% discount has been activated for challenges." });
       }
     } catch (e: any) {
@@ -196,55 +205,64 @@ export default function ChallengesPage() {
             <p className="text-muted-foreground">Institutional funding starting from $5,000 up to $300,000.</p>
           </header>
 
-          {/* Referral Code Entry Section */}
-          <section className="mb-12">
-            <Card className="bg-secondary/20 border-border/50 p-6 md:p-8 rounded-[2rem] relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 blur-3xl -mr-32 -mt-32 rounded-full" />
-              <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-                    <Tag className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold">Referral Discount</h3>
-                    <p className="text-xs text-muted-foreground">Unlock 10% off your challenge by applying a referral code.</p>
-                  </div>
-                </div>
-                
-                <div className="w-full md:w-auto flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    <div className="relative w-full md:w-64">
-                      <Input 
-                        placeholder="ENTER CODE" 
-                        value={referralInput}
-                        onChange={e => setReferralInput(e.target.value.toUpperCase())}
-                        readOnly={isApplied}
-                        className={cn(
-                          "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase",
-                          isApplied && "border-accent text-accent pr-10"
-                        )}
-                      />
-                      {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-accent" />}
+          {/* Referral Code Entry Section - Hidden for Instant Plans */}
+          <AnimatePresence>
+            {!isInstantPlan && (
+              <motion.section 
+                initial={{ opacity: 0, height: 0 }} 
+                animate={{ opacity: 1, height: 'auto' }} 
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-12 overflow-hidden"
+              >
+                <Card className="bg-secondary/20 border-border/50 p-6 md:p-8 rounded-[2rem] relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 blur-3xl -mr-32 -mt-32 rounded-full" />
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                        <Tag className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold">Referral Discount</h3>
+                        <p className="text-xs text-muted-foreground">Unlock 10% off your challenge by applying a referral code.</p>
+                      </div>
                     </div>
-                    {!isApplied && (
-                      <Button 
-                        onClick={handleApplyReferral} 
-                        disabled={isValidating || !referralInput}
-                        className="h-11 px-6 font-bold cyan-box-glow"
-                      >
-                        {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Apply'}
-                      </Button>
-                    )}
+                    
+                    <div className="w-full md:w-auto flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <div className="relative w-full md:w-80">
+                          <Input 
+                            placeholder={isApplied ? "✅ Referral Discount Applied" : "ENTER CODE"} 
+                            value={isApplied ? "" : referralInput}
+                            onChange={e => setReferralInput(e.target.value.toUpperCase())}
+                            readOnly={isApplied}
+                            className={cn(
+                              "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase",
+                              isApplied && "border-accent text-accent pr-10 placeholder:text-accent placeholder:opacity-100"
+                            )}
+                          />
+                          {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-accent" />}
+                        </div>
+                        {!isApplied && (
+                          <Button 
+                            onClick={() => handleApplyReferral()} 
+                            disabled={isValidating || !referralInput}
+                            className="h-11 px-6 font-bold cyan-box-glow"
+                          >
+                            {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Apply'}
+                          </Button>
+                        )}
+                      </div>
+                      {isApplied ? (
+                        <p className="text-[10px] font-black uppercase text-accent tracking-widest text-center md:text-left">✅ 10% Referral Discount Active</p>
+                      ) : errorMessage ? (
+                        <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
+                      ) : null}
+                    </div>
                   </div>
-                  {isApplied ? (
-                    <p className="text-[10px] font-black uppercase text-accent tracking-widest text-center md:text-left">✅ Referral Code Applied Successfully</p>
-                  ) : errorMessage ? (
-                    <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
-                  ) : null}
-                </div>
-              </div>
-            </Card>
-          </section>
+                </Card>
+              </motion.section>
+            )}
+          </AnimatePresence>
 
           <Tabs defaultValue="1-step" className="w-full" onValueChange={setSelectedPlan}>
             <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary p-1 rounded-xl mb-10">

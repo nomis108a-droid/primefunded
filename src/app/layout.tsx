@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { FirebaseClientProvider } from '@/firebase';
 import { ProgressBar } from '@/components/ProgressBar';
 import { PerformanceTracker } from '@/components/PerformanceTracker';
+import { ReferralTracker } from '@/components/ReferralTracker';
 import { Suspense } from 'react';
 
 const logoUrl = 'https://picsum.photos/seed/pflogo-blue-silver/400/400';
@@ -66,6 +67,7 @@ export default function RootLayout({
       <body className="font-body antialiased bg-background text-foreground">
         <FirebaseClientProvider>
           <Suspense fallback={null}>
+            <ReferralTracker />
             <PerformanceTracker />
             <ProgressBar />
           </Suspense>

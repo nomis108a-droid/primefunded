@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, Suspense, useEffect } from 'react';
@@ -68,9 +67,14 @@ function SignupContent() {
   }, [existingUser, authLoading, router, redirectTo]);
 
   useEffect(() => {
-    if (referralCodeFromUrl) {
-      setReferralInput(referralCodeFromUrl.toUpperCase());
-      validateCode(referralCodeFromUrl.toUpperCase());
+    // Priority 1: URL param
+    // Priority 2: Stored in localStorage (from ReferralTracker)
+    const storedCode = localStorage.getItem('pf_referral_code');
+    const effectiveCode = referralCodeFromUrl || storedCode;
+
+    if (effectiveCode) {
+      setReferralInput(effectiveCode.toUpperCase());
+      validateCode(effectiveCode.toUpperCase());
     }
   }, [referralCodeFromUrl]);
 
@@ -89,6 +93,8 @@ function SignupContent() {
       if (!querySnapshot.empty) {
         setReferralStatus('valid');
         setReferredByUid(querySnapshot.docs[0].id);
+        // Persist back to storage just in case
+        localStorage.setItem('pf_referral_code', code.toUpperCase());
       } else {
         setReferralStatus('invalid');
         setReferredByUid(null);
@@ -258,7 +264,7 @@ function SignupContent() {
                   setReferralInput(e.target.value.toUpperCase());
                   validateCode(e.target.value.toUpperCase());
                 }}
-                readOnly={!!referralCodeFromUrl}
+                readOnly={!!referralCodeFromUrl || !!localStorage.getItem('pf_referral_code')}
                 className={cn(
                   "h-11 bg-secondary/50 transition-all uppercase font-mono text-xs text-white",
                   referralStatus === 'valid' && "border-accent/50",
