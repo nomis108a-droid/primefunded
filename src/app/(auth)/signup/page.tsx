@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, getDocs, collection, query, where, increment, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDocs, collection, query, where, increment, updateDoc, addDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { z } from 'zod';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
+import { generateSecureReferralCode } from '@/lib/referral';
 
 const SignupSchema = z.object({
   name: z.string().min(2, "Name is too short").max(100, "Name must be under 100 characters"),
@@ -119,7 +120,7 @@ function SignupContent() {
       const user = userCredential.user;
       
       const traderId = getShortId(user.uid);
-      const referralCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      const referralCode = generateSecureReferralCode();
 
       // If referred, update referrer's registration count
       if (referredByUid) {
@@ -251,7 +252,7 @@ function SignupContent() {
               </Label>
               <Input 
                 id="referral" 
-                placeholder="e.g. KAMAL123" 
+                placeholder="e.g. PF7X9KQ2M8" 
                 value={referralInput}
                 onChange={(e) => {
                   setReferralInput(e.target.value.toUpperCase());

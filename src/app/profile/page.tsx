@@ -34,6 +34,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { z } from 'zod';
 import { uploadImageAsBase64 } from '@/lib/imageUpload';
 import Image from 'next/image';
+import { generateSecureReferralCode } from '@/lib/referral';
 
 const ProfileSchema = z.object({
   name: z.string().min(2, "Name is too short").max(100, "Name must be under 100 characters"),
@@ -76,14 +77,24 @@ export default function ProfilePage() {
         country: userData.country || ''
       });
       
-      // Auto-repair/Set short numeric traderId if missing
+      // Auto-repair missing/legacy IDs and Referral Codes
       const shortId = getShortId(user.uid);
-      if (!userData.traderId || userData.traderId !== shortId) {
+      const currentCode = userData.referralCode || "";
+      const isLegacyCode = !currentCode.startsWith('PF') || currentCode.length < 10;
+      
+      if (!userData.traderId || userData.traderId !== shortId || isLegacyCode) {
         const userRef = doc(db, 'users', user.uid);
-        updateDoc(userRef, { 
-          traderId: shortId,
-          updatedAt: serverTimestamp() 
-        });
+        const updates: any = { updatedAt: serverTimestamp() };
+        
+        if (!userData.traderId || userData.traderId !== shortId) {
+          updates.traderId = shortId;
+        }
+        
+        if (isLegacyCode) {
+          updates.referralCode = generateSecureReferralCode();
+        }
+
+        updateDoc(userRef, updates).catch(console.error);
       }
     }
   }, [userData, user]);

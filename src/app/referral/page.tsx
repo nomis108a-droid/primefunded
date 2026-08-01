@@ -27,10 +27,12 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { useCollection } from '@/firebase';
-import { query, collection, orderBy, where, limit } from 'firebase/firestore';
+import { query, collection, orderBy, where, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { generateSecureReferralCode } from '@/lib/referral';
 
 const StatBox = memo(function StatBox({ title, value, icon, color = 'blue' }: { title: string, value: string | number, icon: any, color?: string }) {
   const colorMap: any = {
@@ -52,6 +54,25 @@ export default function ReferralPage() {
   const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+
+  // Auto-migration for legacy codes
+  useEffect(() => {
+    if (!authLoading && user && userData && !migrating) {
+      const currentCode = userData.referralCode || "";
+      // If code doesn't start with PF and isn't the new format, repair it
+      const isLegacy = !currentCode.startsWith('PF') || currentCode.length < 10;
+      
+      if (isLegacy) {
+        setMigrating(true);
+        const newCode = generateSecureReferralCode();
+        updateDoc(doc(db, 'users', user.uid), {
+          referralCode: newCode,
+          updatedAt: serverTimestamp()
+        }).catch(console.error).finally(() => setMigrating(false));
+      }
+    }
+  }, [userData, user, authLoading]);
 
   const referralLink = useMemo(() => {
     if (typeof window === 'undefined' || !userData?.referralCode) return '';
@@ -85,7 +106,7 @@ export default function ReferralPage() {
     toast({ title: "Copied!", description: "Your referral link is ready to share." });
   };
 
-  if (authLoading) return <div className="flex min-h-screen bg-background items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (authLoading || migrating) return <div className="flex min-h-screen bg-background items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="flex min-h-screen bg-background text-white">

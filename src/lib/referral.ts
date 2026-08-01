@@ -14,6 +14,22 @@ import {
 } from 'firebase/firestore';
 
 /**
+ * Generates a secure, random referral ID.
+ * Format: PF + 8-10 alphanumeric characters.
+ * Total length: 10-12 characters.
+ */
+export function generateSecureReferralCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = 'PF';
+  // Generate 8 to 10 random characters after the prefix
+  const randomLength = Math.floor(Math.random() * 3) + 8; 
+  for (let i = 0; i < randomLength; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+/**
  * Validates a referral code and returns the referrer's UID if valid.
  */
 export async function validateReferralCode(code: string): Promise<string | null> {
