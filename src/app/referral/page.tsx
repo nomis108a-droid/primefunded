@@ -24,7 +24,10 @@ import {
   Activity,
   Wallet,
   ArrowRight,
-  ExternalLink
+  ExternalLink,
+  ShieldAlert,
+  AlertTriangle,
+  Info
 } from 'lucide-react';
 import { useCollection } from '@/firebase';
 import { query, collection, orderBy, where, limit, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -126,7 +129,7 @@ export default function ReferralPage() {
                  <p className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Balance</p>
                  <p className="text-lg font-black text-accent tabular-nums">${(stats.withdrawable || 0).toFixed(2)}</p>
                </div>
-               <Button size="sm" className="ml-4 h-9 font-bold bg-accent text-black hover:bg-accent/90" disabled={stats.withdrawable < 30}>
+               <Button size="sm" className="ml-4 h-9 font-bold bg-accent text-black hover:bg-accent/90" disabled={stats.withdrawable < 100}>
                  Withdraw
                </Button>
             </div>
@@ -171,7 +174,7 @@ export default function ReferralPage() {
             </div>
           </div>
 
-          <div className="grid lg:grid-cols-3 gap-8">
+          <div className="grid lg:grid-cols-3 gap-8 mb-16">
             <Card className="lg:col-span-2 border-border/50 bg-card/40 backdrop-blur-md shadow-2xl">
               <CardHeader className="border-b border-white/5 pb-4">
                 <CardTitle className="text-xl flex items-center gap-2">
@@ -245,8 +248,148 @@ export default function ReferralPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Referral Program Terms Section */}
+          <section className="mb-16">
+            <div className="flex items-center gap-3 mb-10">
+               <BookOpen className="text-primary w-6 h-6" />
+               <h2 className="text-3xl font-headline font-bold text-white uppercase tracking-tighter italic">Referral Program Terms</h2>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Basic Rules */}
+              <Card className="bg-emerald-500/5 border-emerald-500/20 overflow-hidden relative group">
+                <div className="absolute top-0 left-0 w-full h-1 bg-emerald-500" />
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <CardTitle className="text-lg font-bold text-emerald-500 uppercase tracking-tight">Basic Rules</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <TermRule number="01" title="Referral Commission">
+                    Earn 20% commission on every successful challenge purchase made through your referral link.
+                  </TermRule>
+                  <TermRule number="02" title="Customer Discount">
+                    Your referred customers receive a 10% discount on all eligible Challenge Accounts.
+                  </TermRule>
+                  <TermRule number="03" title="Eligible Products">
+                    Referral discounts and commissions apply only to:
+                    <ul className="mt-2 space-y-1 opacity-80">
+                      <li>• 1-Step Challenge</li>
+                      <li>• 2-Step Challenge</li>
+                      <li>• 3-Step Challenge</li>
+                    </ul>
+                    They do <strong className="text-emerald-400">NOT</strong> apply to Instant Funding or Instant Pro accounts.
+                  </TermRule>
+                  <TermRule number="04" title="Automatic Tracking">
+                    Every referral is automatically tracked using your unique referral link and referral code.
+                  </TermRule>
+                </CardContent>
+              </Card>
+
+              {/* Important Rules */}
+              <Card className="bg-amber-500/5 border-amber-500/20 overflow-hidden relative group">
+                <div className="absolute top-0 left-0 w-full h-1 bg-amber-500" />
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-500">
+                      <Info className="w-5 h-5" />
+                    </div>
+                    <CardTitle className="text-lg font-bold text-amber-500 uppercase tracking-tight">Important Rules</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <TermRule number="05" title="Successful Purchase Required" color="amber">
+                    Referral commissions are generated only after the referred customer successfully completes payment.
+                  </TermRule>
+                  <TermRule number="06" title="Pending Approval" color="amber">
+                    All referral commissions remain in Pending status until the payment has been verified by PrimeFunded.
+                  </TermRule>
+                  <TermRule number="07" title="Minimum Withdrawal" color="amber">
+                    Referral earnings become withdrawable once your available referral balance reaches $100 USD.
+                  </TermRule>
+                  <TermRule number="08" title="Refund & Chargeback Policy" color="amber">
+                    If a referred purchase is refunded, cancelled, disputed, or charged back, the corresponding referral commission will be cancelled automatically.
+                  </TermRule>
+                  <TermRule number="09" title="One Referral Per Purchase" color="amber">
+                    Only one referral code can be applied to each challenge purchase. Referral codes cannot be combined with other promotional offers unless officially approved by PrimeFunded.
+                  </TermRule>
+                </CardContent>
+              </Card>
+
+              {/* Strict Rules */}
+              <Card className="bg-destructive/5 border-destructive/20 overflow-hidden relative group">
+                <div className="absolute top-0 left-0 w-full h-1 bg-destructive" />
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-8 h-8 rounded-lg bg-destructive/10 flex items-center justify-center text-destructive">
+                      <ShieldAlert className="w-5 h-5" />
+                    </div>
+                    <CardTitle className="text-lg font-bold text-destructive uppercase tracking-tight">Strict Rules</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <TermRule number="10" title="No Self Referrals" color="red">
+                    Using your own referral link or referral code to purchase challenges is strictly prohibited.
+                  </TermRule>
+                  <TermRule number="11" title="No Multiple Accounts" color="red">
+                    Creating multiple accounts to generate referral commissions is prohibited.
+                  </TermRule>
+                  <TermRule number="12" title="No Fake Referrals" color="red">
+                    Fake registrations, automated signups, bots, payment manipulation, or artificial referrals are strictly forbidden.
+                  </TermRule>
+                  <TermRule number="13" title="Fraud Detection" color="red">
+                    PrimeFunded actively monitors referral activity. Any suspicious activity may result in commission cancellation, referral account suspension, or permanent account termination.
+                  </TermRule>
+                  <TermRule number="14" title="Right to Review" color="red">
+                    PrimeFunded reserves the right to review, approve, reject, or reverse any referral commission if suspicious activity is detected.
+                  </TermRule>
+                  <TermRule number="15" title="Final Decision" color="red">
+                    All referral commission decisions and dispute resolutions made by PrimeFunded are final.
+                  </TermRule>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Warning Notice Card */}
+            <Card className="mt-12 bg-destructive/10 border-destructive/30 p-8 relative overflow-hidden">
+              <div className="flex items-center gap-4 mb-4">
+                <AlertTriangle className="text-destructive w-8 h-8" />
+                <h3 className="text-2xl font-headline font-bold text-white uppercase tracking-tight">Important Notice</h3>
+              </div>
+              <p className="text-zinc-300 text-base leading-relaxed font-medium">
+                Referral commissions are earned only from genuine, successful challenge purchases. Any attempt to abuse, manipulate, or exploit the referral system may result in immediate suspension of referral privileges, cancellation of commissions, withdrawal restrictions, and permanent account termination.
+              </p>
+            </Card>
+          </section>
         </div>
       </main>
+    </div>
+  );
+}
+
+function TermRule({ number, title, children, color = 'emerald' }: { number: string, title: string, children: React.ReactNode, color?: 'emerald' | 'amber' | 'red' }) {
+  const colorClasses = {
+    emerald: 'text-emerald-500/40 group-hover:text-emerald-500',
+    amber: 'text-amber-500/40 group-hover:text-amber-500',
+    red: 'text-destructive/40 group-hover:text-destructive'
+  };
+
+  return (
+    <div className="space-y-1.5 group">
+      <div className="flex items-center gap-2">
+        <span className={cn("font-mono text-[10px] font-black transition-colors", colorClasses[color])}>
+          Rule {number}
+        </span>
+        <div className="h-px flex-1 bg-white/5" />
+      </div>
+      <h4 className="text-sm font-bold text-zinc-100">{title}</h4>
+      <div className="text-xs text-zinc-400 leading-relaxed font-medium">
+        {children}
+      </div>
     </div>
   );
 }
