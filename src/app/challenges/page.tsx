@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, memo, useEffect, useMemo } from 'react';
@@ -15,6 +14,7 @@ import { useAuth } from '@/context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import { db } from '@/lib/firebase';
 import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { validateReferralCode } from '@/lib/referral';
