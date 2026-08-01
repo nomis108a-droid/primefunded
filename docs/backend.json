@@ -11,7 +11,24 @@
         "referralCode": { "type": "string" },
         "codeChangesCount": { "type": "number" },
         "lastCodeChange": { "type": "string", "format": "date-time" },
-        "referredBy": { "type": "string" },
+        "referredBy": { "type": "string", "description": "UID of the referrer" },
+        "referralStats": {
+          "type": "object",
+          "properties": {
+            "clicks": { "type": "number" },
+            "registrations": { "type": "number" },
+            "purchases": { "type": "number" }
+          }
+        },
+        "referralEarnings": {
+          "type": "object",
+          "properties": {
+            "pending": { "type": "number" },
+            "approved": { "type": "number" },
+            "paid": { "type": "number" },
+            "withdrawable": { "type": "number" }
+          }
+        },
         "name": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "phone": { "type": "string" },
@@ -166,6 +183,20 @@
     "/featured_payouts/{id}": {
       "schema": { "$ref": "#/backend/entities/FeaturedPayout" },
       "description": "Public payout showcases."
+    },
+    "/referrals/{referralId}": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "referrerId": { "type": "string" },
+          "referredUserId": { "type": "string" },
+          "referredUserEmail": { "type": "string" },
+          "status": { "type": "string", "enum": ["joined", "funded"] },
+          "amount": { "type": "number", "description": "Commission earned" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "Tracks referral conversions."
     }
   }
 }

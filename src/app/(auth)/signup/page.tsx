@@ -6,15 +6,13 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, getDocs, collection, query, where } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, getDocs, collection, query, where, increment, updateDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CheckCircle2, XCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { errorEmitter } from '@/firebase/error-emitter';
-import { FirestorePermissionError, type SecurityRuleContext } from '@/firebase/errors';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { z } from 'zod';
@@ -28,9 +26,6 @@ const SignupSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
-/**
- * Deterministic numeric ID generator
- */
 function getShortId(uid: string): string {
   if (!uid) return "00000000";
   let hash = 0;
@@ -53,7 +48,9 @@ function SignupContent() {
   
   const [referralInput, setReferralInput] = useState('');
   const [referralStatus, setReferralStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
+  const [referredByUid, setReferredByUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -79,6 +76,7 @@ function SignupContent() {
   const validateCode = async (code: string) => {
     if (!code || code.length < 4) {
       setReferralStatus('idle');
+      setReferredByUid(null);
       return;
     }
     setReferralStatus('validating');
@@ -89,8 +87,10 @@ function SignupContent() {
       
       if (!querySnapshot.empty) {
         setReferralStatus('valid');
+        setReferredByUid(querySnapshot.docs[0].id);
       } else {
         setReferralStatus('invalid');
+        setReferredByUid(null);
       }
     } catch (err) {
       setReferralStatus('invalid');
@@ -102,25 +102,17 @@ function SignupContent() {
     
     const validation = SignupSchema.safeParse({ name, email, phone, country, password });
     if (!validation.success) {
-      toast({
-        variant: "destructive",
-        title: "Validation Error",
-        description: validation.error.errors[0].message,
-      });
+      toast({ variant: "destructive", title: "Validation Error", description: validation.error.errors[0].message });
       return;
     }
 
     if (password !== confirmPassword) {
-      toast({
-        variant: "destructive",
-        title: "Password Mismatch",
-        description: "The passwords you entered do not match.",
-      });
+      toast({ variant: "destructive", title: "Password Mismatch", description: "The passwords you entered do not match." });
       return;
     }
 
     setLoading(true);
-    const sanitizedEmail = sanitizeInput(email);
+    const sanitizedEmail = sanitizeInput(email).toLowerCase();
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, sanitizedEmail, password);
@@ -129,33 +121,32 @@ function SignupContent() {
       const traderId = getShortId(user.uid);
       const referralCode = Math.random().toString(36).substring(2, 10).toUpperCase();
 
-      let referredByUid = null;
-      if (referralStatus === 'valid' && referralInput) {
-        const usersRef = collection(db, 'users');
-        const q = query(usersRef, where('referralCode', '==', referralInput.toUpperCase()));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          referredByUid = querySnapshot.docs[0].id;
-          
-          const referralId = Math.random().toString(36).substring(7);
-          setDoc(doc(db, 'referrals', referralId), {
-            referrerId: referredByUid,
-            referredUserId: user.uid,
-            referredUserEmail: sanitizedEmail,
-            status: 'joined',
-            amount: 0,
-            createdAt: serverTimestamp()
-          });
-        }
+      // If referred, update referrer's registration count
+      if (referredByUid) {
+        const referrerRef = doc(db, 'users', referredByUid);
+        updateDoc(referrerRef, {
+          'referralStats.registrations': increment(1),
+          updatedAt: serverTimestamp()
+        });
+        
+        // Track the referral entry
+        await addDoc(collection(db, 'referrals'), {
+          referrerId: referredByUid,
+          referredUserId: user.uid,
+          referredUserEmail: sanitizedEmail,
+          status: 'joined',
+          amount: 0,
+          createdAt: serverTimestamp()
+        });
       }
 
       const userData = {
-        uid: traderId,
+        uid: user.uid,
         traderId,
-        authUid: user.uid,
         referralCode,
-        codeChangesCount: 0,
         referredBy: referredByUid,
+        referralStats: { clicks: 0, registrations: 0, purchases: 0 },
+        referralEarnings: { pending: 0, approved: 0, paid: 0, withdrawable: 0 },
         name: sanitizeInput(name),
         email: sanitizedEmail,
         phone: sanitizeInput(phone),
@@ -170,17 +161,7 @@ function SignupContent() {
         createdAt: serverTimestamp()
       };
 
-      const userRef = doc(db, `users`, user.uid);
-      await setDoc(userRef, userData);
-
-      const codeRegRef = doc(db, 'referralCodes', referralCode);
-      await setDoc(codeRegRef, {
-        code: referralCode,
-        userId: user.uid,
-        active: true,
-        createdAt: serverTimestamp()
-      });
-
+      await setDoc(doc(db, 'users', user.uid), userData);
       router.push(redirectTo);
     } catch (error: any) {
       toast({
@@ -199,14 +180,7 @@ function SignupContent() {
         <div className="absolute top-0 left-0 w-full h-full bg-grid-white opacity-20" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-12">
-            <Image 
-              src={logoUrl} 
-              alt={siteName}
-              width={50}
-              height={50}
-              className="rounded-full border-2 border-primary/20"
-              data-ai-hint="site logo"
-            />
+            <Image src={logoUrl} alt={siteName} width={50} height={50} className="rounded-full border-2 border-primary/20" />
             <span className="font-headline font-bold text-3xl tracking-tight text-white">{siteName}</span>
           </div>
           <h1 className="text-5xl font-headline font-bold mb-8 leading-tight text-white">Start Your <br />Funding Journey.</h1>
@@ -277,7 +251,7 @@ function SignupContent() {
               </Label>
               <Input 
                 id="referral" 
-                placeholder="e.g. LAVANYA" 
+                placeholder="e.g. KAMAL123" 
                 value={referralInput}
                 onChange={(e) => {
                   setReferralInput(e.target.value.toUpperCase());

@@ -1,13 +1,9 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { getChainTransactions, validateTransaction, SUPPORTED_CHAINS } from "@/lib/onChainVerification";
-import { giftAccountAction } from "@/app/admin/actions";
 import { FieldValue } from "firebase-admin/firestore";
-
-/**
- * @fileOverview Automatic Payment Verification Service
- * Polled by the client or background CRON to finalize orders.
- */
+import { RULES_CONFIG, getPlanKey } from '@/lib/rulesConfig';
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,95 +11,95 @@ export async function POST(req: NextRequest) {
     if (!orderId) return NextResponse.json({ error: "Order ID required" }, { status: 400 });
 
     const db = getAdminDb();
-    if (!db) return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
-
     const orderRef = db.collection("orders").doc(orderId);
     const orderSnap = await orderRef.get();
-
     if (!orderSnap.exists) return NextResponse.json({ error: "Order not found" }, { status: 404 });
     const order = orderSnap.data()!;
 
     if (order.status === "approved" || order.status === "completed") {
-      return NextResponse.json({ status: order.status, message: "Order already processed" });
+      return NextResponse.json({ status: order.status });
     }
 
-    // 1. Identify Target Network and Address from Firestore Settings
     const settingsSnap = await db.collection("settings").doc("payments").get();
     const configuredWallets = settingsSnap.exists ? settingsSnap.data()?.walletAddresses || {} : {};
-
     const network = order.network || "Polygon";
     let walletAddress = configuredWallets[network] || "0x3ab3ca43dc691f468bea91883f493cabf6da84d4"; 
 
-    // Legacy/Hardcoded defaults if not in DB
-    if (!configuredWallets[network]) {
-      if (network === "TRON") walletAddress = "TMitDXKKnsHKgBVENHdorV4axBou6KC5JM";
-      if (network === "XRPL") walletAddress = "rLjF6ztYrfAQrVoaCemDCmSJhU85AwgEt6";
-    }
-
-    const expectedNative = order.amountNative; 
-
-    // 2. Fetch Transactions from Chain APIs
     const txs = await getChainTransactions(network, walletAddress);
-
-    // 3. Find Match
-    const matchingTx = txs.find((tx: any) => 
-      validateTransaction(tx, walletAddress, expectedNative, 0.02, order.destinationTag)
-    );
+    const matchingTx = txs.find((tx: any) => validateTransaction(tx, walletAddress, order.amountNative, 0.02, order.destinationTag));
 
     if (matchingTx) {
       const chainConfig = SUPPORTED_CHAINS[network];
-      
-      if (network === "XRPL" || network === "TRON") {
-        return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, 1);
-      }
-
       const confirmations = parseInt(matchingTx.confirmations || "0");
 
-      if (confirmations >= (chainConfig?.confirmations || 12)) {
-        return await finalizeProvisioning(db, orderRef, order, matchingTx.hash, confirmations);
+      if (network === "XRPL" || network === "TRON" || confirmations >= (chainConfig?.confirmations || 12)) {
+        await finalizeProvisioning(db, orderRef, order, matchingTx.hash);
+        return NextResponse.json({ status: "completed" });
       } else {
-        await orderRef.update({
-          status: "detected",
-          txHash: matchingTx.hash,
-          confirmations: confirmations
-        });
-        return NextResponse.json({ status: "detected", confirmations, required: chainConfig?.confirmations || 12 });
+        await orderRef.update({ status: "detected", txHash: matchingTx.hash, confirmations });
+        return NextResponse.json({ status: "detected", confirmations });
       }
     }
 
-    return NextResponse.json({ status: "waiting", message: "Searching for transaction..." });
-
+    return NextResponse.json({ status: "waiting" });
   } catch (error: any) {
-    console.error("[VerifyAPI] Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-async function finalizeProvisioning(db: any, orderRef: any, order: any, txHash: string, confirmations: number) {
-  const userSnap = await db.collection("users").doc(order.userId).get();
-  const traderId = userSnap.data()?.traderId;
+async function finalizeProvisioning(db: any, orderRef: any, order: any, txHash: string) {
+  const planKey = getPlanKey(order.plan);
+  const startBalance = parseInt(order.accountSize.replace(/[^0-9]/g, "")) || 100000;
+  const rules = RULES_CONFIG.plans[planKey]?.['evaluation'] || RULES_CONFIG.plans['1-step-pro']['evaluation'];
+  const profitTarget = startBalance * (rules.profitTarget || 10) / 100;
+  const dailyLimit = startBalance * (rules.dailyDrawdown / 100);
+  const maxLimit = startBalance * (rules.maxDrawdown / 100);
 
-  if (traderId) {
-    const res = await giftAccountAction(
-      traderId,
-      order.email,
-      `Verified Node — ${order.accountSize}`,
-      parseInt(order.accountSize.replace(/[^0-9]/g, "")) || 100000,
-      order.plan,
-      "evaluation"
-    );
+  const batch = db.batch();
 
-    if (res.success) {
-      await orderRef.update({
-        status: "completed",
-        txHash: txHash,
-        confirmations: confirmations,
-        verifiedAt: FieldValue.serverTimestamp(),
-        verificationMethod: "automatic"
+  // 1. Create Demo Account
+  const accRef = db.collection('demoAccounts').doc();
+  batch.set(accRef, {
+    userId: order.userId,
+    email: order.email,
+    label: `${order.plan.toUpperCase()} — $${startBalance / 1000}k Challenge`,
+    startBalance, balance: startBalance, equity: startBalance,
+    plan: `${startBalance / 1000}k`, planType: planKey, phase: 'evaluation',
+    profitTarget, dailyLossLimitUsd: dailyLimit, dailyGrossLossUsd: 0, maxLoss: maxLimit,
+    status: 'active', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+  });
+
+  // 2. Update Order
+  batch.update(orderRef, { status: "completed", txHash, verifiedAt: FieldValue.serverTimestamp() });
+
+  // 3. Process Commission logic (Inlined for reliability in batch)
+  const userSnap = await db.collection('users').doc(order.userId).get();
+  if (userSnap.exists) {
+    const userData = userSnap.data()!;
+    const referrerId = userData.referredBy;
+    if (referrerId && order.plan.toLowerCase().includes('step')) {
+      const commission = order.amountPaid * 0.20;
+      const referrerRef = db.collection('users').doc(referrerId);
+      batch.update(referrerRef, {
+        'referralStats.purchases': FieldValue.increment(1),
+        'referralEarnings.pending': FieldValue.increment(commission),
+        'referralEarnings.withdrawable': FieldValue.increment(commission),
+        updatedAt: FieldValue.serverTimestamp()
       });
-
-      return NextResponse.json({ status: "completed", message: "Account provisioned automatically" });
+      const refRecord = db.collection('referrals').doc();
+      batch.set(refRecord, {
+        referrerId, referredUserId: order.userId, referredUserEmail: order.email,
+        status: 'funded', amount: commission, planType: order.plan,
+        orderAmount: order.amountPaid, createdAt: FieldValue.serverTimestamp()
+      });
+      const notifRef = referrerRef.collection('notifications').doc();
+      batch.set(notifRef, {
+        title: '💰 Commission Earned!',
+        message: `You earned $${commission.toFixed(2)} from a referral purchase.`,
+        type: 'referral_earned', isRead: false, createdAt: FieldValue.serverTimestamp()
+      });
     }
   }
-  return NextResponse.json({ status: "error", message: "Provisioning failed" });
+
+  await batch.commit();
 }
