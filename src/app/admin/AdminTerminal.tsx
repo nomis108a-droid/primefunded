@@ -91,6 +91,8 @@ const COUNTRIES = [
   return { ...c, flag: String.fromCodePoint(...codePoints) };
 });
 
+const ORDER_REVIEW_STATUSES = ['manual_review', 'completed', 'approved', 'rejected', 'pending', 'waiting', 'under_review', 'paid', 'cancelled'];
+
 const StatCard = memo(function StatCard({ title, value, icon, color }: { title: string, value: string | number, icon: any, color: string }) {
   const colorMap: any = {
     blue: 'text-primary bg-primary/10 border-primary/20',
@@ -181,7 +183,12 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
                 <td className="py-3 px-4 text-[10px] text-muted-foreground uppercase truncate max-w-[100px]">{item[columns[1]]}</td>
                 <td className="py-3 px-4 text-right">
                    {columns[2] === 'status' ? (
-                     <Badge className={cn("text-[8px] font-black uppercase", (item.status === 'completed' || item.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{item.status}</Badge>
+                     <Badge className={cn(
+                        "text-[8px] font-black uppercase",
+                        (item.status === 'completed' || item.status === 'approved' || item.status === 'paid') ? 'bg-emerald-500/20 text-emerald-500' : 
+                        (item.status === 'rejected' || item.status === 'cancelled') ? 'bg-red-500/20 text-red-500' :
+                        'bg-amber-500/20 text-amber-500'
+                      )}>{item.status}</Badge>
                    ) : (
                      <span className="text-[10px] font-mono text-zinc-500">{item.createdAt?.toDate ? format(item.createdAt.toDate(), 'MMM d') : '—'}</span>
                    )}
@@ -292,15 +299,15 @@ const OrderReviewRow = memo(function OrderReviewRow({
       <td className="p-4">
         <Badge className={cn(
           "text-[8px] font-black uppercase",
-          (order.status === 'completed' || order.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 
-          order.status === 'rejected' ? 'bg-red-500/20 text-red-500' :
+          (order.status === 'completed' || order.status === 'approved' || order.status === 'paid') ? 'bg-emerald-500/20 text-emerald-500' : 
+          (order.status === 'rejected' || order.status === 'cancelled') ? 'bg-red-500/20 text-red-500' :
           'bg-amber-500/20 text-amber-500'
         )}>
           {order.status}
         </Badge>
       </td>
       <td className="p-4 text-right space-x-2">
-        {order.status === 'manual_review' && (
+        {(order.status === 'manual_review' || order.status === 'pending' || order.status === 'waiting' || order.status === 'under_review') && (
           <>
             <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(order.id)} disabled={approvingId === order.id}>
               {approvingId === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
@@ -403,8 +410,8 @@ export default function AdminTerminal() {
         fetchCount('demoAccounts', collection(db, 'demoAccounts')),
         fetchCount('breaches', query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
         fetchCount('passers', query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount('orders', query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']))),
-        getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved'])), { totalVolume: sum('amountPaid') }),
+        fetchCount('orders', query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES))),
+        getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved', 'paid'])), { totalVolume: sum('amountPaid') }),
         fetchCount('kyc', query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
@@ -683,9 +690,11 @@ export default function AdminTerminal() {
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), limit(100)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
+          // Auto-sync stats to keep the tab count identical to the table records
+          setStats(prev => ({ ...prev, pendingOrdersCount: snap.size }));
         });
         break;
       case 'user-directory':
@@ -813,7 +822,10 @@ export default function AdminTerminal() {
                 <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.amount || 0).toLocaleString()}</td>
                 <td className="p-4 text-[10px] uppercase font-bold">{p.method}</td>
                 <td className="p-4 text-[10px] font-mono opacity-50 truncate max-w-[150px]">{p.address}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
+                <td className="p-4"><Badge className={cn(
+                    "text-[8px] font-black uppercase", 
+                    p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500'
+                  )}>{p.status}</Badge></td>
                 <td className="p-4 text-right">
                   {p.status !== 'done' && (
                     <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Done</Button>
@@ -892,7 +904,7 @@ export default function AdminTerminal() {
           </TabsContent>
 
           <TabsContent value="order-review">
-            <TabHeader title="Commerce: Order Review" count={stats.pendingOrdersCount === -1 ? '...' : stats.pendingOrdersCount} onSearch={setSearchTerm} />
+            <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
             <DataTable 
               loading={isLoading} 
               data={tabData.orders} 
@@ -1039,7 +1051,7 @@ export default function AdminTerminal() {
                </div>
                <div className="space-y-2">
                   <Label>Proof Screenshot (Optional)</Label>
-                  <Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-secondary/30 pt-3" />
+                  <Input type="file" accept="image/*" onChange={e => payoutProofFile && setPayoutProofFile(e.target.files?.[0] || null)} className="bg-secondary/30 pt-3" />
                </div>
             </div>
             <DialogFooter>
