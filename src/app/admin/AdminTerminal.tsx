@@ -316,7 +316,7 @@ export default function AdminTerminal() {
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [inspectionTab, setInspectionTab] = useState('overview');
+  const [inspectionTab, setInspectionTab] = useState('trade-node');
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
@@ -453,7 +453,7 @@ export default function AdminTerminal() {
       setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTradesLoading(false);
 
-      setInspectionTab('overview');
+      setInspectionTab('trade-node');
       setIsUserManagementOpen(true);
     } catch (e: any) {
       toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
@@ -1017,34 +1017,33 @@ export default function AdminTerminal() {
             </DialogHeader>
             <div className="flex-1 flex overflow-hidden">
                <aside className="w-64 border-r border-white/5 p-4 space-y-2 shrink-0">
-                  <button onClick={() => setInspectionTab('overview')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'overview' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Node Overview</button>
-                  <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade Ledger</button>
+                  <button onClick={() => setInspectionTab('trade-node')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trade-node' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade Node</button>
+                  <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade History</button>
                   <button onClick={() => setInspectionTab('kyc')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'kyc' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Compliance / KYC</button>
                </aside>
                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                  {inspectionTab === 'overview' && (
+                  {inspectionTab === 'trade-node' && (
                     <div className="space-y-8">
-                       <div className="grid grid-cols-3 gap-4">
-                          <Card className="bg-secondary/30 p-4"><p className="text-[9px] font-black text-zinc-500 mb-1">BALANCE</p><p className="text-xl font-bold font-mono text-white">${selectedUser?.balance?.toLocaleString()}</p></Card>
-                          <Card className="bg-secondary/30 p-4"><p className="text-[9px] font-black text-zinc-500 mb-1">EQUITY</p><p className="text-xl font-bold font-mono text-emerald-400">${selectedUser?.equity?.toLocaleString()}</p></Card>
-                          <Card className="bg-secondary/30 p-4"><p className="text-[9px] font-black text-zinc-500 mb-1">START BAL</p><p className="text-xl font-bold font-mono text-zinc-400">${selectedUser?.startBalance?.toLocaleString()}</p></Card>
+                       <div className="mb-6">
+                          <h3 className="text-xl font-bold text-white">User Inspection — {selectedUser?.email}</h3>
+                          <p className="text-sm text-zinc-500">Trade node details, trade history, and breach logs.</p>
                        </div>
-                       <div className="grid grid-cols-2 gap-8">
-                          <div className="space-y-4">
-                             <h4 className="text-xs font-black uppercase text-primary border-b border-primary/20 pb-2">Administrative Actions</h4>
-                             <div className="grid grid-cols-1 gap-2">
-                                <Button variant="outline" className="justify-start text-xs h-11" onClick={() => { if(confirm("Reset account balance and history?")) resetSingleAccountAction(nodeFilterId!) }}>Reset Node Sequence</Button>
-                                <Button variant="destructive" className="justify-start text-xs h-11">Terminate Execution</Button>
-                             </div>
-                          </div>
-                          <div className="space-y-4">
-                             <h4 className="text-xs font-black uppercase text-zinc-500 border-b border-white/5 pb-2">System Telemetry</h4>
-                             <div className="text-[10px] space-y-2 text-zinc-400">
-                                <div className="flex justify-between"><span>Plan Type:</span><span className="text-white font-bold">{selectedUser?.planType}</span></div>
-                                <div className="flex justify-between"><span>Phase:</span><span className="text-white font-bold">{selectedUser?.phase}</span></div>
-                                <div className="flex justify-between"><span>Updated:</span><span className="text-white">{selectedUser?.updatedAt?.toDate()?.toLocaleString()}</span></div>
-                             </div>
-                          </div>
+                       <div className="grid grid-cols-3 gap-4">
+                          <InfoCard label="Email" value={selectedUser?.email} />
+                          <InfoCard label="Display Name" value={selectedUser?.name} />
+                          <InfoCard label="Plan Type" value={selectedUser?.planType} />
+                          
+                          <InfoCard label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : selectedUser?.plan || '—'} />
+                          <InfoCard label="Status" value={selectedUser?.accountStatus} />
+                          <InfoCard label="KYC Status" value={selectedUser?.kycStatus} />
+                          
+                          <InfoCard label="Balance" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
+                          <InfoCard label="Equity" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
+                          <InfoCard label="Phase" value={selectedUser?.phase} />
+                          
+                          <InfoCard label="Created" value={selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'} />
+                          <InfoCard label="Updated" value={selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, HH:mm') : '—'} />
+                          <InfoCard label="User ID" value={selectedUser?.id} isMono />
                        </div>
                     </div>
                   )}
@@ -1129,5 +1128,16 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number |
         </div>
       )}
     </div>
+  );
+}
+
+function InfoCard({ label, value, isMono = false }: { label: string, value: any, isMono?: boolean }) {
+  return (
+    <Card className="bg-secondary/30 p-4 border-white/5">
+      <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">{label}</p>
+      <p className={cn("text-sm font-bold truncate", isMono ? "font-mono text-xs text-zinc-400" : "text-white")}>
+        {value || '—'}
+      </p>
+    </Card>
   );
 }
