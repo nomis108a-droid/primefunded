@@ -247,6 +247,77 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
   </div>
 ));
 
+const OrderReviewRow = memo(function OrderReviewRow({ 
+  order, 
+  onApprove, 
+  onReject, 
+  approvingId 
+}: { 
+  order: any, 
+  onApprove: (id: string) => void, 
+  onReject: (id: string) => void, 
+  approvingId: string | null 
+}) {
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    if (!order.userId) return;
+    const unsub = onSnapshot(doc(db, 'users', order.userId), (snap) => {
+      if (snap.exists()) setProfile(snap.data());
+    }, (err) => {
+      if (err.code === 'resource-exhausted') console.error('Quota exceeded for order profile sync');
+    });
+    return () => unsub();
+  }, [order.userId]);
+
+  return (
+    <tr key={order.id} className="hover:bg-white/5 transition-colors">
+      <td className="p-4 font-bold text-xs">{profile?.name || '—'}</td>
+      <td className="p-4 text-xs text-muted-foreground">{order.email}</td>
+      <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{order.plan}</td>
+      <td className="p-4">
+        <Badge variant="outline" className={cn(
+          "text-[8px] font-black uppercase border-none",
+          profile?.kycStatus === 'verified' ? "bg-emerald-500/20 text-emerald-500" :
+          profile?.kycStatus === 'pending' ? "bg-amber-500/20 text-amber-500" :
+          profile?.kycStatus === 'rejected' ? "bg-red-500/20 text-red-500" :
+          "bg-zinc-500/20 text-zinc-400"
+        )}>
+          {profile?.kycStatus || 'none'}
+        </Badge>
+      </td>
+      <td className="p-4 text-xs font-mono text-zinc-400">{order.accountSize || '—'}</td>
+      <td className="p-4 text-xs font-mono font-bold text-white">${Number(order.amountPaid || 0).toFixed(2)}</td>
+      <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{order.network || '—'}</td>
+      <td className="p-4">
+        <Badge className={cn(
+          "text-[8px] font-black uppercase",
+          (order.status === 'completed' || order.status === 'approved') ? 'bg-emerald-500/20 text-emerald-500' : 
+          order.status === 'rejected' ? 'bg-red-500/20 text-red-500' :
+          'bg-amber-500/20 text-amber-500'
+        )}>
+          {order.status}
+        </Badge>
+      </td>
+      <td className="p-4 text-right space-x-2">
+        {order.status === 'manual_review' && (
+          <>
+            <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(order.id)} disabled={approvingId === order.id}>
+              {approvingId === order.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}
+            </Button>
+            <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(order.id)}>Reject</Button>
+          </>
+        )}
+        {(order.proofScreenshotUrl || order.proofUrl || order.paymentProofUrl) && (
+          <button onClick={() => window.open(order.proofScreenshotUrl || order.proofUrl || order.paymentProofUrl, '_blank')} className="text-primary text-[8px] font-black uppercase hover:underline">
+            PROOF
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+});
+
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -742,7 +813,7 @@ export default function AdminTerminal() {
                 <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.amount || 0).toLocaleString()}</td>
                 <td className="p-4 text-[10px] uppercase font-bold">{p.method}</td>
                 <td className="p-4 text-[10px] font-mono opacity-50 truncate max-w-[150px]">{p.address}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
+                <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
                 <td className="p-4 text-right">
                   {p.status !== 'done' && (
                     <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Done</Button>
@@ -822,23 +893,20 @@ export default function AdminTerminal() {
 
           <TabsContent value="order-review">
             <TabHeader title="Commerce: Order Review" count={stats.pendingOrdersCount === -1 ? '...' : stats.pendingOrdersCount} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'AMOUNT', 'STATUS', 'ACTIONS']} renderRow={(o) => (
-              <tr key={o.id} className="hover:bg-white/5">
-                <td className="p-4 text-xs">{o.email}</td>
-                <td className="p-4 text-[10px] font-bold uppercase">{o.plan}</td>
-                <td className="p-4 font-mono text-xs">${Number(o.amountPaid || 0).toFixed(2)}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                <td className="p-4 text-right space-x-2">
-                   {o.status === 'manual_review' && (
-                     <>
-                        <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>Approve</Button>
-                        <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setIsRejectModalOpen(true); }}>Reject</Button>
-                     </>
-                   )}
-                   {(o.proofScreenshotUrl || o.proofUrl || o.paymentProofUrl) && <button onClick={() => window.open(o.proofScreenshotUrl || o.proofUrl || o.paymentProofUrl, '_blank')} className="text-primary text-[8px] font-black uppercase hover:underline">PROOF</button>}
-                </td>
-              </tr>
-            )} />
+            <DataTable 
+              loading={isLoading} 
+              data={tabData.orders} 
+              columns={['NAME', 'EMAIL', 'PLAN', 'KYC', 'ACCOUNT SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'ACTION']} 
+              renderRow={(o) => (
+                <OrderReviewRow 
+                  key={o.id} 
+                  order={o} 
+                  onApprove={handleApproveOrder} 
+                  onReject={(id) => { setRejectingOrderId(id); setIsRejectModalOpen(true); }}
+                  approvingId={approvingOrderId}
+                />
+              )} 
+            />
           </TabsContent>
 
           <TabsContent value="trading-nodes">
