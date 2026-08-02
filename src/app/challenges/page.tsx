@@ -143,16 +143,20 @@ export default function ChallengesPage() {
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
+  
   const inputRef = useRef<HTMLInputElement>(null);
-  const hasAttemptedAutoApply = useRef(false);
+  const hasAttemptedAutoFill = useRef(false);
 
   const isInstantPlan = selectedPlan.startsWith('instant');
 
-  // Guard: Ensure user is logged in
+  // Lifecycle detection
   useEffect(() => {
     setMounted(true);
-    if (!loading && !user) router.push('/login?redirect=/challenges');
-  }, [user, loading, router]);
+    if (!loading && !user) {
+      router.push('/login?redirect=/challenges');
+    }
+    if (mounted) console.log('[Referral] Challenges page mounted');
+  }, [user, loading, router, mounted]);
 
   const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
@@ -168,20 +172,26 @@ export default function ChallengesPage() {
     
     setIsValidating(true);
     setErrorMessage('');
+    console.log('[Referral] Referral validation started for:', codeToUse);
     
     try {
       const referrerUid = await validateReferralCode(codeToUse);
       
       if (!referrerUid) {
+        console.log('[Referral] Referral validation failed: Code does not exist');
         if (!isAutoApply) setErrorMessage('Invalid referral code.');
         setIsApplied(false);
       } else if (referrerUid === user.uid) {
+        console.log('[Referral] Referral validation failed: Self-referral detected');
         if (!isAutoApply) setErrorMessage('You cannot use your own referral code.');
         setIsApplied(false);
       } else {
-        // Successful validation
+        console.log('[Referral] Referral validation success. Referrer UID:', referrerUid);
+        
+        // Permanent store in DB
         if (userData && userData.referredBy !== referrerUid) {
-          await updateDoc(doc(db, 'users', user.uid), {
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, {
             referredBy: referrerUid,
             updatedAt: serverTimestamp()
           });
@@ -189,67 +199,82 @@ export default function ChallengesPage() {
         
         setIsApplied(true);
         localStorage.setItem('appliedReferralCode', codeToUse);
-        localStorage.setItem('referralCode', codeToUse); // Standardize the key
+        localStorage.setItem('referralCode', codeToUse); 
         
+        console.log('[Referral] Discount applied successfully');
         if (!isAutoApply) {
           toast({ title: "Referral Applied!", description: "10% discount activated for eligible challenges." });
         }
       }
     } catch (e: any) {
+      console.error('[Referral] Validation error:', e.message);
       if (!isAutoApply) setErrorMessage('Verification system offline.');
     } finally {
       setIsValidating(false);
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // AUTOMATIC REFERRAL CODE FILLING ENGINE
+  // Master Auto-Fill Logic
+  // Programmatically populates and triggers native events for the input field
   useEffect(() => {
-    // Wait until auth and page are fully ready
-    if (!mounted || loading || !user || hasAttemptedAutoApply.current) return;
+    if (!mounted || loading || !user || hasAttemptedAutoFill.current) return;
 
-    // 1. Read referral code from multiple sources
     const urlCode = searchParams.get('ref');
     const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
     const effectiveCode = (urlCode || storedCode)?.trim().toUpperCase();
 
-    if (!effectiveCode) return;
+    if (!effectiveCode) {
+      console.log('[Referral] No referral code detected in URL or storage');
+      return;
+    }
 
-    // 2. Wait for the DOM element to be available (resilient rendering)
-    const timer = setTimeout(() => {
-      if (inputRef.current && !isApplied) {
-        console.log('[Referral-Engine] Programmatically populating code:', effectiveCode);
+    console.log('[Referral] Referral code detected:', effectiveCode);
+
+    // Wait for the input component to definitely exist in the DOM
+    const attemptPopulation = () => {
+      const el = inputRef.current;
+      if (el) {
+        console.log('[Referral] Referral input found in DOM');
         
-        // 3. Set the state and programmatically set input value
+        // Populate component state
         setReferralInput(effectiveCode);
-        inputRef.current.value = effectiveCode;
-
-        // 4. Trigger events as a real user would
+        
+        // Programmatically set DOM value
+        el.value = effectiveCode;
+        
+        // Simulate native user events to satisfy React state and form logic
         const events = ['input', 'change', 'blur'];
         events.forEach(type => {
           const event = new Event(type, { bubbles: true });
-          inputRef.current?.dispatchEvent(event);
+          el.dispatchEvent(event);
         });
-
-        // 5. Automatically trigger validation
-        hasAttemptedAutoApply.current = true;
+        
+        console.log('[Referral] Referral state and DOM updated');
+        hasAttemptedAutoFill.current = true;
+        
+        // Call validation logic directly with the code to bypass timing issues
         handleApplyReferral(effectiveCode, true);
+      } else {
+        // Retry logic without fixed timeout
+        requestAnimationFrame(attemptPopulation);
       }
-    }, 100); // Tiny delay to ensure component render cycle is deep enough
+    };
 
-    return () => clearTimeout(timer);
-  }, [mounted, loading, user, isApplied, handleApplyReferral, searchParams]);
+    attemptPopulation();
+  }, [mounted, loading, user, searchParams, handleApplyReferral]);
 
-  // Robustly handle profile-based referrals
+  // Anti-Re-render protection
+  // If React clears the input while applied, force it back from storage
   useEffect(() => {
-    if (userData?.referredBy && !isApplied && !hasAttemptedAutoApply.current) {
-      const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
-      if (storedCode) {
-        setIsApplied(true);
-        setReferralInput(storedCode);
-        localStorage.setItem('appliedReferralCode', storedCode);
+    if (isApplied && inputRef.current && !inputRef.current.value) {
+      const stored = localStorage.getItem('appliedReferralCode');
+      if (stored) {
+        console.log('[Referral] Restoring input from storage after re-render');
+        inputRef.current.value = stored;
+        setReferralInput(stored);
       }
     }
-  }, [userData, isApplied]);
+  }, [isApplied, mounted]);
 
   if (!mounted || loading || !user) {
     return (
@@ -280,21 +305,21 @@ export default function ChallengesPage() {
               >
                 <Card className={cn(
                   "border-border/50 p-6 md:p-8 rounded-[2rem] relative overflow-hidden transition-all duration-500",
-                  isApplied ? "bg-emerald-500/10 border-emerald-500/30" : "bg-secondary/20"
+                  isApplied ? "bg-emerald-500/10 border-emerald-500/30 shadow-[inset_0_0_40px_rgba(16,185,129,0.05)]" : "bg-secondary/20"
                 )}>
                   <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 blur-3xl -mr-32 -mt-32 rounded-full" />
                   <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                     <div className="flex items-center gap-4">
                       <div className={cn(
-                        "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors",
-                        isApplied ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/10 text-primary"
+                        "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500",
+                        isApplied ? "bg-emerald-500/20 text-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]" : "bg-primary/10 text-primary"
                       )}>
                         {isApplied ? <CheckCircle2 className="w-6 h-6" /> : <Tag className="w-6 h-6" />}
                       </div>
                       <div>
-                        <h3 className="text-lg font-bold">{isApplied ? "Referral Applied Successfully" : "Referral Discount"}</h3>
+                        <h3 className="text-lg font-bold">{isApplied ? "Referral Activated" : "Referral Discount"}</h3>
                         <p className="text-xs text-muted-foreground">
-                          {isApplied ? "Your 10% discount is currently active for this challenge." : "Enter a code to unlock 10% off Step 1, 2, and 3 challenges."}
+                          {isApplied ? "Your 10% discount is live for all Step challenges." : "Enter a valid code to unlock 10% off Step 1, 2, and 3 challenges."}
                         </p>
                       </div>
                     </div>
@@ -304,31 +329,35 @@ export default function ChallengesPage() {
                         <div className="relative w-full md:w-80">
                           <Input 
                             ref={inputRef}
-                            placeholder={isApplied ? "10% DISCOUNT APPLIED" : "ENTER CODE"} 
+                            placeholder="ENTER REFERRAL CODE" 
                             value={referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
-                            readOnly={isApplied}
+                            readOnly={isApplied && !errorMessage}
                             className={cn(
-                              "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase transition-all",
-                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10" : "border-border/50"
+                              "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase transition-all duration-300",
+                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "border-border/50",
+                              errorMessage && "border-destructive text-destructive"
                             )}
                           />
-                          {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
+                          {isApplied && !errorMessage && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500 animate-in fade-in zoom-in duration-300" />}
                         </div>
                         {!isApplied && (
                           <Button 
                             onClick={() => handleApplyReferral()} 
                             disabled={isValidating || !referralInput}
-                            className="h-11 px-6 font-bold cyan-box-glow"
+                            className="h-11 px-8 font-black uppercase tracking-widest text-[10px] cyan-box-glow"
                           >
                             {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Apply'}
                           </Button>
                         )}
+                        {isApplied && errorMessage && (
+                          <Button variant="ghost" onClick={() => { setIsApplied(false); setErrorMessage(''); setReferralInput(''); }} className="h-11 px-4 text-xs font-bold text-zinc-500 hover:text-white">Retry</Button>
+                        )}
                       </div>
                       {isApplied ? (
-                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✓ Referral code locked and applied</p>
+                        <p className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.2em] text-center md:text-left animate-in slide-in-from-top-1 duration-300">✓ 10% Discount Applied Automatically</p>
                       ) : errorMessage ? (
-                        <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
+                        <p className="text-[9px] font-black uppercase text-destructive tracking-[0.2em] text-center md:text-left animate-shake">{errorMessage}</p>
                       ) : null}
                     </div>
                   </div>
@@ -339,15 +368,21 @@ export default function ChallengesPage() {
 
           <Tabs value={selectedPlan} onValueChange={setSelectedPlan} className="w-full">
             <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary/50 p-1 rounded-xl mb-10 border border-white/5">
-              <TabsTrigger value="1-step" className="font-bold rounded-lg cursor-pointer text-xs">1-Step</TabsTrigger>
-              <TabsTrigger value="2-step" className="font-bold rounded-lg cursor-pointer text-xs">2-Step</TabsTrigger>
-              <TabsTrigger value="3-step" className="font-bold rounded-lg cursor-pointer text-xs">3-Step</TabsTrigger>
-              <TabsTrigger value="instant" className="font-bold rounded-lg cursor-pointer text-xs">Instant</TabsTrigger>
-              <TabsTrigger value="instant-pro" className="font-bold rounded-lg cursor-pointer text-xs">Instant Pro</TabsTrigger>
+              <TabsTrigger value="1-step" className="font-bold rounded-lg cursor-pointer text-xs uppercase tracking-widest">1-Step</TabsTrigger>
+              <TabsTrigger value="2-step" className="font-bold rounded-lg cursor-pointer text-xs uppercase tracking-widest">2-Step</TabsTrigger>
+              <TabsTrigger value="3-step" className="font-bold rounded-lg cursor-pointer text-xs uppercase tracking-widest">3-Step</TabsTrigger>
+              <TabsTrigger value="instant" className="font-bold rounded-lg cursor-pointer text-xs uppercase tracking-widest">Instant</TabsTrigger>
+              <TabsTrigger value="instant-pro" className="font-bold rounded-lg cursor-pointer text-xs uppercase tracking-widest">Instant Pro</TabsTrigger>
             </TabsList>
 
             <AnimatePresence mode="wait">
-              <motion.div key={selectedPlan} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              <motion.div 
+                key={selectedPlan} 
+                initial={{ opacity: 0, x: 5 }} 
+                animate={{ opacity: 1, x: 0 }} 
+                exit={{ opacity: 0, x: -5 }} 
+                className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
+              >
                 {planData[selectedPlan as keyof typeof planData]?.map((tier, idx) => (
                   <ChallengeCard key={tier.size} tier={tier} planName={selectedPlan} delay={idx * 0.03} hasDiscount={isApplied} />
                 ))}
@@ -359,3 +394,4 @@ export default function ChallengesPage() {
     </div>
   );
 }
+
