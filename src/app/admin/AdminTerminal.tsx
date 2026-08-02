@@ -1111,7 +1111,7 @@ export default function AdminTerminal() {
                         <h3 className="text-lg font-bold text-white">System Breach Logs</h3>
                       </div>
                       
-                      {userBreaches.length === 0 ? (
+                      {!(selectedUser?.accountStatus === 'blown' || selectedUser?.accountStatus === 'breach' || selectedUser?.accountStatus === 'terminated') && userBreaches.length === 0 ? (
                         <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
                            <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
                              <Check size={24} />
@@ -1120,39 +1120,73 @@ export default function AdminTerminal() {
                         </Card>
                       ) : (
                         <div className="space-y-6">
-                          {userBreaches.map((breach) => (
-                            <Card key={breach.id} className="bg-destructive/5 border-destructive/20 overflow-hidden group">
+                          {/* 1. Show existing log entries if they exist */}
+                          {userBreaches.length > 0 ? (
+                            userBreaches.map((breach) => (
+                              <Card key={breach.id} className="bg-destructive/5 border-destructive/20 overflow-hidden group">
+                                <div className="bg-destructive/10 p-4 border-b border-destructive/20 flex justify-between items-center">
+                                  <div className="flex items-center gap-3">
+                                    <AlertTriangle className="text-destructive w-4 h-4" />
+                                    <span className="text-xs font-black uppercase text-white tracking-widest">Hard Breach Detected</span>
+                                  </div>
+                                  <Badge variant="outline" className="bg-destructive/20 text-white border-none text-[8px] font-black uppercase">Liquidated</Badge>
+                                </div>
+                                <CardContent className="p-6">
+                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                    <BreachMetric label="Account Status" value={selectedUser?.accountStatus?.toUpperCase()} />
+                                    <BreachMetric label="Breach Status" value="Breached" color="text-destructive" />
+                                    <BreachMetric label="Breach Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
+                                    <BreachMetric label="Breach Time" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'HH:mm:ss') : '—'} />
+                                    <BreachMetric label="Breach Day" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'EEEE') : '—'} />
+                                    <BreachMetric label="Breach Reason" value={breach.reason || 'Drawdown Violation'} color="text-destructive" />
+                                    <BreachMetric label="Rule Violated" value="Risk Parameter Breach" />
+                                    <BreachMetric label="Account Phase" value={selectedUser?.phase?.toUpperCase() || 'EVALUATION'} />
+                                    <BreachMetric label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
+                                    <BreachMetric label="Balance at Breach" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
+                                    <BreachMetric label="Equity at Breach" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
+                                    <BreachMetric label="Daily Loss at Breach" value={selectedUser?.dailyGrossLossUsd ? `$${selectedUser.dailyGrossLossUsd.toLocaleString()}` : '—'} />
+                                    <BreachMetric label="Overall Loss at Breach" value={selectedUser?.startBalance && selectedUser?.balance ? `$${(selectedUser.startBalance - selectedUser.balance).toLocaleString()}` : '—'} />
+                                    <BreachMetric label="Maximum Drawdown" value={selectedUser?.maxLoss ? `$${selectedUser.maxLoss.toLocaleString()}` : '—'} />
+                                    <BreachMetric label="Triggered By" value="System / Rule Engine" />
+                                    <BreachMetric label="Detection Timestamp" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP p') : '—'} />
+                                    <BreachMetric label="Final Action" value="Account Liquidated" color="text-destructive" />
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            ))
+                          ) : (
+                            /* 2. Synthesize a card if account is blown but no log entry found */
+                            <Card className="bg-destructive/5 border-destructive/20 overflow-hidden group">
                               <div className="bg-destructive/10 p-4 border-b border-destructive/20 flex justify-between items-center">
                                 <div className="flex items-center gap-3">
                                   <AlertTriangle className="text-destructive w-4 h-4" />
-                                  <span className="text-xs font-black uppercase text-white tracking-widest">Hard Breach Detected</span>
+                                  <span className="text-xs font-black uppercase text-white tracking-widest">System Liquidation Notice</span>
                                 </div>
-                                <Badge variant="outline" className="bg-destructive/20 text-white border-none text-[8px] font-black uppercase">Liquidated</Badge>
+                                <Badge variant="outline" className="bg-destructive/20 text-white border-none text-[8px] font-black uppercase">Terminated</Badge>
                               </div>
                               <CardContent className="p-6">
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                                  <BreachMetric label="Account Status" value={selectedUser?.accountStatus || 'Unknown'} />
-                                  <BreachMetric label="Breach Status" value="Breached" color="text-destructive" />
-                                  <BreachMetric label="Breach Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
-                                  <BreachMetric label="Breach Time" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'HH:mm:ss') : '—'} />
-                                  <BreachMetric label="Breach Day" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'EEEE') : '—'} />
-                                  <BreachMetric label="Account Phase" value={selectedUser?.phase || 'Evaluation'} />
+                                  <BreachMetric label="Account Status" value={selectedUser?.accountStatus?.toUpperCase()} />
+                                  <BreachMetric label="Breach Status" value="Liquidated" color="text-destructive" />
+                                  <BreachMetric label="Breach Date" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'PPP') : (selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'PPP') : '—')} />
+                                  <BreachMetric label="Breach Time" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'HH:mm:ss') : (selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'HH:mm:ss') : '—')} />
+                                  <BreachMetric label="Breach Day" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'EEEE') : (selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'EEEE') : '—')} />
+                                  <BreachMetric label="Breach Reason" value={selectedUser?.breachReason || 'Risk Parameter Violation'} color="text-destructive" />
+                                  <BreachMetric label="Rule Violated" value="Risk Engine Enforcement" />
+                                  <BreachMetric label="Account Phase" value={selectedUser?.phase?.toUpperCase() || 'EVALUATION'} />
                                   <BreachMetric label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Triggered By" value="System / Rule Engine" />
-                                  <BreachMetric label="Final Action" value="Account Liquidated" color="text-destructive" />
-                                  <BreachMetric label="Balance (Exit)" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Equity (Exit)" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
-                                </div>
-                                
-                                <div className="mt-8 p-4 bg-black/40 rounded-xl border border-destructive/10">
-                                  <p className="text-[10px] font-black uppercase text-zinc-500 mb-2">Detailed Reason / Rule Violated</p>
-                                  <p className="text-sm text-destructive font-medium leading-relaxed italic">
-                                    "{breach.reason || 'No specific reason logged.'}"
-                                  </p>
+                                  <BreachMetric label="Balance at Breach" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Equity at Breach" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Daily Loss at Breach" value={selectedUser?.dailyGrossLossUsd ? `$${selectedUser.dailyGrossLossUsd.toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Overall Loss at Breach" value={selectedUser?.startBalance && selectedUser?.balance ? `$${(selectedUser.startBalance - selectedUser.balance).toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Maximum Drawdown" value={selectedUser?.maxLoss ? `$${selectedUser.maxLoss.toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Triggered By" value="Master Rule Engine" />
+                                  <BreachMetric label="Detection Timestamp" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'PPP p') : 'System Log'} />
+                                  <BreachMetric label="Final Action" value="Execution Terminated" color="text-destructive" />
                                 </div>
                               </CardContent>
                             </Card>
-                          ))}
+                          )}
                         </div>
                       )}
                     </div>
