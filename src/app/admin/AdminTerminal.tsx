@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -15,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse, Lock, AlertCircle, Mail, Phone, ExternalLink, Calendar
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -31,14 +32,20 @@ import {
 import { cn, sanitizeInput } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
-import { db, storage } from '@/lib/firebase';
+import { db, storage, rtdb } from '@/lib/firebase';
 import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, onValue } from 'firebase/database';
+import { ref as sRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
+
+const SYMBOLS = [
+  "XAUUSD", "XAGUSD", "XPTUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "USDCAD", "NZDUSD",
+  "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD", "BNBUSD", "DOGEUSD"
+];
 
 // Static Country List with Flags
 const COUNTRIES = [
@@ -230,6 +237,54 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
   </div>
 ));
 
+const PriceTrackerTab = memo(({ prices, history, onSelectSymbol }: { prices: any, history: any, onSelectSymbol: (s: string) => void }) => {
+  return (
+    <div className="space-y-6">
+      <TabHeader title="System Heartbeat: Live Feed" count={Object.keys(prices).length} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {SYMBOLS.map(sym => {
+          const data = prices[sym];
+          const hist = history[sym] || [];
+          const precision = sym.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(sym.toUpperCase()) ? 3 : 5;
+          
+          return (
+            <Card key={sym} className="bg-zinc-900/40 border-zinc-800/60 p-4 hover:border-primary/40 transition-all group cursor-pointer" onClick={() => onSelectSymbol(sym)}>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <span className="font-headline font-black text-sm text-white group-hover:text-primary">{sym}</span>
+                  <p className="text-[7px] font-black uppercase text-zinc-500 tracking-widest">Live Execution</p>
+                </div>
+                <div className="text-right">
+                   <span className="font-mono text-xs font-black text-primary">
+                     {data?.price ? data.price.toLocaleString(undefined, { minimumFractionDigits: precision }) : '---'}
+                   </span>
+                </div>
+              </div>
+              <div className="h-[30px] w-full mt-2">
+                {hist.length > 1 && (
+                   <svg viewBox="0 0 200 40" className="w-full h-full overflow-visible" preserveAspectRatio="none">
+                      <polyline fill="none" stroke="#11b3f5" strokeWidth="2" points={hist.map((v: number, i: number) => `${(i / (hist.length - 1)) * 200},${40 - ((v - Math.min(...hist)) / (Math.max(...hist) - Math.min(...hist) || 1)) * 40}`).join(' ')} className="drop-shadow-[0_0_5px_rgba(17,179,245,0.4)]" />
+                   </svg>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5 mt-2">
+                <div className="text-[8px] font-bold text-zinc-500 uppercase flex flex-col">
+                  <span>BID</span>
+                  <span className="text-zinc-300 tabular-nums">{data?.bid?.toFixed(precision) || '---'}</span>
+                </div>
+                <div className="text-[8px] font-bold text-zinc-500 uppercase flex flex-col items-end">
+                  <span>ASK</span>
+                  <span className="text-zinc-300 tabular-nums">{data?.ask?.toFixed(precision) || '---'}</span>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -251,6 +306,9 @@ export default function AdminTerminal() {
   const [tabData, setTabData] = useState<any>({
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
+
+  const [prices, setPrices] = useState<Record<string, any>>({});
+  const [history, setHistory] = useState<Record<string, number[]>>({});
 
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -274,7 +332,6 @@ export default function AdminTerminal() {
   const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
   const [kycRejectReason, setKycRejectReason] = useState('');
 
-  // Modals for Sync Parity
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
   const [giftForm, setGiftForm] = useState({ email: '', plan: '1-step-pro', size: '100k' });
@@ -477,7 +534,7 @@ export default function AdminTerminal() {
     try {
       let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
       if (payoutProofFile) {
-        const storageRef = ref(storage, `featured-payout-proofs/${Date.now()}_${payoutProofFile.name}`);
+        const storageRef = sRef(storage, `featured-payout-proofs/${Date.now()}_${payoutProofFile.name}`);
         const snap = await uploadBytes(storageRef, payoutProofFile);
         proofUrl = await getDownloadURL(snap.ref);
       }
@@ -507,6 +564,37 @@ export default function AdminTerminal() {
      if (!confirm("Are you sure you want to perform the Friday Rule Reset across all active nodes?")) return;
      toast({ title: "Rule reset synchronized with production engine." });
   };
+
+  useEffect(() => {
+    if (!isAuthenticated || !rtdb) return;
+    
+    const pricesRef = ref(rtdb, 'livePrices');
+    const unsub = onValue(pricesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data) return;
+
+      const newPrices: Record<string, any> = {};
+      setHistory(prev => {
+        const next = { ...prev };
+        Object.entries(data).forEach(([key, tick]: [string, any]) => {
+          const sym = key.toUpperCase();
+          if (SYMBOLS.includes(sym)) {
+            newPrices[sym] = tick;
+            if (tick.price) {
+              const current = next[sym] || [];
+              if (current[current.length - 1] !== tick.price) {
+                next[sym] = [...current, tick.price].slice(-30);
+              }
+            }
+          }
+        });
+        return next;
+      });
+      setPrices(newPrices);
+    });
+
+    return () => unsub();
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
@@ -645,6 +733,20 @@ export default function AdminTerminal() {
                  <p className="text-xs font-mono font-bold text-white">{instanceId}</p>
                </div>
              </div>
+
+             <div className="hidden xl:flex items-center gap-6 px-4 py-2 rounded-xl bg-secondary/30 border border-white/5">
+                <div className="text-right">
+                  <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest mb-0.5">DATA FLOW</p>
+                  <p className="text-[10px] font-bold text-white flex items-center gap-2">
+                    SYNC: <span className="text-emerald-500">ACTIVE</span>
+                  </p>
+                </div>
+                <div className="h-8 w-px bg-white/5" />
+                <div className="flex items-center gap-2">
+                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                   <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">HEALTHY</span>
+                </div>
+             </div>
              
              <div className="flex gap-2">
                 <Button variant="destructive" className="h-10 rounded-xl font-bold text-xs" onClick={handleFridayReset}>Friday Rule Reset</Button>
@@ -657,13 +759,14 @@ export default function AdminTerminal() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none overflow-x-auto no-scrollbar">
             {[
-              'Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'
+              'Overview', 'Price Tracker', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'
             ].map(tab => (
               <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{tab}</TabsTrigger>
             ))}
           </TabsList>
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
+          <TabsContent value="price-tracker"><PriceTrackerTab prices={prices} history={history} onSelectSymbol={(s) => router.push('/admin/price-tracker')} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
           
