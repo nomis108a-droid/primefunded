@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, memo, useEffect, useCallback } from 'react';
+import { useState, memo, useEffect, useCallback, useRef } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -137,23 +137,35 @@ export default function ChallengesPage() {
   const [isValidating, setIsValidating] = useState(false);
   const [isApplied, setIsApplied] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [mounted, setMounted] = useState(false);
   
   const { user, userData, loading } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const isInstantPlan = selectedPlan.startsWith('instant');
 
   // Guard: Ensure user is logged in
   useEffect(() => {
+    setMounted(true);
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
   // Robust handleApplyReferral for manual and auto triggers
   const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
-    if (!user || !codeToUse || (isApplied && !manualCode)) return;
+    if (!user || !codeToUse) {
+      setIsValidating(false);
+      return;
+    }
+
+    // Optimization: Skip if already applied correctly
+    if (isApplied && codeToUse === localStorage.getItem('appliedReferralCode')) {
+      setIsValidating(false);
+      return;
+    }
     
     setIsValidating(true);
     setErrorMessage('');
@@ -163,8 +175,10 @@ export default function ChallengesPage() {
       
       if (!referrerUid) {
         if (!isAutoApply) setErrorMessage('Invalid referral code.');
+        setIsApplied(false);
       } else if (referrerUid === user.uid) {
         if (!isAutoApply) setErrorMessage('You cannot use your own referral code.');
+        setIsApplied(false);
       } else {
         // Successful validation
         if (userData && userData.referredBy !== referrerUid) {
@@ -175,8 +189,9 @@ export default function ChallengesPage() {
         }
         
         setIsApplied(true);
-        setReferralInput(''); // Clear input as we show "Applied" placeholder
+        localStorage.setItem('referralCode', codeToUse);
         localStorage.setItem('pf_referral_code', codeToUse);
+        localStorage.setItem('appliedReferralCode', codeToUse);
         
         if (!isAutoApply) {
           toast({ title: "Referral Applied!", description: "10% discount activated for eligible challenges." });
@@ -189,33 +204,47 @@ export default function ChallengesPage() {
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // Automatic detection and hands-free application
+  // Automatic detection, auto-fill and hands-free application
   useEffect(() => {
-    if (loading || !user) return;
-
-    // If profile already shows referred, mark as applied
-    if (userData?.referredBy && !isApplied) {
-      setIsApplied(true);
-      return;
-    }
+    if (!mounted || loading || !user) return;
 
     // Check storage/URL for pending code
-    const storedCode = localStorage.getItem('pf_referral_code');
+    const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
     const urlCode = searchParams.get('ref');
     const effectiveCode = urlCode || storedCode;
 
-    if (effectiveCode && !isApplied && !isValidating) {
-      console.log('[Challenges] Auto-applying code:', effectiveCode);
-      setReferralInput(effectiveCode);
+    // 1. Handle profile-based referral (user already has a referrer in DB)
+    if (userData?.referredBy && !isApplied) {
+      setIsApplied(true);
+      if (effectiveCode && !referralInput) {
+        setReferralInput(effectiveCode.toUpperCase());
+      }
+      return;
+    }
+
+    // 2. Handle programmatic auto-fill and apply
+    if (effectiveCode && !isApplied && !isValidating && !errorMessage) {
+      console.log('[Challenges] Auto-applying detected code:', effectiveCode);
+      
+      // Programmatically sync the input element if it exists in DOM
+      if (inputRef.current) {
+        const input = inputRef.current;
+        input.value = effectiveCode.toUpperCase();
+        // Trigger events to simulate user interaction
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      setReferralInput(effectiveCode.toUpperCase());
       handleApplyReferral(effectiveCode, true);
     }
-  }, [userData, user, loading, isApplied, isValidating, handleApplyReferral, searchParams]);
+  }, [mounted, userData, user, loading, isApplied, isValidating, errorMessage, handleApplyReferral, searchParams]);
 
-  if (loading || !user) {
+  if (!mounted || loading || !user) {
     return (
       <div className="flex min-h-screen bg-background items-center justify-center flex-col gap-4">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
-        <p className="text-xs font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Syncing Node Terminal...</p>
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Syncing Terminal Node...</p>
       </div>
     );
   }
@@ -252,9 +281,9 @@ export default function ChallengesPage() {
                         {isApplied ? <CheckCircle2 className="w-6 h-6" /> : <Tag className="w-6 h-6" />}
                       </div>
                       <div>
-                        <h3 className="text-lg font-bold">{isApplied ? "Referral Activated" : "Referral Discount"}</h3>
+                        <h3 className="text-lg font-bold">{isApplied ? "Referral Applied Successfully" : "Referral Discount"}</h3>
                         <p className="text-xs text-muted-foreground">
-                          {isApplied ? "Your 10% discount has been applied to eligible challenges." : "Enter a code to unlock 10% off Step 1, 2, and 3 challenges."}
+                          {isApplied ? "Your 10% discount is currently active for this challenge." : "Enter a code to unlock 10% off Step 1, 2, and 3 challenges."}
                         </p>
                       </div>
                     </div>
@@ -263,29 +292,27 @@ export default function ChallengesPage() {
                       <div className="flex gap-2">
                         <div className="relative w-full md:w-80">
                           <Input 
-                            placeholder={isApplied ? "✓ 10% Referral Discount Applied" : "ENTER CODE"} 
-                            value={isApplied ? "" : referralInput}
+                            ref={inputRef}
+                            placeholder="ENTER CODE" 
+                            value={referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
-                            readOnly={isApplied}
                             className={cn(
                               "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase transition-all",
-                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10 placeholder:text-emerald-500 placeholder:opacity-100 placeholder:font-black" : "border-border/50"
+                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10" : "border-border/50"
                             )}
                           />
                           {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
                         </div>
-                        {!isApplied && (
-                          <Button 
-                            onClick={() => handleApplyReferral()} 
-                            disabled={isValidating || !referralInput}
-                            className="h-11 px-6 font-bold cyan-box-glow"
-                          >
-                            {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Apply'}
-                          </Button>
-                        )}
+                        <Button 
+                          onClick={() => handleApplyReferral()} 
+                          disabled={isValidating || !referralInput || isApplied}
+                          className="h-11 px-6 font-bold cyan-box-glow"
+                        >
+                          {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : isApplied ? 'Applied' : 'Apply'}
+                        </Button>
                       </div>
                       {isApplied ? (
-                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✓ 10% Discount Activated</p>
+                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✓ 10% Referral Discount Activated</p>
                       ) : errorMessage ? (
                         <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
                       ) : null}
@@ -298,11 +325,11 @@ export default function ChallengesPage() {
 
           <Tabs value={selectedPlan} onValueChange={setSelectedPlan} className="w-full">
             <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary/50 p-1 rounded-xl mb-10 border border-white/5">
-              <TabsTrigger value="1-step" className="font-bold rounded-lg cursor-pointer">1-Step</TabsTrigger>
-              <TabsTrigger value="2-step" className="font-bold rounded-lg cursor-pointer">2-Step</TabsTrigger>
-              <TabsTrigger value="3-step" className="font-bold rounded-lg cursor-pointer">3-Step</TabsTrigger>
-              <TabsTrigger value="instant" className="font-bold rounded-lg cursor-pointer">Instant</TabsTrigger>
-              <TabsTrigger value="instant-pro" className="font-bold rounded-lg cursor-pointer">Instant Pro</TabsTrigger>
+              <TabsTrigger value="1-step" className="font-bold rounded-lg cursor-pointer text-xs">1-Step</TabsTrigger>
+              <TabsTrigger value="2-step" className="font-bold rounded-lg cursor-pointer text-xs">2-Step</TabsTrigger>
+              <TabsTrigger value="3-step" className="font-bold rounded-lg cursor-pointer text-xs">3-Step</TabsTrigger>
+              <TabsTrigger value="instant" className="font-bold rounded-lg cursor-pointer text-xs">Instant</TabsTrigger>
+              <TabsTrigger value="instant-pro" className="font-bold rounded-lg cursor-pointer text-xs">Instant Pro</TabsTrigger>
             </TabsList>
 
             <AnimatePresence mode="wait">

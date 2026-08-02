@@ -15,11 +15,13 @@ export function ReferralTracker() {
   useEffect(() => {
     const referralCode = searchParams.get('ref');
     
-    if (referralCode && referralCode.startsWith('PF')) {
+    if (referralCode && referralCode.length >= 4) {
       const code = referralCode.toUpperCase();
       console.log('[ReferralTracker] URL Parameter Detected:', code);
       
       // STEP 1: Immediately save to storage so redirects can read it
+      // Using both keys to ensure system-wide compatibility
+      localStorage.setItem('referralCode', code);
       localStorage.setItem('pf_referral_code', code);
       
       // STEP 2: Validate in background to ensure it exists
@@ -29,6 +31,7 @@ export function ReferralTracker() {
             console.log('[ReferralTracker] Code verified successfully.');
           } else {
             console.warn('[ReferralTracker] Code detected in URL is invalid. Removing from session.');
+            localStorage.removeItem('referralCode');
             localStorage.removeItem('pf_referral_code');
           }
         })
