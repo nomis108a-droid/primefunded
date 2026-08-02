@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, Suspense, useEffect } from 'react';
@@ -76,8 +75,6 @@ function SignupContent() {
 
     if (effectiveCode && effectiveCode.startsWith('PF')) {
       setReferralInput(effectiveCode.toUpperCase());
-      // Fill the field, but don't validate until signup or manual check
-      // This prevents the immediate red border on mount
     }
   }, [referralCodeFromUrl]);
 
@@ -152,11 +149,21 @@ function SignupContent() {
       await setDoc(doc(db, 'users', user.uid), userData);
       router.push('/challenges');
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Registration Failed",
-        description: error.code === 'auth/email-already-in-use' ? "This email is already registered." : error.message,
-      });
+      if (error.code === 'auth/email-already-in-use') {
+        toast({
+          title: "Account Exists",
+          description: "This email is already registered. Redirecting to sign in...",
+        });
+        // Preserve referral state during redirect to login
+        const redirectPath = `/login?redirect=/challenges&email=${encodeURIComponent(sanitizedEmail)}`;
+        router.push(redirectPath);
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Registration Failed",
+          description: "An error occurred during account creation. Please check your connection and try again.",
+        });
+      }
     } finally {
       setLoading(false);
     }

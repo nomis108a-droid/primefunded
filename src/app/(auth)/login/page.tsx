@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -29,7 +29,29 @@ function LoginContent() {
   const { user, loading: authLoading } = useAuth();
   const { logoUrl, siteName } = useBrandSettings();
 
-  const redirectTo = searchParams.get('redirect') || '/dashboard';
+  // Smart redirect: Prioritize explicit redirect OR pending referral journey
+  const redirectTo = useMemo(() => {
+    const target = searchParams.get('redirect');
+    if (target) return target;
+
+    // Check if we have a pending referral session
+    if (typeof window !== 'undefined') {
+      const storedCode = localStorage.getItem('pf_referral_code');
+      if (storedCode && storedCode.startsWith('PF')) {
+        return '/challenges';
+      }
+    }
+
+    return '/dashboard';
+  }, [searchParams]);
+
+  // Handle email pre-fill if passed from failed signup
+  useEffect(() => {
+    const emailParam = searchParams.get('email');
+    if (emailParam) {
+      setEmail(decodeURIComponent(emailParam));
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (user && !authLoading) {
@@ -51,13 +73,12 @@ function LoginContent() {
       console.error(error);
       let msg = "Invalid email or password. Please try again or reset your password.";
       
-      // Specifically handle the common generic error from Firebase v10+
       if (error.code === 'auth/invalid-credential') {
-        msg = "Invalid email or password. Please check your credentials or reset your password.";
+        msg = "The credentials provided are incorrect. Please verify your email and password.";
       } else if (error.code === 'auth/user-not-found') {
-        msg = "No account found with this email.";
+        msg = "No account exists with this email address.";
       } else if (error.code === 'auth/too-many-requests') {
-        msg = "Too many failed attempts. Please try again later or reset your password.";
+        msg = "Access temporarily blocked due to too many failed attempts. Please try again later.";
       }
       
       toast({
@@ -82,7 +103,7 @@ function LoginContent() {
       toast({ title: "Reset Link Sent", description: "Check your inbox for password recovery instructions." });
       setView('login');
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Reset Failed", description: error.message });
+      toast({ variant: "destructive", title: "Reset Failed", description: "Could not send recovery email. Please verify the address and try again." });
     } finally {
       setResetLoading(false);
     }
