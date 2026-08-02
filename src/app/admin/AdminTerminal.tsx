@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -16,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, Lock
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -47,7 +46,6 @@ const SYMBOLS = [
   "BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "ADAUSD", "BNBUSD", "DOGEUSD"
 ];
 
-// Static Country List with Flags
 const COUNTRIES = [
   { name: "Afghanistan", code: "AF" }, { name: "Albania", code: "AL" }, { name: "Algeria", code: "DZ" }, { name: "Andorra", code: "AD" }, { name: "Angola", code: "AO" },
   { name: "Argentina", code: "AR" }, { name: "Armenia", code: "AM" }, { name: "Australia", code: "AU" }, { name: "Austria", code: "AT" }, { name: "Azerbaijan", code: "AZ" },
@@ -948,7 +946,7 @@ export default function AdminTerminal() {
             <DialogHeader><DialogTitle className="font-headline font-bold">{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
             <div className="py-4 space-y-4">
                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-secondary/30" /></div>
+                  <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => payoutForm.name} className="bg-secondary/30" /></div>
                   <div className="space-y-2">
                     <Label>Country</Label>
                     <Select value={payoutForm.country} onValueChange={v => { const c = COUNTRIES.find(x => x.name === v); setPayoutForm({...payoutForm, country: v, countryFlag: c?.flag || '🇮🇳'}); }}>
