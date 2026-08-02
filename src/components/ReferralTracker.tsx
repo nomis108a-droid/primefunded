@@ -22,7 +22,7 @@ export function ReferralTracker() {
       // STEP 1: Immediately save to storage so redirects can read it
       localStorage.setItem('pf_referral_code', code);
       
-      // STEP 2: Validate in background
+      // STEP 2: Validate in background to ensure it exists
       validateReferralCode(code)
         .then(referrerUid => {
           if (referrerUid) {

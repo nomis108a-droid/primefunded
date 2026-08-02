@@ -29,7 +29,7 @@ function LoginContent() {
   const { user, loading: authLoading } = useAuth();
   const { logoUrl, siteName } = useBrandSettings();
 
-  // STEP 4: Smart redirect - go to challenges if referral context exists
+  // CASE 2: Smart redirect - go to challenges if referral context exists
   const redirectTo = useMemo(() => {
     const target = searchParams.get('redirect');
     if (target) return target;
@@ -53,7 +53,7 @@ function LoginContent() {
     }
   }, [searchParams]);
 
-  // STEP 8: Redirect authenticated users away from login
+  // Redirect authenticated users away from login
   useEffect(() => {
     if (user && !authLoading) {
       console.log('[Login] User already authenticated. Redirecting to:', redirectTo);

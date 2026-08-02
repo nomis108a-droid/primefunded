@@ -57,7 +57,7 @@ function SignupContent() {
 
   const referralCodeFromUrl = searchParams.get('ref');
   
-  // STEP 4 & 8: Intelligent redirect - skip signup if already logged in
+  // CASE 2: Intelligent redirect - skip signup if already logged in
   useEffect(() => {
     if (existingUser && !authLoading) {
       const storedCode = localStorage.getItem('pf_referral_code');
@@ -70,7 +70,7 @@ function SignupContent() {
     }
   }, [existingUser, authLoading, router, searchParams, referralCodeFromUrl]);
 
-  // STEP 1: Load referral code from storage or URL
+  // CASE 1: Auto-fill referral code from storage or URL
   useEffect(() => {
     const storedCode = localStorage.getItem('pf_referral_code');
     const effectiveCode = referralCodeFromUrl || storedCode;
@@ -161,7 +161,7 @@ function SignupContent() {
       };
 
       await setDoc(doc(db, 'users', user.uid), userData);
-      // STEP 3: Auto-login happens automatically... redirect to challenges
+      // Auto-login happens automatically... redirect to challenges
       router.push('/challenges');
     } catch (error: any) {
       if (error.code === 'auth/email-already-in-use') {

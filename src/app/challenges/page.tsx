@@ -150,7 +150,7 @@ export default function ChallengesPage() {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
-  // STEP 5: Robust handleApplyReferral for manual and auto triggers
+  // Robust handleApplyReferral for manual and auto triggers
   const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
     if (!user || !codeToUse || (isApplied && !manualCode)) return;
@@ -189,7 +189,7 @@ export default function ChallengesPage() {
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // STEP 5: Automatic detection and hands-free application
+  // Automatic detection and hands-free application
   useEffect(() => {
     if (loading || !user) return;
 
