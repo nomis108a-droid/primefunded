@@ -690,11 +690,9 @@ export default function AdminTerminal() {
         });
         break;
       case 'order-review':
-        // REMOVED ALL LIMITS AS REQUESTED
         unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          // Auto-sync stats to keep the tab count identical to the table records
           setStats(prev => ({ ...prev, pendingOrdersCount: snap.size }));
         });
         break;
@@ -905,8 +903,11 @@ export default function AdminTerminal() {
           </TabsContent>
 
           <TabsContent value="order-review">
-            {/* REMOVED BRACKET COUNT FROM TITLE AS REQUESTED */}
-            <TabHeader title="Commerce: Order Review" onSearch={setSearchTerm} />
+            <TabHeader 
+              title="Commerce: Order Review" 
+              count={stats.pendingOrdersCount} 
+              onSearch={setSearchTerm} 
+            />
             <DataTable 
               loading={isLoading} 
               data={tabData.orders} 
@@ -1266,7 +1267,11 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number |
   return (
     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
       <h2 className="text-xl font-headline font-bold uppercase tracking-tight">
-        {title} {count !== undefined && <span className="text-primary ml-2 opacity-50">({count === -1 ? '...' : count})</span>}
+        {title} {count !== undefined && (
+          <span className="text-primary ml-2 opacity-50">
+            ({count === -1 ? '...' : count.toLocaleString()})
+          </span>
+        )}
       </h2>
       {onSearch && (
         <div className="relative w-full md:w-96">
