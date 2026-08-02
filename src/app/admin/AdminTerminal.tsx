@@ -247,54 +247,6 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
   </div>
 ));
 
-const PriceTrackerTab = memo(({ prices, history, onSelectSymbol }: { prices: any, history: any, onSelectSymbol: (s: string) => void }) => {
-  return (
-    <div className="space-y-6">
-      <TabHeader title="System Heartbeat: Live Feed" count={Object.keys(prices).length} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {SYMBOLS.map(sym => {
-          const data = prices[sym];
-          const hist = history[sym] || [];
-          const precision = sym.includes('JPY') || ['XAUUSD', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'BNBUSD'].includes(sym.toUpperCase()) ? 3 : 5;
-          
-          return (
-            <Card key={sym} className="bg-zinc-900/40 border-zinc-800/60 p-4 hover:border-primary/40 transition-all group cursor-pointer" onClick={() => onSelectSymbol(sym)}>
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <span className="font-headline font-black text-sm text-white group-hover:text-primary">{sym}</span>
-                  <p className="text-[7px] font-black uppercase text-zinc-500 tracking-widest">Live Execution</p>
-                </div>
-                <div className="text-right">
-                   <span className="font-mono text-xs font-black text-primary">
-                     {data?.price ? data.price.toLocaleString(undefined, { minimumFractionDigits: precision }) : '---'}
-                   </span>
-                </div>
-              </div>
-              <div className="h-[30px] w-full mt-2">
-                {hist.length > 1 && (
-                   <svg viewBox="0 0 200 40" className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                      <polyline fill="none" stroke="#11b3f5" strokeWidth="2" points={hist.map((v: number, i: number) => `${(i / (hist.length - 1)) * 200},${40 - ((v - Math.min(...hist)) / (Math.max(...hist) - Math.min(...hist) || 1)) * 40}`).join(' ')} className="drop-shadow-[0_0_5px_rgba(17,179,245,0.4)]" />
-                   </svg>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/5 mt-2">
-                <div className="text-[8px] font-bold text-zinc-500 uppercase flex flex-col">
-                  <span>BID</span>
-                  <span className="text-zinc-300 tabular-nums">{data?.bid?.toFixed(precision) || '---'}</span>
-                </div>
-                <div className="text-[8px] font-bold text-zinc-500 uppercase flex flex-col items-end">
-                  <span>ASK</span>
-                  <span className="text-zinc-300 tabular-nums">{data?.ask?.toFixed(precision) || '---'}</span>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
-});
-
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -316,9 +268,6 @@ export default function AdminTerminal() {
   const [tabData, setTabData] = useState<any>({
     users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
   });
-
-  const [prices, setPrices] = useState<Record<string, any>>({});
-  const [history, setHistory] = useState<Record<string, number[]>>({});
 
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -602,37 +551,6 @@ export default function AdminTerminal() {
   };
 
   useEffect(() => {
-    if (!isAuthenticated || !rtdb) return;
-    
-    const pricesRef = ref(rtdb, 'livePrices');
-    const unsub = onValue(pricesRef, (snapshot) => {
-      const data = snapshot.val();
-      if (!data) return;
-
-      const newPrices: Record<string, any> = {};
-      setHistory(prev => {
-        const next = { ...prev };
-        Object.entries(data).forEach(([key, tick]: [string, any]) => {
-          const sym = key.toUpperCase();
-          if (SYMBOLS.includes(sym)) {
-            newPrices[sym] = tick;
-            if (tick.price) {
-              const current = next[sym] || [];
-              if (current[current.length - 1] !== tick.price) {
-                next[sym] = [...current, tick.price].slice(-30);
-              }
-            }
-          }
-        });
-        return next;
-      });
-      setPrices(newPrices);
-    });
-
-    return () => unsub();
-  }, [isAuthenticated]);
-
-  useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     setIsLoading(true);
     let unsub: () => void = () => {};
@@ -858,13 +776,14 @@ export default function AdminTerminal() {
             <DataTable 
               loading={isLoading} 
               data={tabData.breaches} 
-              columns={['TRADER', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} 
+              columns={['TRADER', 'ACCOUNT ID', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} 
               emptyMessage="No breached accounts found."
               renderRow={(b) => {
                 const date = b.blownAt?.toDate ? b.blownAt.toDate() : (b.updatedAt?.toDate ? b.updatedAt.toDate() : null);
                 return (
                   <tr key={b.id} className="hover:bg-white/5 transition-colors">
                     <td className="p-4 font-bold text-xs">{b.email || '—'}</td>
+                    <td className="p-4 font-mono text-[10px] text-zinc-500 truncate max-w-[120px]">{b.id}</td>
                     <td className="p-4 text-xs font-mono font-bold text-white">${(b.startBalance || 0).toLocaleString()}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{b.planType || '—'}</td>
                     <td className="p-4">
