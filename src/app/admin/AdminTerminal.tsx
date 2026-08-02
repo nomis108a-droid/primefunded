@@ -231,28 +231,6 @@ const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId
   </div>
 ));
 
-/**
- * Live duration timer component for open trades
- */
-const LiveDurationTimer = memo(({ openedAt }: { openedAt: any }) => {
-  const [duration, setDuration] = useState('00m 00s');
-
-  useEffect(() => {
-    const startDate = getTradeDate(openedAt);
-    if (!startDate) return;
-
-    const interval = setInterval(() => {
-      const now = new Date();
-      const diff = differenceInSeconds(now, startDate);
-      setDuration(formatDuration(diff));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [openedAt]);
-
-  return <span className="font-mono text-emerald-400 animate-pulse">{duration}</span>;
-});
-
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
@@ -289,12 +267,6 @@ export default function AdminTerminal() {
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
 
-  // Trade History Tab Specific States
-  const [tradeSearch, setTradeSearch] = useState('');
-  const [tradeStatusFilter, setTradeStatusFilter] = useState('all');
-  const [tradeTypeFilter, setTradeTypeFilter] = useState('all');
-  const [tradeResultFilter, setTradeResultFilter] = useState('all');
-
   const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
@@ -306,10 +278,8 @@ export default function AdminTerminal() {
   const [kycRejectReason, setKycRejectReason] = useState('');
 
   const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
-  const [isCountryAutocompleteOpen, setIsCountryAutocompleteOpen] = useState(false);
   const [payoutForm, setPayoutForm] = useState({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' });
   const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
-  const [countrySearchTerm, setCountrySearchTerm] = useState('');
 
   const instanceId = "Studio-8383940162";
 
@@ -327,7 +297,6 @@ export default function AdminTerminal() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     const now = Date.now();
-    // Removed strict 10s throttle on initialization to ensure data parity
     if (!force && lastRefreshTimeRef.current !== 0 && now - lastRefreshTimeRef.current < 5000) return;
 
     try {
@@ -412,9 +381,8 @@ export default function AdminTerminal() {
       setSelectedUser(merged);
       setNodeFilterId(accountData ? accountData.id : null);
       
-      // Fetch full trade history for inspection
       setTradesLoading(true);
-      const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'));
+      const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
       const tradesSnap = await getDocs(tradesQ);
       setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTradesLoading(false);
@@ -426,20 +394,59 @@ export default function AdminTerminal() {
     } finally { setActionLoading(false); }
   }, [toast]);
 
+  const handleApproveKyc = useCallback(async (userId: string) => {
+    if (!user) return;
+    setApprovingKycUserId(userId);
+    try {
+      const idToken = await user.getIdToken(true);
+      const res = await updateKycStatusAction(idToken, userId, 'verified');
+      if (res.success) { 
+        toast({ title: "KYC Approved" }); 
+        refreshStats(true); 
+        if (selectedUser?.id === userId) handleViewUserByAccount(userId);
+      }
+    } finally { setApprovingKycUserId(null); }
+  }, [refreshStats, toast, user, selectedUser, handleViewUserByAccount]);
+
+  const handleRejectKyc = async () => {
+    if (!kycRejectingUserId || !kycRejectReason.trim() || !user) return;
+    setActionLoading(true);
+    try {
+      const idToken = await user.getIdToken(true);
+      const res = await updateKycStatusAction(idToken, kycRejectingUserId, 'rejected', kycRejectReason.trim());
+      if (res.success) {
+        toast({ title: "KYC Rejected" });
+        setIsKycRejectModalOpen(false);
+        refreshStats(true);
+        if (selectedUser?.id === kycRejectingUserId) handleViewUserByAccount(kycRejectingUserId);
+      }
+    } finally { setActionLoading(false); }
+  };
+
+  const handleApproveOrder = useCallback(async (orderId: string) => {
+    setApprovingOrderId(orderId);
+    try {
+      const res = await approveManualOrderAction(orderId);
+      if (res.success) { toast({ title: "Order Approved" }); refreshStats(true); }
+      else toast({ variant: "destructive", title: "Failed", description: res.error });
+    } finally { setApprovingOrderId(null); }
+  }, [refreshStats, toast]);
+
+  const handleRejectOrder = async () => {
+    if (!rejectingOrderId || !rejectReason.trim()) return;
+    setActionLoading(true);
+    try {
+      const res = await updateOrderStatusAction(rejectingOrderId, 'rejected', rejectReason.trim());
+      if (res.success) {
+        toast({ title: "Order Rejected" });
+        setIsRejectModalOpen(false);
+        refreshStats(true);
+      }
+    } finally { setActionLoading(false); }
+  };
+
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
-    
-    /**
-     * PRODUCTION BUILD IDENTIFIER
-     * commit: PF-MASTER-PROD-2024-V9-RELOAD
-     */
-    console.log(`\n==========================================`);
-    console.log(`Administrative Terminal Node Initialized`);
-    console.log(`Build ID: PF-MASTER-PROD-2024-V9-RELOAD`);
-    console.log(`Timestamp: ${new Date().toISOString()}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
-    console.log(`==========================================\n`);
-
     setIsLoading(true);
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
@@ -450,8 +457,6 @@ export default function AdminTerminal() {
       unsub = onSnapshot(q, (snap) => {
         setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
         setIsLoading(false);
-      }, (err: any) => {
-        if (err.code === 'resource-exhausted') setIsQuotaExhausted(true);
       });
       return () => unsub();
     }
@@ -460,176 +465,39 @@ export default function AdminTerminal() {
       case 'overview':
         refreshStats();
         {
-          const uO = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(10)), (snap) => {
-            setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-            setIsLoading(false);
-          }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-
-          const oO = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(10)), (snap) => {
-            setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-          
+          const uO = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(10)), (snap) => setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) })));
+          const oO = onSnapshot(query(collection(db, 'orders'), orderBy('submittedAt', 'desc'), limit(10)), (snap) => setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) })));
           unsub = () => { uO(); oO(); };
         }
-        break;
-      case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { 
-            const at = a.updatedAt?.toDate?.()?.getTime() || 0; 
-            const bt = b.updatedAt?.toDate?.()?.getTime() || 0; 
-            return bt - at; 
-          }).slice(0, 100);
-          setTabData((prev: any) => ({ ...prev, breaches: docs }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'phase-passers':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', '==', 'passed')), (snap) => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { 
-            const at = a.updatedAt?.toDate?.()?.getTime() || 0; 
-            const bt = b.updatedAt?.toDate?.()?.getTime() || 0; 
-            return bt - at; 
-          }).slice(0, 100);
-          setTabData((prev: any) => ({ ...prev, passers: docs }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected'])), (snap) => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => { 
-            const at = a.submittedAt?.toDate?.()?.getTime() || 0; 
-            const bt = b.submittedAt?.toDate?.()?.getTime() || 0; 
-            return bt - at; 
-          }).slice(0, 100);
-          setTabData((prev: any) => ({ ...prev, orders: docs }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'payout-hub':
-        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'trades-payouts':
-        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
-        break;
-      case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
         break;
       case 'kyc-hub':
         unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        });
         break;
-      case 'broadcasts':
-        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)), (snap) => {
-          const docs = snap.docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data };
-          });
-          setTabData((prev: any) => ({ ...prev, broadcasts: docs }));
+      case 'trading-nodes':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
-          refreshStats();
-        }, (err: any) => { if (err.code === 'resource-exhausted') setIsQuotaExhausted(true); });
+        });
         break;
-      default:
-        refreshStats();
-        setIsLoading(false);
+      case 'order-review':
+        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      default: refreshStats(); setIsLoading(false);
     }
-
     return () => unsub();
   }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, isQuotaExhausted]);
 
   useEffect(() => {
     const isVerified = localStorage.getItem('adminVerified') === 'true';
-    const masterToken = document.cookie.includes('admin_master=93463962569392846256');
-    if (isVerified || masterToken) setIsAuthenticated(true);
+    if (isVerified) setIsAuthenticated(true);
     else setShowAdminModal(true);
   }, []);
-
-  const handleAdminAuth = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminPasswordInput === '93463962569392846256') {
-      localStorage.setItem('adminVerified', 'true');
-      document.cookie = "admin_master=93463962569392846256; path=/; max-age=604800; SameSite=Lax; Secure";
-      setIsAuthenticated(true);
-      setShowAdminModal(false);
-      setAdminError('');
-    } else setAdminError('❌ Invalid credentials');
-  };
-
-  // Advanced Trade History Filtering Logic
-  const filteredTrades = useMemo(() => {
-    return userTrades.filter(t => {
-      const matchesSearch = !tradeSearch || 
-        t.symbol?.toLowerCase().includes(tradeSearch.toLowerCase()) || 
-        t.id.toLowerCase().includes(tradeSearch.toLowerCase());
-      
-      const matchesStatus = tradeStatusFilter === 'all' || t.status === tradeStatusFilter;
-      const matchesType = tradeTypeFilter === 'all' || t.type === tradeTypeFilter;
-      
-      let matchesResult = true;
-      if (tradeResultFilter === 'win') matchesResult = (t.pnl || 0) > 0;
-      if (tradeResultFilter === 'loss') matchesResult = (t.pnl || 0) < 0;
-
-      return matchesSearch && matchesStatus && matchesType && matchesResult;
-    });
-  }, [userTrades, tradeSearch, tradeStatusFilter, tradeTypeFilter, tradeResultFilter]);
-
-  // Enhanced Trade Summary Stats
-  const tradeStats = useMemo(() => {
-    const closed = userTrades.filter(t => t.status === 'closed');
-    const winning = closed.filter(t => (t.pnl || 0) > 0);
-    const losing = closed.filter(t => (t.pnl || 0) < 0);
-    
-    const totalProfit = winning.reduce((acc, t) => acc + (t.pnl || 0), 0);
-    const totalLoss = losing.reduce((acc, t) => acc + (t.pnl || 0), 0);
-    
-    const durations = closed.map(t => calculateHoldingTimeSeconds(t.openedAt, t.closedAt));
-    const avgDuration = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
-    
-    return {
-      total: userTrades.length,
-      winning: winning.length,
-      losing: losing.length,
-      winRate: closed.length ? (winning.length / closed.length) * 100 : 0,
-      totalProfit,
-      totalLoss,
-      netProfit: totalProfit + totalLoss,
-      avgDuration,
-      largestWin: winning.length ? Math.max(...winning.map(t => t.pnl)) : 0,
-      largestLoss: losing.length ? Math.min(...losing.map(t => t.pnl)) : 0
-    };
-  }, [userTrades]);
 
   if (authLoading) return null;
 
@@ -637,9 +505,8 @@ export default function AdminTerminal() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
         <ShieldAlert className="w-16 h-16 text-destructive mb-6" />
-        <h1 className="text-3xl font-headline font-bold text-white mb-2">Unauthorized Access</h1>
-        <p className="text-muted-foreground max-w-md mb-8">This terminal is restricted to authorized administrative nodes only. Your identity has been flagged.</p>
-        <Button asChild><Link href="/dashboard">Return to Dashboard</Link></Button>
+        <h1 className="text-3xl font-headline font-bold text-white mb-2">Unauthorized</h1>
+        <Button asChild><Link href="/dashboard">Return Home</Link></Button>
       </div>
     );
   }
@@ -648,31 +515,15 @@ export default function AdminTerminal() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
         <Card className="w-full max-w-md bg-card/50 border-primary/20 backdrop-blur-xl">
-          <CardHeader className="text-center space-y-2">
-            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto text-primary border border-primary/20 mb-4">
-              <Lock className="w-8 h-8" />
-            </div>
-            <CardTitle className="text-2xl font-headline font-bold">Restricted Access</CardTitle>
-            <CardDescription>Enter the master key to unlock the administrative terminal.</CardDescription>
+          <CardHeader className="text-center">
+             <Lock className="w-12 h-12 text-primary mx-auto mb-4" />
+             <CardTitle className="text-2xl font-headline font-bold">Admin Key</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleAdminAuth} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="master-key">Administrative Password</Label>
-                <Input 
-                  id="master-key" 
-                  type="password" 
-                  value={adminPasswordInput} 
-                  onChange={(e) => setAdminPasswordInput(e.target.value)}
-                  className="h-12 bg-secondary/50 border-border/50 text-center text-xl tracking-[0.5em]"
-                  placeholder="••••••••"
-                  autoFocus
-                />
-                {adminError && <p className="text-xs text-destructive font-bold text-center mt-2">{adminError}</p>}
-              </div>
-              <Button type="submit" className="w-full h-12 font-black text-lg cyan-box-glow bg-primary text-black">
-                Unlock Terminal <ArrowRight className="ml-2 w-5 h-5" />
-              </Button>
+              <Input type="password" value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} className="text-center text-xl tracking-widest h-12" placeholder="••••••••" />
+              {adminError && <p className="text-xs text-destructive text-center">{adminError}</p>}
+              <Button type="submit" className="w-full h-12 font-black cyan-box-glow">Unlock Terminal</Button>
             </form>
           </CardContent>
         </Card>
@@ -686,197 +537,170 @@ export default function AdminTerminal() {
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
         <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10 pb-6 border-b border-white/5">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 mb-1"><ShieldAlert className="text-primary w-5 h-5" /><Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] font-bold tracking-widest">{user?.email}</Badge></div>
             <h1 className="text-3xl font-headline font-bold uppercase tracking-tighter">Administrative Terminal</h1>
-            <p className="text-muted-foreground text-xs">System Intelligence & Global Control Hub.</p>
+            <p className="text-muted-foreground text-xs">{instanceId} · {user?.email}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
-             <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3">
-               <div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div>
-               <div>
-                 <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p>
-                 <p className="text-xs font-mono font-bold text-white">{instanceId}</p>
-               </div>
-             </div>
-             
-             <Button className="h-10 rounded-xl font-black bg-primary text-black shadow-lg shadow-primary/20" asChild>
-                <Link href="/admin/price-tracker">
-                  <HeartPulse className="w-4 h-4 mr-2" /> Price Synchronizer
-                </Link>
-             </Button>
-
-             <div className="flex gap-2">
-                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)} disabled={isLoading}>
-                   <RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network
-                </Button>
-             </div>
+          <div className="flex gap-4">
+             <Button className="h-10 font-bold bg-primary text-black" asChild><Link href="/admin/price-tracker">Price Tracker</Link></Button>
+             <Button variant="outline" className="h-10" onClick={() => refreshStats(true)}><RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync</Button>
           </div>
         </header>
 
-        {isQuotaExhausted && (
-          <div className="mb-8 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-center gap-4">
-            <AlertCircle className="text-destructive w-6 h-6" />
-            <div>
-              <p className="text-sm font-bold text-white">Firestore Quota Exceeded</p>
-              <p className="text-xs text-destructive/80">Real-time synchronization is temporarily suspended to protect project limits. Some data may be stale.</p>
-            </div>
-          </div>
-        )}
-
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
-          <ScrollArea className="w-full">
-            <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-              {['Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'].map(tab => (
-                <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:bg-transparent data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
-              ))}
-            </TabsList>
-            <ScrollBar orientation="horizontal" />
-          </ScrollArea>
+          <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
+            {['Overview', 'Phase Passers', 'KYC Hub', 'Order Review', 'Trading Nodes', 'User Directory'].map(tab => (
+              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+            ))}
+          </TabsList>
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
-
-          <TabsContent value="order-review" className="space-y-6">
-             <TabHeader title="Commerce: Order Review" count={stats.pendingOrdersCount === -1 ? '...' : stats.pendingOrdersCount} onSearch={setSearchTerm} />
-             <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'SIZE', 'AMOUNT', 'NETWORK', 'STATUS', 'ACTIONS']} renderRow={(o) => (
-                  <tr key={o.id} className="hover:bg-white/5 transition-colors">
-                    <td className="p-4 font-bold text-xs">{o.email}</td>
-                    <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{o.plan}</td>
-                    <td className="p-4 text-xs font-mono text-zinc-400">{o.accountSize || '—'}</td>
-                    <td className="p-4 text-xs font-mono text-zinc-300">{o.amountPaid ? `$${Number(o.amountPaid).toFixed(2)}` : '$0.00'}</td>
-                    <td className="p-4 text-[10px] uppercase font-bold text-muted-foreground">{o.network || '—'}</td>
-                    <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : o.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
-                    <td className="p-4 text-right">{(o.status === 'completed' || o.status === 'approved') && (o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl) ? <span className="text-primary hover:underline text-[10px] font-black uppercase cursor-pointer" onClick={() => window.open(o.proofUrl || o.paymentProofUrl || o.proofScreenshotUrl, '_blank')}>PROOF</span> : null}</td>
-                  </tr>
-                )}
-             />
+          
+          <TabsContent value="order-review">
+            <TabHeader title="Order Review" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'AMOUNT', 'STATUS', 'ACTIONS']} renderRow={(o) => (
+              <tr key={o.id} className="hover:bg-white/5">
+                <td className="p-4 text-xs">{o.email}</td>
+                <td className="p-4 text-[10px] font-bold uppercase">{o.plan}</td>
+                <td className="p-4 font-mono text-xs">${Number(o.amountPaid || 0).toFixed(2)}</td>
+                <td className="p-4"><Badge className={cn("text-[8px] uppercase", o.status === 'completed' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
+                <td className="p-4 text-right space-x-2">
+                   {o.status === 'manual_review' && (
+                     <>
+                        <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => handleApproveOrder(o.id)} disabled={approvingOrderId === o.id}>Approve</Button>
+                        <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setIsRejectModalOpen(true); }}>Reject</Button>
+                     </>
+                   )}
+                   {(o.proofScreenshotUrl || o.proofUrl) && <button onClick={() => window.open(o.proofScreenshotUrl || o.proofUrl, '_blank')} className="text-primary text-[8px] font-black uppercase">PROOF</button>}
+                </td>
+              </tr>
+            )} />
           </TabsContent>
 
-        <TabsContent value="trading-nodes">
-          <div className="space-y-6">
-            <TabHeader title="Trading Nodes" count={stats.totalNodesCount === -1 ? '...' : stats.totalNodesCount} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED', 'ACTIONS']} renderRow={(node) => (
-              <tr key={node.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{node.email}</td>
-                <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType}</td>
-                <td className="p-4 text-xs font-mono text-zinc-400">${node.startBalance?.toLocaleString() || '—'}</td>
-                <td className="p-4 text-center">
-                  <Badge className={cn(
-                    "text-[8px] font-black uppercase",
-                    node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
-                    node.status === 'passed' ? "bg-blue-500/20 text-blue-500" :
-                    (node.status === 'blown' || node.status === 'breach' || node.status === 'terminated') ? "bg-red-500/20 text-red-500" :
-                    "bg-zinc-500/20 text-zinc-400"
-                  )}>
-                    {node.status}
-                  </Badge>
-                </td>
-                <td className="p-4 text-xs font-mono">${node.balance?.toLocaleString()}</td>
-                <td className="p-4 text-xs text-muted-foreground">{node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-                <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.userId)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
+          <TabsContent value="trading-nodes">
+            <TabHeader title="Active Nodes" count={stats.totalNodesCount} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'PLAN', 'BALANCE', 'STATUS', 'ACTIONS']} renderRow={(acc) => (
+              <tr key={acc.id} className="hover:bg-white/5">
+                <td className="p-4 text-xs">{acc.email}</td>
+                <td className="p-4 text-[10px] font-bold uppercase">{acc.planType}</td>
+                <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
+                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{acc.status}</Badge></td>
+                <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(acc.id)}>Inspect</Button></td>
               </tr>
             )} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="breaches">
-          <div className="space-y-6">
-            <TabHeader title="Breach Monitor" count={stats.totalLiquidationCount === -1 ? '...' : stats.totalLiquidationCount} />
-            <DataTable loading={isLoading} data={tabData.breaches} columns={['TRADER', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} renderRow={(b) => (
-              <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{b.email}</td>
-                <td className="p-4 font-mono text-[10px] text-zinc-400">{b.id}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{b.planType}</td>
-                <td className="p-4 text-center"><Badge className="text-[8px] font-black uppercase bg-red-500/20 text-red-500">{b.status}</Badge></td>
-                <td className="p-4 text-xs text-red-400 leading-relaxed max-w-md">{b.breachReason || '—'}</td>
-                <td className="p-4 text-xs text-muted-foreground">{b.updatedAt?.toDate ? format(b.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="payout-hub">
-          <div className="space-y-6">
-            <TabHeader title="Payout Hub" count={tabData.payouts.length} />
-            <DataTable loading={isLoading} data={tabData.payouts} columns={['USER ID', 'AMOUNT', 'METHOD', 'WALLET/ACCOUNT', 'STATUS', 'REQUESTED']} renderRow={(p) => (
-              <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{p.userId || p.email}</td>
-                <td className="p-4 text-xs font-mono text-emerald-400">${Number(p.amount || 0).toFixed(2)}</td>
-                <td className="p-4 text-[10px] uppercase text-zinc-300">{p.paymentMethod || '—'}</td>
-                <td className="p-4 text-[10px] font-mono text-zinc-400 max-w-[200px] truncate">{p.walletAddress || p.accountNumber || '—'}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'paid' || p.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : p.status === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{p.createdAt?.toDate ? format(p.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="trades-payouts">
-          <div className="space-y-6">
-            <div className="flex justify-between items-center"><TabHeader title="Trades Payouts" count={tabData.featuredPayouts.length} /><Button className="h-8 text-[10px] font-black bg-primary text-black" onClick={() => { setPayoutForm({ id: '', name: '', country: '', countryFlag: '', paidOut: '', payoutsCount: '' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-3 h-3 mr-1" /> ADD</Button></div>
-            <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['TRADER', 'COUNTRY', 'PAID OUT ($)', 'PAYOUTS COUNT', 'PROOF', 'ACTIONS']} renderRow={(fp) => (
-              <tr key={fp.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{fp.name}</td>
-                <td className="p-4 text-xs">{fp.countryFlag} {fp.country}</td>
-                <td className="p-4 text-xs font-mono text-emerald-400">${Number(fp.paidOut || 0).toFixed(2)}</td>
-                <td className="p-4 text-xs text-center">{fp.payoutsCount || 0}</td>
-                <td className="p-4 text-center">{fp.proofUrl ? <a href={fp.proofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">VIEW</a> : <span className="text-zinc-600 text-[9px]">NONE</span>}</td>
-                <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ id: fp.id, name: fp.name, country: fp.country, countryFlag: fp.countryFlag, paidOut: String(fp.paidOut || ''), payoutsCount: String(fp.payoutsCount || '') }); setIsFeaturedPayoutModalOpen(true); }}>EDIT</Button></td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="referral-audit">
-          <div className="space-y-6">
-            <TabHeader title="Referral Audit" count={tabData.referrals.length} />
-            <DataTable loading={isLoading} data={tabData.referrals} columns={['REFERRER', 'REFERRED', 'STATUS', 'DATE']} renderRow={(r) => (
-              <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{r.referrerEmail || r.referrerId}</td>
-                <td className="p-4 text-xs text-zinc-300">{r.referredEmail || r.referredId}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : r.status === 'joined' ? 'bg-amber-500/20 text-amber-500' : 'bg-zinc-500/20 text-zinc-500')}>{r.status || 'joined'}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="user-directory">
-          <div className="space-y-6">
-            <TabHeader title="User Directory" count={stats.totalUsersCount === -1 ? '...' : stats.totalUsersCount} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.users} columns={['NAME', 'EMAIL', 'KYC', 'JOINED', 'ACTIONS']} renderRow={(u) => (
-              <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{u.name || u.displayName || '—'}</td>
-                <td className="p-4 text-xs text-zinc-300">{u.email}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", u.kycStatus === 'verified' ? 'bg-emerald-500/20 text-emerald-500' : u.kycStatus === 'rejected' ? 'bg-red-500/20 text-red-500' : 'bg-amber-500/20 text-amber-500')}>{u.kycStatus || 'none'}</Badge></td>
-                <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="broadcasts">
-          <div className="space-y-6">
-            <TabHeader title="Broadcasts" count={tabData.broadcasts.length} />
-            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['TITLE', 'MESSAGE', 'TYPE', 'SENT BY', 'SENT AT']} renderRow={(b) => (
-              <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{b.title || '—'}</td>
-                <td className="p-4 text-xs max-w-[400px] leading-relaxed whitespace-pre-wrap">{b.message}</td>
-                <td className="p-4 text-[10px] uppercase text-zinc-400">{b.type || '—'}</td>
-                <td className="p-4 text-xs text-zinc-300">{b.sentBy || 'admin'}</td>
-                <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </div>
-        </TabsContent>
+          </TabsContent>
         </Tabs>
 
-        {/* Audit Modal Logic stays in this component */}
+        {/* User Inspection Modal */}
         <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
-          {/* ... Modal content remains identical to previous Turn ... */}
+          <DialogContent className="max-w-6xl h-[85vh] bg-zinc-950 border-zinc-800 p-0 overflow-hidden flex flex-col">
+            <DialogHeader className="p-6 border-b border-white/5">
+              <DialogTitle className="flex items-center gap-4">
+                <Avatar className="w-10 h-10 border border-primary/20"><AvatarFallback>{selectedUser?.name?.slice(0,2).toUpperCase() || 'TR'}</AvatarFallback></Avatar>
+                <div>
+                  <h3 className="text-lg font-bold text-white">{selectedUser?.name || 'Trader Profile'}</h3>
+                  <p className="text-xs text-zinc-500 font-mono">{selectedUser?.id}</p>
+                </div>
+                <Badge className="ml-auto bg-primary/10 text-primary uppercase text-[10px]">{selectedUser?.accountStatus}</Badge>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 flex overflow-hidden">
+               <aside className="w-64 border-r border-white/5 p-4 space-y-2 shrink-0">
+                  <button onClick={() => setInspectionTab('overview')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'overview' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Node Overview</button>
+                  <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade Ledger</button>
+                  <button onClick={() => setInspectionTab('kyc')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'kyc' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Compliance / KYC</button>
+               </aside>
+               <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                  {inspectionTab === 'overview' && (
+                    <div className="space-y-8">
+                       <div className="grid grid-cols-3 gap-4">
+                          <Card className="bg-secondary/30 p-4"><p className="text-[9px] font-black text-zinc-500 mb-1">BALANCE</p><p className="text-xl font-bold font-mono text-white">${selectedUser?.balance?.toLocaleString()}</p></Card>
+                          <Card className="bg-secondary/30 p-4"><p className="text-[9px] font-black text-zinc-500 mb-1">EQUITY</p><p className="text-xl font-bold font-mono text-emerald-400">${selectedUser?.equity?.toLocaleString()}</p></Card>
+                          <Card className="bg-secondary/30 p-4"><p className="text-[9px] font-black text-zinc-500 mb-1">START BAL</p><p className="text-xl font-bold font-mono text-zinc-400">${selectedUser?.startBalance?.toLocaleString()}</p></Card>
+                       </div>
+                       <div className="grid grid-cols-2 gap-8">
+                          <div className="space-y-4">
+                             <h4 className="text-xs font-black uppercase text-primary border-b border-primary/20 pb-2">Administrative Actions</h4>
+                             <div className="grid grid-cols-1 gap-2">
+                                <Button variant="outline" className="justify-start text-xs h-11" onClick={() => { if(confirm("Reset account balance and history?")) resetSingleAccountAction(nodeFilterId!) }}>Reset Node Sequence</Button>
+                                <Button variant="destructive" className="justify-start text-xs h-11">Terminate Execution</Button>
+                             </div>
+                          </div>
+                          <div className="space-y-4">
+                             <h4 className="text-xs font-black uppercase text-zinc-500 border-b border-white/5 pb-2">System Telemetry</h4>
+                             <div className="text-[10px] space-y-2 text-zinc-400">
+                                <div className="flex justify-between"><span>Plan Type:</span><span className="text-white font-bold">{selectedUser?.planType}</span></div>
+                                <div className="flex justify-between"><span>Phase:</span><span className="text-white font-bold">{selectedUser?.phase}</span></div>
+                                <div className="flex justify-between"><span>Updated:</span><span className="text-white">{selectedUser?.updatedAt?.toDate()?.toLocaleString()}</span></div>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                  )}
+                  {inspectionTab === 'trades' && (
+                    <div className="space-y-4">
+                      <DataTable loading={tradesLoading} data={userTrades} columns={['SYM', 'TYPE', 'LOTS', 'OPEN', 'PNL', 'STATUS']} renderRow={(t) => (
+                        <tr key={t.id} className="text-[10px]">
+                          <td className="p-3 font-bold">{t.symbol}</td>
+                          <td className="p-3 uppercase">{t.type}</td>
+                          <td className="p-3 font-mono">{t.lots}</td>
+                          <td className="p-3 font-mono">${t.openPrice?.toLocaleString()}</td>
+                          <td className={cn("p-3 font-bold", t.pnl >= 0 ? "text-emerald-500" : "text-red-500")}>${Number(t.pnl || 0).toFixed(2)}</td>
+                          <td className="p-3 uppercase text-zinc-500">{t.status}</td>
+                        </tr>
+                      )} />
+                    </div>
+                  )}
+                  {inspectionTab === 'kyc' && (
+                    <div className="space-y-8">
+                       <div className="flex justify-between items-center">
+                          <h4 className="text-sm font-bold">Verification Status: <span className="text-primary">{selectedUser?.kycStatus?.toUpperCase() || 'NONE'}</span></h4>
+                          <div className="space-x-2">
+                             <Button size="sm" className="bg-emerald-600 h-8" onClick={() => handleApproveKyc(selectedUser?.id)}>Approve</Button>
+                             <Button size="sm" variant="destructive" className="h-8" onClick={() => { setKycRejectingUserId(selectedUser?.id); setIsKycRejectModalOpen(true); }}>Reject</Button>
+                          </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-8">
+                          {selectedUser?.idProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">ID FRONT</p><img src={selectedUser.idProofUrl} className="w-full rounded-xl border border-white/10" alt="ID Front" /></div>}
+                          {selectedUser?.idBackProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">ID BACK</p><img src={selectedUser.idBackProofUrl} className="w-full rounded-xl border border-white/10" alt="ID Back" /></div>}
+                          {selectedUser?.selfieProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">SELFIE</p><img src={selectedUser.selfieProofUrl} className="w-full rounded-xl border border-white/10" alt="Selfie" /></div>}
+                       </div>
+                    </div>
+                  )}
+               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rejection Modal for KYC */}
+        <Dialog open={isKycRejectModalOpen} onOpenChange={setIsKycRejectModalOpen}>
+          <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+            <DialogHeader><DialogTitle>Reject KYC Submission</DialogTitle></DialogHeader>
+            <div className="py-4 space-y-4">
+              <Label>Reason for Rejection</Label>
+              <Textarea value={kycRejectReason} onChange={e => setKycRejectReason(e.target.value)} placeholder="e.g. Image blurry, ID expired..." className="bg-secondary/30 h-32" />
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleRejectKyc} disabled={actionLoading}>Reject Verification</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rejection Modal for Orders */}
+        <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+          <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+            <DialogHeader><DialogTitle>Reject Order</DialogTitle></DialogHeader>
+            <div className="py-4 space-y-4">
+              <Label>Reason for Rejection</Label>
+              <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. Payment not received, wrong network..." className="bg-secondary/30 h-32" />
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={handleRejectOrder} disabled={actionLoading}>Confirm Rejection</Button>
+            </DialogFooter>
+          </DialogContent>
         </Dialog>
       </main>
     </div>
