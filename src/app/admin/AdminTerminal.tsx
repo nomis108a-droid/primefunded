@@ -863,14 +863,33 @@ export default function AdminTerminal() {
           </TabsContent>
 
           <TabsContent value="trading-nodes">
-            <TabHeader title="Active Nodes" count={stats.totalNodesCount === -1 ? '...' : stats.totalNodesCount} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'PLAN', 'BALANCE', 'STATUS', 'ACTIONS']} renderRow={(acc) => (
-              <tr key={acc.id} className="hover:bg-white/5">
-                <td className="p-4 text-xs">{acc.email}</td>
-                <td className="p-4 text-[10px] font-bold uppercase">{acc.planType}</td>
-                <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500")}>{acc.status}</Badge></td>
-                <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(acc.id)}>Inspect</Button></td>
+            <TabHeader title="Trading Nodes" count={stats.totalNodesCount === -1 ? '...' : stats.totalNodesCount} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED', 'ACTIONS']} renderRow={(node) => (
+              <tr key={node.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{node.email || '—'}</td>
+                <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId || '—'}</td>
+                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType || '—'}</td>
+                <td className="p-4 text-xs font-mono text-zinc-400">{node.startBalance ? `$${node.startBalance.toLocaleString()}` : '—'}</td>
+                <td className="p-4 text-center">
+                  <Badge className={cn(
+                    "text-[8px] font-black uppercase",
+                    node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
+                    node.status === 'passed' ? "bg-amber-500/20 text-amber-500" :
+                    (node.status === 'blown' || node.status === 'breach' || node.status === 'terminated') ? "bg-red-500/20 text-red-500" :
+                    "bg-zinc-500/20 text-zinc-400"
+                  )}>
+                    {node.status || '—'}
+                  </Badge>
+                </td>
+                <td className="p-4 text-xs font-mono">${(node.balance || 0).toLocaleString()}</td>
+                <td className="p-4 text-[10px] text-zinc-500 font-mono">
+                  {node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}
+                </td>
+                <td className="p-4 text-right">
+                  <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.id)}>
+                    Inspect
+                  </Button>
+                </td>
               </tr>
             )} />
           </TabsContent>
