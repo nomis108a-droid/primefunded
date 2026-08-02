@@ -455,7 +455,6 @@ export default function AdminTerminal() {
       
       setTradesLoading(true);
       
-      // Fixed: Graceful handle for missing composite indexes
       try {
         const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
         const tradesSnap = await getDocs(tradesQ);
@@ -1115,7 +1114,7 @@ export default function AdminTerminal() {
                       {userBreaches.length === 0 ? (
                         <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
                            <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                             <CheckIcon size={24} />
+                             <Check size={24} />
                            </div>
                            <p className="text-sm font-bold text-emerald-500">✅ No breach has been recorded for this account.</p>
                         </Card>
