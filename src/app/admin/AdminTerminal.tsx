@@ -813,7 +813,7 @@ export default function AdminTerminal() {
                 <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.amount || 0).toLocaleString()}</td>
                 <td className="p-4 text-[10px] uppercase font-bold">{p.method}</td>
                 <td className="p-4 text-[10px] font-mono opacity-50 truncate max-w-[150px]">{p.address}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
+                <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
                 <td className="p-4 text-right">
                   {p.status !== 'done' && (
                     <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Done</Button>
@@ -1141,7 +1141,6 @@ export default function AdminTerminal() {
                         </Card>
                       ) : (
                         <div className="space-y-6">
-                          {/* 1. Show existing log entries if they exist */}
                           {userBreaches.length > 0 ? (
                             userBreaches.map((breach) => (
                               <Card key={breach.id} className="bg-destructive/5 border-destructive/20 overflow-hidden group">
@@ -1176,7 +1175,6 @@ export default function AdminTerminal() {
                               </Card>
                             ))
                           ) : (
-                            /* 2. Synthesize a card if account is blown but no log entry found */
                             <Card className="bg-destructive/5 border-destructive/20 overflow-hidden group">
                               <div className="bg-destructive/10 p-4 border-b border-destructive/20 flex justify-between items-center">
                                 <div className="flex items-center gap-3">
