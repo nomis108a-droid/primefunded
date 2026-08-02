@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, Lock
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, Lock, ShieldX, AlertTriangle
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -320,6 +320,7 @@ export default function AdminTerminal() {
   const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
+  const [userBreaches, setUserBreaches] = useState<any[]>([]);
   const [tradesLoading, setTradesLoading] = useState(false);
 
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -448,9 +449,19 @@ export default function AdminTerminal() {
       setNodeFilterId(accountData ? accountData.id : null);
       
       setTradesLoading(true);
+      
       const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
       const tradesSnap = await getDocs(tradesQ);
       setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+      if (accountData?.id) {
+        const bQ = query(collection(db, 'breaches'), where('accountId', '==', accountData.id), orderBy('breachedAt', 'desc'));
+        const bSnap = await getDocs(bQ);
+        setUserBreaches(bSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } else {
+        setUserBreaches([]);
+      }
+      
       setTradesLoading(false);
 
       setInspectionTab('trade-node');
@@ -1020,6 +1031,7 @@ export default function AdminTerminal() {
                   <button onClick={() => setInspectionTab('trade-node')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trade-node' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade Node</button>
                   <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade History</button>
                   <button onClick={() => setInspectionTab('kyc')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'kyc' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Compliance / KYC</button>
+                  <button onClick={() => setInspectionTab('breaches')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'breaches' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Breach Logs</button>
                </aside>
                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                   {inspectionTab === 'trade-node' && (
@@ -1075,6 +1087,59 @@ export default function AdminTerminal() {
                           {selectedUser?.idBackProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">ID BACK</p><img src={selectedUser.idBackProofUrl} className="w-full rounded-xl border border-white/10" alt="ID Back" /></div>}
                           {selectedUser?.selfieProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">SELFIE</p><img src={selectedUser.selfieProofUrl} className="w-full rounded-xl border border-white/10" alt="Selfie" /></div>}
                        </div>
+                    </div>
+                  )}
+                  {inspectionTab === 'breaches' && (
+                    <div className="space-y-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <ShieldX className="text-destructive w-5 h-5" />
+                        <h3 className="text-lg font-bold text-white">System Breach Logs</h3>
+                      </div>
+                      
+                      {userBreaches.length === 0 ? (
+                        <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
+                           <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                             <CheckIcon size={24} />
+                           </div>
+                           <p className="text-sm font-bold text-emerald-500">✅ No breach has been recorded for this account.</p>
+                        </Card>
+                      ) : (
+                        <div className="space-y-6">
+                          {userBreaches.map((breach) => (
+                            <Card key={breach.id} className="bg-destructive/5 border-destructive/20 overflow-hidden group">
+                              <div className="bg-destructive/10 p-4 border-b border-destructive/20 flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                  <AlertTriangle className="text-destructive w-4 h-4" />
+                                  <span className="text-xs font-black uppercase text-white tracking-widest">Hard Breach Detected</span>
+                                </div>
+                                <Badge variant="outline" className="bg-destructive/20 text-white border-none text-[8px] font-black uppercase">Liquidated</Badge>
+                              </div>
+                              <CardContent className="p-6">
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                  <BreachMetric label="Account Status" value={selectedUser?.accountStatus || 'Unknown'} />
+                                  <BreachMetric label="Breach Status" value="Breached" color="text-destructive" />
+                                  <BreachMetric label="Breach Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
+                                  <BreachMetric label="Breach Time" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'HH:mm:ss') : '—'} />
+                                  <BreachMetric label="Breach Day" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'EEEE') : '—'} />
+                                  <BreachMetric label="Account Phase" value={selectedUser?.phase || 'Evaluation'} />
+                                  <BreachMetric label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Triggered By" value="System / Rule Engine" />
+                                  <BreachMetric label="Final Action" value="Account Liquidated" color="text-destructive" />
+                                  <BreachMetric label="Balance (Exit)" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
+                                  <BreachMetric label="Equity (Exit)" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
+                                </div>
+                                
+                                <div className="mt-8 p-4 bg-black/40 rounded-xl border border-destructive/10">
+                                  <p className="text-[10px] font-black uppercase text-zinc-500 mb-2">Detailed Reason / Rule Violated</p>
+                                  <p className="text-sm text-destructive font-medium leading-relaxed italic">
+                                    "{breach.reason || 'No specific reason logged.'}"
+                                  </p>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                </div>
@@ -1141,3 +1206,13 @@ function InfoCard({ label, value, isMono = false }: { label: string, value: any,
     </Card>
   );
 }
+
+function BreachMetric({ label, value, color = 'text-zinc-300' }: { label: string, value: any, color?: string }) {
+  return (
+    <div>
+      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mb-1">{label}</p>
+      <p className={cn("text-xs font-bold", color)}>{value || '—'}</p>
+    </div>
+  );
+}
+
