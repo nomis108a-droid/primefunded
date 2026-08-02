@@ -144,6 +144,7 @@ export default function ChallengesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
+  const hasAttemptedAutoApply = useRef(false);
 
   const isInstantPlan = selectedPlan.startsWith('instant');
 
@@ -153,7 +154,6 @@ export default function ChallengesPage() {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
-  // Robust handleApplyReferral for manual and auto triggers
   const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
     if (!user || !codeToUse) {
@@ -161,7 +161,6 @@ export default function ChallengesPage() {
       return;
     }
 
-    // Optimization: Skip if already applied correctly
     if (isApplied && codeToUse === localStorage.getItem('appliedReferralCode')) {
       setIsValidating(false);
       return;
@@ -189,9 +188,8 @@ export default function ChallengesPage() {
         }
         
         setIsApplied(true);
-        localStorage.setItem('referralCode', codeToUse);
-        localStorage.setItem('pf_referral_code', codeToUse);
         localStorage.setItem('appliedReferralCode', codeToUse);
+        localStorage.setItem('referralCode', codeToUse); // Standardize the key
         
         if (!isAutoApply) {
           toast({ title: "Referral Applied!", description: "10% discount activated for eligible challenges." });
@@ -204,37 +202,54 @@ export default function ChallengesPage() {
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // Automatic detection, auto-fill and hands-free application
+  // AUTOMATIC REFERRAL CODE FILLING ENGINE
   useEffect(() => {
-    if (!mounted || loading || !user) return;
+    // Wait until auth and page are fully ready
+    if (!mounted || loading || !user || hasAttemptedAutoApply.current) return;
 
-    // Check storage/URL for pending code
-    const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
+    // 1. Read referral code from multiple sources
     const urlCode = searchParams.get('ref');
+    const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
     const effectiveCode = (urlCode || storedCode)?.trim().toUpperCase();
 
     if (!effectiveCode) return;
 
-    // 1. Handle profile-based referral (user already has a referrer in DB)
-    if (userData?.referredBy && !isApplied) {
-      setIsApplied(true);
-      if (!referralInput) {
+    // 2. Wait for the DOM element to be available (resilient rendering)
+    const timer = setTimeout(() => {
+      if (inputRef.current && !isApplied) {
+        console.log('[Referral-Engine] Programmatically populating code:', effectiveCode);
+        
+        // 3. Set the state and programmatically set input value
         setReferralInput(effectiveCode);
-      }
-      return;
-    }
+        inputRef.current.value = effectiveCode;
 
-    // 2. Handle programmatic auto-fill and apply
-    if (effectiveCode && !isApplied && !isValidating && !errorMessage) {
-      console.log('[Challenges] Auto-applying detected code:', effectiveCode);
-      
-      // Update state
-      setReferralInput(effectiveCode);
-      
-      // Trigger application logic
-      handleApplyReferral(effectiveCode, true);
+        // 4. Trigger events as a real user would
+        const events = ['input', 'change', 'blur'];
+        events.forEach(type => {
+          const event = new Event(type, { bubbles: true });
+          inputRef.current?.dispatchEvent(event);
+        });
+
+        // 5. Automatically trigger validation
+        hasAttemptedAutoApply.current = true;
+        handleApplyReferral(effectiveCode, true);
+      }
+    }, 100); // Tiny delay to ensure component render cycle is deep enough
+
+    return () => clearTimeout(timer);
+  }, [mounted, loading, user, isApplied, handleApplyReferral, searchParams]);
+
+  // Robustly handle profile-based referrals
+  useEffect(() => {
+    if (userData?.referredBy && !isApplied && !hasAttemptedAutoApply.current) {
+      const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
+      if (storedCode) {
+        setIsApplied(true);
+        setReferralInput(storedCode);
+        localStorage.setItem('appliedReferralCode', storedCode);
+      }
     }
-  }, [mounted, userData, user, loading, isApplied, isValidating, errorMessage, handleApplyReferral, searchParams, referralInput]);
+  }, [userData, isApplied]);
 
   if (!mounted || loading || !user) {
     return (
@@ -289,8 +304,8 @@ export default function ChallengesPage() {
                         <div className="relative w-full md:w-80">
                           <Input 
                             ref={inputRef}
-                            placeholder={isApplied ? "✓ 10% REFERRAL DISCOUNT APPLIED" : "ENTER CODE"} 
-                            value={isApplied ? "" : referralInput}
+                            placeholder={isApplied ? "10% DISCOUNT APPLIED" : "ENTER CODE"} 
+                            value={referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
                             readOnly={isApplied}
                             className={cn(

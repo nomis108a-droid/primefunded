@@ -20,7 +20,7 @@ export function ReferralTracker() {
       console.log('[ReferralTracker] URL Parameter Detected:', code);
       
       // STEP 1: Immediately save to storage so redirects can read it
-      // Using both keys to ensure system-wide compatibility
+      // Standardizing on 'referralCode' as the primary key
       localStorage.setItem('referralCode', code);
       localStorage.setItem('pf_referral_code', code);
       
@@ -28,7 +28,7 @@ export function ReferralTracker() {
       validateReferralCode(code)
         .then(referrerUid => {
           if (referrerUid) {
-            console.log('[ReferralTracker] Code verified successfully.');
+            console.log('[ReferralTracker] Code verified successfully in background.');
           } else {
             console.warn('[ReferralTracker] Code detected in URL is invalid. Removing from session.');
             localStorage.removeItem('referralCode');
