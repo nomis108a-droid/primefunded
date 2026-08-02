@@ -115,7 +115,19 @@ const StatCard = memo(function StatCard({ title, value, icon, color }: { title: 
   );
 });
 
-const DataTable = memo(function DataTable({ loading, data, columns, renderRow }: { loading: boolean, data: any[], columns: string[], renderRow: (item: any, index: number) => React.ReactNode }) {
+const DataTable = memo(function DataTable({ 
+  loading, 
+  data, 
+  columns, 
+  renderRow,
+  emptyMessage = "No matching records found."
+}: { 
+  loading: boolean, 
+  data: any[], 
+  columns: string[], 
+  renderRow: (item: any, index: number) => React.ReactNode,
+  emptyMessage?: string
+}) {
   if (loading) {
     return (
       <Card className="bg-card/40 border-border/50">
@@ -130,7 +142,7 @@ const DataTable = memo(function DataTable({ loading, data, columns, renderRow }:
     return (
       <Card className="bg-card/40 border-border/50 border-dashed border-2 py-20 text-center flex flex-col items-center justify-center opacity-40">
         <Info className="w-12 h-12 mb-4" />
-        <p className="text-sm font-black uppercase tracking-widest">No matching records found.</p>
+        <p className="text-sm font-black uppercase tracking-widest">{emptyMessage}</p>
       </Card>
     );
   }
@@ -843,15 +855,37 @@ export default function AdminTerminal() {
 
           <TabsContent value="breaches">
             <TabHeader title="Risk: Liquidation Ledger" count={stats.totalLiquidationCount === -1 ? '...' : stats.totalLiquidationCount} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.breaches} columns={['Trader', 'Plan', 'Reason', 'Date', 'Actions']} renderRow={(b) => (
-              <tr key={b.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{b.email}</td>
-                <td className="p-4 text-[10px] uppercase font-bold">{b.planType}</td>
-                <td className="p-4 text-xs text-destructive/80 italic truncate max-w-[200px]">{b.breachReason}</td>
-                <td className="p-4 text-xs text-muted-foreground">{b.blownAt?.toDate ? format(b.blownAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
-                <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(b.userId)}>Inspect</Button></td>
-              </tr>
-            )} />
+            <DataTable 
+              loading={isLoading} 
+              data={tabData.breaches} 
+              columns={['TRADER', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} 
+              emptyMessage="No breached accounts found."
+              renderRow={(b) => {
+                const date = b.blownAt?.toDate ? b.blownAt.toDate() : (b.updatedAt?.toDate ? b.updatedAt.toDate() : null);
+                return (
+                  <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 font-bold text-xs">{b.email || '—'}</td>
+                    <td className="p-4 text-xs font-mono font-bold text-white">${(b.startBalance || 0).toLocaleString()}</td>
+                    <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{b.planType || '—'}</td>
+                    <td className="p-4">
+                       <Badge className="bg-red-500/20 text-red-500 border-none text-[8px] font-black uppercase">{(b.status || 'BREACHED').toUpperCase()}</Badge>
+                    </td>
+                    <td className="p-4 text-xs text-zinc-300 leading-relaxed min-w-[300px]">
+                      {b.breachReason || 'Risk Parameter Violation'}
+                    </td>
+                    <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
+                      {date ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-white font-bold">{format(date, 'MMM d, yyyy')}</span>
+                          <span className="text-[10px] uppercase font-black opacity-50">{format(date, 'EEEE')}</span>
+                          <span className="text-[10px] font-mono">{format(date, 'p')}</span>
+                        </div>
+                      ) : 'Recently'}
+                    </td>
+                  </tr>
+                );
+              }} 
+            />
           </TabsContent>
 
           <TabsContent value="referral-audit">
