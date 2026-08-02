@@ -65,7 +65,7 @@ const COUNTRIES = [
   { name: "Indonesia", code: "ID" }, { name: "Iran", code: "IR" }, { name: "Iraq", code: "IQ" }, { name: "Ireland", code: "IE" }, { name: "Israel", code: "IL" },
   { name: "Italy", code: "IT" }, { name: "Jamaica", code: "JM" }, { name: "Japan", code: "JP" }, { name: "Jordan", code: "JO" }, { name: "Kazakhstan", code: "KZ" },
   { name: "Kenya", code: "KE" }, { name: "Kiribati", code: "KI" }, { name: "Korea, North", code: "KP" }, { name: "Korea, South", code: "KR" }, { name: "Kuwait", code: "KW" },
-  { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Latvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
+  { name: "Kyrgyzstan", code: "KG" }, { name: "Laos", code: "LA" }, { name: "Lotvia", code: "LV" }, { name: "Lebanon", code: "LB" }, { name: "Lesotho", code: "LS" },
   { name: "Liberia", code: "LR" }, { name: "Libya", code: "LY" }, { name: "Liechtenstein", code: "LI" }, { name: "Lithuania", code: "LT" }, { name: "Luxembourg", code: "LU" },
   { name: "Madagascar", code: "MG" }, { name: "Malawi", code: "MW" }, { name: "Malaysia", code: "MY" }, { name: "Maldives", code: "MV" }, { name: "Mali", code: "ML" },
   { name: "Malta", code: "MT" }, { name: "Marshall Islands", code: "MH" }, { name: "Mauritania", code: "MR" }, { name: "Mauritius", code: "MU" }, { name: "Mexico", code: "MX" },
@@ -703,7 +703,7 @@ export default function AdminTerminal() {
         });
         break;
       case 'broadcasts':
-        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -877,9 +877,8 @@ export default function AdminTerminal() {
                     <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
                       {date ? (
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-white font-bold">{format(date, 'MMM d, yyyy')}</span>
-                          <span className="text-[10px] uppercase font-black opacity-50">{format(date, 'EEEE')}</span>
-                          <span className="text-[10px] font-mono">{format(date, 'p')}</span>
+                          <span className="text-white font-bold">{format(date, 'dd MMM yyyy')}</span>
+                          <span className="text-[10px] font-mono">{format(date, 'HH:mm')}</span>
                         </div>
                       ) : 'Recently'}
                     </td>
@@ -972,97 +971,35 @@ export default function AdminTerminal() {
           <TabsContent value="broadcasts">
             <div className="flex justify-between items-center mb-6">
               <TabHeader title="Communication: Broadcasts" />
-              <Button size="sm" className="bg-primary text-black font-bold" onClick={() => toast({ title: "Module initialized in production." })}><Plus className="w-4 h-4 mr-2" /> New Broadcast</Button>
+              <Button size="sm" className="bg-primary text-black font-bold" onClick={() => toast({ title: "Module initialized in production." })}><Megaphone className="w-4 h-4 mr-2" /> New Broadcast</Button>
             </div>
-            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['Title', 'Type', 'Sent At', 'Actions']} renderRow={(b) => (
-              <tr key={b.id} className="hover:bg-white/5">
-                <td className="p-4 font-bold text-xs">{b.title}</td>
-                <td className="p-4 uppercase text-[10px] font-bold">{b.type}</td>
-                <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
-                <td className="p-4 text-right"><Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if(confirm("Delete broadcast?")) await deleteDoc(doc(db, 'broadcasts', b.id)); }}>Delete</Button></td>
-              </tr>
-            )} />
+            <DataTable 
+              loading={isLoading} 
+              data={tabData.broadcasts} 
+              columns={['TITLE', 'MESSAGE', 'TYPE', 'SENT BY', 'SENT AT', 'ACTIONS']} 
+              renderRow={(b) => (
+                <tr key={b.id} className="hover:bg-white/5 transition-colors group">
+                  <td className="p-4 font-bold text-xs whitespace-nowrap">{b.title}</td>
+                  <td className="p-4 text-xs text-muted-foreground min-w-[300px] whitespace-pre-wrap leading-relaxed">{b.message}</td>
+                  <td className="p-4">
+                    <Badge variant="outline" className="text-[8px] font-black uppercase border-primary/20 bg-primary/5 text-primary">
+                      {b.type || 'INFO'}
+                    </Badge>
+                  </td>
+                  <td className="p-4 text-[10px] font-mono text-zinc-400">{b.sentBy || b.adminEmail || 'System'}</td>
+                  <td className="p-4 text-[10px] text-muted-foreground whitespace-nowrap">
+                    {b.sentAt?.toDate ? format(b.sentAt.toDate(), 'dd MMM yyyy, HH:mm') : 'Recently'}
+                  </td>
+                  <td className="p-4 text-right">
+                    <Button variant="destructive" size="sm" className="h-7 text-[8px] font-black uppercase" onClick={async () => { if(confirm("Permanently delete this broadcast?")) await deleteDoc(doc(db, 'broadcasts', b.id)); }}>
+                      <Trash2 className="w-3 h-3 mr-1" /> Delete
+                    </Button>
+                  </td>
+                </tr>
+              )} 
+            />
           </TabsContent>
         </Tabs>
-
-        {/* Gift Account Modal */}
-        <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
-          <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
-            <DialogHeader>
-              <DialogTitle className="text-xl font-headline font-bold">Gift Account Provisioning</DialogTitle>
-              <DialogDescription>Manually grant a challenge node to a user by email.</DialogDescription>
-            </DialogHeader>
-            <div className="py-6 space-y-6">
-              <div className="space-y-2">
-                <Label>User Email</Label>
-                <Input value={giftForm.email} onChange={e => setGiftForm({...giftForm, email: e.target.value})} placeholder="trader@example.com" className="bg-secondary/30" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                 <div className="space-y-2">
-                    <Label>Plan Type</Label>
-                    <Select value={giftForm.plan} onValueChange={v => setGiftForm({...giftForm, plan: v})}>
-                      <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                        <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
-                        <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
-                        <SelectItem value="instant-funding">Instant Funding</SelectItem>
-                      </SelectContent>
-                    </Select>
-                 </div>
-                 <div className="space-y-2">
-                    <Label>Account Size</Label>
-                    <Select value={giftForm.size} onValueChange={v => setGiftForm({...giftForm, size: v})}>
-                      <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
-                        <SelectItem value="10k">$10,000</SelectItem>
-                        <SelectItem value="25k">$25,000</SelectItem>
-                        <SelectItem value="50k">$50,000</SelectItem>
-                        <SelectItem value="100k">$100,000</SelectItem>
-                        <SelectItem value="200k">$200,000</SelectItem>
-                      </SelectContent>
-                    </Select>
-                 </div>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button>
-              <Button className="bg-primary text-black font-black px-8" onClick={handleGiftAccount} disabled={actionLoading}>Grant Account</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Featured Payout Modal */}
-        <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
-          <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-lg">
-            <DialogHeader><DialogTitle className="font-headline font-bold">{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
-            <div className="py-4 space-y-4">
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-secondary/30" /></div>
-                  <div className="space-y-2">
-                    <Label>Country</Label>
-                    <Select value={payoutForm.country} onValueChange={v => { const c = COUNTRIES.find(x => x.name === v); setPayoutForm({...payoutForm, country: v, countryFlag: c?.flag || '🇮🇳'}); }}>
-                      <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white h-60">
-                        {COUNTRIES.map(c => <SelectItem key={c.name} value={c.name}>{c.flag} {c.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-               </div>
-               <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Amount Paid ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-secondary/30" /></div>
-                  <div className="space-y-2"><Label>Payout Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-secondary/30" /></div>
-               </div>
-               <div className="space-y-2">
-                  <Label>Proof Screenshot (Optional)</Label>
-                  <Input type="file" accept="image/*" onChange={e => payoutProofFile && setPayoutProofFile(e.target.files?.[0] || null)} className="bg-secondary/30 pt-3" />
-               </div>
-            </div>
-            <DialogFooter>
-               <Button variant="ghost" onClick={() => setIsFeaturedPayoutModalOpen(false)}>Cancel</Button>
-               <Button className="bg-primary text-black font-bold" onClick={handleSaveFeaturedPayout} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : 'Save Achievement'}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
 
         {/* User Inspection Modal */}
         <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
