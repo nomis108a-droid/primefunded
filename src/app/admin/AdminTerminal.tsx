@@ -746,10 +746,21 @@ export default function AdminTerminal() {
                 </div>
              </div>
              
-             <div className="flex gap-2">
-                <Button variant="destructive" className="h-10 rounded-xl font-bold text-xs" onClick={handleFridayReset}>Friday Rule Reset</Button>
-                <Button variant="secondary" className="h-10 rounded-xl font-bold text-xs" onClick={() => setIsGiftModalOpen(true)}>Gift Account</Button>
-                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)}><RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network</Button>
+             <div className="flex items-center gap-2">
+                <Button variant="destructive" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap" onClick={handleFridayReset}>
+                  Friday Rule Reset
+                </Button>
+                <Button variant="secondary" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest bg-zinc-900 border border-white/5 text-white hover:bg-zinc-800 whitespace-nowrap" asChild>
+                  <Link href="/admin/price-tracker">
+                    <HeartPulse className="w-3.5 h-3.5 mr-2" /> Price Synchronizer
+                  </Link>
+                </Button>
+                <Button variant="secondary" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest bg-zinc-900 border border-white/5 text-white hover:bg-zinc-800 whitespace-nowrap" onClick={() => setIsGiftModalOpen(true)}>
+                  <Gift className="w-3.5 h-3.5 mr-2" /> Gift Account
+                </Button>
+                <Button variant="outline" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest border-white/10 hover:bg-white/5 whitespace-nowrap" onClick={() => refreshStats(true)}>
+                  <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isLoading && "animate-spin")} /> Sync Network
+                </Button>
              </div>
           </div>
         </header>
@@ -757,14 +768,14 @@ export default function AdminTerminal() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none overflow-x-auto no-scrollbar">
             {[
-              'Overview', 'Price Tracker', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'
+              'Overview', 'Price Synchronizer', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'
             ].map(tab => (
               <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{tab}</TabsTrigger>
             ))}
           </TabsList>
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
-          <TabsContent value="price-tracker"><PriceTrackerTab prices={prices} history={history} onSelectSymbol={(s) => router.push('/admin/price-tracker')} /></TabsContent>
+          <TabsContent value="price-synchronizer"><PriceTrackerTab prices={prices} history={history} onSelectSymbol={(s) => router.push('/admin/price-tracker')} /></TabsContent>
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
           
@@ -859,7 +870,7 @@ export default function AdminTerminal() {
                 <td className="p-4 text-xs">{acc.email}</td>
                 <td className="p-4 text-[10px] font-bold uppercase">{acc.planType}</td>
                 <td className="p-4 font-mono text-xs">${(acc.balance || 0).toLocaleString()}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500')}>{acc.status}</Badge></td>
+                <td className="p-4"><Badge className={cn("text-[8px] uppercase", acc.status === 'active' ? "bg-emerald-500/20 text-emerald-500" : "bg-red-500/20 text-red-500")}>{acc.status}</Badge></td>
                 <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(acc.id)}>Inspect</Button></td>
               </tr>
             )} />
@@ -946,7 +957,7 @@ export default function AdminTerminal() {
             <DialogHeader><DialogTitle className="font-headline font-bold">{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
             <div className="py-4 space-y-4">
                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => payoutForm.name} className="bg-secondary/30" /></div>
+                  <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-secondary/30" /></div>
                   <div className="space-y-2">
                     <Label>Country</Label>
                     <Select value={payoutForm.country} onValueChange={v => { const c = COUNTRIES.find(x => x.name === v); setPayoutForm({...payoutForm, country: v, countryFlag: c?.flag || '🇮🇳'}); }}>
