@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, memo, useEffect, useMemo } from 'react';
+import { useState, memo, useEffect, useMemo, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { db } from '@/lib/firebase';
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { validateReferralCode } from '@/lib/referral';
 
 const planData = {
@@ -65,14 +64,19 @@ const planData = {
 
 const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, hasDiscount }: { tier: any, planName: string, delay: number, hasDiscount: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
-  const router = useRouter();
-
   const isInstant = planName.startsWith('instant');
-  const finalPrice = hasDiscount && !isInstant ? (tier.price * 0.9).toFixed(2) : String(tier.price);
+  
+  // Calculate discounted price (10% off for steps only)
+  const discountMultiplier = hasDiscount && !isInstant ? 0.9 : 1.0;
+  const rawFinalPrice = tier.price * discountMultiplier;
+  const finalPrice = rawFinalPrice % 1 === 0 ? rawFinalPrice.toString() : rawFinalPrice.toFixed(2);
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
-      <Card className={`relative overflow-hidden border-border/50 hover:border-primary/50 transition-all duration-300 flex flex-col h-full bg-card/50 backdrop-blur-sm group ${tier.popular ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : ''}`}>
+      <Card className={cn(
+        "relative overflow-hidden border-border/50 hover:border-primary/50 transition-all duration-300 flex flex-col h-full bg-card/50 backdrop-blur-sm group",
+        tier.popular && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+      )}>
         {tier.popular && (
           <div className="absolute top-0 right-0 z-10">
             <div className="bg-primary text-primary-foreground text-[10px] font-bold px-3 py-1 rounded-bl-lg uppercase tracking-wider">Most Popular</div>
@@ -87,20 +91,22 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, hasDi
 
         <CardContent className="flex-1 flex flex-col">
           <div className="text-center mb-6">
-            <div className="flex flex-col items-center justify-center">
+            <div className="flex flex-col items-center justify-center min-h-[80px]">
               {hasDiscount && !isInstant ? (
                 <div className="space-y-1">
-                  <span className="text-sm text-muted-foreground line-through opacity-50">${tier.price}</span>
-                  <div className="text-3xl font-headline font-bold text-primary cyan-glow">${finalPrice}</div>
-                  <Badge variant="outline" className="bg-accent/10 border-accent/30 text-accent text-[8px] uppercase tracking-tighter">Referral Discount Applied</Badge>
+                  <span className="text-sm text-muted-foreground line-through opacity-50 font-bold">${tier.price}</span>
+                  <div className="text-4xl font-headline font-bold text-primary cyan-glow">${finalPrice}</div>
+                  <Badge variant="outline" className="bg-emerald-500/10 border-emerald-500/30 text-emerald-500 text-[8px] uppercase tracking-tighter mt-1 font-black">
+                    10% Referral Discount Active
+                  </Badge>
                 </div>
               ) : (
-                <span className="text-3xl font-headline font-bold text-white">${tier.price}</span>
+                <span className="text-4xl font-headline font-bold text-white">${tier.price}</span>
               )}
             </div>
           </div>
           
-          <Button variant="ghost" onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-primary h-9 px-4 border border-primary/20 rounded-lg cursor-pointer">
+          <Button variant="ghost" onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-primary h-9 px-4 border border-primary/20 rounded-lg cursor-pointer hover:bg-primary/5">
             View Stage Rules
             {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </Button>
@@ -108,7 +114,7 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, hasDi
           <AnimatePresence>
             {isOpen && (
               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mt-4">
-                <p className="text-[10px] text-muted-foreground italic text-center">Refer to Rules page for detailed breakdown of parameters.</p>
+                <p className="text-[10px] text-muted-foreground italic text-center leading-relaxed">Refer to Rules page for detailed breakdown of parameters, drawdown limits, and target phases.</p>
               </motion.div>
             )}
           </AnimatePresence>
@@ -143,69 +149,83 @@ export default function ChallengesPage() {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
-  const handleApplyReferral = async (manualCode?: string) => {
+  const handleApplyReferral = useCallback(async (manualCode?: string) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
-    if (!user || !codeToUse || isApplied) return;
+    if (!user || !codeToUse || (isApplied && !manualCode)) return;
     
     setIsValidating(true);
     setErrorMessage('');
     
-    console.log('[Challenges] Attempting referral application:', codeToUse);
+    console.log('[Challenges] Validating referral code:', codeToUse);
 
     try {
       const referrerUid = await validateReferralCode(codeToUse);
       
       if (!referrerUid) {
-        console.warn('[Challenges] Code validation failed:', codeToUse);
-        // Only set error if it wasn't an automatic process from localStorage
+        console.warn('[Challenges] Invalid code:', codeToUse);
+        setErrorMessage('Invalid referral code.');
         if (!manualCode) {
-           setErrorMessage('Invalid referral code.');
-           toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist." });
+          toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist in our system." });
         }
       } else if (referrerUid === user.uid) {
-        console.warn('[Challenges] Rejection: User attempted to refer self.');
-        setErrorMessage('You cannot refer yourself.');
+        console.warn('[Challenges] Self-referral attempt.');
+        setErrorMessage('You cannot use your own referral code.');
         if (!manualCode) {
-          toast({ variant: "destructive", title: "Self-Referral", description: "You cannot use your own code." });
+          toast({ variant: "destructive", title: "Self-Referral", description: "You cannot refer yourself." });
         }
       } else {
-        console.log('[Challenges] Code verified. Associating referrer:', referrerUid);
-        await updateDoc(doc(db, 'users', user.uid), {
-          referredBy: referrerUid,
-          updatedAt: serverTimestamp()
-        });
+        console.log('[Challenges] Referral verified for code:', codeToUse);
+        
+        // Associated referrer with user if not already done
+        if (userData && userData.referredBy !== referrerUid) {
+          await updateDoc(doc(db, 'users', user.uid), {
+            referredBy: referrerUid,
+            updatedAt: serverTimestamp()
+          });
+        }
         
         setIsApplied(true);
-        // Ensure localStorage is synced
         localStorage.setItem('pf_referral_code', codeToUse);
-        console.log('[Challenges] Discount activated successfully.');
-        toast({ title: "Referral Applied!", description: "10% discount has been activated for challenges." });
+        
+        if (!manualCode) {
+          toast({ title: "Referral Applied!", description: "10% discount activated for eligible challenges." });
+        }
       }
     } catch (e: any) {
-      console.error('[Challenges] Critical referral error:', e);
-      setErrorMessage('Verification error. Please try again.');
+      console.error('[Challenges] Validation error:', e);
+      setErrorMessage('Verification system offline.');
     } finally {
       setIsValidating(false);
     }
-  };
+  }, [user, userData, referralInput, isApplied, toast]);
 
+  // Handle automatic application from localStorage or URL on load
   useEffect(() => {
-    // 1. Initial Load: Check if user is already associated with a referrer in database
+    if (loading || !user) return;
+
+    // Priority 1: User already has a referrer in their database profile
     if (userData?.referredBy && !isApplied) {
-      console.log('[Challenges] User profile already has active referrer.');
+      console.log('[Challenges] Persistent referral detected in user profile.');
       setIsApplied(true);
-    } 
-    
-    // 2. Session check: If they have a validated code in localStorage but not in their profile yet
+      return;
+    }
+
+    // Priority 2: Stored code in session (captured from URL earlier)
     const storedCode = localStorage.getItem('pf_referral_code');
-    if (storedCode && !isApplied && !userData?.referredBy && user?.uid && !isValidating) {
-      console.log('[Challenges] Found stored referral in session. Auto-applying...');
-      setReferralInput(storedCode);
+    if (storedCode && !isApplied && !isValidating) {
+      console.log('[Challenges] Auto-applying code from session:', storedCode);
       handleApplyReferral(storedCode);
     }
-  }, [userData, isApplied, user, isValidating]);
+  }, [userData, user, loading, isApplied, isValidating, handleApplyReferral]);
 
-  if (loading || !user) return <div className="flex min-h-screen bg-background items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (loading || !user) {
+    return (
+      <div className="flex min-h-screen bg-background items-center justify-center flex-col gap-4">
+        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+        <p className="text-xs font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Syncing Node Terminal...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background text-white">
@@ -217,7 +237,6 @@ export default function ChallengesPage() {
             <p className="text-muted-foreground">Institutional funding starting from $5,000 up to $300,000.</p>
           </header>
 
-          {/* Referral Code Entry Section - Hidden for Instant Plans */}
           <AnimatePresence>
             {!isInstantPlan && (
               <motion.section 
@@ -235,7 +254,7 @@ export default function ChallengesPage() {
                       </div>
                       <div>
                         <h3 className="text-lg font-bold">Referral Discount</h3>
-                        <p className="text-xs text-muted-foreground">Unlock 10% off your challenge by applying a referral code.</p>
+                        <p className="text-xs text-muted-foreground">Unlock 10% off Step 1, 2, and 3 challenges by applying a code.</p>
                       </div>
                     </div>
                     
@@ -249,10 +268,10 @@ export default function ChallengesPage() {
                             readOnly={isApplied}
                             className={cn(
                               "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase",
-                              isApplied && "border-accent text-accent pr-10 placeholder:text-accent placeholder:opacity-100 placeholder:font-bold"
+                              isApplied && "border-emerald-500/50 text-emerald-500 pr-10 placeholder:text-emerald-500 placeholder:opacity-100 placeholder:font-black"
                             )}
                           />
-                          {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-accent" />}
+                          {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
                         </div>
                         {!isApplied && (
                           <Button 
@@ -265,7 +284,7 @@ export default function ChallengesPage() {
                         )}
                       </div>
                       {isApplied ? (
-                        <p className="text-[10px] font-black uppercase text-accent tracking-widest text-center md:text-left">✅ 10% Referral Discount Active</p>
+                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✅ Referral verification complete</p>
                       ) : errorMessage ? (
                         <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
                       ) : null}
@@ -276,8 +295,8 @@ export default function ChallengesPage() {
             )}
           </AnimatePresence>
 
-          <Tabs defaultValue="1-step" className="w-full" onValueChange={setSelectedPlan}>
-            <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary p-1 rounded-xl mb-10">
+          <Tabs value={selectedPlan} onValueChange={setSelectedPlan} className="w-full">
+            <TabsList className="grid w-full max-w-4xl grid-cols-5 h-12 bg-secondary/50 p-1 rounded-xl mb-10 border border-white/5">
               <TabsTrigger value="1-step" className="font-bold rounded-lg cursor-pointer">1-Step</TabsTrigger>
               <TabsTrigger value="2-step" className="font-bold rounded-lg cursor-pointer">2-Step</TabsTrigger>
               <TabsTrigger value="3-step" className="font-bold rounded-lg cursor-pointer">3-Step</TabsTrigger>

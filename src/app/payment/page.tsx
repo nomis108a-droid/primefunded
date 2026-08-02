@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { Suspense, useState, useEffect, useMemo } from 'react';
@@ -52,7 +51,7 @@ const PAYMENT_WINDOW_SECONDS = 1200; // 20 Minutes
 
 function PaymentContent() {
   const searchParams = useSearchParams();
-  const { user, loading: authLoading } = useAuth();
+  const { user, userData, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
   
@@ -114,6 +113,11 @@ function PaymentContent() {
     setLoading(true);
     try {
       const tag = selectedNetwork.id === 'XRPL' ? Math.floor(100000 + Math.random() * 900000) : null;
+      
+      // Capture referral data for commission audit
+      const referralCode = localStorage.getItem('pf_referral_code') || null;
+      const referrerId = userData?.referredBy || null;
+
       const res = await addDoc(collection(db, "orders"), {
         userId: user.uid,
         email: user.email,
@@ -124,6 +128,8 @@ function PaymentContent() {
         coin: selectedCoin,
         destinationTag: tag,
         status: "waiting",
+        referralCode,
+        referrerId,
         createdAt: serverTimestamp(),
         submittedAt: serverTimestamp(),
         amountNative: totalAmountUsd * 1.002
@@ -157,7 +163,7 @@ function PaymentContent() {
       setTxidVerified(false);
       setTxidVerifyError("Could not reach verification service. Try again.");
     } finally {
-      setTxidVerifying(false);
+      txidVerifying && setTxidVerifying(false);
     }
   };
 
@@ -301,7 +307,7 @@ function PaymentContent() {
                   <CardContent className="space-y-6">
                     <div className="flex items-start gap-3">
                       <Checkbox id="terms" checked={termsAccepted} onCheckedChange={(v) => setTermsAccepted(!!v)} />
-                      <Label htmlFor="terms" className="text-sm text-zinc-300">I accept the Terms & Conditions and understand all challenge risk protocols.</Label>
+                      <Label htmlFor="terms" className="text-sm text-zinc-300 leading-relaxed">I accept the Terms & Conditions and understand all challenge risk protocols, including drawdown rules and consistency parameters.</Label>
                     </div>
                   </CardContent>
                   <CardFooter><Button disabled={!termsAccepted} onClick={() => setStep(4)} className="w-full h-12 font-black text-lg cyan-box-glow">Continue to Payment</Button></CardFooter>
@@ -314,6 +320,7 @@ function PaymentContent() {
                 <div className="text-center">
                   <Badge variant="outline" className="mb-4 border-primary/30 text-primary">STEP 2/3</Badge>
                   <h2 className="text-3xl font-headline font-bold text-white mb-2">Choose Asset</h2>
+                  <p className="text-muted-foreground">Select your preferred cryptocurrency for the challenge fee.</p>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                    <button onClick={() => { setSelectedCoin('USDT'); setStep(5); }} className="p-8 rounded-3xl border-2 bg-card/40 border-zinc-800 hover:border-primary/50 text-center space-y-4 group transition-all">
@@ -351,18 +358,18 @@ function PaymentContent() {
                    <CardContent className="p-10 space-y-10">
                       <div className="text-center space-y-4">
                          <div className="space-y-1">
-                            <p className="text-[9px] font-bold uppercase tracking-wide text-destructive text-center mb-2">If you send fake payment details, your account will be terminated or risk audited.</p>
+                            <p className="text-[9px] font-bold uppercase tracking-wide text-destructive text-center mb-2">DO NOT SEND FAKE TRANSACTION DETAILS. REPEAT OFFENDERS WILL BE BANNED.</p>
                             <p className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.3em]">SEND EXACTLY</p>
                             <h3 className="text-5xl font-headline font-bold text-white tabular-nums">{(totalAmountUsd * 1.002).toFixed(4)} <span className="text-primary">{selectedCoin}</span></h3>
                          </div>
                          
                          <div className="inline-flex flex-col items-center gap-1.5 py-3 px-6 rounded-2xl bg-white/5 border border-white/5 min-w-[260px]">
                             <div className="flex justify-between w-full text-[10px] font-bold text-zinc-400">
-                               <span>Challenge Fee</span>
+                               <span>Final Challenge Price</span>
                                <span className="text-zinc-300">${challengeAmount.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between w-full text-[10px] font-bold text-zinc-400">
-                               <span>Network & Service Fee</span>
+                               <span>Service Fee</span>
                                <span className="text-zinc-300">${(totalAmountUsd * 1.002 - challengeAmount).toFixed(2)}</span>
                             </div>
                             <div className="w-full h-px bg-white/10 my-0.5" />
@@ -378,7 +385,7 @@ function PaymentContent() {
                         <div className="space-y-6 flex-1 w-full">
                            <div className="space-y-2">
                               <Label className="text-[10px] font-black uppercase text-zinc-500">{selectedNetwork.id} DEPOSIT ADDRESS</Label>
-                              <div className="flex gap-2"><Input readOnly value={currentWalletAddress} className="bg-zinc-900 font-mono text-[10px]" /><Button variant="secondary" size="icon" onClick={() => { navigator.clipboard.writeText(currentWalletAddress); toast({ title: "Copied" }); }}><Copy size={16} /></Button></div>
+                              <div className="flex gap-2"><Input readOnly value={currentWalletAddress} className="bg-zinc-900 font-mono text-[10px] h-10" /><Button variant="secondary" size="icon" onClick={() => { navigator.clipboard.writeText(currentWalletAddress); toast({ title: "Copied" }); }} className="h-10 w-10"><Copy size={16} /></Button></div>
                            </div>
                            <div className="space-y-2">
                               <p className="text-xs font-bold text-white flex items-center gap-2">
@@ -399,14 +406,14 @@ function PaymentContent() {
                                 value={txid} 
                                 onChange={(e) => { setTxid(e.target.value); setTxidVerified(false); setTxidVerifyError(''); }} 
                                 placeholder="Paste your transaction hash here" 
-                                className="bg-zinc-900 font-mono text-xs flex-1" 
+                                className="bg-zinc-900 font-mono text-xs flex-1 h-10" 
                               />
                               <Button 
                                 type="button"
                                 variant="outline" 
                                 onClick={verifyTxid} 
                                 disabled={txidVerifying || txidVerified || !isValidTxHashFormat}
-                                className="shrink-0 font-black"
+                                className="shrink-0 font-black h-10 px-6"
                               >
                                 {txidVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : txidVerified ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : "Verify"}
                               </Button>
@@ -416,10 +423,10 @@ function PaymentContent() {
                           </div>
                           <div className="space-y-2">
                             <Label className="text-[10px] font-black uppercase text-zinc-500">Payment Screenshot (required)</Label>
-                            <Input type="file" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 text-xs" />
+                            <Input type="file" accept="image/*" onChange={(e) => setProofFile(e.target.files?.[0] || null)} className="bg-zinc-900 text-xs h-11 pt-3" />
                           </div>
                           <Button 
-                            className="w-full bg-primary text-black font-black h-11" 
+                            className="w-full bg-primary text-black font-black h-12" 
                             onClick={submitPaymentProof} 
                             disabled={submittingProof || !isProofValid}
                           >
@@ -430,9 +437,8 @@ function PaymentContent() {
                         <div className="pt-6 border-t border-white/10 text-center space-y-2">
                           <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto" />
                           <p className="text-xs font-bold text-white">Proof submitted — awaiting admin verification.</p>
-                          <p className="text-[10px] text-muted-foreground">Your challenge account will be activated within 1 to 4 hours after verification.</p>
-                          <p className="text-[10px] text-muted-foreground">Once approved, your new trading account will appear on your Dashboard.</p>
-                          <Button variant="outline" className="mt-3" onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
+                          <p className="text-[10px] text-muted-foreground leading-relaxed">Your challenge node will be activated within 1 to 4 hours after manual review. You will receive an email once approved.</p>
+                          <Button variant="outline" className="mt-4 px-10 h-11 font-bold rounded-xl" onClick={() => router.push('/dashboard')}>Go to Dashboard</Button>
                         </div>
                       )}
                    </CardContent>
@@ -453,7 +459,7 @@ function PaymentContent() {
 
 export default function PaymentPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><Loader2 className="animate-spin text-primary" /></div>}>
+    <Suspense fallback={<div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4"><Loader2 className="animate-spin text-primary w-10 h-10" /><p className="text-xs font-black uppercase tracking-widest text-muted-foreground animate-pulse">Syncing Liquidity Gate...</p></div>}>
       <PaymentContent />
     </Suspense>
   );
