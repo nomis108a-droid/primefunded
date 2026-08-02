@@ -211,13 +211,15 @@ export default function ChallengesPage() {
     // Check storage/URL for pending code
     const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
     const urlCode = searchParams.get('ref');
-    const effectiveCode = urlCode || storedCode;
+    const effectiveCode = (urlCode || storedCode)?.trim().toUpperCase();
+
+    if (!effectiveCode) return;
 
     // 1. Handle profile-based referral (user already has a referrer in DB)
     if (userData?.referredBy && !isApplied) {
       setIsApplied(true);
-      if (effectiveCode && !referralInput) {
-        setReferralInput(effectiveCode.toUpperCase());
+      if (!referralInput) {
+        setReferralInput(effectiveCode);
       }
       return;
     }
@@ -226,19 +228,13 @@ export default function ChallengesPage() {
     if (effectiveCode && !isApplied && !isValidating && !errorMessage) {
       console.log('[Challenges] Auto-applying detected code:', effectiveCode);
       
-      // Programmatically sync the input element if it exists in DOM
-      if (inputRef.current) {
-        const input = inputRef.current;
-        input.value = effectiveCode.toUpperCase();
-        // Trigger events to simulate user interaction
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-
-      setReferralInput(effectiveCode.toUpperCase());
+      // Update state
+      setReferralInput(effectiveCode);
+      
+      // Trigger application logic
       handleApplyReferral(effectiveCode, true);
     }
-  }, [mounted, userData, user, loading, isApplied, isValidating, errorMessage, handleApplyReferral, searchParams]);
+  }, [mounted, userData, user, loading, isApplied, isValidating, errorMessage, handleApplyReferral, searchParams, referralInput]);
 
   if (!mounted || loading || !user) {
     return (
@@ -293,9 +289,10 @@ export default function ChallengesPage() {
                         <div className="relative w-full md:w-80">
                           <Input 
                             ref={inputRef}
-                            placeholder="ENTER CODE" 
-                            value={referralInput}
+                            placeholder={isApplied ? "✓ 10% REFERRAL DISCOUNT APPLIED" : "ENTER CODE"} 
+                            value={isApplied ? "" : referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
+                            readOnly={isApplied}
                             className={cn(
                               "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase transition-all",
                               isApplied ? "border-emerald-500/50 text-emerald-500 pr-10" : "border-border/50"
@@ -303,16 +300,18 @@ export default function ChallengesPage() {
                           />
                           {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
                         </div>
-                        <Button 
-                          onClick={() => handleApplyReferral()} 
-                          disabled={isValidating || !referralInput || isApplied}
-                          className="h-11 px-6 font-bold cyan-box-glow"
-                        >
-                          {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : isApplied ? 'Applied' : 'Apply'}
-                        </Button>
+                        {!isApplied && (
+                          <Button 
+                            onClick={() => handleApplyReferral()} 
+                            disabled={isValidating || !referralInput}
+                            className="h-11 px-6 font-bold cyan-box-glow"
+                          >
+                            {isValidating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Apply'}
+                          </Button>
+                        )}
                       </div>
                       {isApplied ? (
-                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✓ 10% Referral Discount Activated</p>
+                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✓ Referral code locked and applied</p>
                       ) : errorMessage ? (
                         <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
                       ) : null}

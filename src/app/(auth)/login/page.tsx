@@ -36,7 +36,7 @@ function LoginContent() {
 
     // Check if we have a pending referral session
     if (typeof window !== 'undefined') {
-      const storedCode = localStorage.getItem('pf_referral_code');
+      const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
       if (storedCode && storedCode.startsWith('PF')) {
         return '/challenges';
       }

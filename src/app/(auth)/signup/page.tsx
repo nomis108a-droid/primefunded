@@ -60,7 +60,7 @@ function SignupContent() {
   // CASE 2: Intelligent redirect - skip signup if already logged in
   useEffect(() => {
     if (existingUser && !authLoading) {
-      const storedCode = localStorage.getItem('pf_referral_code');
+      const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
       const effectiveCode = referralCodeFromUrl || storedCode;
       
       // If there's a referral context, go to challenges, otherwise dashboard
@@ -72,7 +72,7 @@ function SignupContent() {
 
   // CASE 1: Auto-fill referral code from storage or URL
   useEffect(() => {
-    const storedCode = localStorage.getItem('pf_referral_code');
+    const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
     const effectiveCode = referralCodeFromUrl || storedCode;
 
     if (effectiveCode && effectiveCode.startsWith('PF')) {
