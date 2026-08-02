@@ -145,50 +145,37 @@ export default function ChallengesPage() {
   const searchParams = useSearchParams();
   
   const inputRef = useRef<HTMLInputElement>(null);
-  const hasAttemptedAutoFill = useRef(false);
+  const autoApplyAttempted = useRef(false);
 
   const isInstantPlan = selectedPlan.startsWith('instant');
 
-  // Lifecycle detection
   useEffect(() => {
     setMounted(true);
     if (!loading && !user) {
       router.push('/login?redirect=/challenges');
     }
-    if (mounted) console.log('[Referral] Challenges page mounted');
-  }, [user, loading, router, mounted]);
+  }, [user, loading, router]);
 
   const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
-    if (!user || !codeToUse) {
-      setIsValidating(false);
-      return;
-    }
+    if (!user || !codeToUse) return;
 
-    if (isApplied && codeToUse === localStorage.getItem('appliedReferralCode')) {
-      setIsValidating(false);
-      return;
-    }
+    if (isApplied && codeToUse === localStorage.getItem('appliedReferralCode')) return;
     
     setIsValidating(true);
     setErrorMessage('');
-    console.log('[Referral] Referral validation started for:', codeToUse);
+    console.log('[Referral] Validation started:', codeToUse);
     
     try {
       const referrerUid = await validateReferralCode(codeToUse);
       
       if (!referrerUid) {
-        console.log('[Referral] Referral validation failed: Code does not exist');
         if (!isAutoApply) setErrorMessage('Invalid referral code.');
         setIsApplied(false);
       } else if (referrerUid === user.uid) {
-        console.log('[Referral] Referral validation failed: Self-referral detected');
-        if (!isAutoApply) setErrorMessage('You cannot use your own referral code.');
+        if (!isAutoApply) setErrorMessage('Self-referral prohibited.');
         setIsApplied(false);
       } else {
-        console.log('[Referral] Referral validation success. Referrer UID:', referrerUid);
-        
-        // Permanent store in DB
         if (userData && userData.referredBy !== referrerUid) {
           const userRef = doc(db, 'users', user.uid);
           await updateDoc(userRef, {
@@ -199,77 +186,67 @@ export default function ChallengesPage() {
         
         setIsApplied(true);
         localStorage.setItem('appliedReferralCode', codeToUse);
-        localStorage.setItem('referralCode', codeToUse); 
+        localStorage.setItem('referralCode', codeToUse);
         
-        console.log('[Referral] Discount applied successfully');
         if (!isAutoApply) {
-          toast({ title: "Referral Applied!", description: "10% discount activated for eligible challenges." });
+          toast({ title: "Referral Applied!", description: "10% discount activated." });
         }
       }
     } catch (e: any) {
-      console.error('[Referral] Validation error:', e.message);
-      if (!isAutoApply) setErrorMessage('Verification system offline.');
+      if (!isAutoApply) setErrorMessage('System error.');
     } finally {
       setIsValidating(false);
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // Master Auto-Fill Logic
-  // Programmatically populates and triggers native events for the input field
+  // Robust Auto-Fill and Auto-Apply Logic
   useEffect(() => {
-    if (!mounted || loading || !user || hasAttemptedAutoFill.current) return;
+    if (!mounted || loading || !user || autoApplyAttempted.current) return;
 
     const urlCode = searchParams.get('ref');
-    const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('pf_referral_code');
+    const storedCode = localStorage.getItem('referralCode') || localStorage.getItem('appliedReferralCode');
     const effectiveCode = (urlCode || storedCode)?.trim().toUpperCase();
 
-    if (!effectiveCode) {
-      console.log('[Referral] No referral code detected in URL or storage');
-      return;
-    }
+    if (!effectiveCode) return;
 
-    console.log('[Referral] Referral code detected:', effectiveCode);
+    console.log('[Referral] Auto-fill detecting code:', effectiveCode);
 
-    // Wait for the input component to definitely exist in the DOM
-    const attemptPopulation = () => {
-      const el = inputRef.current;
-      if (el) {
-        console.log('[Referral] Referral input found in DOM');
+    const performAutoFill = () => {
+      const input = inputRef.current;
+      if (input) {
+        console.log('[Referral] Input found, performing programmatic simulation');
         
-        // Populate component state
+        // 1. Update React State
         setReferralInput(effectiveCode);
         
-        // Programmatically set DOM value
-        el.value = effectiveCode;
+        // 2. Programmatically set DOM value
+        input.value = effectiveCode;
         
-        // Simulate native user events to satisfy React state and form logic
+        // 3. Dispatch native events to simulate real user typing
         const events = ['input', 'change', 'blur'];
         events.forEach(type => {
-          const event = new Event(type, { bubbles: true });
-          el.dispatchEvent(event);
+          input.dispatchEvent(new Event(type, { bubbles: true }));
         });
+
+        autoApplyAttempted.current = true;
         
-        console.log('[Referral] Referral state and DOM updated');
-        hasAttemptedAutoFill.current = true;
-        
-        // Call validation logic directly with the code to bypass timing issues
+        // 4. Trigger validation logic automatically
         handleApplyReferral(effectiveCode, true);
       } else {
-        // Retry logic without fixed timeout
-        requestAnimationFrame(attemptPopulation);
+        // Retry logic for dynamic rendering
+        requestAnimationFrame(performAutoFill);
       }
     };
 
-    attemptPopulation();
+    performAutoFill();
   }, [mounted, loading, user, searchParams, handleApplyReferral]);
 
-  // Anti-Re-render protection
-  // If React clears the input while applied, force it back from storage
+  // Anti-Clearance Protection: Restore code if React clears the input while applied
   useEffect(() => {
     if (isApplied && inputRef.current && !inputRef.current.value) {
-      const stored = localStorage.getItem('appliedReferralCode');
+      const stored = localStorage.getItem('appliedReferralCode') || localStorage.getItem('referralCode');
       if (stored) {
-        console.log('[Referral] Restoring input from storage after re-render');
+        console.log('[Referral] Restoring empty input from storage');
         inputRef.current.value = stored;
         setReferralInput(stored);
       }
@@ -335,7 +312,7 @@ export default function ChallengesPage() {
                             readOnly={isApplied && !errorMessage}
                             className={cn(
                               "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase transition-all duration-300",
-                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10 shadow-[0_0_15px_rgba(16,185,129,0.1)]" : "border-border/50",
+                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10" : "border-border/50",
                               errorMessage && "border-destructive text-destructive"
                             )}
                           />
@@ -357,7 +334,7 @@ export default function ChallengesPage() {
                       {isApplied ? (
                         <p className="text-[9px] font-black uppercase text-emerald-500 tracking-[0.2em] text-center md:text-left animate-in slide-in-from-top-1 duration-300">✓ 10% Discount Applied Automatically</p>
                       ) : errorMessage ? (
-                        <p className="text-[9px] font-black uppercase text-destructive tracking-[0.2em] text-center md:text-left animate-shake">{errorMessage}</p>
+                        <p className="text-[9px] font-black uppercase text-destructive tracking-[0.2em] text-center md:text-left">{errorMessage}</p>
                       ) : null}
                     </div>
                   </div>
@@ -394,4 +371,3 @@ export default function ChallengesPage() {
     </div>
   );
 }
-
