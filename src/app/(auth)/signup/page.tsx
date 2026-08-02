@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, Suspense, useEffect } from 'react';
@@ -5,12 +6,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, getDocs, collection, query, where, increment, updateDoc, addDoc } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, collection, increment, updateDoc, addDoc } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, XCircle, Loader2, Eye, EyeOff } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -58,53 +59,27 @@ function SignupContent() {
   const { logoUrl, siteName } = useBrandSettings();
 
   const referralCodeFromUrl = searchParams.get('ref');
-  const redirectTo = searchParams.get('redirect') || '/dashboard';
-
+  
+  // Smart redirect: If logged in, skip signup. If we have a referral, go to challenges.
   useEffect(() => {
     if (existingUser && !authLoading) {
-      router.push(redirectTo);
+      const storedCode = localStorage.getItem('pf_referral_code');
+      const effectiveCode = referralCodeFromUrl || storedCode;
+      const target = effectiveCode ? '/challenges' : (searchParams.get('redirect') || '/dashboard');
+      router.push(target);
     }
-  }, [existingUser, authLoading, router, redirectTo]);
+  }, [existingUser, authLoading, router, searchParams, referralCodeFromUrl]);
 
   useEffect(() => {
-    // Check localStorage first if no URL param
     const storedCode = localStorage.getItem('pf_referral_code');
     const effectiveCode = referralCodeFromUrl || storedCode;
 
     if (effectiveCode && effectiveCode.startsWith('PF')) {
       setReferralInput(effectiveCode.toUpperCase());
-      validateCode(effectiveCode.toUpperCase());
+      // Fill the field, but don't validate until signup or manual check
+      // This prevents the immediate red border on mount
     }
   }, [referralCodeFromUrl]);
-
-  const validateCode = async (code: string) => {
-    if (!code || code.length < 4) {
-      setReferralStatus('idle');
-      setReferredByUid(null);
-      return;
-    }
-    setReferralStatus('validating');
-    console.log('[Signup] Verifying referral code:', code);
-    
-    try {
-      const referrerUid = await validateReferralCode(code.toUpperCase());
-      
-      if (referrerUid) {
-        console.log('[Signup] Referral verified. Associating with UID:', referrerUid);
-        setReferralStatus('valid');
-        setReferredByUid(referrerUid);
-        // Persist verified code to session
-        localStorage.setItem('pf_referral_code', code.toUpperCase());
-      } else {
-        console.warn('[Signup] Referral code invalid.');
-        setReferralStatus('invalid');
-        setReferredByUid(null);
-      }
-    } catch (err) {
-      console.error('[Signup] Verification error:', err);
-      setReferralStatus('invalid');
-    }
-  };
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,23 +99,27 @@ function SignupContent() {
     const sanitizedEmail = sanitizeInput(email).toLowerCase();
 
     try {
+      // Validate referral code one last time before finalizing
+      let finalReferredBy = referredByUid;
+      if (referralInput && !finalReferredBy) {
+        finalReferredBy = await validateReferralCode(referralInput.toUpperCase());
+      }
+
       const userCredential = await createUserWithEmailAndPassword(auth, sanitizedEmail, password);
       const user = userCredential.user;
       
       const traderId = getShortId(user.uid);
       const referralCode = generateSecureReferralCode();
 
-      // If referred, update referrer's registration count
-      if (referredByUid) {
-        const referrerRef = doc(db, 'users', referredByUid);
+      if (finalReferredBy) {
+        const referrerRef = doc(db, 'users', finalReferredBy);
         updateDoc(referrerRef, {
           'referralStats.registrations': increment(1),
           updatedAt: serverTimestamp()
         });
         
-        // Track the referral entry
         await addDoc(collection(db, 'referrals'), {
-          referrerId: referredByUid,
+          referrerId: finalReferredBy,
           referredUserId: user.uid,
           referredUserEmail: sanitizedEmail,
           status: 'joined',
@@ -153,7 +132,7 @@ function SignupContent() {
         uid: user.uid,
         traderId,
         referralCode,
-        referredBy: referredByUid,
+        referredBy: finalReferredBy,
         referralStats: { clicks: 0, registrations: 0, purchases: 0 },
         referralEarnings: { pending: 0, approved: 0, paid: 0, withdrawable: 0 },
         name: sanitizeInput(name),
@@ -171,7 +150,7 @@ function SignupContent() {
       };
 
       await setDoc(doc(db, 'users', user.uid), userData);
-      router.push(redirectTo);
+      router.push('/challenges');
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -262,11 +241,7 @@ function SignupContent() {
                 id="referral" 
                 placeholder="e.g. PF7X9KQ2M8" 
                 value={referralInput}
-                onChange={(e) => {
-                  setReferralInput(e.target.value.toUpperCase());
-                  validateCode(e.target.value.toUpperCase());
-                }}
-                readOnly={!!referralCodeFromUrl || !!localStorage.getItem('pf_referral_code')}
+                onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
                 className={cn(
                   "h-11 bg-secondary/50 transition-all uppercase font-mono text-xs text-white",
                   referralStatus === 'valid' && "border-accent/50",
@@ -282,7 +257,7 @@ function SignupContent() {
           </form>
           
           <p className="text-center text-sm text-muted-foreground">
-            Already have an account? <Link href={redirectTo !== '/dashboard' ? `/login?redirect=${encodeURIComponent(redirectTo)}` : '/login'} className="text-primary font-semibold hover:underline">Sign In</Link>
+            Already have an account? <Link href="/login" className="text-primary font-semibold hover:underline">Sign In</Link>
           </p>
         </div>
       </div>
@@ -298,6 +273,18 @@ function FeatureItem({ text }: { text: string }) {
       </div>
       <span className="text-lg text-foreground font-medium">{text}</span>
     </div>
+  );
+}
+
+function Eye({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+  );
+}
+
+function EyeOff({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9.88 9.88 2 2m7.88 7.88L2 22m7.88-12.12L22 22m-12.12-12.12L22 2" /></svg>
   );
 }
 

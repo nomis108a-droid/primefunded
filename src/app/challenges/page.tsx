@@ -1,15 +1,16 @@
+
 "use client";
 
-import { useState, memo, useEffect, useMemo, useCallback } from 'react';
+import { useState, memo, useEffect, useCallback } from 'react';
 import { Navigation } from '@/components/Navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Check, ChevronDown, ChevronUp, Skull, AlertTriangle, AlertCircle, Copy, Loader2, CheckCircle2, XCircle, Zap, Tag } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2, CheckCircle2, Tag, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
@@ -66,7 +67,6 @@ const ChallengeCard = memo(function ChallengeCard({ tier, planName, delay, hasDi
   const [isOpen, setIsOpen] = useState(false);
   const isInstant = planName.startsWith('instant');
   
-  // Calculate discounted price (10% off for steps only)
   const discountMultiplier = hasDiscount && !isInstant ? 0.9 : 1.0;
   const rawFinalPrice = tier.price * discountMultiplier;
   const finalPrice = rawFinalPrice % 1 === 0 ? rawFinalPrice.toString() : rawFinalPrice.toFixed(2);
@@ -142,6 +142,7 @@ export default function ChallengesPage() {
   const { user, userData, loading } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const isInstantPlan = selectedPlan.startsWith('instant');
 
@@ -149,34 +150,27 @@ export default function ChallengesPage() {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
-  const handleApplyReferral = useCallback(async (manualCode?: string) => {
+  const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
     if (!user || !codeToUse || (isApplied && !manualCode)) return;
     
     setIsValidating(true);
     setErrorMessage('');
     
-    console.log('[Challenges] Validating referral code:', codeToUse);
-
     try {
       const referrerUid = await validateReferralCode(codeToUse);
       
       if (!referrerUid) {
-        console.warn('[Challenges] Invalid code:', codeToUse);
-        setErrorMessage('Invalid referral code.');
-        if (!manualCode) {
+        if (!isAutoApply) {
+          setErrorMessage('Invalid referral code.');
           toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist in our system." });
         }
       } else if (referrerUid === user.uid) {
-        console.warn('[Challenges] Self-referral attempt.');
-        setErrorMessage('You cannot use your own referral code.');
-        if (!manualCode) {
+        if (!isAutoApply) {
+          setErrorMessage('You cannot use your own referral code.');
           toast({ variant: "destructive", title: "Self-Referral", description: "You cannot refer yourself." });
         }
       } else {
-        console.log('[Challenges] Referral verified for code:', codeToUse);
-        
-        // Associated referrer with user if not already done
         if (userData && userData.referredBy !== referrerUid) {
           await updateDoc(doc(db, 'users', user.uid), {
             referredBy: referrerUid,
@@ -187,36 +181,35 @@ export default function ChallengesPage() {
         setIsApplied(true);
         localStorage.setItem('pf_referral_code', codeToUse);
         
-        if (!manualCode) {
+        if (!isAutoApply) {
           toast({ title: "Referral Applied!", description: "10% discount activated for eligible challenges." });
         }
       }
     } catch (e: any) {
-      console.error('[Challenges] Validation error:', e);
-      setErrorMessage('Verification system offline.');
+      if (!isAutoApply) {
+        setErrorMessage('Verification system offline.');
+      }
     } finally {
       setIsValidating(false);
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // Handle automatic application from localStorage or URL on load
   useEffect(() => {
     if (loading || !user) return;
 
-    // Priority 1: User already has a referrer in their database profile
     if (userData?.referredBy && !isApplied) {
-      console.log('[Challenges] Persistent referral detected in user profile.');
       setIsApplied(true);
       return;
     }
 
-    // Priority 2: Stored code in session (captured from URL earlier)
     const storedCode = localStorage.getItem('pf_referral_code');
-    if (storedCode && !isApplied && !isValidating) {
-      console.log('[Challenges] Auto-applying code from session:', storedCode);
-      handleApplyReferral(storedCode);
+    const urlCode = searchParams.get('ref');
+    const effectiveCode = urlCode || storedCode;
+
+    if (effectiveCode && !isApplied && !isValidating) {
+      handleApplyReferral(effectiveCode, true);
     }
-  }, [userData, user, loading, isApplied, isValidating, handleApplyReferral]);
+  }, [userData, user, loading, isApplied, isValidating, handleApplyReferral, searchParams]);
 
   if (loading || !user) {
     return (
@@ -267,8 +260,8 @@ export default function ChallengesPage() {
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
                             readOnly={isApplied}
                             className={cn(
-                              "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase",
-                              isApplied && "border-emerald-500/50 text-emerald-500 pr-10 placeholder:text-emerald-500 placeholder:opacity-100 placeholder:font-black"
+                              "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase transition-all",
+                              isApplied ? "border-emerald-500/50 text-emerald-500 pr-10 placeholder:text-emerald-500 placeholder:opacity-100 placeholder:font-black" : "border-border/50"
                             )}
                           />
                           {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-500" />}
