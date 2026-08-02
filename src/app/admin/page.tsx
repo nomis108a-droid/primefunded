@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -39,6 +40,14 @@ import { ADMIN_EMAILS } from '@/lib/admin';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
+
+/**
+ * PRODUCTION ROUTE CONFIGURATION
+ * Ensures /admin is never statically cached and always serves the latest node logic.
+ */
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 // Static Country List
 const COUNTRIES = [
@@ -326,7 +335,8 @@ export default function AdminPage() {
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     const now = Date.now();
-    if (!force && now - lastRefreshTimeRef.current < 10000) return;
+    // Removed strict 10s throttle on initialization to ensure data parity
+    if (!force && lastRefreshTimeRef.current !== 0 && now - lastRefreshTimeRef.current < 5000) return;
 
     try {
       const fetchCount = async (collName: string, q: any) => {
@@ -426,6 +436,18 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
+    
+    /**
+     * PRODUCTION BUILD IDENTIFIER
+     * Ensures we can audit the active version in real-time.
+     */
+    console.log(`\n==========================================`);
+    console.log(`Administrative Terminal Node Initialized`);
+    console.log(`Build ID: PF-MASTER-PROD-2024-V9`);
+    console.log(`Timestamp: ${new Date().toISOString()}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'production'}`);
+    console.log(`==========================================\n`);
+
     setIsLoading(true);
     let unsub: () => void = () => {};
     const term = debouncedSearchTerm.toLowerCase().trim();
@@ -985,7 +1007,7 @@ export default function AdminPage() {
               <tr key={r.id} className="hover:bg-white/5 transition-colors">
                 <td className="p-4 font-bold text-xs">{r.referrerEmail || r.referrerId}</td>
                 <td className="p-4 text-xs text-zinc-300">{r.referredEmail || r.referredId}</td>
-                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : r.status === 'joined' ? 'bg-amber-500/20 text-amber-500' : 'bg-zinc-500/20 text-zinc-500')}>{r.status || 'pending'}</Badge></td>
+                <td className="p-4 text-center"><Badge className={cn("text-[8px] font-black uppercase", r.status === 'completed' || r.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : r.status === 'joined' ? 'bg-amber-500/20 text-amber-500' : 'bg-zinc-500/20 text-zinc-500')}>{r.status || 'joined'}</Badge></td>
                 <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
               </tr>
             )} />
