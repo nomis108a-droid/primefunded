@@ -16,7 +16,7 @@ import { cn, sanitizeInput } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { z } from 'zod';
 import { useBrandSettings } from '@/hooks/use-brand-settings';
-import { generateSecureReferralCode } from '@/lib/referral';
+import { generateSecureReferralCode, validateReferralCode } from '@/lib/referral';
 
 const SignupSchema = z.object({
   name: z.string().min(2, "Name is too short").max(100, "Name must be under 100 characters"),
@@ -67,12 +67,11 @@ function SignupContent() {
   }, [existingUser, authLoading, router, redirectTo]);
 
   useEffect(() => {
-    // Priority 1: URL param
-    // Priority 2: Stored in localStorage (from ReferralTracker)
+    // Check localStorage first if no URL param
     const storedCode = localStorage.getItem('pf_referral_code');
     const effectiveCode = referralCodeFromUrl || storedCode;
 
-    if (effectiveCode) {
+    if (effectiveCode && effectiveCode.startsWith('PF')) {
       setReferralInput(effectiveCode.toUpperCase());
       validateCode(effectiveCode.toUpperCase());
     }
@@ -85,21 +84,24 @@ function SignupContent() {
       return;
     }
     setReferralStatus('validating');
+    console.log('[Signup] Verifying referral code:', code);
+    
     try {
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('referralCode', '==', code.toUpperCase()));
-      const querySnapshot = await getDocs(q);
+      const referrerUid = await validateReferralCode(code.toUpperCase());
       
-      if (!querySnapshot.empty) {
+      if (referrerUid) {
+        console.log('[Signup] Referral verified. Associating with UID:', referrerUid);
         setReferralStatus('valid');
-        setReferredByUid(querySnapshot.docs[0].id);
-        // Persist back to storage just in case
+        setReferredByUid(referrerUid);
+        // Persist verified code to session
         localStorage.setItem('pf_referral_code', code.toUpperCase());
       } else {
+        console.warn('[Signup] Referral code invalid.');
         setReferralStatus('invalid');
         setReferredByUid(null);
       }
     } catch (err) {
+      console.error('[Signup] Verification error:', err);
       setReferralStatus('invalid');
     }
   };

@@ -143,55 +143,67 @@ export default function ChallengesPage() {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
-  useEffect(() => {
-    // 1. Initial Load: Check if user is already associated with a referrer
-    if (userData?.referredBy && !isApplied) {
-      setIsApplied(true);
-    } 
-    
-    // 2. Local Storage check: If they clicked a link but haven't applied yet
-    const storedCode = localStorage.getItem('pf_referral_code');
-    if (storedCode && !isApplied && !userData?.referredBy) {
-      setReferralInput(storedCode);
-      handleApplyReferral(storedCode);
-    }
-  }, [userData, isApplied]);
-
   const handleApplyReferral = async (manualCode?: string) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
     if (!user || !codeToUse || isApplied) return;
     
     setIsValidating(true);
     setErrorMessage('');
+    
+    console.log('[Challenges] Attempting referral application:', codeToUse);
 
     try {
       const referrerUid = await validateReferralCode(codeToUse);
+      
       if (!referrerUid) {
-        setErrorMessage('Invalid referral code.');
+        console.warn('[Challenges] Code validation failed:', codeToUse);
+        // Only set error if it wasn't an automatic process from localStorage
         if (!manualCode) {
+           setErrorMessage('Invalid referral code.');
            toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist." });
         }
       } else if (referrerUid === user.uid) {
+        console.warn('[Challenges] Rejection: User attempted to refer self.');
         setErrorMessage('You cannot refer yourself.');
         if (!manualCode) {
           toast({ variant: "destructive", title: "Self-Referral", description: "You cannot use your own code." });
         }
       } else {
+        console.log('[Challenges] Code verified. Associating referrer:', referrerUid);
         await updateDoc(doc(db, 'users', user.uid), {
           referredBy: referrerUid,
           updatedAt: serverTimestamp()
         });
+        
         setIsApplied(true);
-        // Ensure it's stored for future page loads
+        // Ensure localStorage is synced
         localStorage.setItem('pf_referral_code', codeToUse);
+        console.log('[Challenges] Discount activated successfully.');
         toast({ title: "Referral Applied!", description: "10% discount has been activated for challenges." });
       }
     } catch (e: any) {
-      setErrorMessage(e.message);
+      console.error('[Challenges] Critical referral error:', e);
+      setErrorMessage('Verification error. Please try again.');
     } finally {
       setIsValidating(false);
     }
   };
+
+  useEffect(() => {
+    // 1. Initial Load: Check if user is already associated with a referrer in database
+    if (userData?.referredBy && !isApplied) {
+      console.log('[Challenges] User profile already has active referrer.');
+      setIsApplied(true);
+    } 
+    
+    // 2. Session check: If they have a validated code in localStorage but not in their profile yet
+    const storedCode = localStorage.getItem('pf_referral_code');
+    if (storedCode && !isApplied && !userData?.referredBy && user?.uid && !isValidating) {
+      console.log('[Challenges] Found stored referral in session. Auto-applying...');
+      setReferralInput(storedCode);
+      handleApplyReferral(storedCode);
+    }
+  }, [userData, isApplied, user, isValidating]);
 
   if (loading || !user) return <div className="flex min-h-screen bg-background items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
@@ -231,13 +243,13 @@ export default function ChallengesPage() {
                       <div className="flex gap-2">
                         <div className="relative w-full md:w-80">
                           <Input 
-                            placeholder={isApplied ? "✅ Referral Discount Applied" : "ENTER CODE"} 
+                            placeholder={isApplied ? "✓ 10% Referral Discount Applied" : "ENTER CODE"} 
                             value={isApplied ? "" : referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
                             readOnly={isApplied}
                             className={cn(
                               "h-11 font-mono font-bold tracking-widest bg-background/50 uppercase",
-                              isApplied && "border-accent text-accent pr-10 placeholder:text-accent placeholder:opacity-100"
+                              isApplied && "border-accent text-accent pr-10 placeholder:text-accent placeholder:opacity-100 placeholder:font-bold"
                             )}
                           />
                           {isApplied && <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-accent" />}
