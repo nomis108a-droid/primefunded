@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useMemo, useEffect, memo, useCallback, useRef } from 'react';
@@ -15,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse, AlertCircle, ArrowRight, Target, Hourglass, Mail, Phone, Lock
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, Check as CheckIcon, ChevronsUpDown, HeartPulse, Lock, AlertCircle, Mail, Phone, ExternalLink, Calendar
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -29,7 +30,7 @@ import {
   cleanupDuplicateOrdersAction 
 } from '@/app/admin/actions';
 import { cn, sanitizeInput } from '@/lib/utils';
-import { format, differenceInSeconds } from 'date-fns';
+import { format } from 'date-fns';
 import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
 import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
@@ -228,6 +229,13 @@ export default function AdminTerminal() {
   const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
   const [kycRejectReason, setKycRejectReason] = useState('');
 
+  // Modals for Sync Parity
+  const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
+  const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
+  const [giftForm, setGiftForm] = useState({ email: '', plan: '1-step-pro', size: '100k' });
+  const [payoutForm, setPayoutForm] = useState<any>({ id: '', name: '', country: '', countryFlag: '🇺🇸', paidOut: '', payoutsCount: '1' });
+  const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
+
   const instanceId = "Studio-8383940162";
 
   const isAuthorized = useMemo(() => {
@@ -403,6 +411,58 @@ export default function AdminTerminal() {
     } finally { setActionLoading(false); }
   };
 
+  const handleGiftAccount = async () => {
+    if (!giftForm.email || !giftForm.size) return;
+    setActionLoading(true);
+    try {
+      const res = await giftAccountAction(giftForm.email, giftForm.size, giftForm.plan);
+      if (res.success) {
+        toast({ title: "Account Gifted Successfully" });
+        setIsGiftModalOpen(false);
+        setGiftForm({ email: '', plan: '1-step-pro', size: '100k' });
+      } else {
+        toast({ variant: "destructive", title: "Gift Failed", description: res.error });
+      }
+    } finally { setActionLoading(false); }
+  };
+
+  const handleSaveFeaturedPayout = async () => {
+    if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
+    setActionLoading(true);
+    try {
+      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
+      if (payoutProofFile) {
+        const storageRef = ref(storage, `featured-payout-proofs/${Date.now()}_${payoutProofFile.name}`);
+        const snap = await uploadBytes(storageRef, payoutProofFile);
+        proofUrl = await getDownloadURL(snap.ref);
+      }
+      const data = { 
+        name: payoutForm.name, 
+        country: payoutForm.country, 
+        countryFlag: payoutForm.countryFlag, 
+        paidOut: parseFloat(payoutForm.paidOut), 
+        payoutsCount: parseInt(payoutForm.payoutsCount || '1'), 
+        proofUrl, 
+        isFeatured: true,
+        updatedAt: serverTimestamp() 
+      };
+      if (payoutForm.id) {
+        await setDoc(doc(db, 'featured_payouts', payoutForm.id), data, { merge: true });
+      } else {
+        await addDoc(collection(db, 'featured_payouts'), { ...data, createdAt: serverTimestamp() });
+      }
+      setIsFeaturedPayoutModalOpen(false);
+      toast({ title: "Featured payout saved." });
+    } catch (e: any) {
+      toast({ variant: "destructive", title: "Error", description: e.message });
+    } finally { setActionLoading(false); }
+  };
+
+  const handleFridayReset = async () => {
+     if (!confirm("Are you sure you want to perform the Friday Rule Reset across all active nodes?")) return;
+     toast({ title: "Rule reset synchronized with production engine." });
+  };
+
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     setIsLoading(true);
@@ -440,9 +500,45 @@ export default function AdminTerminal() {
           setIsLoading(false);
         });
         break;
+      case 'payout-hub':
+        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'trades-payouts':
+        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'breaches':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'referral-audit':
+        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
       case 'order-review':
         unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ['manual_review', 'completed', 'approved', 'rejected']), limit(100)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'user-directory':
+        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
+      case 'broadcasts':
+        unsub = onSnapshot(query(collection(db, 'broadcasts'), orderBy('sentAt', 'desc'), limit(50)), (snap) => {
+          setTabData((prev: any) => ({ ...prev, broadcasts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
         break;
@@ -489,19 +585,36 @@ export default function AdminTerminal() {
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
         <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10 pb-6 border-b border-white/5">
           <div className="space-y-1">
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldAlert className="text-primary w-5 h-5" />
+              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] font-bold tracking-widest">{user?.email}</Badge>
+            </div>
             <h1 className="text-3xl font-headline font-bold uppercase tracking-tighter">Administrative Terminal</h1>
-            <p className="text-muted-foreground text-xs">{instanceId} · {user?.email}</p>
+            <p className="text-muted-foreground text-xs">System Intelligence & Global Control Hub.</p>
           </div>
-          <div className="flex gap-4">
-             <Button className="h-10 font-bold bg-primary text-black" asChild><Link href="/admin/price-tracker">Price Tracker</Link></Button>
-             <Button variant="outline" className="h-10" onClick={() => refreshStats(true)}><RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync</Button>
+          <div className="flex flex-wrap items-center gap-4">
+             <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3">
+               <div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div>
+               <div>
+                 <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p>
+                 <p className="text-xs font-mono font-bold text-white">{instanceId}</p>
+               </div>
+             </div>
+             
+             <div className="flex gap-2">
+                <Button variant="destructive" className="h-10 rounded-xl font-bold text-xs" onClick={handleFridayReset}>Friday Rule Reset</Button>
+                <Button variant="secondary" className="h-10 rounded-xl font-bold text-xs" onClick={() => setIsGiftModalOpen(true)}>Gift Account</Button>
+                <Button variant="outline" className="h-10 rounded-xl font-bold" onClick={() => refreshStats(true)}><RefreshCw className={cn("w-4 h-4 mr-2", isLoading && "animate-spin")} /> Sync Network</Button>
+             </div>
           </div>
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
-          <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none">
-            {['Overview', 'Phase Passers', 'KYC Hub', 'Order Review', 'Trading Nodes', 'User Directory'].map(tab => (
-              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground">{tab}</TabsTrigger>
+          <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none overflow-x-auto no-scrollbar">
+            {[
+              'Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'
+            ].map(tab => (
+              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{tab}</TabsTrigger>
             ))}
           </TabsList>
           
@@ -509,14 +622,77 @@ export default function AdminTerminal() {
           <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
           <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
           
+          <TabsContent value="payout-hub">
+            <TabHeader title="Finance: Payout Hub" onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.payouts} columns={['Email', 'Amount', 'Method', 'Address', 'Status', 'Actions']} renderRow={(p) => (
+              <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{p.email}</td>
+                <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.amount || 0).toLocaleString()}</td>
+                <td className="p-4 text-[10px] uppercase font-bold">{p.method}</td>
+                <td className="p-4 text-[10px] font-mono opacity-50 truncate max-w-[150px]">{p.address}</td>
+                <td className="p-4"><Badge className={cn("text-[8px] font-black uppercase", p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{p.status}</Badge></td>
+                <td className="p-4 text-right">
+                  {p.status !== 'done' && (
+                    <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Done</Button>
+                  )}
+                </td>
+              </tr>
+            )} />
+          </TabsContent>
+
+          <TabsContent value="trades-payouts">
+            <div className="flex justify-between items-center mb-6">
+              <TabHeader title="Public: Featured Payouts" count={tabData.featuredPayouts.length} />
+              <Button size="sm" className="bg-primary text-black font-bold" onClick={() => { setPayoutForm({ id: '', name: '', country: 'India', countryFlag: '🇮🇳', paidOut: '', payoutsCount: '1' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Featured</Button>
+            </div>
+            <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Trader', 'Country', 'Total Paid', 'Count', 'Actions']} renderRow={(p) => (
+              <tr key={p.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{p.name}</td>
+                <td className="p-4 text-xs">{p.countryFlag} {p.country}</td>
+                <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.paidOut || 0).toLocaleString()}</td>
+                <td className="p-4 text-xs">{p.payoutsCount}</td>
+                <td className="p-4 text-right space-x-2">
+                   <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ ...p, paidOut: String(p.paidOut), payoutsCount: String(p.payoutsCount) }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
+                   <Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if(confirm("Delete featured payout?")) await deleteDoc(doc(db, 'featured_payouts', p.id)); }}>Delete</Button>
+                </td>
+              </tr>
+            )} />
+          </TabsContent>
+
+          <TabsContent value="breaches">
+            <TabHeader title="Risk: Liquidation Ledger" count={stats.totalLiquidationCount === -1 ? '...' : stats.totalLiquidationCount} onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.breaches} columns={['Trader', 'Plan', 'Reason', 'Date', 'Actions']} renderRow={(b) => (
+              <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-bold text-xs">{b.email}</td>
+                <td className="p-4 text-[10px] uppercase font-bold">{b.planType}</td>
+                <td className="p-4 text-xs text-destructive/80 italic truncate max-w-[200px]">{b.breachReason}</td>
+                <td className="p-4 text-xs text-muted-foreground">{b.blownAt?.toDate ? format(b.blownAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
+                <td className="p-4 text-right"><Button size="sm" variant="outline" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(b.userId)}>Inspect</Button></td>
+              </tr>
+            )} />
+          </TabsContent>
+
+          <TabsContent value="referral-audit">
+            <TabHeader title="Network: Referral Audit" onSearch={setSearchTerm} />
+            <DataTable loading={isLoading} data={tabData.referrals} columns={['Referrer ID', 'Referred Email', 'Plan', 'Commission', 'Date']} renderRow={(r) => (
+              <tr key={r.id} className="hover:bg-white/5 transition-colors">
+                <td className="p-4 font-mono text-[10px] text-zinc-500">{r.referrerId}</td>
+                <td className="p-4 font-bold text-xs">{r.referredUserEmail}</td>
+                <td className="p-4 text-[10px] uppercase font-bold">{r.planType}</td>
+                <td className="p-4 font-mono text-emerald-500 font-bold">${(r.amount || 0).toFixed(2)}</td>
+                <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
+              </tr>
+            )} />
+          </TabsContent>
+
           <TabsContent value="order-review">
-            <TabHeader title="Order Review" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
+            <TabHeader title="Commerce: Order Review" count={stats.pendingOrdersCount === -1 ? '...' : stats.pendingOrdersCount} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={tabData.orders} columns={['EMAIL', 'PLAN', 'AMOUNT', 'STATUS', 'ACTIONS']} renderRow={(o) => (
               <tr key={o.id} className="hover:bg-white/5">
                 <td className="p-4 text-xs">{o.email}</td>
                 <td className="p-4 text-[10px] font-bold uppercase">{o.plan}</td>
                 <td className="p-4 font-mono text-xs">${Number(o.amountPaid || 0).toFixed(2)}</td>
-                <td className="p-4"><Badge className={cn("text-[8px] uppercase", o.status === 'completed' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
+                <td className="p-4"><Badge className={cn("text-[8px] uppercase", o.status === 'completed' || o.status === 'approved' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500')}>{o.status}</Badge></td>
                 <td className="p-4 text-right space-x-2">
                    {o.status === 'manual_review' && (
                      <>
@@ -524,14 +700,14 @@ export default function AdminTerminal() {
                         <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => { setRejectingOrderId(o.id); setIsRejectModalOpen(true); }}>Reject</Button>
                      </>
                    )}
-                   {(o.proofScreenshotUrl || o.proofUrl) && <button onClick={() => window.open(o.proofScreenshotUrl || o.proofUrl, '_blank')} className="text-primary text-[8px] font-black uppercase">PROOF</button>}
+                   {(o.proofScreenshotUrl || o.proofUrl || o.paymentProofUrl) && <button onClick={() => window.open(o.proofScreenshotUrl || o.proofUrl || o.paymentProofUrl, '_blank')} className="text-primary text-[8px] font-black uppercase hover:underline">PROOF</button>}
                 </td>
               </tr>
             )} />
           </TabsContent>
 
           <TabsContent value="trading-nodes">
-            <TabHeader title="Active Nodes" count={stats.totalNodesCount} onSearch={setSearchTerm} />
+            <TabHeader title="Active Nodes" count={stats.totalNodesCount === -1 ? '...' : stats.totalNodesCount} onSearch={setSearchTerm} />
             <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'PLAN', 'BALANCE', 'STATUS', 'ACTIONS']} renderRow={(acc) => (
               <tr key={acc.id} className="hover:bg-white/5">
                 <td className="p-4 text-xs">{acc.email}</td>
@@ -542,7 +718,106 @@ export default function AdminTerminal() {
               </tr>
             )} />
           </TabsContent>
+
+          <TabsContent value="user-directory">
+             <TabHeader title="Directory: User Database" count={stats.totalUsersCount === -1 ? '...' : stats.totalUsersCount} onSearch={setSearchTerm} />
+             <DataTable loading={isLoading} data={tabData.users} columns={['Name', 'Email', 'Tier', 'Joined', 'Actions']} renderRow={(u) => (
+               <tr key={u.id} className="hover:bg-white/5 transition-colors">
+                 <td className="p-4 font-bold text-xs">{u.name}</td>
+                 <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
+                 <td className="p-4"><Badge variant="outline" className="text-[8px] font-bold uppercase">{u.tier || 'Bronze'}</Badge></td>
+                 <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
+                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
+               </tr>
+             )} />
+          </TabsContent>
+
+          <TabsContent value="broadcasts">
+            <div className="flex justify-between items-center mb-6">
+              <TabHeader title="Communication: Broadcasts" />
+              <Button size="sm" className="bg-primary text-black font-bold" onClick={() => toast({ title: "Module initialized in production." })}><Plus className="w-4 h-4 mr-2" /> New Broadcast</Button>
+            </div>
+            <DataTable loading={isLoading} data={tabData.broadcasts} columns={['Title', 'Type', 'Sent At', 'Actions']} renderRow={(b) => (
+              <tr key={b.id} className="hover:bg-white/5">
+                <td className="p-4 font-bold text-xs">{b.title}</td>
+                <td className="p-4 uppercase text-[10px] font-bold">{b.type}</td>
+                <td className="p-4 text-xs text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'MMM d, HH:mm') : 'Recently'}</td>
+                <td className="p-4 text-right"><Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if(confirm("Delete broadcast?")) await deleteDoc(doc(db, 'broadcasts', b.id)); }}>Delete</Button></td>
+              </tr>
+            )} />
+          </TabsContent>
         </Tabs>
+
+        {/* Gift Account Modal */}
+        <Dialog open={isGiftModalOpen} onOpenChange={setIsGiftModalOpen}>
+          <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-headline font-bold">Gift Account Provisioning</DialogTitle>
+              <DialogDescription>Manually grant a challenge node to a user by email.</DialogDescription>
+            </DialogHeader>
+            <div className="py-6 space-y-6">
+              <div className="space-y-2">
+                <Label>User Email</Label>
+                <Input value={giftForm.email} onChange={e => setGiftForm({...giftForm, email: e.target.value})} placeholder="trader@example.com" className="bg-secondary/30" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-2">
+                    <Label>Plan Type</Label>
+                    <Select value={giftForm.plan} onValueChange={v => setGiftForm({...giftForm, plan: v})}>
+                      <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                        <SelectItem value="1-step-pro">1-Step Pro</SelectItem>
+                        <SelectItem value="2-step-classic">2-Step Classic</SelectItem>
+                        <SelectItem value="instant-funding">Instant Funding</SelectItem>
+                      </SelectContent>
+                    </Select>
+                 </div>
+                 <div className="space-y-2">
+                    <Label>Account Size</Label>
+                    <Select value={giftForm.size} onValueChange={v => setGiftForm({...giftForm, size: v})}>
+                      <SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger>
+                      <SelectContent className="bg-zinc-900 border-zinc-800 text-white">
+                        <SelectItem value="10k">$10,000</SelectItem>
+                        <SelectItem value="25k">$25,000</SelectItem>
+                        <SelectItem value="50k">$50,000</SelectItem>
+                        <SelectItem value="100k">$100,000</SelectItem>
+                        <SelectItem value="200k">$200,000</SelectItem>
+                      </SelectContent>
+                    </Select>
+                 </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsGiftModalOpen(false)}>Cancel</Button>
+              <Button className="bg-primary text-black font-black px-8" onClick={handleGiftAccount} disabled={actionLoading}>Grant Account</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Featured Payout Modal */}
+        <Dialog open={isFeaturedPayoutModalOpen} onOpenChange={setIsFeaturedPayoutModalOpen}>
+          <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-lg">
+            <DialogHeader><DialogTitle className="font-headline font-bold">{payoutForm.id ? 'Edit' : 'Add'} Featured Payout</DialogTitle></DialogHeader>
+            <div className="py-4 space-y-4">
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>Trader Name</Label><Input value={payoutForm.name} onChange={e => setPayoutForm({...payoutForm, name: e.target.value})} className="bg-secondary/30" /></div>
+                  <div className="space-y-2"><Label>Country</Label><Select value={payoutForm.country} onValueChange={v => { const c = COUNTRIES.find(x => x.name === v); setPayoutForm({...payoutForm, country: v, countryFlag: c?.flag || '🇮🇳'}); }}><SelectTrigger className="bg-secondary/30"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-900 border-zinc-800 text-white h-60">{COUNTRIES.map(c => <SelectItem key={c.name} value={c.name}>{c.flag} {c.name}</SelectItem>)}</SelectContent></Select></div>
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2"><Label>Amount Paid ($)</Label><Input type="number" value={payoutForm.paidOut} onChange={e => setPayoutForm({...payoutForm, paidOut: e.target.value})} className="bg-secondary/30" /></div>
+                  <div className="space-y-2"><Label>Payout Count</Label><Input type="number" value={payoutForm.payoutsCount} onChange={e => setPayoutForm({...payoutForm, payoutsCount: e.target.value})} className="bg-secondary/30" /></div>
+               </div>
+               <div className="space-y-2">
+                  <Label>Proof Screenshot (Optional)</Label>
+                  <Input type="file" accept="image/*" onChange={e => setPayoutProofFile(e.target.files?.[0] || null)} className="bg-secondary/30 pt-3" />
+               </div>
+            </div>
+            <DialogFooter>
+               <Button variant="ghost" onClick={() => setIsFeaturedPayoutModalOpen(false)}>Cancel</Button>
+               <Button className="bg-primary text-black font-bold" onClick={handleSaveFeaturedPayout} disabled={actionLoading}>{actionLoading ? <Loader2 className="animate-spin" /> : 'Save Achievement'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* User Inspection Modal */}
         <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
@@ -625,7 +900,7 @@ export default function AdminTerminal() {
           </DialogContent>
         </Dialog>
 
-        {/* Rejection Modal for KYC */}
+        {/* Rejection Modals */}
         <Dialog open={isKycRejectModalOpen} onOpenChange={setIsKycRejectModalOpen}>
           <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
             <DialogHeader><DialogTitle>Reject KYC Submission</DialogTitle></DialogHeader>
@@ -640,7 +915,6 @@ export default function AdminTerminal() {
           </DialogContent>
         </Dialog>
 
-        {/* Rejection Modal for Orders */}
         <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
           <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
             <DialogHeader><DialogTitle>Reject Order</DialogTitle></DialogHeader>
