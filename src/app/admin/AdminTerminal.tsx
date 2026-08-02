@@ -690,7 +690,8 @@ export default function AdminTerminal() {
         });
         break;
       case 'order-review':
-        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES), limit(100)), (snap) => {
+        // REMOVED ALL LIMITS AS REQUESTED
+        unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
           // Auto-sync stats to keep the tab count identical to the table records
@@ -904,7 +905,8 @@ export default function AdminTerminal() {
           </TabsContent>
 
           <TabsContent value="order-review">
-            <TabHeader title="Commerce: Order Review" count={tabData.orders.length} onSearch={setSearchTerm} />
+            {/* REMOVED BRACKET COUNT FROM TITLE AS REQUESTED */}
+            <TabHeader title="Commerce: Order Review" onSearch={setSearchTerm} />
             <DataTable 
               loading={isLoading} 
               data={tabData.orders} 
