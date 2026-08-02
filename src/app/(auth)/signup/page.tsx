@@ -10,7 +10,7 @@ import { auth, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -47,8 +47,6 @@ function SignupContent() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [referralInput, setReferralInput] = useState('');
-  const [referralStatus, setReferralStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
-  const [referredByUid, setReferredByUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
   const router = useRouter();
@@ -59,7 +57,7 @@ function SignupContent() {
 
   const referralCodeFromUrl = searchParams.get('ref');
   
-  // Smart redirect: If logged in, skip signup. If we have a referral, go to challenges.
+  // Intelligent redirect: Skip signup if logged in, go to challenges if referral context exists
   useEffect(() => {
     if (existingUser && !authLoading) {
       const storedCode = localStorage.getItem('pf_referral_code');
@@ -96,9 +94,9 @@ function SignupContent() {
     const sanitizedEmail = sanitizeInput(email).toLowerCase();
 
     try {
-      // Validate referral code one last time before finalizing
-      let finalReferredBy = referredByUid;
-      if (referralInput && !finalReferredBy) {
+      // Resolve referral
+      let finalReferredBy = null;
+      if (referralInput) {
         finalReferredBy = await validateReferralCode(referralInput.toUpperCase());
       }
 
@@ -147,6 +145,7 @@ function SignupContent() {
       };
 
       await setDoc(doc(db, 'users', user.uid), userData);
+      // Auto-login happens automatically with createUser... redirect to challenges
       router.push('/challenges');
     } catch (error: any) {
       if (error.code === 'auth/email-already-in-use') {
@@ -154,7 +153,6 @@ function SignupContent() {
           title: "Account Exists",
           description: "This email is already registered. Redirecting to sign in...",
         });
-        // Preserve referral state during redirect to login
         const redirectPath = `/login?redirect=/challenges&email=${encodeURIComponent(sanitizedEmail)}`;
         router.push(redirectPath);
       } else {
@@ -240,21 +238,21 @@ function SignupContent() {
             <div className="space-y-2">
               <Label htmlFor="referral" className="flex items-center gap-2">
                 Referral Code (Optional)
-                {referralStatus === 'validating' && <Loader2 className="w-3 h-3 animate-spin text-primary" />}
-                {referralStatus === 'valid' && <CheckCircle2 className="w-3 h-3 text-accent" />}
-                {referralStatus === 'invalid' && <XCircle className="w-3 h-3 text-destructive" />}
               </Label>
               <Input 
                 id="referral" 
                 placeholder="e.g. PF7X9KQ2M8" 
                 value={referralInput}
                 onChange={(e) => setReferralInput(e.target.value.toUpperCase())}
+                readOnly={!!referralCodeFromUrl}
                 className={cn(
                   "h-11 bg-secondary/50 transition-all uppercase font-mono text-xs text-white",
-                  referralStatus === 'valid' && "border-accent/50",
-                  referralStatus === 'invalid' && "border-destructive/50"
+                  !!referralCodeFromUrl && "opacity-60 cursor-not-allowed"
                 )}
               />
+              {!!referralCodeFromUrl && (
+                <p className="text-[10px] text-primary font-bold uppercase tracking-widest mt-1">✓ Referral Code Detected</p>
+              )}
             </div>
 
             <Button type="submit" className="w-full h-12 font-bold text-lg cyan-box-glow" disabled={loading}>
@@ -264,7 +262,7 @@ function SignupContent() {
           </form>
           
           <p className="text-center text-sm text-muted-foreground">
-            Already have an account? <Link href="/login" className="text-primary font-semibold hover:underline">Sign In</Link>
+            Already have an account? <Link href={referralCodeFromUrl ? `/login?ref=${referralCodeFromUrl}` : '/login'} className="text-primary font-semibold hover:underline">Sign In</Link>
           </p>
         </div>
       </div>

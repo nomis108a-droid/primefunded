@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, memo, useEffect, useCallback } from 'react';
@@ -163,12 +162,10 @@ export default function ChallengesPage() {
       if (!referrerUid) {
         if (!isAutoApply) {
           setErrorMessage('Invalid referral code.');
-          toast({ variant: "destructive", title: "Invalid Code", description: "This referral code does not exist in our system." });
         }
       } else if (referrerUid === user.uid) {
         if (!isAutoApply) {
           setErrorMessage('You cannot use your own referral code.');
-          toast({ variant: "destructive", title: "Self-Referral", description: "You cannot refer yourself." });
         }
       } else {
         if (userData && userData.referredBy !== referrerUid) {
@@ -194,6 +191,7 @@ export default function ChallengesPage() {
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
+  // Automatic referral detection and application
   useEffect(() => {
     if (loading || !user) return;
 
@@ -238,16 +236,24 @@ export default function ChallengesPage() {
                 exit={{ opacity: 0, height: 0 }}
                 className="mb-12 overflow-hidden"
               >
-                <Card className="bg-secondary/20 border-border/50 p-6 md:p-8 rounded-[2rem] relative overflow-hidden">
+                <Card className={cn(
+                  "border-border/50 p-6 md:p-8 rounded-[2rem] relative overflow-hidden transition-all duration-500",
+                  isApplied ? "bg-emerald-500/10 border-emerald-500/30" : "bg-secondary/20"
+                )}>
                   <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 blur-3xl -mr-32 -mt-32 rounded-full" />
                   <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                     <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-                        <Tag className="w-6 h-6" />
+                      <div className={cn(
+                        "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors",
+                        isApplied ? "bg-emerald-500/20 text-emerald-500" : "bg-primary/10 text-primary"
+                      )}>
+                        {isApplied ? <CheckCircle2 className="w-6 h-6" /> : <Tag className="w-6 h-6" />}
                       </div>
                       <div>
-                        <h3 className="text-lg font-bold">Referral Discount</h3>
-                        <p className="text-xs text-muted-foreground">Unlock 10% off Step 1, 2, and 3 challenges by applying a code.</p>
+                        <h3 className="text-lg font-bold">{isApplied ? "Referral Activated" : "Referral Discount"}</h3>
+                        <p className="text-xs text-muted-foreground">
+                          {isApplied ? "Your 10% discount has been applied to eligible challenges." : "Enter a code to unlock 10% off Step 1, 2, and 3 challenges."}
+                        </p>
                       </div>
                     </div>
                     
@@ -255,7 +261,7 @@ export default function ChallengesPage() {
                       <div className="flex gap-2">
                         <div className="relative w-full md:w-80">
                           <Input 
-                            placeholder={isApplied ? "✓ 10% Referral Discount Applied" : "ENTER CODE"} 
+                            placeholder={isApplied ? "✓ Referral Applied Successfully" : "ENTER CODE"} 
                             value={isApplied ? "" : referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
                             readOnly={isApplied}
@@ -277,7 +283,7 @@ export default function ChallengesPage() {
                         )}
                       </div>
                       {isApplied ? (
-                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✅ Referral verification complete</p>
+                        <p className="text-[10px] font-black uppercase text-emerald-500 tracking-widest text-center md:text-left">✓ 10% Discount Activated</p>
                       ) : errorMessage ? (
                         <p className="text-[10px] font-black uppercase text-destructive tracking-widest text-center md:text-left">{errorMessage}</p>
                       ) : null}
