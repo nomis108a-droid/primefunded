@@ -411,7 +411,7 @@ export default function AdminTerminal() {
   };
 
   const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
-    setActionLoading(true);
+    setIsLoading(true);
     try {
       let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
       let userSnap;
@@ -434,6 +434,11 @@ export default function AdminTerminal() {
         }
       }
 
+      if (!accountSnap?.exists() && !userSnap?.exists()) {
+        toast({ variant: "destructive", title: "Information Missing", description: "No inspection data found for this account." });
+        return;
+      }
+
       const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
       const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
 
@@ -450,25 +455,36 @@ export default function AdminTerminal() {
       
       setTradesLoading(true);
       
-      const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
-      const tradesSnap = await getDocs(tradesQ);
-      setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // Fixed: Graceful handle for missing composite indexes
+      try {
+        const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
+        const tradesSnap = await getDocs(tradesQ);
+        setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } catch (e: any) {
+        console.warn('[Admin-Trades] Query failed:', e.message);
+        setUserTrades([]);
+      }
 
-      if (accountData?.id) {
-        const bQ = query(collection(db, 'breaches'), where('accountId', '==', accountData.id), orderBy('breachedAt', 'desc'));
-        const bSnap = await getDocs(bQ);
-        setUserBreaches(bSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } else {
+      try {
+        if (accountData?.id) {
+          const bQ = query(collection(db, 'breaches'), where('accountId', '==', accountData.id), orderBy('breachedAt', 'desc'));
+          const bSnap = await getDocs(bQ);
+          setUserBreaches(bSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } else {
+          setUserBreaches([]);
+        }
+      } catch (e: any) {
+        console.warn('[Admin-Breaches] Query failed:', e.message);
         setUserBreaches([]);
       }
       
       setTradesLoading(false);
-
       setInspectionTab('trade-node');
       setIsUserManagementOpen(true);
     } catch (e: any) {
-      toast({ variant: "destructive", title: "Inspection Failed", description: e.message });
-    } finally { setActionLoading(false); }
+      console.error('[Admin-Inspect] Fatal:', e);
+      toast({ variant: "destructive", title: "Connection Error", description: "Unable to load inspection data. Please try again." });
+    } finally { setIsLoading(false); }
   }, [toast]);
 
   const handleApproveKyc = useCallback(async (userId: string) => {
@@ -1215,4 +1231,3 @@ function BreachMetric({ label, value, color = 'text-zinc-300' }: { label: string
     </div>
   );
 }
-
