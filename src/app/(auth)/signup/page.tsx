@@ -10,7 +10,7 @@ import { auth, db } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { cn, sanitizeInput } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -57,16 +57,20 @@ function SignupContent() {
 
   const referralCodeFromUrl = searchParams.get('ref');
   
-  // Intelligent redirect: Skip signup if logged in, go to challenges if referral context exists
+  // STEP 4 & 8: Intelligent redirect - skip signup if already logged in
   useEffect(() => {
     if (existingUser && !authLoading) {
       const storedCode = localStorage.getItem('pf_referral_code');
       const effectiveCode = referralCodeFromUrl || storedCode;
+      
+      // If there's a referral context, go to challenges, otherwise dashboard
       const target = effectiveCode ? '/challenges' : (searchParams.get('redirect') || '/dashboard');
+      console.log('[Signup] User already authenticated. Redirecting to:', target);
       router.push(target);
     }
   }, [existingUser, authLoading, router, searchParams, referralCodeFromUrl]);
 
+  // STEP 1: Load referral code from storage or URL
   useEffect(() => {
     const storedCode = localStorage.getItem('pf_referral_code');
     const effectiveCode = referralCodeFromUrl || storedCode;
@@ -75,6 +79,18 @@ function SignupContent() {
       setReferralInput(effectiveCode.toUpperCase());
     }
   }, [referralCodeFromUrl]);
+
+  // Prevent flicker for logged in users
+  if (authLoading || (existingUser && !authLoading)) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center text-white">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">
+          {existingUser ? "Redirecting to Terminal..." : "Syncing Terminal Node..."}
+        </p>
+      </div>
+    );
+  }
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,7 +161,7 @@ function SignupContent() {
       };
 
       await setDoc(doc(db, 'users', user.uid), userData);
-      // Auto-login happens automatically with createUser... redirect to challenges
+      // STEP 3: Auto-login happens automatically... redirect to challenges
       router.push('/challenges');
     } catch (error: any) {
       if (error.code === 'auth/email-already-in-use') {
@@ -159,7 +175,7 @@ function SignupContent() {
         toast({
           variant: "destructive",
           title: "Registration Failed",
-          description: "An error occurred during account creation. Please check your connection and try again.",
+          description: "An error occurred during account creation. Please try again.",
         });
       }
     } finally {
@@ -278,18 +294,6 @@ function FeatureItem({ text }: { text: string }) {
       </div>
       <span className="text-lg text-foreground font-medium">{text}</span>
     </div>
-  );
-}
-
-function Eye({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
-  );
-}
-
-function EyeOff({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9.88 9.88 2 2m7.88 7.88L2 22m7.88-12.12L22 22m-12.12-12.12L22 2" /></svg>
   );
 }
 

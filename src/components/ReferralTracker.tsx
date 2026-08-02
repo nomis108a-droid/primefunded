@@ -7,6 +7,7 @@ import { validateReferralCode } from '@/lib/referral';
 /**
  * @fileOverview Global Referral Detection Component
  * Captures ?ref=CODE from URL, validates against Firestore, and persists to localStorage.
+ * Optimized to save the code immediately for fast redirection logic.
  */
 export function ReferralTracker() {
   const searchParams = useSearchParams();
@@ -18,14 +19,17 @@ export function ReferralTracker() {
       const code = referralCode.toUpperCase();
       console.log('[ReferralTracker] URL Parameter Detected:', code);
       
-      // Immediate validation check to prevent storing invalid codes
+      // STEP 1: Immediately save to storage so redirects can read it
+      localStorage.setItem('pf_referral_code', code);
+      
+      // STEP 2: Validate in background
       validateReferralCode(code)
         .then(referrerUid => {
           if (referrerUid) {
-            console.log('[ReferralTracker] Code verified successfully. Storing in session.');
-            localStorage.setItem('pf_referral_code', code);
+            console.log('[ReferralTracker] Code verified successfully.');
           } else {
-            console.warn('[ReferralTracker] Code detected in URL is invalid or does not exist.');
+            console.warn('[ReferralTracker] Code detected in URL is invalid. Removing from session.');
+            localStorage.removeItem('pf_referral_code');
           }
         })
         .catch(err => {

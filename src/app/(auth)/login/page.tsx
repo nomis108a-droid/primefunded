@@ -29,7 +29,7 @@ function LoginContent() {
   const { user, loading: authLoading } = useAuth();
   const { logoUrl, siteName } = useBrandSettings();
 
-  // Smart redirect: Prioritize explicit redirect OR pending referral journey
+  // STEP 4: Smart redirect - go to challenges if referral context exists
   const redirectTo = useMemo(() => {
     const target = searchParams.get('redirect');
     if (target) return target;
@@ -53,11 +53,23 @@ function LoginContent() {
     }
   }, [searchParams]);
 
+  // STEP 8: Redirect authenticated users away from login
   useEffect(() => {
     if (user && !authLoading) {
+      console.log('[Login] User already authenticated. Redirecting to:', redirectTo);
       router.push(redirectTo);
     }
   }, [user, authLoading, router, redirectTo]);
+
+  // Prevent flicker for logged in users
+  if (authLoading || (user && !authLoading)) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center text-white">
+        <Loader2 className="w-10 h-10 animate-spin text-primary mb-4" />
+        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground animate-pulse">Redirecting to Terminal...</p>
+      </div>
+    );
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -145,10 +145,12 @@ export default function ChallengesPage() {
 
   const isInstantPlan = selectedPlan.startsWith('instant');
 
+  // Guard: Ensure user is logged in
   useEffect(() => {
     if (!loading && !user) router.push('/login?redirect=/challenges');
   }, [user, loading, router]);
 
+  // STEP 5: Robust handleApplyReferral for manual and auto triggers
   const handleApplyReferral = useCallback(async (manualCode?: string, isAutoApply = false) => {
     const codeToUse = (manualCode || referralInput).trim().toUpperCase();
     if (!user || !codeToUse || (isApplied && !manualCode)) return;
@@ -160,14 +162,11 @@ export default function ChallengesPage() {
       const referrerUid = await validateReferralCode(codeToUse);
       
       if (!referrerUid) {
-        if (!isAutoApply) {
-          setErrorMessage('Invalid referral code.');
-        }
+        if (!isAutoApply) setErrorMessage('Invalid referral code.');
       } else if (referrerUid === user.uid) {
-        if (!isAutoApply) {
-          setErrorMessage('You cannot use your own referral code.');
-        }
+        if (!isAutoApply) setErrorMessage('You cannot use your own referral code.');
       } else {
+        // Successful validation
         if (userData && userData.referredBy !== referrerUid) {
           await updateDoc(doc(db, 'users', user.uid), {
             referredBy: referrerUid,
@@ -176,6 +175,7 @@ export default function ChallengesPage() {
         }
         
         setIsApplied(true);
+        setReferralInput(''); // Clear input as we show "Applied" placeholder
         localStorage.setItem('pf_referral_code', codeToUse);
         
         if (!isAutoApply) {
@@ -183,28 +183,30 @@ export default function ChallengesPage() {
         }
       }
     } catch (e: any) {
-      if (!isAutoApply) {
-        setErrorMessage('Verification system offline.');
-      }
+      if (!isAutoApply) setErrorMessage('Verification system offline.');
     } finally {
       setIsValidating(false);
     }
   }, [user, userData, referralInput, isApplied, toast]);
 
-  // Automatic referral detection and application
+  // STEP 5: Automatic detection and hands-free application
   useEffect(() => {
     if (loading || !user) return;
 
+    // If profile already shows referred, mark as applied
     if (userData?.referredBy && !isApplied) {
       setIsApplied(true);
       return;
     }
 
+    // Check storage/URL for pending code
     const storedCode = localStorage.getItem('pf_referral_code');
     const urlCode = searchParams.get('ref');
     const effectiveCode = urlCode || storedCode;
 
     if (effectiveCode && !isApplied && !isValidating) {
+      console.log('[Challenges] Auto-applying code:', effectiveCode);
+      setReferralInput(effectiveCode);
       handleApplyReferral(effectiveCode, true);
     }
   }, [userData, user, loading, isApplied, isValidating, handleApplyReferral, searchParams]);
@@ -261,7 +263,7 @@ export default function ChallengesPage() {
                       <div className="flex gap-2">
                         <div className="relative w-full md:w-80">
                           <Input 
-                            placeholder={isApplied ? "✓ Referral Applied Successfully" : "ENTER CODE"} 
+                            placeholder={isApplied ? "✓ 10% Referral Discount Applied" : "ENTER CODE"} 
                             value={isApplied ? "" : referralInput}
                             onChange={e => setReferralInput(e.target.value.toUpperCase())}
                             readOnly={isApplied}
