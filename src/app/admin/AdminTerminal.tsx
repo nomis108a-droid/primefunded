@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useToast } from '@/hooks/use-toast';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Trash2, Info, Check, Pencil, XCircle, ShieldAlert, CheckCircle2, Lock, ShieldX, SearchX
+  Users, Activity, Search, Loader2, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Trash2, Info, Check, Pencil, XCircle, ShieldAlert, CheckCircle2, Lock, ShieldX, SearchX, Megaphone
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
@@ -138,24 +138,6 @@ const AdminSummaryTable = memo(function AdminSummaryTable({ title, data, columns
   );
 });
 
-const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => (
-  <div className="space-y-8">
-    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
-      <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
-      <StatCard title="Total Volume" value={stats.totalAum === -1 ? '...' : `$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
-      <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
-      <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
-      <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
-      <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
-      <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
-    </div>
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => onActiveTabChange('order-review')} />
-      <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => onActiveTabChange('user-directory')} />
-    </div>
-  </div>
-));
-
 const OrderReviewRow = memo(function OrderReviewRow({ 
   order, 
   onApprove, 
@@ -220,6 +202,24 @@ const OrderReviewRow = memo(function OrderReviewRow({
   );
 });
 
+const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, tabData: any, onActiveTabChange: (tab: string) => void }) => (
+  <div className="space-y-8">
+    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+      <StatCard title="Active Traders" value={stats.totalUsersCount} icon={<Users />} color="blue" />
+      <StatCard title="Total Volume" value={stats.totalAum === -1 ? '...' : `$${(stats.totalAum / 1e6).toFixed(2)}M`} icon={<BarChart2 />} color="green" />
+      <StatCard title="Registered Nodes" value={stats.totalNodesCount} icon={<Monitor />} color="purple" />
+      <StatCard title="Pending Orders" value={stats.pendingOrdersCount} icon={<Clock />} color="amber" />
+      <StatCard title="Phase Passers" value={stats.phasePassersCount} icon={<Trophy />} color="blue" />
+      <StatCard title="Total Liquidation" value={stats.totalLiquidationCount} icon={<Skull />} color="red" />
+      <StatCard title="KYC Records" value={stats.totalKycCount} icon={<CheckCircle2 />} color="green" />
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <AdminSummaryTable title="Recent Orders" data={tabData.orders} columns={['email', 'plan', 'status']} onViewAll={() => onActiveTabChange('order-review')} />
+      <AdminSummaryTable title="Recent Users" data={tabData.users} columns={['name', 'email', 'createdAt']} onViewAll={() => onActiveTabChange('user-directory')} />
+    </div>
+  </div>
+));
+
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -241,14 +241,6 @@ export default function AdminTerminal() {
   const [isLoading, setIsLoading] = useState(false);
   const [approvingOrderId, setApprovingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
-
-  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [inspectionTab, setInspectionTab] = useState('trade-node');
-  
-  const [userTrades, setUserTrades] = useState<any[]>([]);
-  const [userBreaches, setUserBreaches] = useState<any[]>([]);
-  const [tradesLoading, setTradesLoading] = useState(false);
 
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
@@ -311,70 +303,6 @@ export default function AdminTerminal() {
       setAdminError('');
     } else setAdminError('❌ Invalid credentials');
   };
-
-  const handleViewUserByAccount = useCallback(async (userIdOrAccountId: string) => {
-    setIsLoading(true);
-    try {
-      let accountSnap = await getDoc(doc(db, 'demoAccounts', userIdOrAccountId));
-      let userSnap;
-      let uid = '';
-
-      if (accountSnap.exists()) {
-        const accData = accountSnap.data();
-        uid = accData.userId;
-        userSnap = await getDoc(doc(db, 'users', uid));
-      } else {
-        uid = userIdOrAccountId;
-        userSnap = await getDoc(doc(db, 'users', uid));
-        const accQuery = query(collection(db, 'demoAccounts'), where('userId', '==', uid), limit(1));
-        const accsSnap = await getDocs(accQuery);
-        if (!accsSnap.empty) {
-          const sorted = accsSnap.docs.sort((a, b) => 
-            (b.data().updatedAt?.toMillis() || 0) - (a.data().updatedAt?.toMillis() || 0)
-          );
-          accountSnap = sorted[0] as any;
-        }
-      }
-
-      if (!userSnap?.exists() && !accountSnap?.exists()) {
-        toast({ title: "No Data Found", description: "No inspection data found for this account." });
-        return;
-      }
-
-      const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
-      const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
-
-      const merged = {
-        ...userData,
-        ...accountData,
-        accountStatus: accountData ? (accountData.status || "active") : "No Account Node",
-        id: userData.id
-      };
-
-      setSelectedUser(merged);
-      setTradesLoading(true);
-      
-      try {
-        const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'));
-        const tradesSnap = await getDocs(tradesQ);
-        setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e) { setUserTrades([]); }
-
-      try {
-        if (accountData?.id) {
-          const bQ = query(collection(db, 'breaches'), where('accountId', '==', accountData.id), orderBy('breachedAt', 'desc'));
-          const bSnap = await getDocs(bQ);
-          setUserBreaches(bSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        } else { setUserBreaches([]); }
-      } catch (e) { setUserBreaches([]); }
-      
-      setTradesLoading(false);
-      setInspectionTab('trade-node');
-      setIsUserManagementOpen(true);
-    } catch (e) {
-      toast({ variant: "destructive", title: "Error", description: "Unable to load inspection data. Please try again." });
-    } finally { setIsLoading(false); }
-  }, [toast]);
 
   const handleApproveOrder = useCallback(async (orderId: string) => {
     setApprovingOrderId(orderId);
@@ -550,86 +478,6 @@ export default function AdminTerminal() {
           </TabsContent>
         </Tabs>
 
-        {/* User Inspection Modal */}
-        <Dialog open={isUserManagementOpen} onOpenChange={setIsUserManagementOpen}>
-          <DialogContent className="max-w-6xl h-[85vh] bg-zinc-950 border-zinc-800 p-0 overflow-hidden flex flex-col">
-            <DialogHeader className="p-6 border-b border-white/5">
-              <DialogTitle className="flex items-center gap-4">
-                <Avatar className="w-10 h-10"><AvatarFallback>TR</AvatarFallback></Avatar>
-                <div><h3 className="text-lg font-bold text-white">{selectedUser?.name || 'Trader Profile'}</h3><p className="text-xs text-zinc-500 font-mono">{selectedUser?.id}</p></div>
-                <Badge className="ml-auto bg-primary/10 text-primary uppercase text-[10px]">{selectedUser?.accountStatus}</Badge>
-              </DialogTitle>
-            </DialogHeader>
-            <div className="flex-1 flex overflow-hidden">
-               <aside className="w-64 border-r border-white/5 p-4 space-y-2 shrink-0">
-                  <button onClick={() => setInspectionTab('trade-node')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'trade-node' ? "bg-primary text-black" : "text-zinc-400")}>Trade Node</button>
-                  <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400")}>Trade History</button>
-                  <button onClick={() => setInspectionTab('kyc')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'kyc' ? "bg-primary text-black" : "text-zinc-400")}>Compliance / KYC</button>
-                  <button onClick={() => setInspectionTab('breaches')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'breaches' ? "bg-primary text-black" : "text-zinc-400")}>Breach Logs</button>
-               </aside>
-               <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                  {inspectionTab === 'trade-node' && (
-                    <div className="space-y-8">
-                       <div><h3 className="text-xl font-bold text-white">User Inspection — {selectedUser?.email}</h3><p className="text-sm text-zinc-500">Trade node details, trade history, and breach logs.</p></div>
-                       <div className="grid grid-cols-3 gap-4">
-                          <InfoCard label="Email" value={selectedUser?.email} />
-                          <InfoCard label="Display Name" value={selectedUser?.name} />
-                          <InfoCard label="Plan Type" value={selectedUser?.planType} />
-                          <InfoCard label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
-                          <InfoCard label="Status" value={selectedUser?.accountStatus} />
-                          <InfoCard label="KYC Status" value={selectedUser?.kycStatus} />
-                          <InfoCard label="Balance" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
-                          <InfoCard label="Equity" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
-                          <InfoCard label="Phase" value={selectedUser?.phase} />
-                          <InfoCard label="Created" value={selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'} />
-                          <InfoCard label="Updated" value={selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, HH:mm') : '—'} />
-                          <InfoCard label="User ID" value={selectedUser?.id} isMono />
-                       </div>
-                    </div>
-                  )}
-                  {inspectionTab === 'breaches' && (
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-2 mb-4"><ShieldX className="text-destructive w-5 h-5" /><h3 className="text-lg font-bold text-white">System Breach Logs</h3></div>
-                      {(selectedUser?.accountStatus === 'blown' || selectedUser?.accountStatus === 'breached') ? (
-                        userBreaches.length === 0 ? (
-                          <Card className="bg-destructive/5 border-destructive/20 p-8 space-y-6">
-                            <div className="flex items-center gap-3"><Skull className="text-destructive w-6 h-6" /><h4 className="font-bold text-white">Termination Summary</h4></div>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                              <BreachMetric label="Status" value={selectedUser?.accountStatus} color="text-destructive" />
-                              <BreachMetric label="Phase" value={selectedUser?.phase} />
-                              <BreachMetric label="Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
-                              <BreachMetric label="Balance at Breach" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
-                              <BreachMetric label="Equity at Breach" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
-                              <BreachMetric label="Breach Reason" value={selectedUser?.breachReason || 'Risk Parameter Violation'} color="text-destructive" />
-                            </div>
-                          </Card>
-                        ) : (
-                          userBreaches.map(breach => (
-                            <Card key={breach.id} className="bg-destructive/5 border-destructive/20 p-6">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                                <BreachMetric label="Status" value="Breached" color="text-destructive" />
-                                <BreachMetric label="Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
-                                <BreachMetric label="Reason" value={breach.reason} color="text-destructive" />
-                                <BreachMetric label="Rule" value="Risk Parameter Breach" />
-                              </div>
-                            </Card>
-                          ))
-                        )
-                      ) : (
-                        <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
-                           <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                             <Check size={24} />
-                           </div>
-                           <p className="text-sm font-bold text-emerald-500">✅ No breach has been recorded for this account.</p>
-                        </Card>
-                      )}
-                    </div>
-                  )}
-               </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-
         {/* Rejection Modal */}
         <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
           <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
@@ -650,7 +498,7 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number |
   return (
     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
       <h2 className="text-xl font-headline font-bold uppercase tracking-tight">
-        {title} {count !== undefined && <span className="text-primary ml-2">({count.toLocaleString()})</span>}
+        {title} {count !== undefined && <span className="text-primary ml-2">({Number(count).toLocaleString()})</span>}
       </h2>
       {onSearch && (
         <div className="relative w-full md:w-96">
@@ -659,15 +507,6 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number |
         </div>
       )}
     </div>
-  );
-}
-
-function InfoCard({ label, value, isMono = false }: { label: string, value: any, isMono?: boolean }) {
-  return (
-    <Card className="bg-secondary/30 p-4 border-white/5">
-      <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">{label}</p>
-      <p className={cn("text-sm font-bold truncate", isMono ? "font-mono text-xs text-zinc-400" : "text-white")}>{value || '—'}</p>
-    </Card>
   );
 }
 
