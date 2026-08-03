@@ -15,3 +15,11 @@ key.json.save
 .env.*
 key.json
 *.service-account.json
+
+.env
+.env.local
+.env.*
+key.json
+key.json.save
+*.service-account.json
+.next/
