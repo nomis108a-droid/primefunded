@@ -1,52 +1,15 @@
-import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
+import { getApps, initializeApp, cert, type App, applicationDefault, getApp, type ServiceAccount } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 
 /**
  * @fileOverview Institutional Firebase Admin SDK Initializer
- * Hardened to support multiple credential sources and ensure singleton reliability.
+ * Optimized singleton pattern to resolve "Invalid Firebase app options" errors.
+ * Supports Base64 keys, individual variables, and Application Default Credentials.
  */
 
-interface AdminServices {
-  app: App;
-  db: ReturnType<typeof getFirestore>;
-  auth: ReturnType<typeof getAuth>;
-  rtdb: ReturnType<typeof getDatabase>;
-}
-
-declare global {
-  var __admin_services: AdminServices | undefined;
-}
-
-/**
- * Initializes or retrieves the Admin SDK services.
- * Implements a singleton pattern to avoid "already initialized" errors.
- */
-function initAdmin(): AdminServices {
-  if (global.__admin_services) {
-    return global.__admin_services;
-  }
-
-  const apps = getApps();
-  const fallbackProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || 'studio-8383940162-6976e';
-
-  // If already initialized by another process or earlier in the lifecycle
-  if (apps.length > 0) {
-    const existingApp = apps.find(a => a.options.projectId === fallbackProjectId) || apps[0];
-    global.__admin_services = {
-      app: existingApp,
-      db: getFirestore(existingApp),
-      auth: getAuth(existingApp),
-      rtdb: getDatabase(existingApp)
-    };
-    return global.__admin_services;
-  }
-
-  let credential;
-  let projectId = fallbackProjectId;
-  let clientEmail = 'environment-default';
-
+function getAdminCredential() {
   // 1. Priority: Base64 Service Account
   const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
   if (b64Key && b64Key.trim() !== '') {
@@ -55,66 +18,94 @@ function initAdmin(): AdminServices {
       if (decoded.private_key) {
         decoded.private_key = decoded.private_key.replace(/\\n/g, '\n').trim();
       }
-      credential = cert(decoded);
-      projectId = decoded.project_id || projectId;
-      clientEmail = decoded.client_email || clientEmail;
+      return cert(decoded);
     } catch (e: any) {
       console.error("[Admin-Init] B64 Parse Failed:", e.message);
     }
   }
 
   // 2. Secondary: Discrete Environment Variables
-  if (!credential) {
-    const envProjectId = process.env.FIREBASE_PROJECT_ID;
-    const envEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const envKey = process.env.FIREBASE_PRIVATE_KEY;
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
 
-    if (envProjectId && envEmail && envKey) {
-      credential = cert({
-        projectId: envProjectId,
-        clientEmail: envEmail,
-        privateKey: envKey.replace(/\\n/g, '\n')
-      });
-      projectId = envProjectId;
-      clientEmail = envEmail;
-    }
+  if (projectId && clientEmail && privateKey) {
+    const serviceAccount: ServiceAccount = {
+      projectId,
+      clientEmail,
+      privateKey,
+    };
+    return cert(serviceAccount);
   }
 
-  // Logging critical info before initialization as requested
-  console.log(`[Admin-Init] Initializing Institutional Admin SDK`);
-  console.log(`[Admin-Init] Admin Project ID: ${projectId}`);
-  console.log(`[Admin-Init] Admin Client Email: ${clientEmail}`);
-
+  // 3. Fallback: Application Default (Standard for GCP / App Hosting)
   try {
-    // CRITICAL: Explicitly pass projectId to ensure consistency with Client SDK tokens
-    const app = initializeApp({
-      credential,
-      projectId,
-      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL
-    }, `Admin-${Date.now()}`);
+    return applicationDefault();
+  } catch (e) {
+    return null;
+  }
+}
 
-    global.__admin_services = {
+/**
+ * Retrieves the singleton Firebase Admin App instance.
+ * Removed dynamic naming (Date.now()) to prevent instance multiplication and invalid options errors.
+ */
+export function getAdminApp(): App {
+  const apps = getApps();
+  if (apps.length > 0) {
+    // Return the default app or the first available one
+    return apps[0];
+  }
+
+  const credential = getAdminCredential();
+  if (!credential) {
+    // This state usually happens in local dev without service account env vars
+    throw new Error("Firebase Admin Credential resolution failed. Ensure FIREBASE_SERVICE_ACCOUNT_KEY_B64 or individual ENV variables are set.");
+  }
+
+  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+
+  return initializeApp({
+    credential,
+    projectId,
+    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  });
+}
+
+/**
+ * Synchronized Service Getters
+ * These functions ensure consistent singleton access across the entire server runtime.
+ */
+export const getAdminDb = () => getFirestore(getAdminApp());
+export const getAdminAuth = () => getAuth(getAdminApp());
+export const getAdminRtdb = () => getDatabase(getAdminApp());
+
+/**
+ * Returns all admin services in a single context object.
+ * Used for complex server-side transactions.
+ */
+export const getAdminServices = () => {
+  try {
+    const app = getAdminApp();
+    return {
       app,
       db: getFirestore(app),
       auth: getAuth(app),
       rtdb: getDatabase(app)
     };
-  } catch (err: any) {
-    console.error("[Admin-Init] Fatal Initialization Error:", err.message);
-    throw err;
+  } catch (e) {
+    console.warn("[Admin-Init] Services unavailable:", (e as Error).message);
+    return null;
   }
+};
 
-  return global.__admin_services!;
-}
-
-export const getAdminDb = () => initAdmin().db;
-export const getAdminAuth = () => initAdmin().auth;
-export const getAdminRtdb = () => initAdmin().rtdb;
-export const getAdminServices = () => initAdmin();
-
+/**
+ * Verification helper for background tasks.
+ */
 export const isFirebaseAdminConfigured = () => {
   try {
-    initAdmin();
+    getAdminApp();
     return true;
   } catch (e) {
     return false;
