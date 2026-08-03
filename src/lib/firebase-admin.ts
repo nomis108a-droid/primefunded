@@ -1,4 +1,12 @@
-import { getApps, initializeApp, cert, type App, applicationDefault, getApp, type ServiceAccount } from 'firebase-admin/app';
+import {
+  applicationDefault,
+  cert,
+  getApp,
+  getApps,
+  initializeApp,
+  type App,
+  type ServiceAccount,
+} from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
@@ -9,20 +17,36 @@ import { getDatabase } from 'firebase-admin/database';
  * Supports Base64 keys, individual variables, and Application Default Credentials.
  */
 
+function credentialFromBase64() {
+  const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64?.trim();
+
+  if (!encoded || encoded === 'PASTE_YOUR_LONG_BASE64_STRING_HERE') {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded);
+
+    if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+      throw new Error('Firebase service account configuration is incomplete.');
+    }
+
+    return cert({
+      projectId: parsed.project_id,
+      clientEmail: parsed.client_email,
+      privateKey: parsed.private_key.replace(/\\n/g, '\n'),
+    });
+  } catch (e: any) {
+    console.error('[Admin-Init] Base64 Parse Failed:', e.message);
+    return null;
+  }
+}
+
 function getAdminCredential() {
   // 1. Priority: Base64 Service Account
-  const b64Key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_B64;
-  if (b64Key && b64Key.trim() !== '') {
-    try {
-      const decoded = JSON.parse(Buffer.from(b64Key, 'base64').toString('utf-8'));
-      if (decoded.private_key) {
-        decoded.private_key = decoded.private_key.replace(/\\n/g, '\n').trim();
-      }
-      return cert(decoded);
-    } catch (e: any) {
-      console.error("[Admin-Init] B64 Parse Failed:", e.message);
-    }
-  }
+  const b64 = credentialFromBase64();
+  if (b64) return b64;
 
   // 2. Secondary: Discrete Environment Variables
   const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -38,40 +62,34 @@ function getAdminCredential() {
     return cert(serviceAccount);
   }
 
-  // 3. Fallback: Application Default (Standard for GCP / App Hosting)
-  try {
-    return applicationDefault();
-  } catch (e) {
-    return null;
-  }
+  // 3. Fallback: Application Default (Standard for App Hosting)
+  return applicationDefault();
 }
 
 /**
  * Retrieves the singleton Firebase Admin App instance.
- * Removed dynamic naming (Date.now()) to prevent instance multiplication and invalid options errors.
+ * Removed dynamic naming to prevent instance multiplication and invalid options errors.
  */
 export function getAdminApp(): App {
   const apps = getApps();
   if (apps.length > 0) {
-    // Return the default app or the first available one
-    return apps[0];
+    return getApp();
   }
-
-  const credential = getAdminCredential();
-  if (!credential) {
-    // This state usually happens in local dev without service account env vars
-    throw new Error("Firebase Admin Credential resolution failed. Ensure FIREBASE_SERVICE_ACCOUNT_KEY_B64 or individual ENV variables are set.");
-  }
-
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
   return initializeApp({
-    credential,
-    projectId,
+    credential: getAdminCredential(),
+    projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   });
 }
+
+// Singleton instances for easy export
+const adminApp = getAdminApp();
+
+export const adminDb = getFirestore(adminApp);
+export const adminAuth = getAuth(adminApp);
+export const adminRtdb = getDatabase(adminApp);
 
 /**
  * Synchronized Service Getters
