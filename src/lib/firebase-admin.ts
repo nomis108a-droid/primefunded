@@ -24,34 +24,33 @@ function credentialFromBase64() {
     return null;
   }
 
-  try {
-    const decoded = Buffer.from(encoded, 'base64').toString('utf8');
-    const parsed = JSON.parse(decoded);
+  const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+  const parsed = JSON.parse(decoded);
 
-    if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
-      throw new Error('Firebase service account configuration is incomplete.');
-    }
-
-    return cert({
-      projectId: parsed.project_id,
-      clientEmail: parsed.client_email,
-      privateKey: parsed.private_key.replace(/\\n/g, '\n'),
-    });
-  } catch (e: any) {
-    console.error('[Admin-Init] Base64 Parse Failed:', e.message);
-    return null;
+  if (!parsed.project_id || !parsed.client_email || !parsed.private_key) {
+    throw new Error('Firebase service account configuration is incomplete.');
   }
+
+  return cert({
+    projectId: parsed.project_id,
+    clientEmail: parsed.client_email,
+    privateKey: parsed.private_key.replace(/\\n/g, '\n'),
+  });
 }
 
 function getAdminCredential() {
-  // 1. Priority: Base64 Service Account
   const b64 = credentialFromBase64();
   if (b64) return b64;
 
-  // 2. Secondary: Discrete Environment Variables
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/^["']|["']$/g, '').replace(/\\n/g, '\n');
+
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY
+    ?.replace(/^["']|["']$/g, '')
+    .replace(/\\n/g, '\n');
 
   if (projectId && clientEmail && privateKey) {
     const serviceAccount: ServiceAccount = {
@@ -59,29 +58,39 @@ function getAdminCredential() {
       clientEmail,
       privateKey,
     };
+
     return cert(serviceAccount);
   }
 
-  // 3. Fallback: Application Default (Standard for App Hosting)
   return applicationDefault();
 }
 
 /**
  * Retrieves the singleton Firebase Admin App instance.
- * Removed dynamic naming to prevent instance multiplication and invalid options errors.
+ * Ensures initialization happens exactly once with a stable identity.
  */
 export function getAdminApp(): App {
-  const apps = getApps();
-  if (apps.length > 0) {
+  if (getApps().length > 0) {
     return getApp();
   }
 
-  return initializeApp({
+  const adminApp = initializeApp({
     credential: getAdminCredential(),
-    projectId: process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    projectId:
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
     storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   });
+
+  console.log('[Admin-Init] Firebase Admin initialized', {
+    projectId:
+      process.env.FIREBASE_PROJECT_ID ||
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    appName: adminApp.name,
+  });
+
+  return adminApp;
 }
 
 // Singleton instances for easy export
