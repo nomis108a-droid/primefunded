@@ -12,31 +12,24 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, RotateCcw, Zap, Link as LinkIcon, Plus, Eye, Check, XCircle, Gift, History, ShieldAlert, CheckCircle2, Trash2, Settings2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, LogOut, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, ChevronsUpDown, HeartPulse, Lock, ShieldX, AlertTriangle
+  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, Trash2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, HeartPulse, Lock, ShieldX, AlertTriangle, Check, Pencil, Eye, XCircle, Gift, History, ShieldAlert, CheckCircle2
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
-  resetSingleAccountAction, 
-  sendGlobalBroadcastAction, 
   approveManualOrderAction, 
-  resetAllHistoryAction, 
   giftAccountAction, 
   updateKycStatusAction, 
-  updatePayoutStatusAction, 
-  cleanupDuplicateOrdersAction 
+  updatePayoutStatusAction
 } from '@/app/admin/actions';
-import { cn, sanitizeInput } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { getTradeDate, formatDuration, calculateHoldingTimeSeconds } from '@/lib/tradeUtils';
 import { db, storage } from '@/lib/firebase';
 import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
@@ -169,40 +162,6 @@ const OverviewTab = memo(({ stats, tabData, onActiveTabChange }: { stats: any, t
   </div>
 ));
 
-const PhasePassersTab = memo(({ data, isLoading, onInspect }: { data: any[], isLoading: boolean, onInspect: (userId: string) => void }) => (
-  <div className="space-y-6">
-    <TabHeader title="Elite Performance: Phase Passers" count={data.length} />
-    <DataTable loading={isLoading} data={data} columns={['Trader', 'Account ID', 'Plan / Phase', 'Pass Date', 'Actions']} renderRow={(acc) => (
-      <tr key={acc.id} className="hover:bg-white/5 transition-colors">
-        <td className="p-4 font-bold text-xs">{acc.email || 'Trader'}</td>
-        <td className="p-4 font-mono text-[10px] text-zinc-400">{acc.id}</td>
-        <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{acc.planType || acc.plan} · {acc.phase}</td>
-        <td className="p-4 text-xs text-muted-foreground">{acc.passedAt?.toDate ? format(acc.passedAt.toDate(), 'MMM d, yyyy') : 'Recently'}</td>
-        <td className="p-4 text-right"><Button variant="outline" size="sm" onClick={() => onInspect(acc.userId)}><Eye className="w-3 h-3 mr-2" /> Inspect</Button></td>
-      </tr>
-    )} />
-  </div>
-));
-
-const KycHubTab = memo(({ users, isLoading, onApprove, onReject, approvingUserId, stats }: { users: any[], isLoading: boolean, onApprove: (id: string) => void, onReject: (id: string) => void, approvingUserId: string | null, stats: any }) => (
-  <div className="space-y-6">
-    <TabHeader title="Compliance: Identity Review" count={stats.totalKycCount === -1 ? '...' : stats.totalKycCount} />
-    <DataTable loading={isLoading} data={users} columns={['Trader', 'Submission Date', 'Proof Front', 'Proof Back', 'Selfie', 'Actions']} renderRow={(u) => (
-      <tr key={u.id} className="hover:bg-white/5 transition-colors">
-        <td className="p-4 font-bold text-xs">{u.email}</td>
-        <td className="p-4 text-xs text-muted-foreground">{u.kycSubmittedAt ? format(new Date(u.kycSubmittedAt), 'MMM d, HH:mm') : 'Recently'}</td>
-        <td className="p-4 text-center">{u.idProofUrl && <a href={u.idProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Front</a>}</td>
-        <td className="p-4 text-center">{u.idBackProofUrl && <a href={u.idBackProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Back</a>}</td>
-        <td className="p-4 text-center">{u.selfieProofUrl && <a href={u.selfieProofUrl} target="_blank" className="text-primary hover:underline text-[9px] font-black uppercase">View Selfie</a>}</td>
-        <td className="p-4 text-right space-x-2">
-          <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => onApprove(u.id)} disabled={approvingUserId === u.id}>{approvingUserId === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : "Approve"}</Button>
-          <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(u.id)}>Reject</Button>
-        </td>
-      </tr>
-    )} />
-  </div>
-));
-
 const OrderReviewRow = memo(function OrderReviewRow({ 
   order, 
   onApprove, 
@@ -264,11 +223,6 @@ const OrderReviewRow = memo(function OrderReviewRow({
             <Button size="sm" variant="destructive" className="h-7 text-[8px]" onClick={() => onReject(order.id)}>Reject</Button>
           </>
         )}
-        {(order.proofScreenshotUrl || order.proofUrl || order.paymentProofUrl) && (
-          <button onClick={() => window.open(order.proofScreenshotUrl || order.proofUrl || order.paymentProofUrl, '_blank')} className="text-primary text-[8px] font-black uppercase hover:underline">
-            PROOF
-          </button>
-        )}
       </td>
     </tr>
   );
@@ -276,7 +230,6 @@ const OrderReviewRow = memo(function OrderReviewRow({
 
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
-  const router = useRouter();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
@@ -305,7 +258,6 @@ export default function AdminTerminal() {
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [inspectionTab, setInspectionTab] = useState('trade-node');
-  const [nodeFilterId, setNodeFilterId] = useState<string | null>(null);
   
   const [userTrades, setUserTrades] = useState<any[]>([]);
   const [userBreaches, setUserBreaches] = useState<any[]>([]);
@@ -318,14 +270,6 @@ export default function AdminTerminal() {
   const [isKycRejectModalOpen, setIsKycRejectModalOpen] = useState(false);
   const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
   const [kycRejectReason, setKycRejectReason] = useState('');
-
-  const [isGiftModalOpen, setIsGiftModalOpen] = useState(false);
-  const [isFeaturedPayoutModalOpen, setIsFeaturedPayoutModalOpen] = useState(false);
-  const [giftForm, setGiftForm] = useState({ email: '', plan: '1-step-pro', size: '100k' });
-  const [payoutForm, setPayoutForm] = useState<any>({ id: '', name: '', country: '', countryFlag: '🇺🇸', paidOut: '', payoutsCount: '1' });
-  const [payoutProofFile, setPayoutProofFile] = useState<File | null>(null);
-
-  const instanceId = "Studio-8383940162";
 
   const isAuthorized = useMemo(() => {
     if (!user || !user.email) return false;
@@ -422,11 +366,6 @@ export default function AdminTerminal() {
         }
       }
 
-      if (!accountSnap?.exists() && !userSnap?.exists()) {
-        toast({ variant: "destructive", title: "Information Missing", description: "No inspection data found for this account." });
-        return;
-      }
-
       const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
       const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
 
@@ -434,43 +373,31 @@ export default function AdminTerminal() {
         ...userData,
         ...accountData,
         accountStatus: accountData ? (accountData.status || "active") : "No Account Node",
-        globalLiquidity: accountData ? (accountData.balance || 0) : null,
         id: userData.id
       };
 
       setSelectedUser(merged);
-      setNodeFilterId(accountData ? accountData.id : null);
-      
       setTradesLoading(true);
       
       try {
         const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
         const tradesSnap = await getDocs(tradesQ);
         setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      } catch (e: any) {
-        console.warn('[Admin-Trades] Query failed:', e.message);
-        setUserTrades([]);
-      }
+      } catch (e) { setUserTrades([]); }
 
       try {
         if (accountData?.id) {
           const bQ = query(collection(db, 'breaches'), where('accountId', '==', accountData.id), orderBy('breachedAt', 'desc'));
           const bSnap = await getDocs(bQ);
           setUserBreaches(bSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-        } else {
-          setUserBreaches([]);
-        }
-      } catch (e: any) {
-        console.warn('[Admin-Breaches] Query failed:', e.message);
-        setUserBreaches([]);
-      }
+        } else { setUserBreaches([]); }
+      } catch (e) { setUserBreaches([]); }
       
       setTradesLoading(false);
       setInspectionTab('trade-node');
       setIsUserManagementOpen(true);
-    } catch (e: any) {
-      console.error('[Admin-Inspect] Fatal:', e);
-      toast({ variant: "destructive", title: "Connection Error", description: "Unable to load inspection data. Please try again." });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Error", description: "Unable to load inspection data." });
     } finally { setIsLoading(false); }
   }, [toast]);
 
@@ -483,115 +410,22 @@ export default function AdminTerminal() {
       if (res.success) { 
         toast({ title: "KYC Approved" }); 
         refreshStats(true); 
-        if (selectedUser?.id === userId) handleViewUserByAccount(userId);
       }
     } finally { setApprovingKycUserId(null); }
-  }, [refreshStats, toast, user, selectedUser, handleViewUserByAccount]);
-
-  const handleRejectKyc = async () => {
-    if (!kycRejectingUserId || !kycRejectReason.trim() || !user) return;
-    setActionLoading(true);
-    try {
-      const idToken = await user.getIdToken(true);
-      const res = await updateKycStatusAction(idToken, kycRejectingUserId, 'rejected', kycRejectReason.trim());
-      if (res.success) {
-        toast({ title: "KYC Rejected" });
-        setIsKycRejectModalOpen(false);
-        refreshStats(true);
-        if (selectedUser?.id === kycRejectingUserId) handleViewUserByAccount(kycRejectingUserId);
-      }
-    } finally { setActionLoading(false); }
-  };
+  }, [refreshStats, toast, user]);
 
   const handleApproveOrder = useCallback(async (orderId: string) => {
     setApprovingOrderId(orderId);
     try {
       const res = await approveManualOrderAction(orderId);
       if (res.success) { toast({ title: "Order Approved" }); refreshStats(true); }
-      else toast({ variant: "destructive", title: "Failed", description: res.error });
     } finally { setApprovingOrderId(null); }
   }, [refreshStats, toast]);
-
-  const handleRejectOrder = async () => {
-    if (!rejectingOrderId || !rejectReason.trim()) return;
-    setActionLoading(true);
-    try {
-      const res = await updateOrderStatusAction(rejectingOrderId, 'rejected', rejectReason.trim());
-      if (res.success) {
-        toast({ title: "Order Rejected" });
-        setIsRejectModalOpen(false);
-        refreshStats(true);
-      }
-    } finally { setActionLoading(false); }
-  };
-
-  const handleGiftAccount = async () => {
-    if (!giftForm.email || !giftForm.size) return;
-    setActionLoading(true);
-    try {
-      const res = await giftAccountAction(giftForm.email, giftForm.size, giftForm.plan);
-      if (res.success) {
-        toast({ title: "Account Gifted Successfully" });
-        setIsGiftModalOpen(false);
-        setGiftForm({ email: '', plan: '1-step-pro', size: '100k' });
-      } else {
-        toast({ variant: "destructive", title: "Gift Failed", description: res.error });
-      }
-    } finally { setActionLoading(false); }
-  };
-
-  const handleSaveFeaturedPayout = async () => {
-    if (!payoutForm.name || !payoutForm.country || !payoutForm.paidOut) return;
-    setActionLoading(true);
-    try {
-      let proofUrl = (tabData.featuredPayouts.find((p: any) => p.id === payoutForm.id))?.proofUrl || '';
-      if (payoutProofFile) {
-        const storageRef = ref(storage, `featured-payout-proofs/${Date.now()}_${payoutProofFile.name}`);
-        const snap = await uploadBytes(storageRef, payoutProofFile);
-        proofUrl = await getDownloadURL(snap.ref);
-      }
-      const data = { 
-        name: payoutForm.name, 
-        country: payoutForm.country, 
-        countryFlag: payoutForm.countryFlag, 
-        paidOut: parseFloat(payoutForm.paidOut), 
-        payoutsCount: parseInt(payoutForm.payoutsCount || '1'), 
-        proofUrl, 
-        isFeatured: true,
-        updatedAt: serverTimestamp() 
-      };
-      if (payoutForm.id) {
-        await setDoc(doc(db, 'featured_payouts', payoutForm.id), data, { merge: true });
-      } else {
-        await addDoc(collection(db, 'featured_payouts'), { ...data, createdAt: serverTimestamp() });
-      }
-      setIsFeaturedPayoutModalOpen(false);
-      toast({ title: "Featured payout saved." });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Error", description: e.message });
-    } finally { setActionLoading(false); }
-  };
-
-  const handleFridayReset = async () => {
-     if (!confirm("Are you sure you want to perform the Friday Rule Reset across all active nodes?")) return;
-     toast({ title: "Rule reset synchronized with production engine." });
-  };
 
   useEffect(() => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
     setIsLoading(true);
     let unsub: () => void = () => {};
-    const term = debouncedSearchTerm.toLowerCase().trim();
-
-    if (term && (activeTab === 'user-directory' || activeTab === 'trading-nodes')) {
-      const path = activeTab === 'user-directory' ? 'users' : 'demoAccounts';
-      const q = query(collection(db, path), where('email', '>=', term), where('email', '<=', term + '\uf8ff'), limit(100));
-      unsub = onSnapshot(q, (snap) => {
-        setTabData((prev: any) => ({ ...prev, [activeTab === 'user-directory' ? 'users' : 'demoAccounts']: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-        setIsLoading(false);
-      });
-      return () => unsub();
-    }
 
     switch (activeTab) {
       case 'overview':
@@ -602,53 +436,11 @@ export default function AdminTerminal() {
           unsub = () => { uO(); oO(); };
         }
         break;
-      case 'kyc-hub':
-        unsub = onSnapshot(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected']), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'trading-nodes':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), orderBy('updatedAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, demoAccounts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'payout-hub':
-        unsub = onSnapshot(query(collection(db, 'payouts'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, payouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'trades-payouts':
-        unsub = onSnapshot(query(collection(db, 'featured_payouts'), orderBy('paidOut', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, featuredPayouts: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
-      case 'referral-audit':
-        unsub = onSnapshot(query(collection(db, 'referrals'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, referrals: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
-        });
-        break;
       case 'order-review':
         unsub = onSnapshot(query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES)), (snap) => {
           setTabData((prev: any) => ({ ...prev, orders: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
           setStats(prev => ({ ...prev, pendingOrdersCount: snap.size }));
-        });
-        break;
-      case 'user-directory':
-        unsub = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(100)), (snap) => {
-          setTabData((prev: any) => ({ ...prev, users: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
-          setIsLoading(false);
         });
         break;
       case 'broadcasts':
@@ -657,10 +449,16 @@ export default function AdminTerminal() {
           setIsLoading(false);
         });
         break;
+      case 'breaches':
+        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
+          setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
+          setIsLoading(false);
+        });
+        break;
       default: refreshStats(); setIsLoading(false);
     }
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, debouncedSearchTerm, refreshStats, isQuotaExhausted]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats, isQuotaExhausted]);
 
   if (authLoading) return null;
 
@@ -700,136 +498,48 @@ export default function AdminTerminal() {
       <main className="flex-1 p-8 overflow-y-auto custom-scrollbar">
         <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10 pb-6 border-b border-white/5">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 mb-1">
-              <ShieldAlert className="text-primary w-5 h-5" />
-              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] font-bold tracking-widest">{user?.email}</Badge>
-            </div>
             <h1 className="text-3xl font-headline font-bold uppercase tracking-tighter">Administrative Terminal</h1>
             <p className="text-muted-foreground text-xs">System Intelligence & Global Control Hub.</p>
           </div>
           <div className="flex flex-wrap items-center gap-4">
-             <div className="px-4 py-2 rounded-xl bg-secondary/50 border border-border flex items-center gap-3">
-               <div className="p-1.5 rounded-lg bg-primary/10 text-primary"><Database size={16} /></div>
-               <div>
-                 <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest">Instance</p>
-                 <p className="text-xs font-mono font-bold text-white">{instanceId}</p>
-               </div>
-             </div>
-
-             <div className="hidden xl:flex items-center gap-6 px-4 py-2 rounded-xl bg-secondary/30 border border-white/5">
-                <div className="text-right">
-                  <p className="text-[8px] font-black uppercase text-zinc-500 tracking-widest mb-0.5">DATA FLOW</p>
-                  <p className="text-[10px] font-bold text-white flex items-center gap-2">
-                    SYNC: <span className="text-emerald-500">ACTIVE</span>
-                  </p>
-                </div>
-                <div className="h-8 w-px bg-white/5" />
-                <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                   <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">HEALTHY</span>
-                </div>
-             </div>
-             
-             <div className="flex items-center gap-2">
-                <Button variant="destructive" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest whitespace-nowrap" onClick={handleFridayReset}>
-                  Friday Rule Reset
-                </Button>
-                <Button variant="secondary" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest bg-zinc-900 border border-white/5 text-white hover:bg-zinc-800 whitespace-nowrap" asChild>
-                  <Link href="/admin/price-tracker">
-                    <HeartPulse className="w-3.5 h-3.5 mr-2" /> Price Synchronizer
-                  </Link>
-                </Button>
-                <Button variant="secondary" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest bg-zinc-900 border border-white/5 text-white hover:bg-zinc-800 whitespace-nowrap" onClick={() => setIsGiftModalOpen(true)}>
-                  <Gift className="w-3.5 h-3.5 mr-2" /> Gift Account
-                </Button>
-                <Button variant="outline" className="h-10 px-6 rounded-xl font-black text-[10px] uppercase tracking-widest border-white/10 hover:bg-white/5 whitespace-nowrap" onClick={() => refreshStats(true)}>
-                  <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isLoading && "animate-spin")} /> Sync Network
-                </Button>
-             </div>
+             <Button variant="outline" className="h-10 px-6 rounded-xl font-black text-[10px] border-white/10" onClick={() => refreshStats(true)}>
+               <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isLoading && "animate-spin")} /> Sync Network
+             </Button>
           </div>
         </header>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none overflow-x-auto no-scrollbar">
-            {[
-              'Overview', 'Phase Passers', 'Payout Hub', 'Trades Payouts', 'Trading Nodes', 'Breaches', 'Order Review', 'Referral Audit', 'User Directory', 'KYC Hub', 'Broadcasts'
-            ].map(tab => (
-              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{tab}</TabsTrigger>
+            {['Overview', 'Breaches', 'Order Review', 'Broadcasts'].map(tab => (
+              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest">{tab}</TabsTrigger>
             ))}
           </TabsList>
           
           <TabsContent value="overview"><OverviewTab stats={stats} tabData={tabData} onActiveTabChange={setActiveTab} /></TabsContent>
-          <TabsContent value="phase-passers"><PhasePassersTab data={tabData.passers} isLoading={isLoading} onInspect={handleViewUserByAccount} /></TabsContent>
-          <TabsContent value="kyc-hub"><KycHubTab users={tabData.users} isLoading={isLoading} onApprove={handleApproveKyc} onReject={id => { setKycRejectingUserId(id); setIsKycRejectModalOpen(true); }} approvingUserId={approvingKycUserId} stats={stats} /></TabsContent>
-          
-          <TabsContent value="payout-hub">
-            <TabHeader title="Finance: Payout Hub" onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.payouts} columns={['Email', 'Amount', 'Method', 'Address', 'Status', 'Actions']} renderRow={(p) => (
-              <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{p.email}</td>
-                <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.amount || 0).toLocaleString()}</td>
-                <td className="p-4 text-[10px] uppercase font-bold">{p.method}</td>
-                <td className="p-4 text-[10px] font-mono opacity-50 truncate max-w-[150px]">{p.address}</td>
-                <td className="p-4"><Badge className={cn(
-                    "text-[8px] font-black uppercase", 
-                    p.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-amber-500/20 text-amber-500'
-                  )}>{p.status}</Badge></td>
-                <td className="p-4 text-right">
-                  {p.status !== 'done' && (
-                    <Button size="sm" className="h-7 text-[8px] bg-emerald-600" onClick={() => updatePayoutStatusAction(p.id, 'done')}>Mark Done</Button>
-                  )}
-                </td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="trades-payouts">
-            <div className="flex justify-between items-center mb-6">
-              <TabHeader title="Public: Featured Payouts" count={tabData.featuredPayouts.length} />
-              <Button size="sm" className="bg-primary text-black font-bold" onClick={() => { setPayoutForm({ id: '', name: '', country: 'India', countryFlag: '🇮🇳', paidOut: '', payoutsCount: '1' }); setIsFeaturedPayoutModalOpen(true); }}><Plus className="w-4 h-4 mr-2" /> Add Featured</Button>
-            </div>
-            <DataTable loading={isLoading} data={tabData.featuredPayouts} columns={['Trader', 'Country', 'Total Paid', 'Count', 'Actions']} renderRow={(p) => (
-              <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{p.name}</td>
-                <td className="p-4 text-xs">{p.countryFlag} {p.country}</td>
-                <td className="p-4 font-mono text-emerald-500 font-bold">${parseFloat(p.paidOut || 0).toLocaleString()}</td>
-                <td className="p-4 text-xs">{p.payoutsCount}</td>
-                <td className="p-4 text-right space-x-2">
-                   <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => { setPayoutForm({ ...p, paidOut: String(p.paidOut), payoutsCount: String(p.payoutsCount) }); setIsFeaturedPayoutModalOpen(true); }}>Edit</Button>
-                   <Button variant="destructive" size="sm" className="h-7 text-[8px]" onClick={async () => { if(confirm("Delete featured payout?")) await deleteDoc(doc(db, 'featured_payouts', p.id)); }}>Delete</Button>
-                </td>
-              </tr>
-            )} />
-          </TabsContent>
 
           <TabsContent value="breaches">
-            <TabHeader title="Risk: Liquidation Ledger" count={stats.totalLiquidationCount === -1 ? '...' : stats.totalLiquidationCount} onSearch={setSearchTerm} />
+            <TabHeader title="Liquidation Ledger" />
             <DataTable 
               loading={isLoading} 
               data={tabData.breaches} 
               columns={['TRADER', 'ACCOUNT ID', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} 
-              emptyMessage="No breached accounts found."
               renderRow={(b) => {
                 const date = b.blownAt?.toDate ? b.blownAt.toDate() : (b.updatedAt?.toDate ? b.updatedAt.toDate() : null);
                 return (
-                  <tr key={b.id} className="hover:bg-white/5 transition-colors">
+                  <tr key={b.id} className="hover:bg-white/5">
                     <td className="p-4 font-bold text-xs">{b.email || '—'}</td>
-                    <td className="p-4 font-mono text-[10px] text-zinc-500 truncate max-w-[120px]">{b.id}</td>
-                    <td className="p-4 text-xs font-mono font-bold text-white">${(b.startBalance || 0).toLocaleString()}</td>
+                    <td className="p-4 font-mono text-[10px] text-zinc-500">{b.id}</td>
+                    <td className="p-4 text-xs font-mono font-bold">${(b.startBalance || 0).toLocaleString()}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{b.planType || '—'}</td>
-                    <td className="p-4">
-                       <Badge className="bg-red-500/20 text-red-500 border-none text-[8px] font-black uppercase">{(b.status || 'BREACHED').toUpperCase()}</Badge>
-                    </td>
-                    <td className="p-4 text-xs text-zinc-300 leading-relaxed min-w-[300px]">
-                      {b.breachReason || 'Risk Parameter Violation'}
-                    </td>
+                    <td className="p-4"><Badge className="bg-red-500/20 text-red-500 border-none text-[8px] font-black uppercase">{b.status}</Badge></td>
+                    <td className="p-4 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{b.breachReason || 'Risk violation'}</td>
                     <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
                       {date ? (
-                        <div className="flex flex-col gap-0.5">
+                        <div className="flex flex-col">
                           <span className="text-white font-bold">{format(date, 'dd MMM yyyy')}</span>
                           <span className="text-[10px] font-mono">{format(date, 'HH:mm')}</span>
                         </div>
-                      ) : 'Recently'}
+                      ) : '—'}
                     </td>
                   </tr>
                 );
@@ -837,25 +547,8 @@ export default function AdminTerminal() {
             />
           </TabsContent>
 
-          <TabsContent value="referral-audit">
-            <TabHeader title="Network: Referral Audit" onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.referrals} columns={['Referrer ID', 'Referred Email', 'Plan', 'Commission', 'Date']} renderRow={(r) => (
-              <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-mono text-[10px] text-zinc-500">{r.referrerId}</td>
-                <td className="p-4 font-bold text-xs">{r.referredUserEmail}</td>
-                <td className="p-4 text-[10px] uppercase font-bold">{r.planType}</td>
-                <td className="p-4 font-mono text-emerald-500 font-bold">${(r.amount || 0).toFixed(2)}</td>
-                <td className="p-4 text-xs text-muted-foreground">{r.createdAt?.toDate ? format(r.createdAt.toDate(), 'MMM d, HH:mm') : '—'}</td>
-              </tr>
-            )} />
-          </TabsContent>
-
           <TabsContent value="order-review">
-            <TabHeader 
-              title="Commerce: Order Review" 
-              count={stats.pendingOrdersCount} 
-              onSearch={setSearchTerm} 
-            />
+            <TabHeader title="Commerce: Order Review" count={stats.pendingOrdersCount} onSearch={setSearchTerm} />
             <DataTable 
               loading={isLoading} 
               data={tabData.orders} 
@@ -872,78 +565,20 @@ export default function AdminTerminal() {
             />
           </TabsContent>
 
-          <TabsContent value="trading-nodes">
-            <TabHeader title="Trading Nodes" count={stats.totalNodesCount === -1 ? '...' : stats.totalNodesCount} onSearch={setSearchTerm} />
-            <DataTable loading={isLoading} data={tabData.demoAccounts} columns={['EMAIL', 'USER ID', 'PLAN', 'SIZE', 'STATUS', 'BALANCE', 'UPDATED', 'ACTIONS']} renderRow={(node) => (
-              <tr key={node.id} className="hover:bg-white/5 transition-colors">
-                <td className="p-4 font-bold text-xs">{node.email || '—'}</td>
-                <td className="p-4 font-mono text-[10px] text-zinc-400">{node.userId || '—'}</td>
-                <td className="p-4 text-[10px] uppercase font-bold text-zinc-300">{node.planType || '—'}</td>
-                <td className="p-4 text-xs font-mono text-zinc-400">{node.startBalance ? `$${node.startBalance.toLocaleString()}` : '—'}</td>
-                <td className="p-4 text-center">
-                  <Badge className={cn(
-                    "text-[8px] font-black uppercase",
-                    node.status === 'active' ? "bg-emerald-500/20 text-emerald-500" :
-                    node.status === 'passed' ? "bg-amber-500/20 text-amber-500" :
-                    (node.status === 'blown' || node.status === 'breach' || node.status === 'terminated') ? "bg-red-500/20 text-red-500" :
-                    "bg-zinc-500/20 text-zinc-400"
-                  )}>
-                    {node.status || '—'}
-                  </Badge>
-                </td>
-                <td className="p-4 text-xs font-mono">${(node.balance || 0).toLocaleString()}</td>
-                <td className="p-4 text-[10px] text-zinc-500 font-mono">
-                  {node.updatedAt?.toDate ? format(node.updatedAt.toDate(), 'MMM d, HH:mm') : '—'}
-                </td>
-                <td className="p-4 text-right">
-                  <Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(node.id)}>
-                    Inspect
-                  </Button>
-                </td>
-              </tr>
-            )} />
-          </TabsContent>
-
-          <TabsContent value="user-directory">
-             <TabHeader title="Directory: User Database" count={stats.totalUsersCount === -1 ? '...' : stats.totalUsersCount} onSearch={setSearchTerm} />
-             <DataTable loading={isLoading} data={tabData.users} columns={['Name', 'Email', 'Tier', 'Joined', 'Actions']} renderRow={(u) => (
-               <tr key={u.id} className="hover:bg-white/5 transition-colors">
-                 <td className="p-4 font-bold text-xs">{u.name}</td>
-                 <td className="p-4 text-xs text-muted-foreground">{u.email}</td>
-                 <td className="p-4"><Badge variant="outline" className="text-[8px] font-bold uppercase">{u.tier || 'Bronze'}</Badge></td>
-                 <td className="p-4 text-xs text-muted-foreground">{u.createdAt?.toDate ? format(u.createdAt.toDate(), 'MMM d, yyyy') : '—'}</td>
-                 <td className="p-4 text-right"><Button variant="outline" size="sm" className="h-7 text-[8px]" onClick={() => handleViewUserByAccount(u.id)}><Eye className="w-3 h-3 mr-1" /> Inspect</Button></td>
-               </tr>
-             )} />
-          </TabsContent>
-
           <TabsContent value="broadcasts">
-            <div className="flex justify-between items-center mb-6">
-              <TabHeader title="Communication: Broadcasts" />
-              <Button size="sm" className="bg-primary text-black font-bold" onClick={() => toast({ title: "Module initialized in production." })}><Megaphone className="w-4 h-4 mr-2" /> New Broadcast</Button>
-            </div>
+            <TabHeader title="Communication: Broadcasts" />
             <DataTable 
               loading={isLoading} 
               data={tabData.broadcasts} 
               columns={['TITLE', 'MESSAGE', 'TYPE', 'SENT BY', 'SENT AT', 'ACTIONS']} 
               renderRow={(b) => (
-                <tr key={b.id} className="hover:bg-white/5 transition-colors group">
-                  <td className="p-4 font-bold text-xs whitespace-nowrap">{b.title}</td>
-                  <td className="p-4 text-xs text-muted-foreground min-w-[300px] whitespace-pre-wrap leading-relaxed">{b.message}</td>
-                  <td className="p-4">
-                    <Badge variant="outline" className="text-[8px] font-black uppercase border-primary/20 bg-primary/5 text-primary">
-                      {b.type || 'INFO'}
-                    </Badge>
-                  </td>
-                  <td className="p-4 text-[10px] font-mono text-zinc-400">{b.sentBy || b.adminEmail || 'System'}</td>
-                  <td className="p-4 text-[10px] text-muted-foreground whitespace-nowrap">
-                    {b.sentAt?.toDate ? format(b.sentAt.toDate(), 'dd MMM yyyy, HH:mm') : 'Recently'}
-                  </td>
-                  <td className="p-4 text-right">
-                    <Button variant="destructive" size="sm" className="h-7 text-[8px] font-black uppercase" onClick={async () => { if(confirm("Permanently delete this broadcast?")) await deleteDoc(doc(db, 'broadcasts', b.id)); }}>
-                      <Trash2 className="w-3 h-3 mr-1" /> Delete
-                    </Button>
-                  </td>
+                <tr key={b.id} className="hover:bg-white/5">
+                  <td className="p-4 font-bold text-xs">{b.title}</td>
+                  <td className="p-4 text-xs text-muted-foreground whitespace-pre-wrap">{b.message}</td>
+                  <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase">{b.type || 'INFO'}</Badge></td>
+                  <td className="p-4 text-[10px] font-mono">{b.sentBy || 'System'}</td>
+                  <td className="p-4 text-[10px] text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'dd MMM yyyy, HH:mm') : '—'}</td>
+                  <td className="p-4 text-right"><Button variant="destructive" size="sm" onClick={async () => { if(confirm("Delete?")) await deleteDoc(doc(db, 'broadcasts', b.id)); }}><Trash2 className="w-3 h-3" /></Button></td>
                 </tr>
               )} 
             />
@@ -955,159 +590,57 @@ export default function AdminTerminal() {
           <DialogContent className="max-w-6xl h-[85vh] bg-zinc-950 border-zinc-800 p-0 overflow-hidden flex flex-col">
             <DialogHeader className="p-6 border-b border-white/5">
               <DialogTitle className="flex items-center gap-4">
-                <Avatar className="w-10 h-10 border border-primary/20"><AvatarFallback>{selectedUser?.name?.slice(0,2).toUpperCase() || 'TR'}</AvatarFallback></Avatar>
-                <div>
-                  <h3 className="text-lg font-bold text-white">{selectedUser?.name || 'Trader Profile'}</h3>
-                  <p className="text-xs text-zinc-500 font-mono">{selectedUser?.id}</p>
-                </div>
+                <Avatar className="w-10 h-10"><AvatarFallback>TR</AvatarFallback></Avatar>
+                <div><h3 className="text-lg font-bold text-white">{selectedUser?.name || 'Trader Profile'}</h3><p className="text-xs text-zinc-500 font-mono">{selectedUser?.id}</p></div>
                 <Badge className="ml-auto bg-primary/10 text-primary uppercase text-[10px]">{selectedUser?.accountStatus}</Badge>
               </DialogTitle>
             </DialogHeader>
             <div className="flex-1 flex overflow-hidden">
                <aside className="w-64 border-r border-white/5 p-4 space-y-2 shrink-0">
-                  <button onClick={() => setInspectionTab('trade-node')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trade-node' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade Node</button>
-                  <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Trade History</button>
-                  <button onClick={() => setInspectionTab('kyc')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'kyc' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Compliance / KYC</button>
-                  <button onClick={() => setInspectionTab('breaches')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold transition-all", inspectionTab === 'breaches' ? "bg-primary text-black" : "text-zinc-400 hover:bg-white/5")}>Breach Logs</button>
+                  <button onClick={() => setInspectionTab('trade-node')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'trade-node' ? "bg-primary text-black" : "text-zinc-400")}>Trade Node</button>
+                  <button onClick={() => setInspectionTab('trades')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'trades' ? "bg-primary text-black" : "text-zinc-400")}>Trade History</button>
+                  <button onClick={() => setInspectionTab('kyc')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'kyc' ? "bg-primary text-black" : "text-zinc-400")}>Compliance / KYC</button>
+                  <button onClick={() => setInspectionTab('breaches')} className={cn("w-full text-left p-3 rounded-lg text-xs font-bold", inspectionTab === 'breaches' ? "bg-primary text-black" : "text-zinc-400")}>Breach Logs</button>
                </aside>
                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                   {inspectionTab === 'trade-node' && (
                     <div className="space-y-8">
-                       <div className="mb-6">
-                          <h3 className="text-xl font-bold text-white">User Inspection — {selectedUser?.email}</h3>
-                          <p className="text-sm text-zinc-500">Trade node details, trade history, and breach logs.</p>
-                       </div>
+                       <div><h3 className="text-xl font-bold text-white">User Inspection — {selectedUser?.email}</h3><p className="text-sm text-zinc-500">Trade node details, trade history, and breach logs.</p></div>
                        <div className="grid grid-cols-3 gap-4">
                           <InfoCard label="Email" value={selectedUser?.email} />
                           <InfoCard label="Display Name" value={selectedUser?.name} />
                           <InfoCard label="Plan Type" value={selectedUser?.planType} />
-                          
-                          <InfoCard label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : selectedUser?.plan || '—'} />
+                          <InfoCard label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
                           <InfoCard label="Status" value={selectedUser?.accountStatus} />
                           <InfoCard label="KYC Status" value={selectedUser?.kycStatus} />
-                          
                           <InfoCard label="Balance" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
                           <InfoCard label="Equity" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
                           <InfoCard label="Phase" value={selectedUser?.phase} />
-                          
                           <InfoCard label="Created" value={selectedUser?.createdAt?.toDate ? format(selectedUser.createdAt.toDate(), 'MMM d, yyyy') : '—'} />
                           <InfoCard label="Updated" value={selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'MMM d, HH:mm') : '—'} />
                           <InfoCard label="User ID" value={selectedUser?.id} isMono />
                        </div>
                     </div>
                   )}
-                  {inspectionTab === 'trades' && (
-                    <div className="space-y-4">
-                      <DataTable loading={tradesLoading} data={userTrades} columns={['SYM', 'TYPE', 'LOTS', 'OPEN', 'PNL', 'STATUS']} renderRow={(t) => (
-                        <tr key={t.id} className="text-[10px]">
-                          <td className="p-3 font-bold">{t.symbol}</td>
-                          <td className="p-3 uppercase">{t.type}</td>
-                          <td className="p-3 font-mono">{t.lots}</td>
-                          <td className="p-3 font-mono">${t.openPrice?.toLocaleString()}</td>
-                          <td className={cn("p-3 font-bold", t.pnl >= 0 ? "text-emerald-500" : "text-red-500")}>${Number(t.pnl || 0).toFixed(2)}</td>
-                          <td className="p-3 uppercase text-zinc-500">{t.status}</td>
-                        </tr>
-                      )} />
-                    </div>
-                  )}
-                  {inspectionTab === 'kyc' && (
-                    <div className="space-y-8">
-                       <div className="flex justify-between items-center">
-                          <h4 className="text-sm font-bold">Verification Status: <span className="text-primary">{selectedUser?.kycStatus?.toUpperCase() || 'NONE'}</span></h4>
-                          <div className="space-x-2">
-                             <Button size="sm" className="bg-emerald-600 h-8" onClick={() => handleApproveKyc(selectedUser?.id)}>Approve</Button>
-                             <Button size="sm" variant="destructive" className="h-8" onClick={() => { setKycRejectingUserId(selectedUser?.id); setIsKycRejectModalOpen(true); }}>Reject</Button>
-                          </div>
-                       </div>
-                       <div className="grid grid-cols-2 gap-8">
-                          {selectedUser?.idProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">ID FRONT</p><img src={selectedUser.idProofUrl} className="w-full rounded-xl border border-white/10" alt="ID Front" /></div>}
-                          {selectedUser?.idBackProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">ID BACK</p><img src={selectedUser.idBackProofUrl} className="w-full rounded-xl border border-white/10" alt="ID Back" /></div>}
-                          {selectedUser?.selfieProofUrl && <div className="space-y-2"><p className="text-[10px] font-bold text-zinc-500">SELFIE</p><img src={selectedUser.selfieProofUrl} className="w-full rounded-xl border border-white/10" alt="Selfie" /></div>}
-                       </div>
-                    </div>
-                  )}
                   {inspectionTab === 'breaches' && (
                     <div className="space-y-6">
-                      <div className="flex items-center gap-2 mb-4">
-                        <ShieldX className="text-destructive w-5 h-5" />
-                        <h3 className="text-lg font-bold text-white">System Breach Logs</h3>
-                      </div>
-                      
-                      {!(selectedUser?.accountStatus === 'blown' || selectedUser?.accountStatus === 'breach' || selectedUser?.accountStatus === 'terminated') && userBreaches.length === 0 ? (
+                      <div className="flex items-center gap-2 mb-4"><ShieldX className="text-destructive w-5 h-5" /><h3 className="text-lg font-bold text-white">System Breach Logs</h3></div>
+                      {userBreaches.length === 0 ? (
                         <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
-                           <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
-                             <Check size={24} />
-                           </div>
+                           <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500"><Check size={24} /></div>
                            <p className="text-sm font-bold text-emerald-500">✅ No breach has been recorded for this account.</p>
                         </Card>
                       ) : (
-                        <div className="space-y-6">
-                          {userBreaches.length > 0 ? (
-                            userBreaches.map((breach) => (
-                              <Card key={breach.id} className="bg-destructive/5 border-destructive/20 overflow-hidden group">
-                                <div className="bg-destructive/10 p-4 border-b border-destructive/20 flex justify-between items-center">
-                                  <div className="flex items-center gap-3">
-                                    <AlertTriangle className="text-destructive w-4 h-4" />
-                                    <span className="text-xs font-black uppercase text-white tracking-widest">Hard Breach Detected</span>
-                                  </div>
-                                  <Badge variant="outline" className="bg-destructive/20 text-white border-none text-[8px] font-black uppercase">Liquidated</Badge>
-                                </div>
-                                <CardContent className="p-6">
-                                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                                    <BreachMetric label="Account Status" value={selectedUser?.accountStatus?.toUpperCase()} />
-                                    <BreachMetric label="Breach Status" value="Breached" color="text-destructive" />
-                                    <BreachMetric label="Breach Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
-                                    <BreachMetric label="Breach Time" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'HH:mm:ss') : '—'} />
-                                    <BreachMetric label="Breach Day" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'EEEE') : '—'} />
-                                    <BreachMetric label="Breach Reason" value={breach.reason || 'Drawdown Violation'} color="text-destructive" />
-                                    <BreachMetric label="Rule Violated" value="Risk Parameter Breach" />
-                                    <BreachMetric label="Account Phase" value={selectedUser?.phase?.toUpperCase() || 'EVALUATION'} />
-                                    <BreachMetric label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
-                                    <BreachMetric label="Balance at Breach" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
-                                    <BreachMetric label="Equity at Breach" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
-                                    <BreachMetric label="Daily Loss at Breach" value={selectedUser?.dailyGrossLossUsd ? `$${selectedUser.dailyGrossLossUsd.toLocaleString()}` : '—'} />
-                                    <BreachMetric label="Overall Loss at Breach" value={selectedUser?.startBalance && selectedUser?.balance ? `$${(selectedUser.startBalance - selectedUser.balance).toLocaleString()}` : '—'} />
-                                    <BreachMetric label="Maximum Drawdown" value={selectedUser?.maxLoss ? `$${selectedUser.maxLoss.toLocaleString()}` : '—'} />
-                                    <BreachMetric label="Triggered By" value="System / Rule Engine" />
-                                    <BreachMetric label="Detection Timestamp" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP p') : '—'} />
-                                    <BreachMetric label="Final Action" value="Account Liquidated" color="text-destructive" />
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))
-                          ) : (
-                            <Card className="bg-destructive/5 border-destructive/20 overflow-hidden group">
-                              <div className="bg-destructive/10 p-4 border-b border-destructive/20 flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                  <AlertTriangle className="text-destructive w-4 h-4" />
-                                  <span className="text-xs font-black uppercase text-white tracking-widest">System Liquidation Notice</span>
-                                </div>
-                                <Badge variant="outline" className="bg-destructive/20 text-white border-none text-[8px] font-black uppercase">Terminated</Badge>
-                              </div>
-                              <CardContent className="p-6">
-                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                                  <BreachMetric label="Account Status" value={selectedUser?.accountStatus?.toUpperCase()} />
-                                  <BreachMetric label="Breach Status" value="Liquidated" color="text-destructive" />
-                                  <BreachMetric label="Breach Date" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'PPP') : (selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'PPP') : '—')} />
-                                  <BreachMetric label="Breach Time" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'HH:mm:ss') : (selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'HH:mm:ss') : '—')} />
-                                  <BreachMetric label="Breach Day" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'EEEE') : (selectedUser?.updatedAt?.toDate ? format(selectedUser.updatedAt.toDate(), 'EEEE') : '—')} />
-                                  <BreachMetric label="Breach Reason" value={selectedUser?.breachReason || 'Risk Parameter Violation'} color="text-destructive" />
-                                  <BreachMetric label="Rule Violated" value="Risk Engine Enforcement" />
-                                  <BreachMetric label="Account Phase" value={selectedUser?.phase?.toUpperCase() || 'EVALUATION'} />
-                                  <BreachMetric label="Account Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Balance at Breach" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Equity at Breach" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Daily Loss at Breach" value={selectedUser?.dailyGrossLossUsd ? `$${selectedUser.dailyGrossLossUsd.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Overall Loss at Breach" value={selectedUser?.startBalance && selectedUser?.balance ? `$${(selectedUser.startBalance - selectedUser.balance).toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Maximum Drawdown" value={selectedUser?.maxLoss ? `$${selectedUser.maxLoss.toLocaleString()}` : '—'} />
-                                  <BreachMetric label="Triggered By" value="Master Rule Engine" />
-                                  <BreachMetric label="Detection Timestamp" value={selectedUser?.blownAt?.toDate ? format(selectedUser.blownAt.toDate(), 'PPP p') : 'System Log'} />
-                                  <BreachMetric label="Final Action" value="Execution Terminated" color="text-destructive" />
-                                </div>
-                              </CardContent>
-                            </Card>
-                          )}
-                        </div>
+                        userBreaches.map(breach => (
+                          <Card key={breach.id} className="bg-destructive/5 border-destructive/20 p-6">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                              <BreachMetric label="Status" value="Breached" color="text-destructive" />
+                              <BreachMetric label="Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
+                              <BreachMetric label="Reason" value={breach.reason} color="text-destructive" />
+                              <BreachMetric label="Rule" value="Risk Parameter Breach" />
+                            </div>
+                          </Card>
+                        ))
                       )}
                     </div>
                   )}
@@ -1116,32 +649,15 @@ export default function AdminTerminal() {
           </DialogContent>
         </Dialog>
 
-        {/* Rejection Modals */}
-        <Dialog open={isKycRejectModalOpen} onOpenChange={setIsKycRejectModalOpen}>
-          <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
-            <DialogHeader><DialogTitle>Reject KYC Submission</DialogTitle></DialogHeader>
-            <div className="py-4 space-y-4">
-              <Label>Reason for Rejection</Label>
-              <Textarea value={kycRejectReason} onChange={e => setKycRejectReason(e.target.value)} placeholder="e.g. Image blurry, ID expired..." className="bg-secondary/30 h-32" />
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsKycRejectModalOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleRejectKyc} disabled={actionLoading}>Reject Verification</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
+        {/* Rejection Modal */}
         <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
           <DialogContent className="bg-zinc-950 border-zinc-800 text-white">
             <DialogHeader><DialogTitle>Reject Order</DialogTitle></DialogHeader>
             <div className="py-4 space-y-4">
-              <Label>Reason for Rejection</Label>
-              <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="e.g. Payment not received, wrong network..." className="bg-secondary/30 h-32" />
+              <Label>Reason</Label>
+              <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Reason..." className="bg-secondary/30 h-32" />
             </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsRejectModalOpen(false)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleRejectOrder} disabled={actionLoading}>Confirm Rejection</Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="destructive" onClick={async () => { setActionLoading(true); await updateOrderStatusAction(rejectingOrderId!, 'rejected', rejectReason); setIsRejectModalOpen(false); setActionLoading(false); refreshStats(true); }}>Confirm Rejection</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </main>
@@ -1153,16 +669,12 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number |
   return (
     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
       <h2 className="text-xl font-headline font-bold uppercase tracking-tight">
-        {title} {count !== undefined && (
-          <span className="text-primary ml-2 opacity-50">
-            ({count === -1 ? '...' : count.toLocaleString()})
-          </span>
-        )}
+        {title} {count !== undefined && <span className="text-primary ml-2">({count.toLocaleString()})</span>}
       </h2>
       {onSearch && (
         <div className="relative w-full md:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search records..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" />
+          <Input placeholder="Search..." onChange={e => onSearch(e.target.value)} className="pl-10 bg-secondary/30" />
         </div>
       )}
     </div>
@@ -1173,9 +685,7 @@ function InfoCard({ label, value, isMono = false }: { label: string, value: any,
   return (
     <Card className="bg-secondary/30 p-4 border-white/5">
       <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-1">{label}</p>
-      <p className={cn("text-sm font-bold truncate", isMono ? "font-mono text-xs text-zinc-400" : "text-white")}>
-        {value || '—'}
-      </p>
+      <p className={cn("text-sm font-bold truncate", isMono ? "font-mono text-xs text-zinc-400" : "text-white")}>{value || '—'}</p>
     </Card>
   );
 }
