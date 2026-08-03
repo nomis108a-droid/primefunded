@@ -9,3 +9,9 @@ build/tsconfig.tsbuildinfo
 service-account.json
 key.json.save
 key.json.save
+
+.env
+.env.local
+.env.*
+key.json
+*.service-account.json
