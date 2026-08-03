@@ -11,17 +11,13 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { 
-  Users, Activity, Search, Loader2, Database, ShieldCheck, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Megaphone, Trash2, Save, Network, BarChart3, Info, Wallet, User, TrendingUp, ChevronLeft, ChevronRight, Upload, DollarSign, Globe, HeartPulse, Lock, ShieldX, AlertTriangle, Check, Pencil, Eye, XCircle, Gift, History, ShieldAlert, CheckCircle2
+  Users, Activity, Search, Loader2, RefreshCw, BarChart2, Monitor, Clock, Trophy, Skull, Trash2, Info, Check, Pencil, XCircle, ShieldAlert, CheckCircle2, Lock, ShieldX, SearchX
 } from 'lucide-react';
 import { 
   updateOrderStatusAction, 
   approveManualOrderAction, 
-  giftAccountAction, 
-  updateKycStatusAction, 
-  updatePayoutStatusAction
 } from '@/app/admin/actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -177,8 +173,6 @@ const OrderReviewRow = memo(function OrderReviewRow({
     if (!order.userId) return;
     const unsub = onSnapshot(doc(db, 'users', order.userId), (snap) => {
       if (snap.exists()) setProfile(snap.data());
-    }, (err) => {
-      if (err.code === 'resource-exhausted') console.error('Quota exceeded for order profile sync');
     });
     return () => unsub();
   }, [order.userId]);
@@ -233,7 +227,6 @@ export default function AdminTerminal() {
   const [adminError, setAdminError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
-  const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
   
   const [stats, setStats] = useState({ 
     totalUsersCount: -1, totalNodesCount: -1, totalAum: -1, pendingOrdersCount: -1, phasePassersCount: -1, totalLiquidationCount: -1, totalKycCount: -1 
@@ -242,11 +235,10 @@ export default function AdminTerminal() {
   const lastRefreshTimeRef = useRef(0);
 
   const [tabData, setTabData] = useState<any>({
-    users: [], orders: [], payouts: [], referrals: [], broadcasts: [], demoAccounts: [], breaches: [], passers: [], featuredPayouts: []
+    users: [], orders: [], broadcasts: [], breaches: []
   });
 
   const [isLoading, setIsLoading] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
   const [approvingOrderId, setApprovingOrderId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -269,29 +261,24 @@ export default function AdminTerminal() {
   }, [user]);
 
   const refreshStats = useCallback(async (force = false) => {
-    if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     const now = Date.now();
     if (!force && lastRefreshTimeRef.current !== 0 && now - lastRefreshTimeRef.current < 5000) return;
 
     try {
-      const fetchCount = async (collName: string, q: any) => {
-        try {
-          const count = (await getCountFromServer(q)).data().count;
-          return count;
-        } catch (e: any) {
-          if (e.code === 'resource-exhausted') setIsQuotaExhausted(true);
-          return null;
-        }
+      const fetchCount = async (q: any) => {
+        const count = (await getCountFromServer(q)).data().count;
+        return count;
       };
 
       const results = await Promise.allSettled([
-        fetchCount('users', collection(db, 'users')),
-        fetchCount('demoAccounts', collection(db, 'demoAccounts')),
-        fetchCount('breaches', query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
-        fetchCount('passers', query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
-        fetchCount('orders', query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES))),
+        fetchCount(collection(db, 'users')),
+        fetchCount(collection(db, 'demoAccounts')),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated']))),
+        fetchCount(query(collection(db, 'demoAccounts'), where('status', '==', 'passed'))),
+        fetchCount(query(collection(db, 'orders'), where('status', 'in', ORDER_REVIEW_STATUSES))),
         getAggregateFromServer(query(collection(db, 'orders'), where('status', 'in', ['completed', 'approved', 'paid'])), { totalVolume: sum('amountPaid') }),
-        fetchCount('kyc', query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
+        fetchCount(query(collection(db, 'users'), where('kycStatus', 'in', ['pending', 'verified', 'rejected'])))
       ]);
 
       const statsPayload: any = {};
@@ -308,14 +295,12 @@ export default function AdminTerminal() {
         }
       });
 
-      if (Object.keys(statsPayload).length > 0) {
-        setStats(prev => ({ ...prev, ...statsPayload }));
-      }
+      setStats(prev => ({ ...prev, ...statsPayload }));
       lastRefreshTimeRef.current = now;
     } catch (err: any) { 
       console.error('[Admin-Stats] Refresh fault:', err.message); 
     }
-  }, [isAuthenticated, isAuthorized, authLoading, isQuotaExhausted]);
+  }, [isAuthenticated, isAuthorized, authLoading]);
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -351,6 +336,11 @@ export default function AdminTerminal() {
         }
       }
 
+      if (!userSnap?.exists() && !accountSnap?.exists()) {
+        toast({ title: "No Data Found", description: "No inspection data found for this account." });
+        return;
+      }
+
       const userData = userSnap?.exists() ? { id: userSnap.id, ...userSnap.data() } : { id: uid, email: '—' };
       const accountData = accountSnap?.exists() ? { id: accountSnap.id, ...accountSnap.data() } : null;
 
@@ -365,7 +355,7 @@ export default function AdminTerminal() {
       setTradesLoading(true);
       
       try {
-        const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'), limit(100));
+        const tradesQ = query(collection(db, 'demoTrades'), where('userId', '==', userData.id), orderBy('openedAt', 'desc'));
         const tradesSnap = await getDocs(tradesQ);
         setUserTrades(tradesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (e) { setUserTrades([]); }
@@ -382,7 +372,7 @@ export default function AdminTerminal() {
       setInspectionTab('trade-node');
       setIsUserManagementOpen(true);
     } catch (e) {
-      toast({ variant: "destructive", title: "Error", description: "Unable to load inspection data." });
+      toast({ variant: "destructive", title: "Error", description: "Unable to load inspection data. Please try again." });
     } finally { setIsLoading(false); }
   }, [toast]);
 
@@ -395,7 +385,7 @@ export default function AdminTerminal() {
   }, [refreshStats, toast]);
 
   useEffect(() => {
-    if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
+    if (!isAuthenticated || !isAuthorized || authLoading) return;
     setIsLoading(true);
     let unsub: () => void = () => {};
 
@@ -430,7 +420,7 @@ export default function AdminTerminal() {
       default: refreshStats(); setIsLoading(false);
     }
     return () => unsub();
-  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats, isQuotaExhausted]);
+  }, [isAuthenticated, isAuthorized, authLoading, activeTab, refreshStats]);
 
   if (authLoading) return null;
 
@@ -483,7 +473,9 @@ export default function AdminTerminal() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
           <TabsList className="bg-transparent h-12 w-full justify-start p-0 gap-8 border-b border-white/5 rounded-none overflow-x-auto no-scrollbar">
             {['Overview', 'Breaches', 'Order Review', 'Broadcasts'].map(tab => (
-              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest">{tab}</TabsTrigger>
+              <TabsTrigger key={tab} value={tab.toLowerCase().replace(' ', '-')} className="data-[state=active]:text-primary data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-0 h-full text-xs font-black uppercase tracking-widest">
+                {tab} {tab === 'Order Review' && stats.pendingOrdersCount !== -1 && `(${stats.pendingOrdersCount.toLocaleString()})`}
+              </TabsTrigger>
             ))}
           </TabsList>
           
@@ -504,7 +496,7 @@ export default function AdminTerminal() {
                     <td className="p-4 text-xs font-mono font-bold">{b.accountSize || '—'}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{b.planType || '—'}</td>
                     <td className="p-4"><Badge className="bg-red-500/20 text-red-500 border-none text-[8px] font-black uppercase">{b.status || 'BREACHED'}</Badge></td>
-                    <td className="p-4 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{b.reason || 'Risk violation'}</td>
+                    <td className="p-4 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap min-w-[300px]">{b.reason || 'Risk violation'}</td>
                     <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
                       {date ? (
                         <div className="flex flex-col">
@@ -547,7 +539,7 @@ export default function AdminTerminal() {
               renderRow={(b) => (
                 <tr key={b.id} className="hover:bg-white/5">
                   <td className="p-4 font-bold text-xs">{b.title}</td>
-                  <td className="p-4 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{b.message}</td>
+                  <td className="p-4 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed min-w-[400px]">{b.message}</td>
                   <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase">{b.type || 'INFO'}</Badge></td>
                   <td className="p-4 text-[10px] font-mono">{b.sentBy || 'System'}</td>
                   <td className="p-4 text-[10px] text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'dd MMM yyyy, HH:mm') : '—'}</td>
@@ -625,7 +617,9 @@ export default function AdminTerminal() {
                         )
                       ) : (
                         <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
-                           <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500"><Check size={24} /></div>
+                           <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500">
+                             <Check size={24} />
+                           </div>
                            <p className="text-sm font-bold text-emerald-500">✅ No breach has been recorded for this account.</p>
                         </Card>
                       )}
@@ -644,7 +638,7 @@ export default function AdminTerminal() {
               <Label>Reason</Label>
               <Textarea value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Reason..." className="bg-secondary/30 h-32" />
             </div>
-            <DialogFooter><Button variant="destructive" onClick={async () => { setActionLoading(true); await updateOrderStatusAction(rejectingOrderId!, 'rejected', rejectReason); setIsRejectModalOpen(false); setActionLoading(false); refreshStats(true); }}>Confirm Rejection</Button></DialogFooter>
+            <DialogFooter><Button variant="destructive" onClick={async () => { await updateOrderStatusAction(rejectingOrderId!, 'rejected', rejectReason); setIsRejectModalOpen(false); refreshStats(true); }}>Confirm Rejection</Button></DialogFooter>
           </DialogContent>
         </Dialog>
       </main>
