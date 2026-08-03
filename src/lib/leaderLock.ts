@@ -18,10 +18,9 @@ let isCurrentLeader = false;
 export async function acquireOrRenewLeadership(): Promise<boolean> {
   if (!isFirebaseAdminConfigured()) return false;
 
-  const db = getAdminDb();
-  const leaderRef = db.collection('_system').doc('streamLeader');
-
   try {
+    const db = getAdminDb();
+    const leaderRef = db.collection('_system').doc('streamLeader');
     const snap = await leaderRef.get();
     const now = Date.now();
 

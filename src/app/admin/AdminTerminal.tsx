@@ -509,12 +509,3 @@ function TabHeader({ title, count, onSearch }: { title: string, count?: number |
     </div>
   );
 }
-
-function BreachMetric({ label, value, color = 'text-zinc-300' }: { label: string, value: any, color?: string }) {
-  return (
-    <div>
-      <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest mb-1">{label}</p>
-      <p className={cn("text-xs font-bold", color)}>{value || '—'}</p>
-    </div>
-  );
-}

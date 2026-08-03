@@ -19,14 +19,11 @@ export async function register() {
         const { syncPricesAndAudit, startGlobalPriceSync } = await import('@/lib/priceSync');
         const { startCoinbaseStream, startBnbPolling } = await import('@/lib/coinbaseStream');
         const { startOandaStream, startOandaThrottledFirestoreWrite } = await import('@/lib/oandaStream');
-        const { getAdminServices } = await import('@/lib/firebase-admin');
-
-        let leaderServicesStarted = false;
+        const { isFirebaseAdminConfigured } = await import('@/lib/firebase-admin');
 
         // Resilient Startup Loop: Retries until Firebase Admin is ready
         const initInterval = setInterval(() => {
-          const services = getAdminServices();
-          if (!services) {
+          if (!isFirebaseAdminConfigured()) {
             console.warn('[Instrumentation] Waiting for Firebase Admin credentials...');
             return;
           }
@@ -38,6 +35,7 @@ export async function register() {
           startGlobalPriceSync();
 
           // 2. Delegate Master services to Leader Election
+          let leaderServicesStarted = false;
           startLeaderHeartbeat(() => {
             if (leaderServicesStarted) return;
             

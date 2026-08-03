@@ -35,9 +35,9 @@ function credentialFromBase64() {
 
     return cert({
       projectId: parsed.project_id,
-      clientEmail: parsed.client_email,
-      privateKey: parsed.private_key.replace(/\\n/g, '\n'),
-    });
+      client_email: parsed.client_email,
+      private_key: parsed.private_key.replace(/\\n/g, '\n'),
+    } as any);
   } catch (err) {
     console.error('[Admin-Init] Failed to parse Base64 credentials:', err);
     return null;
@@ -72,16 +72,22 @@ function getAdminCredential() {
   try {
     return applicationDefault();
   } catch (e) {
-    console.warn('[Admin-Init] No valid Firebase credentials found in environment.');
     return null;
   }
+}
+
+/**
+ * Checks if the environment has valid Firebase Admin credentials.
+ */
+export function isFirebaseAdminConfigured(): boolean {
+  return !!getAdminCredential();
 }
 
 /**
  * Retrieves the singleton Firebase Admin App instance.
  * Ensures initialization happens exactly once with a stable identity.
  */
-export function getAdminApp(): App {
+export function getAdminApp(): App | null {
   if (getApps().length > 0) {
     return getApp();
   }
@@ -89,41 +95,61 @@ export function getAdminApp(): App {
   const credential = getAdminCredential();
   
   if (!credential) {
-    throw new Error("Firebase Admin services are not configured. Please set the required environment variables.");
+    return null;
   }
 
-  const adminApp = initializeApp({
-    credential,
-    projectId:
-      process.env.FIREBASE_PROJECT_ID ||
-      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  });
+  try {
+    const adminApp = initializeApp({
+      credential,
+      projectId:
+        process.env.FIREBASE_PROJECT_ID ||
+        process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    });
 
-  console.log('[Admin-Init] Firebase Admin initialized', {
-    projectId: adminApp.options.projectId,
-    appName: adminApp.name,
-  });
+    console.log('[Admin-Init] Firebase Admin initialized', {
+      projectId: adminApp.options.projectId,
+      appName: adminApp.name,
+    });
 
-  return adminApp;
+    return adminApp;
+  } catch (e) {
+    console.error('[Admin-Init] Fatal initialization error:', e);
+    return null;
+  }
 }
 
 /**
  * Synchronized Service Getters
  * These functions ensure consistent singleton access and prevent crashes during module import.
  */
-export const getAdminDb = () => getFirestore(getAdminApp());
-export const getAdminAuth = () => getAuth(getAdminApp());
-export const getAdminRtdb = () => getDatabase(getAdminApp());
+export const getAdminDb = () => {
+  const app = getAdminApp();
+  if (!app) throw new Error("Firebase Admin Database unavailable - Configuration missing.");
+  return getFirestore(app);
+};
+
+export const getAdminAuth = () => {
+  const app = getAdminApp();
+  if (!app) throw new Error("Firebase Admin Auth unavailable - Configuration missing.");
+  return getAuth(app);
+};
+
+export const getAdminRtdb = () => {
+  const app = getAdminApp();
+  if (!app) throw new Error("Firebase Admin RTDB unavailable - Configuration missing.");
+  return getDatabase(app);
+};
 
 /**
  * Returns all admin services in a single context object.
  * Used for complex server-side transactions.
  */
 export const getAdminServices = () => {
+  const app = getAdminApp();
+  if (!app) return null;
   try {
-    const app = getAdminApp();
     return {
       app,
       db: getFirestore(app),
@@ -131,7 +157,7 @@ export const getAdminServices = () => {
       rtdb: getDatabase(app)
     };
   } catch (e) {
-    console.warn("[Admin-Init] Services unavailable:", (e as Error).message);
+    console.warn("[Admin-Init] Services extraction failed:", (e as Error).message);
     return null;
   }
 };
