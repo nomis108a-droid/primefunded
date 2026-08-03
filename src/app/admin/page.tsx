@@ -1,4 +1,3 @@
-
 import AdminTerminal from './AdminTerminal';
 
 /**

@@ -25,13 +25,11 @@ import {
 } from '@/app/admin/actions';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
-import { db, storage } from '@/lib/firebase';
-import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, addDoc, setDoc, deleteDoc, serverTimestamp, limit } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db } from '@/lib/firebase';
+import { collection, query, orderBy, where, getCountFromServer, doc, onSnapshot, getAggregateFromServer, sum, getDoc, getDocs, deleteDoc, limit } from 'firebase/firestore';
 import { useAuth } from '@/context/AuthContext';
 import { ADMIN_EMAILS } from '@/lib/admin';
 import Link from 'next/link';
-import { CONTRACT_SIZE } from '@/lib/rulesConfig';
 
 const ORDER_REVIEW_STATUSES = ['pending', 'waiting', 'manual_review', 'under_review', 'approved', 'completed', 'paid', 'rejected', 'cancelled'];
 
@@ -231,12 +229,10 @@ const OrderReviewRow = memo(function OrderReviewRow({
 export default function AdminTerminal() {
   const { user, loading: authLoading } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [adminError, setAdminError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [isQuotaExhausted, setIsQuotaExhausted] = useState(false);
   
   const [stats, setStats] = useState({ 
@@ -252,7 +248,6 @@ export default function AdminTerminal() {
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [approvingOrderId, setApprovingOrderId] = useState<string | null>(null);
-  const [approvingKycUserId, setApprovingKycUserId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
@@ -267,20 +262,11 @@ export default function AdminTerminal() {
   const [rejectingOrderId, setRejectingOrderId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
-  const [isKycRejectModalOpen, setIsKycRejectModalOpen] = useState(false);
-  const [kycRejectingUserId, setKycRejectingUserId] = useState<string | null>(null);
-  const [kycRejectReason, setKycRejectReason] = useState('');
-
   const isAuthorized = useMemo(() => {
     if (!user || !user.email) return false;
     const adminList = ADMIN_EMAILS.map(e => e.toLowerCase());
     return adminList.includes(user.email.toLowerCase());
   }, [user]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400);
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
 
   const refreshStats = useCallback(async (force = false) => {
     if (!isAuthenticated || !isAuthorized || authLoading || isQuotaExhausted) return;
@@ -337,7 +323,6 @@ export default function AdminTerminal() {
       localStorage.setItem('adminVerified', 'true');
       document.cookie = "admin_master=93463962569392846256; path=/; max-age=604800; SameSite=Lax; Secure";
       setIsAuthenticated(true);
-      setShowAdminModal(false);
       setAdminError('');
     } else setAdminError('❌ Invalid credentials');
   };
@@ -401,19 +386,6 @@ export default function AdminTerminal() {
     } finally { setIsLoading(false); }
   }, [toast]);
 
-  const handleApproveKyc = useCallback(async (userId: string) => {
-    if (!user) return;
-    setApprovingKycUserId(userId);
-    try {
-      const idToken = await user.getIdToken(true);
-      const res = await updateKycStatusAction(idToken, userId, 'verified');
-      if (res.success) { 
-        toast({ title: "KYC Approved" }); 
-        refreshStats(true); 
-      }
-    } finally { setApprovingKycUserId(null); }
-  }, [refreshStats, toast, user]);
-
   const handleApproveOrder = useCallback(async (orderId: string) => {
     setApprovingOrderId(orderId);
     try {
@@ -450,7 +422,7 @@ export default function AdminTerminal() {
         });
         break;
       case 'breaches':
-        unsub = onSnapshot(query(collection(db, 'demoAccounts'), where('status', 'in', ['blown', 'breach', 'terminated'])), (snap) => {
+        unsub = onSnapshot(query(collection(db, 'breaches'), orderBy('breachedAt', 'desc')), (snap) => {
           setTabData((prev: any) => ({ ...prev, breaches: snap.docs.map(d => ({ id: d.id, ...d.data() })) }));
           setIsLoading(false);
         });
@@ -524,19 +496,20 @@ export default function AdminTerminal() {
               data={tabData.breaches} 
               columns={['TRADER', 'ACCOUNT ID', 'ACCOUNT', 'PLAN', 'STATUS', 'REASON', 'BREACHED AT']} 
               renderRow={(b) => {
-                const date = b.blownAt?.toDate ? b.blownAt.toDate() : (b.updatedAt?.toDate ? b.updatedAt.toDate() : null);
+                const date = b.breachedAt?.toDate ? b.breachedAt.toDate() : null;
                 return (
                   <tr key={b.id} className="hover:bg-white/5">
                     <td className="p-4 font-bold text-xs">{b.email || '—'}</td>
-                    <td className="p-4 font-mono text-[10px] text-zinc-500">{b.id}</td>
-                    <td className="p-4 text-xs font-mono font-bold">${(b.startBalance || 0).toLocaleString()}</td>
+                    <td className="p-4 font-mono text-[10px] text-zinc-500">{b.accountId || '—'}</td>
+                    <td className="p-4 text-xs font-mono font-bold">{b.accountSize || '—'}</td>
                     <td className="p-4 text-[10px] uppercase font-bold text-zinc-400">{b.planType || '—'}</td>
-                    <td className="p-4"><Badge className="bg-red-500/20 text-red-500 border-none text-[8px] font-black uppercase">{b.status}</Badge></td>
-                    <td className="p-4 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{b.breachReason || 'Risk violation'}</td>
+                    <td className="p-4"><Badge className="bg-red-500/20 text-red-500 border-none text-[8px] font-black uppercase">{b.status || 'BREACHED'}</Badge></td>
+                    <td className="p-4 text-xs text-zinc-300 leading-relaxed whitespace-pre-wrap">{b.reason || 'Risk violation'}</td>
                     <td className="p-4 text-xs text-muted-foreground whitespace-nowrap">
                       {date ? (
                         <div className="flex flex-col">
                           <span className="text-white font-bold">{format(date, 'dd MMM yyyy')}</span>
+                          <span className="text-[10px] font-bold uppercase">{format(date, 'EEEE')}</span>
                           <span className="text-[10px] font-mono">{format(date, 'HH:mm')}</span>
                         </div>
                       ) : '—'}
@@ -574,7 +547,7 @@ export default function AdminTerminal() {
               renderRow={(b) => (
                 <tr key={b.id} className="hover:bg-white/5">
                   <td className="p-4 font-bold text-xs">{b.title}</td>
-                  <td className="p-4 text-xs text-muted-foreground whitespace-pre-wrap">{b.message}</td>
+                  <td className="p-4 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{b.message}</td>
                   <td className="p-4"><Badge variant="outline" className="text-[8px] font-black uppercase">{b.type || 'INFO'}</Badge></td>
                   <td className="p-4 text-[10px] font-mono">{b.sentBy || 'System'}</td>
                   <td className="p-4 text-[10px] text-muted-foreground">{b.sentAt?.toDate ? format(b.sentAt.toDate(), 'dd MMM yyyy, HH:mm') : '—'}</td>
@@ -625,22 +598,36 @@ export default function AdminTerminal() {
                   {inspectionTab === 'breaches' && (
                     <div className="space-y-6">
                       <div className="flex items-center gap-2 mb-4"><ShieldX className="text-destructive w-5 h-5" /><h3 className="text-lg font-bold text-white">System Breach Logs</h3></div>
-                      {userBreaches.length === 0 ? (
+                      {(selectedUser?.accountStatus === 'blown' || selectedUser?.accountStatus === 'breached') ? (
+                        userBreaches.length === 0 ? (
+                          <Card className="bg-destructive/5 border-destructive/20 p-8 space-y-6">
+                            <div className="flex items-center gap-3"><Skull className="text-destructive w-6 h-6" /><h4 className="font-bold text-white">Termination Summary</h4></div>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                              <BreachMetric label="Status" value={selectedUser?.accountStatus} color="text-destructive" />
+                              <BreachMetric label="Phase" value={selectedUser?.phase} />
+                              <BreachMetric label="Size" value={selectedUser?.startBalance ? `$${selectedUser.startBalance.toLocaleString()}` : '—'} />
+                              <BreachMetric label="Balance at Breach" value={selectedUser?.balance ? `$${selectedUser.balance.toLocaleString()}` : '—'} />
+                              <BreachMetric label="Equity at Breach" value={selectedUser?.equity ? `$${selectedUser.equity.toLocaleString()}` : '—'} />
+                              <BreachMetric label="Breach Reason" value={selectedUser?.breachReason || 'Risk Parameter Violation'} color="text-destructive" />
+                            </div>
+                          </Card>
+                        ) : (
+                          userBreaches.map(breach => (
+                            <Card key={breach.id} className="bg-destructive/5 border-destructive/20 p-6">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                                <BreachMetric label="Status" value="Breached" color="text-destructive" />
+                                <BreachMetric label="Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
+                                <BreachMetric label="Reason" value={breach.reason} color="text-destructive" />
+                                <BreachMetric label="Rule" value="Risk Parameter Breach" />
+                              </div>
+                            </Card>
+                          ))
+                        )
+                      ) : (
                         <Card className="bg-emerald-500/5 border-emerald-500/20 p-10 flex flex-col items-center justify-center text-center space-y-4">
                            <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500"><Check size={24} /></div>
                            <p className="text-sm font-bold text-emerald-500">✅ No breach has been recorded for this account.</p>
                         </Card>
-                      ) : (
-                        userBreaches.map(breach => (
-                          <Card key={breach.id} className="bg-destructive/5 border-destructive/20 p-6">
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                              <BreachMetric label="Status" value="Breached" color="text-destructive" />
-                              <BreachMetric label="Date" value={breach.breachedAt?.toDate ? format(breach.breachedAt.toDate(), 'PPP') : '—'} />
-                              <BreachMetric label="Reason" value={breach.reason} color="text-destructive" />
-                              <BreachMetric label="Rule" value="Risk Parameter Breach" />
-                            </div>
-                          </Card>
-                        ))
                       )}
                     </div>
                   )}
